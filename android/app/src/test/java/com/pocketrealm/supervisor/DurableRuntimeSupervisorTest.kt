@@ -98,8 +98,14 @@ class DurableRuntimeSupervisorTest {
         val result = runtime.start("mobile-low-v1", includeClient = false)
 
         assertFalse(result.ok)
-        assertEquals(RuntimePhase.ERROR, result.snapshot.phase)
+        // GAP-2: a failed start whose unwind drains cleanly settles at rest -
+        // STOPPED and clean, the refusal preserved as lastError - instead of
+        // the poisoned ERROR journal. The STARTING-live stage is still
+        // stopped through the ordinary path (a boot mid-flight is real work).
+        assertEquals(RuntimePhase.STOPPED, result.snapshot.phase)
+        assertTrue(result.snapshot.clean)
         assertTrue(result.snapshot.lastError!!.contains("readiness/ownership proof rejected"))
+        assertTrue(backend.actions.contains("stop:DATABASE"))
         assertFalse(backend.actions.contains("start:REALM"))
     }
 
@@ -660,9 +666,11 @@ class DurableRuntimeSupervisorTest {
         val rejected = runtime.start("mobile-low-v1", includeClient = false)
 
         // Not minted by this supervisor instance: the automatic path refuses
-        // to touch it - no stop, no kill, no dedicated failure class.
+        // to touch it - no stop, no kill, no dedicated failure class. GAP-2:
+        // the refused start settles at rest (STOPPED, clean) with the
+        // refusal as lastError rather than a poisoned ERROR journal.
         assertFalse(rejected.ok)
-        assertEquals(RuntimePhase.ERROR, rejected.snapshot.phase)
+        assertEquals(RuntimePhase.STOPPED, rejected.snapshot.phase)
         assertTrue(rejected.snapshot.lastError!!.contains("database is owned by another runtime session"))
         assertFalse(rejected.snapshot.lastError!!.contains("DB_OWNED_BY_DEAD_SESSION"))
         assertTrue(backend.actions.none { it.startsWith("stop:DATABASE") || it.startsWith("force:") })
@@ -701,7 +709,11 @@ class DurableRuntimeSupervisorTest {
         val rejected = runtime.start("mobile-low-v1", includeClient = false)
 
         assertFalse(rejected.ok)
-        assertEquals(RuntimePhase.ERROR, rejected.snapshot.phase)
+        // GAP-2: the live engine runs under the ENDED session's claim - not
+        // this generation's to stop - so the never-started stage's ownership
+        // is unwound bookkeeping-only and the journal settles at rest with
+        // the honest refusal, never a poisoned ERROR journal.
+        assertEquals(RuntimePhase.STOPPED, rejected.snapshot.phase)
         assertFalse(rejected.snapshot.lastError!!.contains("DB_OWNED_BY_DEAD_SESSION"))
         assertTrue(backend.actions.none { it.startsWith("stop:DATABASE") || it.startsWith("force:") })
         assertEquals(owner, backend.databaseStaleOwner)
@@ -734,7 +746,11 @@ class DurableRuntimeSupervisorTest {
         tokens.session = "22222222-2222-4222-8222-222222222222"
         val rejected = runtime.start("mobile-low-v1", includeClient = false)
         assertFalse(rejected.ok)
-        assertEquals(RuntimePhase.ERROR, rejected.snapshot.phase)
+        // GAP-2: the unwinnable release leaves OUR generation holding
+        // nothing (engine down, claim is the ended session's) - the refused
+        // start settles at rest with the dedicated failure class as
+        // lastError, and the consented verb below remains the repair.
+        assertEquals(RuntimePhase.STOPPED, rejected.snapshot.phase)
         assertTrue(rejected.snapshot.lastError!!.contains("DB_OWNED_BY_DEAD_SESSION"))
 
         backend.failedStops.clear()
@@ -951,6 +967,126 @@ class DurableRuntimeSupervisorTest {
         assertTrue(backend.actions.none { it.startsWith("force:") })
     }
 
+    // ------------------------------------------------------------------
+    // GAP-2 root-fix pins. The deterministic restore-gate wedge: after a
+    // restore + bots-disabled proof cycle the proof's READY spent the
+    // process's one world lifetime (DESK-25), so the next ORDINARY start's
+    // WORLD stage is refused WRONG_STATE rc=2 by the native gate BEFORE any
+    // worker spawns. The old start-failure unwind then attempted a native
+    // stop of that OWNED-BUT-NEVER-STARTED stage: graceful stop timed out,
+    // forced stop timed out, and fail("cannot stop owned WORLD: forced
+    // world stop rc=9") OVERWROTE the disclosed refusal while leaving the
+    // journal in ERROR across process restarts.
+    // ------------------------------------------------------------------
+
+    @Test fun refusedStartOnANeverStartedStageSurfacesTheRefusalNeverAttemptsItsStopAndSettlesClean() = runTest {
+        val backend = FakeBackend().apply {
+            refusedStarts += RuntimeComponent.WORLD
+            // Proof the stop verbs time out exactly like the real lane
+            // (graceful rc=9 after 30 s, forced rc=9 after 5 s) if the
+            // unwind ever attempts them on the never-started claim.
+            failedStops += RuntimeComponent.WORLD
+            failedForces += RuntimeComponent.WORLD
+        }
+        val journal = MemoryJournal()
+        val runtime = runtime(backend, journal)
+
+        val refused = runtime.start("mobile-low-v1", includeClient = false)
+
+        assertFalse(refused.ok)
+        // The disclosed one-lifetime refusal is the headline - never the
+        // secondary stop error that used to bury it.
+        assertTrue(refused.detail.contains("WRONG_STATE"))
+        assertFalse(refused.detail.contains("cannot stop owned WORLD"))
+        // Fix (a): nothing was running under the refused claim, so no native
+        // stop of WORLD was ever attempted; the stages that DID start are
+        // still unwound through the ordinary stop path.
+        assertTrue(backend.actions.contains("start:WORLD"))
+        assertTrue(backend.actions.none { it.startsWith("stop:WORLD") || it.startsWith("force:WORLD") })
+        assertTrue(backend.actions.contains("stop:REALM"))
+        assertTrue(backend.actions.contains("stop:DATABASE"))
+        // The journal settles at rest - clean at STOPPED with the refusal
+        // recorded as lastError - never the ERROR journal that poisoned the
+        // next fresh process.
+        assertEquals(RuntimePhase.STOPPED, refused.snapshot.phase)
+        assertTrue(refused.snapshot.clean)
+        assertTrue(refused.snapshot.lastError!!.contains("WRONG_STATE"))
+        assertNull(refused.snapshot.components.getValue(RuntimeComponent.WORLD).instanceToken)
+        assertTrue(journal.writes.any { it.lastDurableAction == "world-never-started-unwound" })
+    }
+
+    @Test fun secondaryStopFailureIsRecordedButNeverOverwritesTheFirstFailureDetail() = runTest {
+        val backend = FakeBackend().apply {
+            refusedStarts += RuntimeComponent.WORLD
+            failedStops += RuntimeComponent.WORLD
+            failedForces += RuntimeComponent.WORLD
+            // A stage that genuinely started now fails BOTH stop verbs: the
+            // unwind's cleanup failure must be recorded in its own lane,
+            // never promoted over the honest refusal.
+            failedStops += RuntimeComponent.REALM
+            failedForces += RuntimeComponent.REALM
+        }
+        val journal = MemoryJournal()
+        val runtime = runtime(backend, journal)
+
+        val refused = runtime.start("mobile-low-v1", includeClient = false)
+
+        assertFalse(refused.ok)
+        assertTrue(refused.detail.contains("WRONG_STATE"))
+        assertFalse(refused.detail.contains("cannot stop owned REALM"))
+        assertEquals(
+            "WORLD: IllegalStateException: world start failed: WRONG_STATE (rc=2)",
+            refused.snapshot.lastError,
+        )
+        // Fix (b): the secondary failure is durably recorded - component
+        // record + dedicated durable action - without touching the headline.
+        assertTrue(journal.writes.any { it.lastDurableAction!!.startsWith("stop-cleanup-failed:") })
+        assertTrue(journal.writes.any {
+            it.lastDurableAction!!.contains("cannot stop owned REALM") &&
+                it.lastError?.contains("WRONG_STATE") == true
+        })
+        // A component that may still be running keeps the honest dirty
+        // posture: ERROR, recovery required, its token retained.
+        assertEquals(RuntimePhase.ERROR, refused.snapshot.phase)
+        assertFalse(refused.snapshot.clean)
+        assertEquals(Recoverability.RECOVERY_REQUIRED, refused.snapshot.recoverability)
+        assertNotNull(refused.snapshot.components.getValue(RuntimeComponent.REALM).instanceToken)
+        // And the never-started WORLD was still never stopped.
+        assertTrue(backend.actions.none { it.startsWith("stop:WORLD") || it.startsWith("force:WORLD") })
+        assertTrue(backend.actions.contains("force:REALM"))
+    }
+
+    @Test fun aRefusedStartsCleanSettleNeverPoisonsTheNextFreshSupervisorProcess() = runTest {
+        val backend = FakeBackend().apply {
+            refusedStarts += RuntimeComponent.WORLD
+            failedStops += RuntimeComponent.WORLD
+            failedForces += RuntimeComponent.WORLD
+        }
+        val journal = MemoryJournal()
+        val runtime = runtime(backend, journal)
+        assertFalse(runtime.start("mobile-low-v1", includeClient = false).ok)
+        assertEquals(RuntimePhase.STOPPED, journal.last!!.phase)
+        assertTrue(journal.last!!.clean)
+
+        // The process restart: a NEW supervisor instance over the SAME
+        // durable journal (fresh token mintings - it can prove nothing
+        // about the prior session, exactly like a recreated process) and a
+        // healthy backend. The refused start's clean STOPPED settle leaves
+        // no ERROR carry-in and nothing to recover: the next ordinary start
+        // goes straight through instead of wedging on recovery.
+        val restarted = DurableRuntimeSupervisor(
+            backend = FakeBackend(),
+            journal = journal,
+            tokens = DeterministicTokens(),
+            clock = FakeClock(),
+            timeouts = RuntimeTimeouts(1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000),
+        )
+        val fresh = restarted.start("mobile-low-v1", includeClient = false)
+
+        assertTrue(fresh.ok)
+        assertEquals(RuntimePhase.WORLD_READY, fresh.snapshot.phase)
+    }
+
     @Test fun foregroundPromotesWorldAndDatabaseImmediatelyOnRealPlayerPresence() = runTest {
         val backend = FakeBackend()
         val runtime = runtime(backend)
@@ -1044,6 +1180,39 @@ class DurableRuntimeSupervisorTest {
         assertTrue(backend.actions.none { it.startsWith("demote:") })
     }
 
+    @Test fun worldPresenceIsObserveOnlyAndNeverBindsAStoppedWorld() = runTest {
+        val backend = FakeBackend()
+        val runtime = runtime(backend)
+        // The joined-device shape: LAN_JOIN runs client-only, so the world
+        // component stays STOPPED (the lanJoin plan assertion above).
+        assertTrue(runtime.start(RuntimeLaunchSpec.lanJoin("mobile-low-v1", "192.168.50.4")).ok)
+        backend.actions.clear()
+
+        val presence = runtime.worldPresence()
+
+        assertEquals(ComponentLifecycle.STOPPED.name, presence.optString("state"))
+        assertEquals(0, presence.optInt("realPlayers"))
+        assertEquals(0, presence.optInt("onlinePlayers"))
+        // The stopped-world guard (reconcileForegroundPromotion's own
+        // rule): a UI poll must never bind :world just to hear "stopped".
+        assertTrue(backend.actions.isEmpty())
+    }
+
+    @Test fun worldPresenceRelaysTheLiveBackendSample() = runTest {
+        val backend = FakeBackend()
+        val runtime = runtime(backend)
+        assertTrue(runtime.start("mobile-low-v1", includeClient = false).ok)
+        backend.worldPresence = WorldPresenceSample(
+            ComponentLifecycle.READY, realPlayers = 2, playerbotsEnabled = true, onlinePlayers = 40)
+
+        val presence = runtime.worldPresence()
+
+        assertEquals("READY", presence.optString("state"))
+        assertEquals(2, presence.optInt("realPlayers"))
+        assertEquals(true, presence.optBoolean("playerbotsEnabled"))
+        assertEquals(40, presence.optInt("onlinePlayers"))
+    }
+
     @Test fun saveExitDemotesPromotedForegroundAfterComponentStops() = runTest {
         val backend = FakeBackend()
         val runtime = runtime(backend)
@@ -1065,7 +1234,7 @@ class DurableRuntimeSupervisorTest {
     }
 
     private fun runtime(
-        backend: FakeBackend,
+        backend: RuntimeBackend,
         journal: MemoryJournal = MemoryJournal(),
         tokens: RuntimeTokenSource = DeterministicTokens(),
     ) = DurableRuntimeSupervisor(
@@ -1116,6 +1285,16 @@ class DurableRuntimeSupervisorTest {
         /** While set, start(DATABASE) rejects the claim (the stale service-side lock). */
         var databaseStaleOwner: ComponentOwner? = null
         val failedStarts = mutableSetOf<RuntimeComponent>()
+        /**
+         * GAP-2: while set, start() takes the claim, parks the observation
+         * FAILED under the claim (the native one-lifetime gate's residue -
+         * world_runtime.cpp start() fail() runs BEFORE any worker spawns, so
+         * FAILED-with-no-worker: nothing running, and un-stoppable because
+         * stop()'s FAILED branch waits forever for a worker that does not
+         * exist), then throws the typed refusal exactly like
+         * DesktopRuntimeBackend.startWorld.
+         */
+        val refusedStarts = mutableSetOf<RuntimeComponent>()
         val failedStops = mutableSetOf<RuntimeComponent>()
         val failedForces = mutableSetOf<RuntimeComponent>()
         val pidOnly = mutableSetOf<RuntimeComponent>()
@@ -1151,6 +1330,15 @@ class DurableRuntimeSupervisorTest {
             // The service-side ComponentOwnership check at the claim boundary.
             if (component == RuntimeComponent.DATABASE && databaseStaleOwner != null) {
                 throw IllegalStateException("database is owned by another runtime session")
+            }
+            // The native one-lifetime gate's refusal: claimed, parked FAILED,
+            // nothing spawned (DesktopRuntimeBackend.kt startWorld rc!=0).
+            if (component in refusedStarts) {
+                observations[component] = ComponentObservation(
+                    component, ComponentLifecycle.FAILED, false, owner, 100,
+                    "in-process world restart is not supported: a world that reached " +
+                        "READY once needs a fresh process for its next lifetime")
+                throw IllegalStateException("world start failed: WRONG_STATE (rc=2)")
             }
             // The services' requireStopped gate (StartLogRotationPolicy): a
             // server service whose native runtime sits in FAILED refuses the
@@ -1286,6 +1474,59 @@ class DurableRuntimeSupervisorTest {
             actions += "recover:DATABASE"
             return RuntimeActionResult(true, "recovered")
         }
+    }
+
+    @Test
+    fun closeQuiescesUntilAnInFlightOperationSettles() {
+        // The teardown-quiesce pin: close() must not tear the backend under
+        // an operation that holds the lock (the classic case is the
+        // interface-loss monitor's graceful stop reaching saveWorld/stopOwned
+        // while close() runs). The wait is bounded (see CLOSE_QUIESCE_TIMEOUT_MS)
+        // but the SETTLE path — the operation finishing while close waits —
+        // is deterministic here.
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val closeCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val inner = FakeBackend()
+        val backend = object : RuntimeBackend by inner {
+            override fun close() {
+                closeCount.incrementAndGet()
+            }
+
+            override suspend fun preflight(spec: RuntimeLaunchSpec): RuntimeActionResult {
+                // Hold the operation lock while the gate is shut.
+                gate.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                return inner.preflight(spec)
+            }
+        }
+        val runtime = runtime(backend)
+
+        val op = Thread {
+            kotlinx.coroutines.runBlocking { runtime.preflight("mobile-low-v1") }
+        }
+        op.start()
+        Thread.sleep(300) // the op acquires the lock and blocks inside it
+
+        val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val closer = Thread {
+            runtime.close()
+            closed.set(true)
+        }
+        closer.start()
+        Thread.sleep(300)
+
+        assertTrue("precondition: the op is still in flight", op.isAlive)
+        assertEquals(
+            "close must not tear the backend under an in-flight operation",
+            0,
+            closeCount.get(),
+        )
+        assertFalse("close must still be waiting on the operation", closed.get())
+
+        gate.countDown()
+        closer.join(10_000)
+        op.join(10_000)
+        assertTrue("close completes once the operation settles", closed.get())
+        assertEquals("the backend closes exactly once, after the quiesce", 1, closeCount.get())
     }
 
     companion object { private const val SESSION = "123e4567-e89b-12d3-a456-426614174000" }

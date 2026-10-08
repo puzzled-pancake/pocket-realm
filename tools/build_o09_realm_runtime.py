@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +24,10 @@ try:
     from tools import common
 except ImportError:  # direct execution: python tools/<script>.py
     import common
+try:
+    from tools import flavor_layout
+except ImportError:  # direct execution: python tools/<script>.py
+    import flavor_layout
 NATIVE = ROOT / "native"
 TARGET_ABI = "x86_64"
 BUILD = NATIVE / ".build-o09-x86_64"
@@ -38,22 +43,74 @@ CMANGOS_COMMIT = "ce83805d48f9c98b2af617096be5347acb8a1f17"
 PLAYERBOTS_COMMIT = "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d"
 MAX_PAGE = 0x4000
 BACKEND = "mysql"
+# Active flavor (S1 --flavor; default vanilla). The vanilla build pins are the
+# constants above and must agree with schemas/flavor.json (select_flavor
+# asserts it); tbc/wotlk resolve their pins from the flavor manifest and fail
+# loud there until their forks/pins are registered (S1 negative-test class 1).
+ACTIVE_FLAVOR = "vanilla"
+ACTIVE_CMANGOS_COMMIT = CMANGOS_COMMIT
+ACTIVE_PLAYERBOTS_COMMIT = PLAYERBOTS_COMMIT
+ACTIVE_CORE_SUBMODULE = "native/cmangos"
+ACTIVE_BOTS_SUBMODULE = "native/playerbots"
+
+
+def select_flavor(flavor_id: str) -> None:
+    """Resolve the active flavor's pins from schemas/flavor.json and verify
+    them against the checkouts BEFORE any build work. Vanilla additionally
+    asserts its manifest pins equal this driver's constants — the driver and
+    the manifest are two views of one pin, and a divergence is exactly the
+    provenance split this file must never carry again (see the o11 split
+    repair, decision D36).
+
+    The verified groups are the ones a realm-runtime BUILD consumes:
+    server_core + bots. db_content is the DATA lanes' gate (its tbc/wotlk
+    pins resolve at S4, after these S2/S3 builds — the same scoping rule the
+    o11 extractor lane applies with groups=("server_core",))."""
+    global ACTIVE_FLAVOR, ACTIVE_CMANGOS_COMMIT, ACTIVE_PLAYERBOTS_COMMIT
+    global ACTIVE_CORE_SUBMODULE, ACTIVE_BOTS_SUBMODULE
+    layout = flavor_layout.resolve(flavor_id)
+    pins = flavor_layout.require_flavor_pins(flavor_id, groups=("server_core", "bots"))
+    if flavor_id == "vanilla":
+        if pins.get("server_core") != CMANGOS_COMMIT:
+            raise RuntimeError(
+                f"vanilla server_core pin drifted: flavor.json says "
+                f"{pins.get('server_core')}, driver pins {CMANGOS_COMMIT} — "
+                "reconcile before building (provenance split, decision D36)"
+            )
+        if pins.get("bots") != PLAYERBOTS_COMMIT:
+            raise RuntimeError(
+                f"vanilla bots pin drifted: flavor.json says {pins.get('bots')}, "
+                f"driver pins {PLAYERBOTS_COMMIT} — reconcile before building"
+            )
+        cmangos_commit, bots_commit = CMANGOS_COMMIT, PLAYERBOTS_COMMIT
+    else:
+        cmangos_commit = pins["server_core"]
+        bots_commit = pins["bots"]
+    ACTIVE_FLAVOR = flavor_id
+    ACTIVE_CMANGOS_COMMIT = cmangos_commit
+    ACTIVE_PLAYERBOTS_COMMIT = bots_commit
+    ACTIVE_CORE_SUBMODULE = layout.core_submodule
+    ACTIVE_BOTS_SUBMODULE = layout.bots_submodule
 
 
 def select_abi(abi: str) -> None:
-    """Select isolated paths and Android target flags before any build work."""
+    """Select isolated paths and Android target flags before any build work.
+    Runs after select_flavor: the build root and lockfile name resolve through
+    flavor_layout (the naming schema of record) so a non-vanilla lane builds
+    into and records its OWN flavor-suffixed names, never the shared vanilla
+    ones. Vanilla resolves to the historical literals byte-for-byte."""
     global TARGET_ABI, BUILD, SOURCE, CONNECTOR_BUILD, CMANGOS_BUILD, STAGE, PROVENANCE, LOCKFILE
     if abi not in {"x86_64", "arm64-v8a"}:
         raise ValueError(f"unsupported realm ABI: {abi}")
+    layout = flavor_layout.resolve(ACTIVE_FLAVOR)
     TARGET_ABI = abi
-    BUILD = NATIVE / f".build-o09-{abi}"
+    BUILD = ROOT / layout.o09_build_root(abi)
     SOURCE = BUILD / "sources" / "mariadb-connector-c"
     CONNECTOR_BUILD = BUILD / "mariadb-connector"
     CMANGOS_BUILD = BUILD / "cmangos"
     STAGE = BUILD / "realm-staging" / "jniLibs" / abi
     PROVENANCE = BUILD / "realm-staging" / "BUILD_PROVENANCE.json"
-    LOCKFILE = ROOT / ("schemas/realm-runtime-lockfile.json" if abi == "x86_64"
-                       else f"schemas/realm-runtime-lockfile-{abi}.json")
+    LOCKFILE = ROOT / layout.realm_runtime_lockfile(abi)
 CMANGOS_OVERLAYS = [
     {
         "id": "authenticated-nearby-use-open",
@@ -129,6 +186,12 @@ CMANGOS_OVERLAYS = [
         "reason": "Route all twelve async enqueue sites through SafeDelayOperation/SafeDelayQueryHolder: HaltDelayThread() nulls m_threadBody while the sticky async flag stays on across embedded restart cycles, so an unguarded enqueue after a halt is a null dereference.",
     },
     {
+        "id": "win-named-pipe-socket-field",
+        "backends": ["mysql"],
+        "path": "src/shared/Database/DatabaseMysql.cpp",
+        "reason": "Windows MSVC lane only: host=='.' selects the named-pipe protocol but the native nulls the unix_socket field, so libmariadb dials its DEFAULT pipe name ('MySQL') and the app-private mariadbd pipe (the conf's socket field) never answers. Pass the connection string's second field as the pipe name - the exact mirror of the POSIX '.' branch one #else down (proven live 2026-10-07: realmd failed DB_CONNECT with \"pipe: MySQL\").",
+    },
+    {
         "id": "fail-loud-backend-selection",
         "backends": ["mysql", "sqlite"],
         "path": "CMakeLists.txt",
@@ -165,6 +228,299 @@ CMANGOS_OVERLAYS = [
         "reason": "DO_SQLITE-only hardened connection layer: WAL with synchronous=NORMAL rendered per connection, busy_timeout 500ms with BUSY retry instead of silent false, BEGIN IMMEDIATE write transactions, begin-failure refusal + commit-failure rollback, fully materialized query results under the connection lock, no leaked statement wrappers, explicit-length TRANSIENT text binds. DO_MYSQL builds are behaviorally unchanged.",
     },
 ]
+
+# --- S1 overlay split (port plan S1 item 4; consumed by CP-2/S2) -------------
+# The overlay table above is split into two definitions BY SCOPE:
+#   * "expansion-neutral" — the SQLite-backend-injection/engine-layer family:
+#     semantics are flavor-independent (the database dialect layer is the same
+#     code in every cmangos branch). CP-2/S2 still re-verifies each anchor
+#     text against the branch before applying it.
+#   * "flavor" — overlays whose anchor text/semantics are branch facts
+#     (Master.cpp lifecycle family, PocketRealmInteraction, GridMap/MoveMap
+#     guards, LLM hooks); these live in a per-flavor registration and MUST be
+#     re-derived per branch (port plan S2 item 3) before that flavor builds.
+# This mapping records the scope; the applied anchor code above is unchanged
+# (vanilla's applied sequence stays byte-identical).
+OVERLAY_SCOPES = {
+    "authenticated-nearby-use-open": "flavor",
+    "mmap-disabled-load-guard": "flavor",
+    "mmap-loadmap-graceful-miss": "flavor",
+    "mmap-loadallmaptiles-graceful-miss": "flavor",
+    "embedded-world-thread-rearm": "flavor",
+    "embedded-io-context-restart": "flavor",
+    "embedded-queue-thread-join": "flavor",
+    "result-callback-outside-queue-lock": "expansion-neutral",
+    "llm-companion-event-hooks": "flavor",
+    "db-async-null-guard": "expansion-neutral",
+    "win-named-pipe-socket-field": "expansion-neutral",
+    "fail-loud-backend-selection": "expansion-neutral",
+    "win-static-openssl-only": "expansion-neutral",
+    "runtime-dialect-truncate": "expansion-neutral",
+    "runtime-dialect-anticheat-prune": "expansion-neutral",
+    "db-sqlite-connection-hardening": "expansion-neutral",
+}
+# TBC re-derived anchor variants (port plan S2 item 3 / CP-2). The tbc branch
+# (puzzled-pancake/mangos-tbc pocket-realm @ ffbf97675) drifts from classic at
+# exactly five core overlay sites (verified anchor-by-anchor against both
+# pinned trees); the overlay INTENT is unchanged, only the surrounding
+# upstream text differs. Each variant was derived against the pinned tbc tree:
+#   POCKET_SESSION_FIELD  - tbc WorldSession.h has no m_clientTimeDelay; the
+#     interact-time field slots next to m_Tutorials as in classic.
+#   POCKET_CHAT           - tbc reads the whisper body conditionally
+#     (LANG_ADDON peek); the Pocket Realm trigger is an ordinary-language
+#     self-whisper, so the gate lands after the same read, before msg.empty().
+#   CORE_GIVELEVEL        - tbc clamps the next-level XP at the expansion cap
+#     (GetMaxAttainableLevel()); the hook still fires at the same statement.
+#   CORE_DUELCOMPLETE     - tbc has no ForceHealthAndPowerUpdate restore in
+#     DuelComplete (upstream dropped it); the outcome hook takes classic's
+#     slot - after the arbiter/team cleanups, before the duel teardown.
+#   CORE_LOGIN_ONBOARDING - tbc's SendInitialPacketsAfterAddToMap continues
+#     past the SendItemDurations tail; the onboarding hook follows the same
+#     statement instead of the (later) closing brace.
+POCKET_SESSION_FIELD_TBC_UPSTREAM = """        uint32 m_Tutorials[8];
+        TutorialDataState m_tutorialState;
+"""
+POCKET_SESSION_FIELD_TBC_ANDROID = """        uint32 m_lastPocketRealmInteractTime = 0;
+        uint32 m_Tutorials[8];
+        TutorialDataState m_tutorialState;
+"""
+POCKET_CHAT_TBC_UPSTREAM = """        case CHAT_MSG_WHISPER:
+        {
+            std::string to, msg;
+            recv_data >> to;
+
+            // WHISPER channel is available for addons since 2.1.0
+            if (lang == LANG_ADDON)
+                recv_data.read(msg , false);
+            else
+                recv_data >> msg;
+
+            if (msg.empty())
+                break;
+"""
+POCKET_CHAT_TBC_ANDROID = """        case CHAT_MSG_WHISPER:
+        {
+            std::string to, msg;
+            recv_data >> to;
+
+            // WHISPER channel is available for addons since 2.1.0
+            if (lang == LANG_ADDON)
+                recv_data.read(msg , false);
+            else
+                recv_data >> msg;
+
+            // The Vanilla add-on trigger arrives as an ordinary self-whisper
+            // with a real language, so this must not be gated on LANG_ADDON.
+            // Consuming here suppresses both the recipient CHAT_MSG_WHISPER
+            // and the sender CHAT_MSG_WHISPER_INFORM echo.
+            if (HandlePocketRealmChatTrigger(to, msg))
+                break;
+
+            if (msg.empty())
+                break;
+"""
+CORE_GIVELEVEL_TBC_UPSTREAM = """    GetSession()->SendPacket(data);
+
+    SetUInt32Value(PLAYER_NEXT_LEVEL_XP, GetMaxAttainableLevel() <= level ? 0 : sObjectMgr.GetXPForLevel(level));
+"""
+CORE_GIVELEVEL_TBC_ANDROID = """    GetSession()->SendPacket(data);
+
+    SetUInt32Value(PLAYER_NEXT_LEVEL_XP, GetMaxAttainableLevel() <= level ? 0 : sObjectMgr.GetXPForLevel(level));
+
+#ifdef ENABLE_PLAYERBOTS
+    // LLM companion event allowlist: level-up of any group member
+    PlayerbotLlmMemory::OnPlayerLevelUp(this, level);
+#endif
+"""
+CORE_DUELCOMPLETE_TBC_UPSTREAM = """    // cleanups
+    SetGuidValue(PLAYER_DUEL_ARBITER, ObjectGuid());
+    SetUInt32Value(PLAYER_DUEL_TEAM, 0);
+    duel->opponent->SetGuidValue(PLAYER_DUEL_ARBITER, ObjectGuid());
+    duel->opponent->SetUInt32Value(PLAYER_DUEL_TEAM, 0);
+
+    delete duel->opponent->duel;
+"""
+CORE_DUELCOMPLETE_TBC_ANDROID = """    // cleanups
+    SetGuidValue(PLAYER_DUEL_ARBITER, ObjectGuid());
+    SetUInt32Value(PLAYER_DUEL_TEAM, 0);
+    duel->opponent->SetGuidValue(PLAYER_DUEL_ARBITER, ObjectGuid());
+    duel->opponent->SetUInt32Value(PLAYER_DUEL_TEAM, 0);
+
+#ifdef ENABLE_PLAYERBOTS
+    PlayerbotLlmMemory::OnDuelComplete(this, duel->opponent, type);
+#endif
+
+    delete duel->opponent->duel;
+"""
+CORE_LOGIN_ONBOARDING_TBC_UPSTREAM = """    SendEnchantmentDurations();                             // must be after add to map
+    SendItemDurations();                                    // must be after add to map
+"""
+CORE_LOGIN_ONBOARDING_TBC_ANDROID = """    SendEnchantmentDurations();                             // must be after add to map
+    SendItemDurations();                                    // must be after add to map
+
+#ifdef ENABLE_PLAYERBOTS
+    PlayerbotLlmMemory::OnPlayerLogin(this);
+#endif
+"""
+
+# wotlk S2 re-derivation (CP-2, 2026-10-06): at all five core_anchor_pair
+# sites the wotlk pinned tree (cmangos-wotlk pocket-realm c3a8d86f) carries
+# the SAME drifted upstream text as tbc - verified byte-identical (unique
+# CRLF match) against native/cmangos-wotlk during this build's
+# re-derivation. Each wotlk variant aliases the tbc text explicitly, so a
+# later tbc-only drift fails the wotlk build loud instead of silently
+# reusing, and vice versa.
+POCKET_SESSION_FIELD_WOTLK_UPSTREAM = POCKET_SESSION_FIELD_TBC_UPSTREAM
+POCKET_SESSION_FIELD_WOTLK_ANDROID = POCKET_SESSION_FIELD_TBC_ANDROID
+POCKET_CHAT_WOTLK_UPSTREAM = POCKET_CHAT_TBC_UPSTREAM
+POCKET_CHAT_WOTLK_ANDROID = POCKET_CHAT_TBC_ANDROID
+CORE_GIVELEVEL_WOTLK_UPSTREAM = CORE_GIVELEVEL_TBC_UPSTREAM
+CORE_GIVELEVEL_WOTLK_ANDROID = CORE_GIVELEVEL_TBC_ANDROID
+CORE_DUELCOMPLETE_WOTLK_UPSTREAM = CORE_DUELCOMPLETE_TBC_UPSTREAM
+CORE_DUELCOMPLETE_WOTLK_ANDROID = CORE_DUELCOMPLETE_TBC_ANDROID
+CORE_LOGIN_ONBOARDING_WOTLK_UPSTREAM = CORE_LOGIN_ONBOARDING_TBC_UPSTREAM
+CORE_LOGIN_ONBOARDING_WOTLK_ANDROID = CORE_LOGIN_ONBOARDING_TBC_ANDROID
+
+# The mmap overlays at wotlk (same re-derivation): upstream moved the
+# grid-load navmesh guard out of GridMap.cpp into Map::LoadMapAndVMap and
+# ALREADY implements the MMAP_GUARD overlay's semantics there (IsEnabled
+# gate + per-tile IsMMapTileLoaded check before loadMap), so the wotlk leg
+# pins that existing text (old == new: a present-or-fail tripwire whose
+# restore is a no-op) instead of transforming it. loadMap /
+# loadAllMapTiles kept their classic shape but became instance-aware
+# (m_loadedMMaps + packInstanceId(mapId, instanceId)), so the
+# assert -> graceful-return overlays re-derive on the new text with the
+# classic overlays' exact log wording and returns.
+MMAP_GUARD_WOTLK_ANCHOR = """    if (MMAP::MMapFactory::createOrGetMMapManager()->IsEnabled())
+        if (!MMAP::MMapFactory::createOrGetMMapManager()->IsMMapTileLoaded(GetId(), GetInstanceId(), gx, gy))
+            MMAP::MMapFactory::createOrGetMMapManager()->loadMap(sWorld.GetDataPath(), GetId(), GetInstanceId(), gx, gy, 0);
+"""
+MMAP_LOADMAP_WOTLK_UPSTREAM = """        auto itr = m_loadedMMaps.find(packInstanceId(mapId, instanceId));
+        MANGOS_ASSERT(itr != m_loadedMMaps.end()); // must not occur here as it would not be thread safe - only in loadMapData through loadMapInstance
+"""
+MMAP_LOADMAP_WOTLK_ANDROID = """        auto itr = m_loadedMMaps.find(packInstanceId(mapId, instanceId));
+        if (itr == m_loadedMMaps.end())
+        {
+            sLog.outError("MMAP:loadMap: navmesh data for map %u was never registered (missing mmaps/%03u.mmap); pathfinding disabled for this map", mapId, mapId);
+            return false;
+        }
+"""
+MMAP_LOADALL_WOTLK_UPSTREAM = """    void MMapManager::loadAllMapTiles(std::string const& basePath, uint32 mapId, uint32 instanceId)
+    {
+        auto itr = m_loadedMMaps.find(packInstanceId(mapId, instanceId));
+        MANGOS_ASSERT(itr != m_loadedMMaps.end());
+"""
+MMAP_LOADALL_WOTLK_ANDROID = """    void MMapManager::loadAllMapTiles(std::string const& basePath, uint32 mapId, uint32 instanceId)
+    {
+        auto itr = m_loadedMMaps.find(packInstanceId(mapId, instanceId));
+        if (itr == m_loadedMMaps.end())
+        {
+            sLog.outError("MMAP:loadAllMapTiles: navmesh data for map %u was never registered (missing mmaps/%03u.mmap); tile preload skipped", mapId, mapId);
+            return;
+        }
+"""
+
+
+def core_anchor_pair(classic_upstream: str, classic_android: str,
+                     tbc_upstream: str, tbc_android: str,
+                     wotlk_upstream: str, wotlk_android: str) -> tuple[str, str]:
+    """The (upstream, applied) anchor text pair for the ACTIVE flavor's branch.
+
+    Classic text everywhere except the flavors whose pinned trees drift:
+    tbc drifts at exactly the five sites documented above (S2 item 3 /
+    CP-2), and wotlk re-derived its own variants at its S2 build (2026-10-06)
+    - byte-identical to tbc's text at all five sites, aliased explicitly
+    above so the two flavors can never silently drift together. A missing
+    variant fails loud in replace_anchor, never silently skips."""
+    if ACTIVE_FLAVOR == "tbc":
+        return tbc_upstream, tbc_android
+    if ACTIVE_FLAVOR == "wotlk":
+        return wotlk_upstream, wotlk_android
+    return classic_upstream, classic_android
+
+
+def core_anchor_restore_pair(classic_upstream: str, classic_android: str,
+                             tbc_upstream: str, tbc_android: str,
+                             wotlk_upstream: str, wotlk_android: str) -> tuple[str, str]:
+    """(applied, original) for restore_anchor, per the ACTIVE flavor — the
+    argument order restore_anchor expects, derived from the same per-flavor
+    pairs the apply step used (a plain core_anchor_pair here would hand
+    restore (upstream, applied) and silently no-op via its present-original
+    check — exactly the drift class the post-build tripwire exists for)."""
+    if ACTIVE_FLAVOR == "tbc":
+        return tbc_android, tbc_upstream
+    if ACTIVE_FLAVOR == "wotlk":
+        return wotlk_android, wotlk_upstream
+    return classic_android, classic_upstream
+
+
+# Per-flavor overlay registration: the flavor overlay ids each branch's build
+# may apply. Vanilla registered at S1; tbc registered at its S2 build after
+# the CP-2 re-derivation documented above (all eight flavor-scoped overlays
+# re-anchored, none dropped); wotlk registered at its own S2 build
+# (2026-10-08) on the re-derivation already present above — the five
+# core_anchor_pair sites alias the tbc text (verified byte-identical against
+# native/cmangos-wotlk during the 2026-10-06 DLL build) and the three mmap
+# overlays carry wotlk's own re-derived anchors (Map::LoadMapAndVMap carries
+# the guard upstream; the instance-aware m_loadedMMaps lookups re-derive the
+# graceful-miss semantics). Same sorted flavor-scoped list tbc got: all
+# eight flavor overlays apply, none dropped.
+PER_FLAVOR_OVERLAY_REGISTRATION = {
+    "vanilla": sorted(
+        overlay_id for overlay_id, scope in OVERLAY_SCOPES.items() if scope == "flavor"
+    ),
+    "tbc": sorted(
+        overlay_id for overlay_id, scope in OVERLAY_SCOPES.items() if scope == "flavor"
+    ),
+    "wotlk": sorted(
+        overlay_id for overlay_id, scope in OVERLAY_SCOPES.items() if scope == "flavor"
+    ),
+}
+
+
+def overlays_for(flavor_id: str, backend: str) -> list[dict]:
+    """The overlay table a flavor's build applies, in application order:
+    expansion-neutral entries in shared-table order, plus the flavor's
+    registered overlay set. A flavor without a registered per-flavor overlay
+    set is refused loud (expected before its S2 re-derivation)."""
+    # The overlay table speaks FAMILIES (mysql/sqlite); the desktop win lane
+    # speaks backends (sqlite/mariadb). "mariadb" is the mysql family —
+    # prepare/restore_cmangos_source already treat BACKEND in
+    # ("mysql", "mariadb") as one lane — so map it before selection, or the
+    # backends filter drops every entry and the missing-guard below refuses
+    # a lane that actually applies the mysql overlay set.
+    if backend == "mariadb":
+        backend = "mysql"
+    registered = PER_FLAVOR_OVERLAY_REGISTRATION.get(flavor_id)
+    if registered is None:
+        raise RuntimeError(
+            f"flavor {flavor_id!r} has no registered per-flavor overlay set — "
+            "re-derive the overlay definitions per branch first (port plan S2 "
+            "item 3 / CP-2), then register them in PER_FLAVOR_OVERLAY_REGISTRATION"
+        )
+    unknown = sorted(set(registered) - set(OVERLAY_SCOPES))
+    if unknown:
+        raise RuntimeError(
+            f"flavor {flavor_id!r} registers unknown overlay ids {unknown}; "
+            "known ids: " + ", ".join(sorted(OVERLAY_SCOPES))
+        )
+    selected = []
+    for entry in CMANGOS_OVERLAYS:
+        if backend not in entry.get("backends", ("mysql", "sqlite")):
+            continue
+        if OVERLAY_SCOPES[entry["id"]] == "expansion-neutral" or entry["id"] in registered:
+            selected.append(entry)
+    missing = sorted(
+        overlay_id for overlay_id in registered
+        if OVERLAY_SCOPES[overlay_id] == "flavor"
+        and overlay_id not in {entry["id"] for entry in selected}
+    )
+    if missing:
+        raise RuntimeError(
+            f"flavor {flavor_id!r} registers overlay ids missing from the overlay "
+            f"table (or filtered out for backend {backend!r}): {missing}"
+        )
+    return selected
 POCKET_INTERACT_SOURCE = NATIVE / "patches" / "cmangos" / "PocketRealmInteraction.cpp"
 AHBOT_UPDATE_GATE_UPSTREAM = """void AhBot::Update()
 {
@@ -292,6 +648,14 @@ POCKET_CHAT_ANDROID = """        case CHAT_MSG_WHISPER:
 """
 PLAYERBOTS_OVERLAYS = [
     {
+        "id": "random-bot-pool-provisioning-repair",
+        "paths": [
+            "playerbot/PlayerbotAIConfig.cpp",
+            "playerbot/RandomPlayerbotMgr.cpp",
+        ],
+        "reason": "Keep the random-bot login set yieldable on an accumulated multi-pool datadir (LVF-bot-actors-003+008): scope the GetBots pool view to the allowlist so foreign profiles' 'add' rows can no longer hold the world 'full' and burn the login budget on refused accounts; admit cap-saturated accounts to the allowlist and rotate headroom before minting in GetOrCreateAccount; make the reset op clear the refusal state end-to-end (event table, pick set, allowlist refill, fresh provisioning); re-derive allowlist coverage from the login DB at boot so accounts minted beyond the configured count stay visible.",
+    },
+    {
         "id": "ahbot-config-absent-hard-disable",
         "paths": [
             "ahbot/AhBot.cpp",
@@ -363,6 +727,7 @@ PLAYERBOTS_OVERLAYS = [
             "playerbot/PlayerbotLlmBridge.h",
             "playerbot/PlayerbotLlmBridge.cpp",
             "playerbot/PlayerbotLlmTruthCore.h",
+            "playerbot/PlayerbotLlmEraStages.generated.h",
             "playerbot/PlayerbotLlmRecallCore.h",
             "playerbot/PlayerbotLlmFilters.h",
             "playerbot/PlayerbotLlmFilters.cpp",
@@ -637,6 +1002,15 @@ ANTICHEAT_PRUNE_ANDROID = '''#ifdef DO_SQLITE
 #else
         auto prune = LoginDatabase.CreateStatement(pruneLog, "DELETE FROM system_fingerprint_usage WHERE fingerprint = ? ORDER BY `time` ASC LIMIT ?");
 #endif'''
+# wotlk-only bots overlay (see prepare_cmangos_source): the wotlk core HEAD's
+# chrono rewrite of GO respawn state vs the pinned multi-expansion bots
+# tree's WotLK fishing-bobber timer. Upstream anchor is present in the
+# pinned tree for every flavor (the statement is not expansion-guarded);
+# only the wotlk branch applies the conversion.
+PB_FISH_RESPAWN_TIME_UPSTREAM = """            time_t bobberActiveTime = obj->GetRespawnTime() - FISHING_BOBBER_READY_TIME;
+"""
+PB_FISH_RESPAWN_TIME_WOTLK_ANDROID = """            time_t bobberActiveTime = Clock::to_time_t(obj->GetRespawnTime()) - FISHING_BOBBER_READY_TIME;
+"""
 PB_CONFIG_HEADER_UPSTREAM = """    bool randomBotAutoCreate;
     uint32 minRandomBots, maxRandomBots;
 """
@@ -944,12 +1318,18 @@ PB_MGR_SCAN_ANDROID = """void RandomPlayerbotMgr::LogPlayerLocation()
     LowCpuBotTelemetry snapshot;
     snapshot.sampledAt = static_cast<uint32>(time(nullptr));
 
+    // Round-3 R5-3-1: the players map HOLDS bots (MovePlayerBot inserts
+    // hired/converted bots at RandomPlayerbotMgr.cpp MovePlayerBot; only
+    // logout erases them) — without the AI guard the "real players" count
+    // pads player presence with unlabeled bots (the listing substrate's
+    // "bots labeled, never padded" rule, at the telemetry level).
     std::vector<Player*> realPlayers;
     realPlayers.reserve(players.size());
     for (auto const& entry : players)
     {
         Player* player = entry.second;
-        if (player && player->IsInWorld() && !player->IsGameMaster())
+        if (player && player->IsInWorld() && !player->IsGameMaster() &&
+            !player->GetPlayerbotAI())
             realPlayers.push_back(player);
     }
     snapshot.realPlayers = static_cast<uint32>(realPlayers.size());
@@ -1963,8 +2343,7 @@ std::string PlayerbotLLMInterface::PocketLlmVoiceFilter(std::string const& raw, 
         (truncated ? POCKET_LLM_GEN_TRUNCATED : 0);
     // THE single extraction: the finally-chosen reply alone queues
     std::string voiced = PlayerbotLlmFilters::HygienePass(
-        PlayerbotLlmTools::ExtractAndQueue(content, botGuid, speakerGuid, source, licenseStamp),
-        botGuid);
+        PlayerbotLlmTools::ExtractAndQueue(content, botGuid, speakerGuid, source, licenseStamp));
     PlayerbotLlmFilters::RememberReply(botGuid, voiced);
     return voiced;
 }
@@ -2147,8 +2526,7 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
         // nothing - the leak/era retry loop is HTTP-path machinery; the
         // era/marker REJECTION above is the shared backstop).
         return PlayerbotLlmFilters::HygienePass(
-            PlayerbotLlmTools::ExtractAndQueue(raw, botGuid, speakerGuid, source, licenseStamp),
-            botGuid);
+            PlayerbotLlmTools::ExtractAndQueue(raw, botGuid, speakerGuid, source, licenseStamp));
     }
 
     // Real JSON client: the shipped endpoints (embedded llama-server and
@@ -2195,8 +2573,7 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
         // A genuine prose body carries no note: genClass is "ok".
         logEnd(genClass.c_str());
         return PlayerbotLlmFilters::HygienePass(
-            PlayerbotLlmTools::ExtractAndQueue(httpBody, botGuid, speakerGuid, source, licenseStamp),
-            botGuid);
+            PlayerbotLlmTools::ExtractAndQueue(httpBody, botGuid, speakerGuid, source, licenseStamp));
     }
 
     if (pocketllm::ContentUsable(envelope))
@@ -2669,7 +3046,7 @@ PB_SAY_RECORDER_ANDROID = """    std::vector<std::string> lines = PlayerbotLLMIn
         if (!fallbackLine.empty())
         {
             PlayerbotLlmMemory::AppendTurn(botGuid, playerOrChannel,
-                (playerOrChannel & 0x80000000u) != 0, botName, fallbackLine);
+                botName, fallbackLine);
             PlayerbotLlmMemory::QueueConversationalFallback(botGuid, speakerGuid,
                 fallback.channel, fallbackLine, fallback.mapId);
             lines.clear();
@@ -2708,7 +3085,7 @@ PB_SAY_RECORDER_ANDROID = """    std::vector<std::string> lines = PlayerbotLLMIn
         }
         if (!joined.empty())
         {
-            PlayerbotLlmMemory::AppendTurn(botGuid, playerOrChannel, true, botName, joined);
+            PlayerbotLlmMemory::AppendTurn(botGuid, playerOrChannel, botName, joined);
             // Diagnostics: one player-facing conversation per genuine
             // voiced reply - exactly this gate's own definition
             PlayerbotLlmMemory::NoteConversation();
@@ -3745,9 +4122,9 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                     {
                         bot->Whisper(greetLine, LANG_UNIVERSAL, player->GetObjectGuid());
                         PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), player->GetGUIDLow(),
-                            false, player->GetName(), msg);
+                            player->GetName(), msg);
                         PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), player->GetGUIDLow(),
-                            false, bot->GetName(), greetLine);
+                            bot->GetName(), greetLine);
                         PlayerbotLlmMemory::AddRelationshipPoints(bot, player, 1);
                         return;
                     }
@@ -3771,9 +4148,9 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                 {
                     bot->Whisper(welcomeLine, LANG_UNIVERSAL, player->GetObjectGuid());
                     PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), player->GetGUIDLow(),
-                        false, player->GetName(), msg);
+                        player->GetName(), msg);
                     PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), player->GetGUIDLow(),
-                        false, bot->GetName(), welcomeLine);
+                        bot->GetName(), welcomeLine);
                     PlayerbotLlmMemory::AddRelationshipPoints(bot, player, 1);
                     return;
                 }
@@ -3911,7 +4288,7 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                     ? player->GetGUIDLow()
                     : (0x80000000u | static_cast<uint32>(chatChannelSource));
                 PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), llmPersonaKey,
-                    chatChannelSource != ChatChannelSource::SRC_WHISPER, player->GetName(), msg);
+                    player->GetName(), msg);
                 if (chatChannelSource == ChatChannelSource::SRC_WHISPER)
                     bot->Whisper(personaLine, LANG_UNIVERSAL, player->GetObjectGuid());
                 else if (chatChannelSource == ChatChannelSource::SRC_RAID)
@@ -3921,7 +4298,7 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                 else
                     bot->GetPlayerbotAI()->SayToParty(personaLine);
                 PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), llmPersonaKey,
-                    chatChannelSource != ChatChannelSource::SRC_WHISPER, bot->GetName(), personaLine);
+                    bot->GetName(), personaLine);
                 PlayerbotLlmMemory::AddRelationshipPoints(bot, player, 1);
                 return;
                 }
@@ -3980,9 +4357,8 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                     turnText.resize(turnText.size() - nudge.size());
             }
             PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), llmTurnKey,
-                chatChannelSource != ChatChannelSource::SRC_WHISPER,
                 eventTurn ? "(event)" : player->GetName(), turnText);
-            llmContext = PlayerbotLlmMemory::BuildPromptContext(bot, player, (int)chatChannelSource, chanName);
+            llmContext = PlayerbotLlmMemory::BuildPromptContext(bot, player, (int)chatChannelSource);
             // The cloud turn's +1 moved into the worker's
             // single-delivery closure (exactly once per delivered
             // outcome); the device lane keeps the synchronous pre-award
@@ -4211,6 +4587,18 @@ PB_AI_QUEUE_DEF_ANDROID = """void PlayerbotAI::QueueChatResponse(uint32 msgType,
 # evaluation could run - contradicting the law that a whisper is
 # direct address. Whispers now peek past the gate; ambient channels
 # keep it.
+# The street-say leg (LVF-bot-actors-010): a REAL player's say/yell is
+# direct address at street level - the street lane exists to answer
+# exactly that line (an unaddressed ambient /say is a non-trigger for
+# generations, but the street may still react) - yet the gate's DEFAULT
+# ActivityType (ALL_ACTIVITY) dropped it for inactive bots: a bot the
+# player can see is react-active (ForceActiveWhenNearPlayer stages =1
+# in every shipped profile; the reaction lane itself gates at
+# REACT_ACTIVITY), but the sniffer was stricter than the lane it fed,
+# so the one ambient contact in the 600 s soak window (bot=39,
+# 01:17:19) died at the gate and the street arm never dispatched.
+# Real-player street speech now peeks past the gate like whispers;
+# bot-authored chatter keeps the gate and its drop diagnostic.
 PB_AI_CHATCASE_UPSTREAM = """    case SMSG_MESSAGECHAT: // do not react to self or if not ready to reply
     {
         if (!AllowActivity())
@@ -4225,10 +4613,34 @@ PB_AI_CHATCASE_ANDROID = """    case SMSG_MESSAGECHAT: // do not react to self o
         // not to refuse a player who walked up and whispered). Peek the
         // type byte before gating; non-whisper traffic keeps the gate
         // and its drop diagnostic.
+        // Street-say leg: a REAL player's say/yell is direct address
+        // at street level - the street lane exists to answer exactly
+        // that line - so it rides the same exemption as the whisper.
+        // Peek the sender guid on the street channels (say/yell wire
+        // shape: type, lang, sender) and exempt real-player speech;
+        // bot-authored chatter keeps the gate and its drop diagnostic.
+        // Fail-closed: an unreadable sender never widens the gate.
         WorldPacket llmPeek(packet);
         bool const llmWhisperDirect = !llmPeek.empty() &&
             llmPeek.contents()[0] == CHAT_MSG_WHISPER;
-        if (!llmWhisperDirect && !AllowActivity())
+        bool const llmStreetType = !llmPeek.empty() &&
+            (llmPeek.contents()[0] == CHAT_MSG_SAY ||
+             llmPeek.contents()[0] == CHAT_MSG_YELL);
+        bool llmPlayerDirect = llmWhisperDirect;
+        if (llmStreetType)
+        {
+            WorldPacket llmStreetPeek(llmPeek);
+            llmStreetPeek.rpos(0);
+            uint8 llmType;
+            uint32 llmLang;
+            ObjectGuid llmSender;
+            llmStreetPeek >> llmType >> llmLang;
+            llmStreetPeek >> llmSender.ReadAsPacked();
+            if (!llmSender.IsEmpty())
+                if (Player* llmSpeaker = sObjectAccessor.FindPlayer(llmSender))
+                    llmPlayerDirect = llmSpeaker->isRealPlayer();
+        }
+        if (!llmPlayerDirect && !AllowActivity())
         {
             sLog.outBasic("BotLLM: activity gate drop bot=%u", bot->GetGUIDLow());
             return;
@@ -4511,7 +4923,7 @@ PB_UPDATEAI_ANDROID = """void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal
                     if (sPlayerbotAIConfig.llmToolsEnabled)
                         prePrompt += " " + PlayerbotLlmTools::ToolInstructions(bot->GetGUIDLow());
                     PlayerbotLlamaRuntime::PreWarmSlot(bot->GetGUIDLow(),
-                        prePrompt + " " + PlayerbotLlmMemory::BuildPromptContext(bot, master, (int)ChatChannelSource::SRC_PARTY, ""));
+                        prePrompt + " " + PlayerbotLlmMemory::BuildPromptContext(bot, master, (int)ChatChannelSource::SRC_PARTY));
                 }
             }
         }
@@ -5048,7 +5460,7 @@ CORE_REWARDQUEST_ANDROID = """#ifdef ENABLE_PLAYERBOTS
     // Grouped bots award the quest deed + mint the
     // shared errand fact (world thread; repeatable quests award and
     // mint NOTHING - the farm surface is the turn-in loop)
-    PlayerbotLlmMemory::OnQuestRewarded(this, quest_id, pQuest->GetTitle(),
+    PlayerbotLlmMemory::OnQuestRewarded(this, pQuest->GetTitle(),
         pQuest->IsRepeatable());
 #endif
     RemoveTimedQuest(quest_id);
@@ -5399,6 +5811,36 @@ else()
   set(DEFINITIONS ${DEFINITIONS} DO_MYSQL)
 endif()
 """
+
+# win-named-pipe-socket-field (Windows MSVC mysql lane): the "." host branch
+# selects MYSQL_PROTOCOL_PIPE but drops the pipe NAME; the conf's second
+# field must reach mysql_real_connect as the socket argument (libmariadb
+# reads it as the pipe name under the PIPE protocol), mirroring the POSIX
+# branch below it.
+WIN_PIPE_SOCKET_UPSTREAM = """#ifdef _WIN32
+    if (host == ".")                                        // named pipe use option (Windows)
+    {
+        unsigned int opt = MYSQL_PROTOCOL_PIPE;
+        mysql_options(mysqlInit, MYSQL_OPT_PROTOCOL, (char const*)&opt);
+        port = 0;
+        unix_socket = nullptr;
+    }
+"""
+WIN_PIPE_SOCKET_ANDROID = """#ifdef _WIN32
+    if (host == ".")                                        // named pipe use option (Windows)
+    {
+        unsigned int opt = MYSQL_PROTOCOL_PIPE;
+        mysql_options(mysqlInit, MYSQL_OPT_PROTOCOL, (char const*)&opt);
+        port = 0;
+        // Pocket Realm: the pipe NAME is the connection string's second
+        // field; without it libmariadb dials its default pipe ("MySQL")
+        // and the app-private mariadbd socket never answers (proven live
+        // 2026-10-07: the connect argument carries the name through
+        // Connector/C 3.4.1 - arg-only verified against the staged pipe).
+        unix_socket = port_or_socket.c_str();
+    }
+"""
+
 BACKEND_SELECT_ANDROID = """# Pocket Realm: fail-loud backend selection (G1). The DO_* variables are
 # derived compile definitions, never inputs: -DDO_MYSQL/-DDO_SQLITE on the
 # command line select nothing (the real switches are the POSTGRESQL/SQLITE
@@ -5720,13 +6162,13 @@ def prepare_connector_source() -> None:
 
 
 def prepare_cmangos_source() -> None:
-    cmangos = NATIVE / "cmangos"
+    cmangos = NATIVE / ACTIVE_CORE_SUBMODULE.removeprefix("native/")
     actual = output(["git", "rev-parse", "HEAD"], cmangos)
-    if actual != CMANGOS_COMMIT:
+    if actual != ACTIVE_CMANGOS_COMMIT:
         raise RuntimeError(f"CMaNGOS pin mismatch: {actual}")
-    playerbots = NATIVE / "playerbots"
+    playerbots = NATIVE / ACTIVE_BOTS_SUBMODULE.removeprefix("native/")
     playerbots_actual = output(["git", "rev-parse", "HEAD"], playerbots)
-    if playerbots_actual != PLAYERBOTS_COMMIT:
+    if playerbots_actual != ACTIVE_PLAYERBOTS_COMMIT:
         raise RuntimeError(f"Playerbots pin mismatch: {playerbots_actual}")
     tracked_dirty = subprocess.run(["git", "diff", "--quiet"], cwd=cmangos).returncode != 0 or \
         subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cmangos).returncode != 0
@@ -5741,22 +6183,56 @@ def prepare_cmangos_source() -> None:
     if mirror.exists():
         shutil.rmtree(mirror)
     shutil.copytree(playerbots, mirror, ignore=shutil.ignore_patterns(".git"))
-    (mirror / ".pocket-realm-commit").write_text(PLAYERBOTS_COMMIT + "\n", encoding="utf-8")
-    replace_anchor(
-        cmangos / "src" / "game" / "Maps" / "GridMap.cpp",
-        MMAP_GUARD_UPSTREAM,
-        MMAP_GUARD_ANDROID,
-    )
-    replace_anchor(
-        cmangos / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
-        MMAP_LOADMAP_UPSTREAM,
-        MMAP_LOADMAP_ANDROID,
-    )
-    replace_anchor(
-        cmangos / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
-        MMAP_LOADALL_UPSTREAM,
-        MMAP_LOADALL_ANDROID,
-    )
+    (mirror / ".pocket-realm-commit").write_text(ACTIVE_PLAYERBOTS_COMMIT + "\n", encoding="utf-8")
+    if ACTIVE_FLAVOR == "wotlk":
+        # wotlk core HEAD rewrote GO respawn state to std::chrono (2fc8161e:
+        # "GameObject: Rewrite GO respawn time to std chrono"), so
+        # GameObject::GetRespawnTime() now returns TimePoint. The pinned
+        # multi-expansion bots tree's WotLK path (MANGOSBOT_TWO) still does
+        # TimePoint - int arithmetic in the fishing-bobber timer. Convert
+        # with the core's own idiom (GameObject.cpp: Clock::to_time_t) so
+        # the epoch-seconds code below compiles unchanged.
+        replace_anchor(
+            mirror / "playerbot" / "strategy" / "actions" / "FishAction.cpp",
+            PB_FISH_RESPAWN_TIME_UPSTREAM,
+            PB_FISH_RESPAWN_TIME_WOTLK_ANDROID,
+        )
+    if ACTIVE_FLAVOR == "wotlk":
+        # wotlk S2 re-derivation: the guard lives in Map::LoadMapAndVMap and
+        # its semantics are already upstream - pin the text (see
+        # MMAP_GUARD_WOTLK_ANCHOR); the two MoveMap overlays re-derive on the
+        # instance-aware m_loadedMMaps lookup.
+        replace_anchor(
+            cmangos / "src" / "game" / "Maps" / "Map.cpp",
+            MMAP_GUARD_WOTLK_ANCHOR,
+            MMAP_GUARD_WOTLK_ANCHOR,
+        )
+        replace_anchor(
+            cmangos / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
+            MMAP_LOADMAP_WOTLK_UPSTREAM,
+            MMAP_LOADMAP_WOTLK_ANDROID,
+        )
+        replace_anchor(
+            cmangos / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
+            MMAP_LOADALL_WOTLK_UPSTREAM,
+            MMAP_LOADALL_WOTLK_ANDROID,
+        )
+    else:
+        replace_anchor(
+            cmangos / "src" / "game" / "Maps" / "GridMap.cpp",
+            MMAP_GUARD_UPSTREAM,
+            MMAP_GUARD_ANDROID,
+        )
+        replace_anchor(
+            cmangos / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
+            MMAP_LOADMAP_UPSTREAM,
+            MMAP_LOADMAP_ANDROID,
+        )
+        replace_anchor(
+            cmangos / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
+            MMAP_LOADALL_UPSTREAM,
+            MMAP_LOADALL_ANDROID,
+        )
     replace_anchor(
         cmangos / "src" / "mangosd" / "Master.cpp",
         WORLD_THREAD_UPSTREAM,
@@ -5820,13 +6296,28 @@ def prepare_cmangos_source() -> None:
     replace_anchor(cmangos / "src" / "game" / "World" / "World.cpp", POCKET_WORLD_CPP_UPSTREAM, POCKET_WORLD_CPP_ANDROID)
     replace_anchor(cmangos / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_ENUM_UPSTREAM, POCKET_SESSION_ENUM_ANDROID)
     replace_anchor(cmangos / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_API_UPSTREAM, POCKET_SESSION_API_ANDROID)
-    replace_anchor(cmangos / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_FIELD_UPSTREAM, POCKET_SESSION_FIELD_ANDROID)
-    replace_anchor(cmangos / "src" / "game" / "Chat" / "ChatHandler.cpp", POCKET_CHAT_UPSTREAM, POCKET_CHAT_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Server" / "WorldSession.h", *core_anchor_pair(
+        POCKET_SESSION_FIELD_UPSTREAM, POCKET_SESSION_FIELD_ANDROID,
+        POCKET_SESSION_FIELD_TBC_UPSTREAM, POCKET_SESSION_FIELD_TBC_ANDROID,
+        POCKET_SESSION_FIELD_WOTLK_UPSTREAM, POCKET_SESSION_FIELD_WOTLK_ANDROID))
+    replace_anchor(cmangos / "src" / "game" / "Chat" / "ChatHandler.cpp", *core_anchor_pair(
+        POCKET_CHAT_UPSTREAM, POCKET_CHAT_ANDROID,
+        POCKET_CHAT_TBC_UPSTREAM, POCKET_CHAT_TBC_ANDROID,
+        POCKET_CHAT_WOTLK_UPSTREAM, POCKET_CHAT_WOTLK_ANDROID))
     interaction = cmangos / "src" / "game" / "Chat" / "PocketRealmInteraction.cpp"
     if interaction.exists():
         raise RuntimeError(f"source overlay target unexpectedly exists: {interaction}")
     interaction.write_bytes(POCKET_INTERACT_SOURCE.read_bytes())
     bot_root = mirror / "playerbot"
+    # LVF-bot-actors-003+008: the random-bot provisioning/allowlist repair
+    # ships as tracked full-file overlays under native/patches/playerbots/
+    # (the submodule itself stays byte-pristine). Copied BEFORE every anchor
+    # overlay below: the overlay files keep the upstream bytes at all anchor
+    # sites, so the replace_anchor sequence applies on top unchanged.
+    (bot_root / "RandomPlayerbotMgr.cpp").write_bytes(
+        (NATIVE / "patches" / "playerbots" / "RandomPlayerbotMgr.cpp").read_bytes())
+    (bot_root / "PlayerbotAIConfig.cpp").write_bytes(
+        (NATIVE / "patches" / "playerbots" / "PlayerbotAIConfig.cpp").read_bytes())
     replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_CONFIG_HEADER_UPSTREAM, PB_CONFIG_HEADER_ANDROID)
     replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_CONFIG_REGEX_UPSTREAM, PB_CONFIG_REGEX_ANDROID)
     replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_CONFIG_SOURCE_DECL_UPSTREAM, PB_CONFIG_SOURCE_DECL_ANDROID)
@@ -5890,6 +6381,12 @@ def prepare_cmangos_source() -> None:
     (bot_root / "PlayerbotLlmBridge.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmBridge.h").read_bytes())
     (bot_root / "PlayerbotLlmBridge.cpp").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmBridge.cpp").read_bytes())
     (bot_root / "PlayerbotLlmTruthCore.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmTruthCore.h").read_bytes())
+    # The era-policy table quote-included by PlayerbotLlmTruthCore.h:32 —
+    # staged next to it or every fresh o09/Android and win realm-runtime
+    # build dies at compile (`fatal error: PlayerbotLlmEraStages.generated.h:
+    # No such file or directory`); the mirror has no include path that
+    # reaches native/patches.
+    (bot_root / "PlayerbotLlmEraStages.generated.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmEraStages.generated.h").read_bytes())
     (bot_root / "PlayerbotLlmRecallCore.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmRecallCore.h").read_bytes())
     (bot_root / "PlayerbotLlmFilters.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmFilters.h").read_bytes())
     (bot_root / "PlayerbotLlmFilters.cpp").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmFilters.cpp").read_bytes())
@@ -5983,11 +6480,20 @@ def prepare_cmangos_source() -> None:
     replace_all(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_MANUAL_SET_UPSTREAM, PB_RPG_MANUAL_SET_ANDROID)
     # core hooks for the LLM companion event allowlist
     replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_PLAYER_INCLUDE_UPSTREAM, CORE_PLAYER_INCLUDE_ANDROID)
-    replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_GIVELEVEL_UPSTREAM, CORE_GIVELEVEL_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", *core_anchor_pair(
+        CORE_GIVELEVEL_UPSTREAM, CORE_GIVELEVEL_ANDROID,
+        CORE_GIVELEVEL_TBC_UPSTREAM, CORE_GIVELEVEL_TBC_ANDROID,
+        CORE_GIVELEVEL_WOTLK_UPSTREAM, CORE_GIVELEVEL_WOTLK_ANDROID))
     # The duel-outcome hook (all nine call sites through one function)
-    replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_DUELCOMPLETE_UPSTREAM, CORE_DUELCOMPLETE_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", *core_anchor_pair(
+        CORE_DUELCOMPLETE_UPSTREAM, CORE_DUELCOMPLETE_ANDROID,
+        CORE_DUELCOMPLETE_TBC_UPSTREAM, CORE_DUELCOMPLETE_TBC_ANDROID,
+        CORE_DUELCOMPLETE_WOTLK_UPSTREAM, CORE_DUELCOMPLETE_WOTLK_ANDROID))
     # First-contact onboarding line at login (once per character)
-    replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_LOGIN_ONBOARDING_UPSTREAM, CORE_LOGIN_ONBOARDING_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", *core_anchor_pair(
+        CORE_LOGIN_ONBOARDING_UPSTREAM, CORE_LOGIN_ONBOARDING_ANDROID,
+        CORE_LOGIN_ONBOARDING_TBC_UPSTREAM, CORE_LOGIN_ONBOARDING_TBC_ANDROID,
+        CORE_LOGIN_ONBOARDING_WOTLK_UPSTREAM, CORE_LOGIN_ONBOARDING_WOTLK_ANDROID))
     # ChatReplyDo's event-turn flag (threaded from the drain; the
     # "(event) " text prefix is retired as a signal)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.h", PB_SAY_CHATREPLY_DECL_UPSTREAM, PB_SAY_CHATREPLY_DECL_ANDROID)
@@ -6025,6 +6531,13 @@ def prepare_cmangos_source() -> None:
     replace_anchor(cmangos / "CMakeLists.txt", BACKEND_SELECT_UPSTREAM, BACKEND_SELECT_ANDROID)
     # Windows MSVC lane: keep the pinned static OpenSSL the only linked copy
     replace_anchor(cmangos / "CMakeLists.txt", WIN_STATIC_OPENSSL_UPSTREAM, WIN_STATIC_OPENSSL_ANDROID)
+    # Windows mysql lane: the named-pipe connection must carry the conf's
+    # pipe NAME (host == "." selects the protocol; the socket field names
+    # the pipe). MySQL-lane-only: sqlite builds never compile DatabaseMysql.
+    if BACKEND in ("mysql", "mariadb"):
+        replace_anchor(
+            cmangos / "src" / "shared" / "Database" / "DatabaseMysql.cpp",
+            WIN_PIPE_SOCKET_UPSTREAM, WIN_PIPE_SOCKET_ANDROID)
     # The sqlite lane swaps in the hardened connection-layer
     # replacement files; mysql builds never touch them.
     if BACKEND == "sqlite":
@@ -6034,176 +6547,212 @@ def prepare_cmangos_source() -> None:
 
 def restore_cmangos_source() -> None:
     """Restore the pinned submodule byte-for-byte after the overlay build."""
-    interaction = NATIVE / "cmangos" / "src" / "game" / "Chat" / "PocketRealmInteraction.cpp"
+    cmangos = NATIVE / ACTIVE_CORE_SUBMODULE.removeprefix("native/")
+    interaction = cmangos / "src" / "game" / "Chat" / "PocketRealmInteraction.cpp"
     if interaction.exists():
         if interaction.read_bytes() != POCKET_INTERACT_SOURCE.read_bytes():
             raise RuntimeError(f"source overlay cleanup content drift: {interaction}")
         interaction.unlink()
-    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "Chat" / "ChatHandler.cpp", POCKET_CHAT_ANDROID, POCKET_CHAT_UPSTREAM)
-    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_FIELD_ANDROID, POCKET_SESSION_FIELD_UPSTREAM)
-    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_API_ANDROID, POCKET_SESSION_API_UPSTREAM)
-    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_ENUM_ANDROID, POCKET_SESSION_ENUM_UPSTREAM)
-    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "World" / "World.cpp", POCKET_WORLD_CPP_ANDROID, POCKET_WORLD_CPP_UPSTREAM)
-    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "World" / "World.h", POCKET_WORLD_UINT_ANDROID, POCKET_WORLD_UINT_UPSTREAM)
-    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "World" / "World.h", POCKET_WORLD_H_ANDROID, POCKET_WORLD_H_UPSTREAM)
+    restore_anchor(cmangos / "src" / "game" / "Chat" / "ChatHandler.cpp", *core_anchor_restore_pair(
+        POCKET_CHAT_UPSTREAM, POCKET_CHAT_ANDROID,
+        POCKET_CHAT_TBC_UPSTREAM, POCKET_CHAT_TBC_ANDROID,
+        POCKET_CHAT_WOTLK_UPSTREAM, POCKET_CHAT_WOTLK_ANDROID))
+    restore_anchor(cmangos / "src" / "game" / "Server" / "WorldSession.h", *core_anchor_restore_pair(
+        POCKET_SESSION_FIELD_UPSTREAM, POCKET_SESSION_FIELD_ANDROID,
+        POCKET_SESSION_FIELD_TBC_UPSTREAM, POCKET_SESSION_FIELD_TBC_ANDROID,
+        POCKET_SESSION_FIELD_WOTLK_UPSTREAM, POCKET_SESSION_FIELD_WOTLK_ANDROID))
+    restore_anchor(cmangos / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_API_ANDROID, POCKET_SESSION_API_UPSTREAM)
+    restore_anchor(cmangos / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_ENUM_ANDROID, POCKET_SESSION_ENUM_UPSTREAM)
+    restore_anchor(cmangos / "src" / "game" / "World" / "World.cpp", POCKET_WORLD_CPP_ANDROID, POCKET_WORLD_CPP_UPSTREAM)
+    restore_anchor(cmangos / "src" / "game" / "World" / "World.h", POCKET_WORLD_UINT_ANDROID, POCKET_WORLD_UINT_UPSTREAM)
+    restore_anchor(cmangos / "src" / "game" / "World" / "World.h", POCKET_WORLD_H_ANDROID, POCKET_WORLD_H_UPSTREAM)
+    if ACTIVE_FLAVOR == "wotlk":
+        restore_anchor(
+            cmangos / "src" / "game" / "Maps" / "Map.cpp",
+            MMAP_GUARD_WOTLK_ANCHOR,
+            MMAP_GUARD_WOTLK_ANCHOR,
+        )
+        restore_anchor(
+            cmangos / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
+            MMAP_LOADALL_WOTLK_ANDROID,
+            MMAP_LOADALL_WOTLK_UPSTREAM,
+        )
+        restore_anchor(
+            cmangos / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
+            MMAP_LOADMAP_WOTLK_ANDROID,
+            MMAP_LOADMAP_WOTLK_UPSTREAM,
+        )
+    else:
+        restore_anchor(
+            cmangos / "src" / "game" / "Maps" / "GridMap.cpp",
+            MMAP_GUARD_ANDROID,
+            MMAP_GUARD_UPSTREAM,
+        )
+        restore_anchor(
+            cmangos / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
+            MMAP_LOADALL_ANDROID,
+            MMAP_LOADALL_UPSTREAM,
+        )
+        restore_anchor(
+            cmangos / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
+            MMAP_LOADMAP_ANDROID,
+            MMAP_LOADMAP_UPSTREAM,
+        )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Maps" / "GridMap.cpp",
-        MMAP_GUARD_ANDROID,
-        MMAP_GUARD_UPSTREAM,
-    )
-    restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
-        MMAP_LOADALL_ANDROID,
-        MMAP_LOADALL_UPSTREAM,
-    )
-    restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
-        MMAP_LOADMAP_ANDROID,
-        MMAP_LOADMAP_UPSTREAM,
-    )
-    restore_anchor(
-        NATIVE / "cmangos" / "src" / "mangosd" / "Master.cpp",
+        cmangos / "src" / "mangosd" / "Master.cpp",
         WORLD_THREAD_ANDROID,
         WORLD_THREAD_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "mangosd" / "Master.cpp",
+        cmangos / "src" / "mangosd" / "Master.cpp",
         EMBEDDED_QUEUE_THREAD_JOIN_ANDROID,
         EMBEDDED_QUEUE_THREAD_JOIN_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "mangosd" / "Master.cpp",
+        cmangos / "src" / "mangosd" / "Master.cpp",
         EMBEDDED_IO_CONTEXT_RESTART_ANDROID,
         EMBEDDED_IO_CONTEXT_RESTART_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "mangosd" / "Master.cpp",
+        cmangos / "src" / "mangosd" / "Master.cpp",
         MASTER_LISTENER_GATE_ANDROID,
         MASTER_LISTENER_GATE_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "mangosd" / "Master.h",
+        cmangos / "src" / "mangosd" / "Master.h",
         MASTER_GATE_DECL_ANDROID,
         MASTER_GATE_DECL_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "World" / "World.cpp",
+        cmangos / "src" / "game" / "World" / "World.cpp",
         WORLD_QUEUE_STOP_DEF_ANDROID,
         WORLD_QUEUE_STOP_DEF_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "World" / "World.h",
+        cmangos / "src" / "game" / "World" / "World.h",
         WORLD_QUEUE_STOP_DECL_ANDROID,
         WORLD_QUEUE_STOP_DECL_UPSTREAM,
     )
-    replace_anchor(
-        NATIVE / "cmangos" / "src" / "shared" / "Database" / "SqlOperations.cpp",
+    restore_anchor(
+        cmangos / "src" / "shared" / "Database" / "SqlOperations.cpp",
         RESULT_QUEUE_ANDROID,
         RESULT_QUEUE_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Globals" / "ObjectMgr.cpp",
+        cmangos / "src" / "game" / "Globals" / "ObjectMgr.cpp",
         OBJECTMGR_TRUNCATE_CREATURE_ANDROID,
         OBJECTMGR_TRUNCATE_CREATURE_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Globals" / "ObjectMgr.cpp",
+        cmangos / "src" / "game" / "Globals" / "ObjectMgr.cpp",
         OBJECTMGR_TRUNCATE_GAMEOBJECT_ANDROID,
         OBJECTMGR_TRUNCATE_GAMEOBJECT_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Anticheat" / "module" / "libanticheat.cpp",
+        cmangos / "src" / "game" / "Anticheat" / "module" / "libanticheat.cpp",
         ANTICHEAT_PRUNE_ANDROID,
         ANTICHEAT_PRUNE_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Loot" / "LootHandler.cpp",
+        cmangos / "src" / "game" / "Loot" / "LootHandler.cpp",
         CORE_LOOT_ANDROID,
         CORE_LOOT_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Loot" / "LootHandler.cpp",
+        cmangos / "src" / "game" / "Loot" / "LootHandler.cpp",
         CORE_LOOT_INCLUDE_ANDROID,
         CORE_LOOT_INCLUDE_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
-        CORE_GIVELEVEL_ANDROID,
-        CORE_GIVELEVEL_UPSTREAM,
+        cmangos / "src" / "game" / "Entities" / "Player.cpp",
+        *core_anchor_restore_pair(
+        CORE_GIVELEVEL_UPSTREAM, CORE_GIVELEVEL_ANDROID,
+        CORE_GIVELEVEL_TBC_UPSTREAM, CORE_GIVELEVEL_TBC_ANDROID,
+        CORE_GIVELEVEL_WOTLK_UPSTREAM, CORE_GIVELEVEL_WOTLK_ANDROID),
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
-        CORE_DUELCOMPLETE_ANDROID,
-        CORE_DUELCOMPLETE_UPSTREAM,
+        cmangos / "src" / "game" / "Entities" / "Player.cpp",
+        *core_anchor_restore_pair(
+        CORE_DUELCOMPLETE_UPSTREAM, CORE_DUELCOMPLETE_ANDROID,
+        CORE_DUELCOMPLETE_TBC_UPSTREAM, CORE_DUELCOMPLETE_TBC_ANDROID,
+        CORE_DUELCOMPLETE_WOTLK_UPSTREAM, CORE_DUELCOMPLETE_WOTLK_ANDROID),
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
-        CORE_LOGIN_ONBOARDING_ANDROID,
-        CORE_LOGIN_ONBOARDING_UPSTREAM,
+        cmangos / "src" / "game" / "Entities" / "Player.cpp",
+        *core_anchor_restore_pair(
+        CORE_LOGIN_ONBOARDING_UPSTREAM, CORE_LOGIN_ONBOARDING_ANDROID,
+        CORE_LOGIN_ONBOARDING_TBC_UPSTREAM, CORE_LOGIN_ONBOARDING_TBC_ANDROID,
+        CORE_LOGIN_ONBOARDING_WOTLK_UPSTREAM, CORE_LOGIN_ONBOARDING_WOTLK_ANDROID),
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
+        cmangos / "src" / "game" / "Entities" / "Player.cpp",
         CORE_PLAYER_INCLUDE_ANDROID,
         CORE_PLAYER_INCLUDE_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Unit.cpp",
+        cmangos / "src" / "game" / "Entities" / "Unit.cpp",
         CORE_UNIT_KILL_ANDROID,
         CORE_UNIT_KILL_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Unit.cpp",
+        cmangos / "src" / "game" / "Entities" / "Unit.cpp",
         CORE_UNIT_DEATH_ANDROID,
         CORE_UNIT_DEATH_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Trade" / "TradeHandler.cpp",
+        cmangos / "src" / "game" / "Trade" / "TradeHandler.cpp",
         CORE_TRADE_INCLUDE_ANDROID,
         CORE_TRADE_INCLUDE_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Trade" / "TradeHandler.cpp",
+        cmangos / "src" / "game" / "Trade" / "TradeHandler.cpp",
         CORE_TRADE_ANDROID,
         CORE_TRADE_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
+        cmangos / "src" / "game" / "Entities" / "Player.cpp",
         CORE_EXPLORE_ANDROID,
         CORE_EXPLORE_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
+        cmangos / "src" / "game" / "Entities" / "Player.cpp",
         CORE_REWARDQUEST_ANDROID,
         CORE_REWARDQUEST_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Weather" / "Weather.h",
+        cmangos / "src" / "game" / "Weather" / "Weather.h",
         CORE_WEATHER_ANDROID,
         CORE_WEATHER_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Weather" / "Weather.h",
+        cmangos / "src" / "game" / "Weather" / "Weather.h",
         CORE_WEATHERSYS_ANDROID,
         CORE_WEATHERSYS_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Unit.cpp",
+        cmangos / "src" / "game" / "Entities" / "Unit.cpp",
         CORE_UNIT_INCLUDE_ANDROID,
         CORE_UNIT_INCLUDE_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "CMakeLists.txt",
+        cmangos / "CMakeLists.txt",
         BACKEND_SELECT_ANDROID,
         BACKEND_SELECT_UPSTREAM,
     )
     restore_anchor(
-        NATIVE / "cmangos" / "CMakeLists.txt",
+        cmangos / "CMakeLists.txt",
         WIN_STATIC_OPENSSL_ANDROID,
         WIN_STATIC_OPENSSL_UPSTREAM,
     )
+    if BACKEND in ("mysql", "mariadb"):
+        restore_anchor(
+            cmangos / "src" / "shared" / "Database" / "DatabaseMysql.cpp",
+            WIN_PIPE_SOCKET_ANDROID,
+            WIN_PIPE_SOCKET_UPSTREAM,
+        )
     if BACKEND == "sqlite":
-        restore_sqlite_hardening(NATIVE / "cmangos")
-    restore_db_null_guard_overlays(NATIVE / "cmangos" / "src" / "shared" / "Database")
+        restore_sqlite_hardening(cmangos)
+    restore_db_null_guard_overlays(cmangos / "src" / "shared" / "Database")
 
 
 def restore_anchor(path: Path, applied: str, original: str) -> None:
@@ -6245,6 +6794,16 @@ def configure_and_build(force: bool, backend: str = "mysql", configure_only: boo
             f"{TARGET_ABI} OpenSSL/Boost dependencies are missing; "
             "run scripts/build_native.py first"
         )
+    # Shared configure locals (connector-c and cmangos configure identically);
+    # computed once here — zlib is a mysql-lane link flag, never a connector
+    # configure flag.
+    toolchain = ndk / "build" / "cmake" / "android.toolchain.cmake"
+    ndk_triple = "x86_64-linux-android" if TARGET_ABI == "x86_64" else "aarch64-linux-android"
+    zlib = ndk / "toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib" / ndk_triple / "26/libz.so"
+    common = ["-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja}",
+              f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", f"-DANDROID_ABI={TARGET_ABI}",
+              "-DANDROID_PLATFORM=android-26", "-DCMAKE_BUILD_TYPE=Release",
+              "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
     connector = None
     if backend == "mysql":
         # The include dir / library path are needed at configure time even
@@ -6259,13 +6818,6 @@ def configure_and_build(force: bool, backend: str = "mysql", configure_only: boo
             if force or not cached_source_matches:
                 shutil.rmtree(CONNECTOR_BUILD, ignore_errors=True)
             CONNECTOR_BUILD.mkdir(parents=True, exist_ok=True)
-            toolchain = ndk / "build" / "cmake" / "android.toolchain.cmake"
-            ndk_triple = "x86_64-linux-android" if TARGET_ABI == "x86_64" else "aarch64-linux-android"
-            zlib = ndk / "toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib" / ndk_triple / "26/libz.so"
-            common = ["-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja}",
-                      f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", f"-DANDROID_ABI={TARGET_ABI}",
-                      "-DANDROID_PLATFORM=android-26", "-DCMAKE_BUILD_TYPE=Release",
-                      "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
             run([cmake, "-S", SOURCE, "-B", CONNECTOR_BUILD, *common,
                  "-DWITH_SSL=OPENSSL", f"-DOPENSSL_ROOT_DIR={deps}",
                  f"-DOPENSSL_INCLUDE_DIR={deps / 'include'}",
@@ -6292,7 +6844,7 @@ def configure_and_build(force: bool, backend: str = "mysql", configure_only: boo
         for marker_name, marker_blob in preserved_markers.items():
             (CMANGOS_BUILD / marker_name).write_bytes(marker_blob)
 
-    cmangos = NATIVE / "cmangos"
+    cmangos = NATIVE / ACTIVE_CORE_SUBMODULE.removeprefix("native/")
     CMANGOS_BUILD.mkdir(parents=True, exist_ok=True)
     llama_flags = []
     if TARGET_ABI == "arm64-v8a":
@@ -6303,13 +6855,6 @@ def configure_and_build(force: bool, backend: str = "mysql", configure_only: boo
             f"-DPOCKETREALM_LLAMA_PREBUILT={ROOT / 'native/llm/prebuilt/arm64-v8a'}",
             f"-DPOCKETREALM_LLAMA_INCLUDE={ROOT / 'native/llm/include'}",
         ]
-    toolchain = ndk / "build" / "cmake" / "android.toolchain.cmake"
-    ndk_triple = "x86_64-linux-android" if TARGET_ABI == "x86_64" else "aarch64-linux-android"
-    zlib = ndk / "toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib" / ndk_triple / "26/libz.so"
-    common = ["-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja}",
-              f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", f"-DANDROID_ABI={TARGET_ABI}",
-              "-DANDROID_PLATFORM=android-26", "-DCMAKE_BUILD_TYPE=Release",
-              "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
     # Fail-loud backend selection: the SQLITE cache variable is the real
     # switch (MySQL = else-default). The historical -DDO_MYSQL/-DDO_SQLITE
     # pair selected nothing and is refused at configure time.
@@ -6381,7 +6926,7 @@ def configure_and_build(force: bool, backend: str = "mysql", configure_only: boo
     marker.write_text(json.dumps({
         "backend": backend,
         "abi": TARGET_ABI,
-        "cmangos_commit": CMANGOS_COMMIT,
+        "cmangos_commit": ACTIVE_CMANGOS_COMMIT,
         "driver": "tools/build_o09_realm_runtime.py",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "configure_status_line": status_line,
@@ -6520,9 +7065,22 @@ def package_seed_transcripts(stage_root: Path) -> dict:
     import tempfile
     sys.path.insert(0, str(ROOT / "tools"))
     import seed_sqlite_from_manifest as seeder  # noqa: E402
-    baseline = json.loads(
-        (ROOT / "schemas" / "sqlite-seed-baseline.json")
-        .read_text(encoding="utf-8"))
+    # The baseline is flavor-resolved (flavor_layout is the naming schema of
+    # record): vanilla reads the historical unqualified baseline
+    # byte-for-byte, tbc/wotlk read their own per-flavor baselines. A
+    # per-flavor staging run against a missing baseline fails loud here —
+    # never silently verifying against the vanilla baseline (which pins a
+    # different DB corpus and would either diverge loudly at the digest
+    # check anyway or, worse, pass for an overlapping subset).
+    baseline_path = ROOT / flavor_layout.resolve(ACTIVE_FLAVOR).sqlite_seed_baseline()
+    if not baseline_path.is_file():
+        raise RuntimeError(
+            f"flavor {ACTIVE_FLAVOR!r} has no seed baseline at "
+            f"{baseline_path.relative_to(ROOT).as_posix()} - the per-flavor "
+            "baseline is written by the seed lane's deliberate --write-baseline "
+            "run (port plan S3/S4); refusing to stage transcripts against a "
+            "baseline that does not exist")
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
     with tempfile.TemporaryDirectory() as tmp:
         rc, summary = seeder.seed(Path(tmp) / "db", Path(tmp) / "tr",
                                   False, 0)
@@ -6620,16 +7178,15 @@ def stage(llvm: Path) -> dict:
     record = {
         "schema": 1, "built_at_utc": datetime.now(timezone.utc).isoformat(), "abi": TARGET_ABI,
         "min_api": 26, "elf_max_page_size": "0x4000", "playerbots": True,
-        "auction_house_bot": False, "cmangos_commit": CMANGOS_COMMIT,
-        "playerbots_commit": PLAYERBOTS_COMMIT,
+        "auction_house_bot": False, "cmangos_commit": ACTIVE_CMANGOS_COMMIT,
+        "playerbots_commit": ACTIVE_PLAYERBOTS_COMMIT,
         "database_backend": BACKEND,
-        # Record only the overlays actually applied to THIS build: registry
-        # entries may declare a "backends" filter (e.g. the sqlite-only
-        # connection hardening must not appear in a mysql lockfile's
-        # provenance).
+        # Record only the overlays actually applied to THIS build: the
+        # flavor-resolved set (expansion-neutral + the flavor's registered
+        # overlay set), backend-filtered. For vanilla this is exactly the
+        # pre-split list in the same order (byte-identical lockfile output).
         "cmangos_source_overlays": [
-            dict(entry) for entry in CMANGOS_OVERLAYS
-            if BACKEND in entry.get("backends", ("mysql", "sqlite"))],
+            dict(entry) for entry in overlays_for(ACTIVE_FLAVOR, BACKEND)],
         "playerbots_source_overlays": PLAYERBOTS_OVERLAYS,
         # Content pin of every native/patches/ file compiled into this
         # build: an edited patch file makes
@@ -6676,10 +7233,51 @@ def stage(llvm: Path) -> dict:
     return record
 
 
+def _lockfile_source_pins(flavor_id: str) -> tuple[str, str]:
+    """The (cmangos, playerbots) pins of record for a lockfile's flavor: the
+    driver constants for vanilla (select_flavor asserts they equal the
+    manifest) and the flavor manifest's registered pins for tbc/wotlk. The
+    warm-dir refresh reproduces the pins of record exactly as a build of
+    that lane would record them — a tbc/wotlk lockfile must never be
+    re-pinned with the vanilla constants (nor the reverse)."""
+    if flavor_id == "vanilla":
+        return CMANGOS_COMMIT, PLAYERBOTS_COMMIT
+    manifest = flavor_layout.load_flavor_manifest()
+    block = next((flavor for flavor in manifest.get("flavors", [])
+                  if isinstance(flavor, dict) and flavor.get("id") == flavor_id),
+                 None)
+
+    def _registered(group: dict | None) -> str | None:
+        if not isinstance(group, dict):
+            return None
+        commit = group.get("commit")
+        if not isinstance(commit, str) or not commit or group.get("status") == "unresolved":
+            return None
+        return commit
+
+    cmangos_commit = _registered(block.get("server_core") if block else None)
+    playerbots_commit = _registered(block.get("bots") if block else None)
+    if not cmangos_commit or not playerbots_commit:
+        raise RuntimeError(
+            f"cannot refresh a {flavor_id} realm-runtime lockfile: "
+            "schemas/flavor.json has no registered server_core/bots pins for "
+            "the flavor — register the fork pins before regenerating")
+    return cmangos_commit, playerbots_commit
+
+
 def write_lockfiles() -> list[str]:
     """Warm-dir lockfile regeneration (T0.3): refresh every committed
     realm-runtime lockfile's SOURCE-side pins (patches_content, the
     overlay registries, the submodule commits) without running a build.
+
+    Every committed schemas/realm-runtime-lockfile*.json is refreshed —
+    the android mysql/sqlite lanes, the win sqlite/mariadb lanes, and
+    their per-flavor variants — with each record's own flavor/backend
+    deciding the pins and the overlay set, so a tbc/wotlk lockfile keeps
+    its flavor's pins (every lane records overlays_for(flavor, backend) —
+    the same registration-checked derivation its writer records, with the
+    win mariadb lane's backend resolved onto the table's mysql family
+    key).
 
     What this mode is for: an overlay edit trips patches_content in every
     lane's lockfile at once, and the tripwire pin
@@ -6694,29 +7292,35 @@ def write_lockfiles() -> list[str]:
     be wrong (the recorded .so digests still correspond to the previous
     patch bytes until a rebuild lands)."""
     updated: list[str] = []
-    lanes = [
-        ("x86_64", "mysql", "schemas/realm-runtime-lockfile.json"),
-        ("x86_64", "sqlite", "schemas/realm-runtime-lockfile-sqlite.json"),
-        ("arm64-v8a", "mysql", "schemas/realm-runtime-lockfile-arm64-v8a.json"),
-        ("arm64-v8a", "sqlite", "schemas/realm-runtime-lockfile-arm64-v8a-sqlite.json"),
-    ]
-    for abi, backend, name in lanes:
-        path = ROOT / name
-        if not path.is_file():
-            continue
+    patches = patches_content_digests()
+    for path in sorted((ROOT / "schemas").glob("realm-runtime-lockfile*.json")):
+        name = path.relative_to(ROOT).as_posix()
         record = json.loads(path.read_text(encoding="utf-8"))
-        record["cmangos_commit"] = CMANGOS_COMMIT
-        record["playerbots_commit"] = PLAYERBOTS_COMMIT
+        backend = record.get("database_backend", "mysql")
+        # Flavor from the record's own field; the name fallback covers the
+        # android lanes' records (no flavor key — their writer never wrote
+        # one) via the naming schema's -{flavor} suffix.
+        flavor = record.get("flavor") or next(
+            (candidate for candidate in ("tbc", "wotlk")
+             if f"-{candidate}" in name), "vanilla")
+        cmangos_commit, playerbots_commit = _lockfile_source_pins(flavor)
+        record["cmangos_commit"] = cmangos_commit
+        record["playerbots_commit"] = playerbots_commit
+        # Every lane's writer records the flavor-resolved, registration-
+        # checked set (android stage() and build_win_realm_runtime.
+        # write_lockfile both derive overlays_for(flavor, backend), which
+        # resolves the win mariadb lane's backend onto the overlay table's
+        # mysql family key); an unregistered flavor's lockfile refreshes
+        # loud, never silently.
         record["cmangos_source_overlays"] = [
-            dict(entry) for entry in CMANGOS_OVERLAYS
-            if backend in entry.get("backends", ("mysql", "sqlite"))]
+            dict(entry) for entry in overlays_for(flavor, backend)]
         record["playerbots_source_overlays"] = PLAYERBOTS_OVERLAYS
-        record["patches_content"] = patches_content_digests()
+        record["patches_content"] = patches
         lock_bytes = (json.dumps(record, indent=2) + "\n").encode("utf-8")
         if path.read_bytes() != lock_bytes:
             path.write_bytes(lock_bytes)
             updated.append(name)
-        if backend == "sqlite":
+        if backend == "sqlite" and record.get("abi") in ("x86_64", "arm64-v8a"):
             # The SQLite lane's APK identity asset is BYTE-IDENTICAL to
             # the sibling lockfile by construction (Gradle asserts the
             # equality at packaging; loadAndVerifySqliteIdentity consumes
@@ -6725,28 +7329,11 @@ def write_lockfiles() -> list[str]:
             # -PsqliteProvider assembly fails on a stale asset. Artifact
             # pins inside remain the last full build's - the same
             # documented tradeoff as the lockfile itself.
-            asset = (NATIVE / f".build-o09-{abi}" / "realm-staging-sqlite" /
-                     "assets" / "database" / "provider-sqlite" /
-                     "BUILD_PROVENANCE.json")
+            asset = (ROOT / flavor_layout.resolve(flavor).o09_build_root(record["abi"]) /
+                     "realm-staging-sqlite" / "assets" / "database" /
+                     "provider-sqlite" / "BUILD_PROVENANCE.json")
             if asset.is_file() and asset.read_bytes() != lock_bytes:
                 asset.write_bytes(lock_bytes)
-    # The Windows sibling lane's lockfile carries the SAME source-side pins
-    # (same engine-fix set on both platforms); refresh them in lockstep so
-    # an overlay edit never leaves the win lane describing old sources.
-    win_path = ROOT / "schemas" / "realm-runtime-lockfile-sqlite-win.json"
-    if win_path.is_file():
-        record = json.loads(win_path.read_text(encoding="utf-8"))
-        record["cmangos_commit"] = CMANGOS_COMMIT
-        record["playerbots_commit"] = PLAYERBOTS_COMMIT
-        record["cmangos_source_overlays"] = [
-            dict(entry) for entry in CMANGOS_OVERLAYS
-            if "sqlite" in entry.get("backends", ("mysql", "sqlite"))]
-        record["playerbots_source_overlays"] = PLAYERBOTS_OVERLAYS
-        record["patches_content"] = patches_content_digests()
-        win_bytes = (json.dumps(record, indent=2) + "\n").encode("utf-8")
-        if win_path.read_bytes() != win_bytes:
-            win_path.write_bytes(win_bytes)
-            updated.append("schemas/realm-runtime-lockfile-sqlite-win.json")
     if not updated:
         print("lockfiles already current (no source-side pins changed)")
     else:
@@ -6761,6 +7348,11 @@ def write_lockfiles() -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--abi", choices=("x86_64", "arm64-v8a"), default="x86_64")
+    parser.add_argument("--flavor", default="vanilla",
+                        choices=tuple(flavor_layout.FLAVOR_IDS),
+                        help="game flavor to build (default vanilla; tbc/wotlk "
+                             "require their forks/pins registered — fail loud "
+                             "otherwise, port plan S1)")
     parser.add_argument("--backend", choices=("mysql", "sqlite"), default="mysql",
                         help="database backend: the SQLITE cache variable is the real "
                              "CMake switch (MySQL is the else-default). sqlite builds "
@@ -6783,6 +7375,11 @@ def main() -> int:
     if args.write_lockfiles:
         write_lockfiles()
         return 0
+    try:
+        select_flavor(args.flavor)
+    except flavor_layout.FlavorPinError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     select_abi(args.abi)
     global BACKEND
     BACKEND = args.backend
@@ -6792,19 +7389,21 @@ def main() -> int:
         prepare_connector_source()
     # Refuse to consume arbitrary working-tree edits.  Only after this clean
     # check succeeds is cleanup armed; a rejected dirty tree is never touched.
-    cmangos = NATIVE / "cmangos"
+    # The ACTIVE flavor's submodule is the tree this build overlays, restores,
+    # and drift-checks — never the vanilla one a --flavor run never touched.
+    cmangos = NATIVE / ACTIVE_CORE_SUBMODULE.removeprefix("native/")
     tracked_dirty = subprocess.run(["git", "diff", "--quiet"], cwd=cmangos).returncode != 0 or \
         subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cmangos).returncode != 0
     untracked = output(["git", "ls-files", "--others", "--exclude-standard"], cmangos)
     if tracked_dirty or untracked:
         raise RuntimeError(
-            "CMaNGOS submodule has unrecorded changes; clean it before "
-            "building. If a previous build was killed mid-run (its restore "
-            "was skipped), the overlaid files are still applied - restore "
-            "the tracked ones with: git -C native/cmangos checkout -- . "
+            f"CMaNGOS submodule ({ACTIVE_CORE_SUBMODULE}) has unrecorded changes; "
+            "clean it before building. If a previous build was killed mid-run "
+            "(its restore was skipped), the overlaid files are still applied - "
+            f"restore the tracked ones with: git -C {ACTIVE_CORE_SUBMODULE} checkout -- . "
             "(the backend-selection overlay touches the submodule ROOT "
             "CMakeLists.txt, not just src/) and remove the untracked "
-            "overlay file with: git -C native/cmangos clean -fd "
+            f"overlay file with: git -C {ACTIVE_CORE_SUBMODULE} clean -fd "
             "src/game/Chat/PocketRealmInteraction.cpp")
     cleanup_armed = True
     record = None

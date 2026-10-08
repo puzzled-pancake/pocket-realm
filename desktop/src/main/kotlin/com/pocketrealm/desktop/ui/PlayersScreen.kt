@@ -1,0 +1,500 @@
+package com.pocketrealm.desktop.ui
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import com.pocketrealm.desktop.DesktopAppModel
+import com.pocketrealm.supervisor.FriendInviteStore
+import com.pocketrealm.supervisor.FriendRosterJson
+import com.pocketrealm.supervisor.ProvisioningListener
+import com.pocketrealm.supervisor.ProvisioningListener.ListenerState.Failed as ListenerFailed
+import com.pocketrealm.supervisor.ProvisioningListener.ListenerState.Listening as ListenerListening
+import com.pocketrealm.server.ServerRuntimeContract
+import com.pocketrealm.supervisor.RuntimeMode
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
+import kotlinx.coroutines.launch
+
+/**
+ * The Players screen (design-remote-accounts §7): the full host management
+ * surface for remote friend accounts.
+ *
+ *  - Friend access card: the provisioning listener's live state (off /
+ *    listening on <addr:port> / failed to bind — the §6 exposure invariant:
+ *    invite affordances never render without it), the invite composer
+ *    (note + Generate; the code shows ONCE in a copyable dialog — the raw
+ *    token is never stored, §5), open invites with Revoke, and the
+ *    pending-request cards (requested username, source IP, note, age) with
+ *    Approve / Reject.
+ *  - Friends card: the roster — username, accountId, gmlevel, online, ban
+ *    state, last logon, failed attempts since that logon (the LIVE
+ *    failed_logins counter, labeled as such, §12) — with per-row gmlevel
+ *    (§10; level 3 labeled "full console" honestly), Ban (1h/24h/permanent
+ *    + reason) and Unban (§9), and the per-friend character list (§8).
+ *
+ * The host's OWN account stays the Home "Local account" card — Players
+ * never creates or edits the host identity (§7).
+ */
+@Composable
+@Suppress("LongMethod", "CyclomaticComplexMethod", "MagicNumber") // one reviewed surface, four cards
+fun PlayersScreen(model: DesktopAppModel) {
+    val settings by model.settings.collectAsState()
+    val invites by model.friendAccess.invites.collectAsState()
+    val listenerState by model.friendAccess.listenerState.collectAsState()
+    val status by model.friendAccess.status.collectAsState()
+    val freshToken by model.friendAccess.freshToken.collectAsState()
+    val snapshot by model.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    var note by remember { mutableStateOf("") }
+    var rosterReason by remember { mutableStateOf<String?>("loading") }
+    var roster by remember { mutableStateOf<List<FriendRosterJson.AccountRow>>(emptyList()) }
+    var expandedCharacters by remember { mutableStateOf<String?>(null) }
+    var characters by remember { mutableStateOf<List<FriendRosterJson.CharacterRow>>(emptyList()) }
+    var banTarget by remember { mutableStateOf<String?>(null) }
+
+    fun refreshRoster() {
+        scope.launch {
+            val read = model.friendAccess.roster()
+            rosterReason = read.reason
+            roster = read.accounts
+        }
+    }
+    LaunchedEffect(Unit) { refreshRoster() }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("Players", style = MaterialTheme.typography.headlineSmall)
+
+        // ---- Friend access: listener state + invites + pending requests ----
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Friend access", style = MaterialTheme.typography.titleMedium)
+                val listening = listenerState as? ListenerListening
+                val failed = listenerState as? ListenerFailed
+                Text(
+                    when {
+                        failed != null ->
+                            "Listener FAILED to bind: ${failed.reason} " +
+                                "(is something else using port ${ServerRuntimeContract.PROVISION_PORT}?)"
+                        listening != null ->
+                            "Listening on ${listening.address}:${listening.port}"
+                        settings.friendAccessEnabled ->
+                            "Off — the provisioning socket binds while a LAN-host realm with friend access is up."
+                        else ->
+                            "Off — enable it below; nothing listens while friend access is off."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "Friends with the Pocket Realm app join with an invite code; the password " +
+                        "they choose never leaves their device — they send a verifier, you approve it. " +
+                        "Their requests reach this host over your LAN only — a friend joining through " +
+                        "your tunnel cannot submit one; create their account on the Guests card.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (settings.runtimeMode == RuntimeMode.LAN_HOST) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Switch(
+                            checked = settings.friendAccessEnabled,
+                            onCheckedChange = { value ->
+                                model.updateSettings { it.copy(friendAccessEnabled = value) }
+                            },
+                        )
+                        Column {
+                            Text("Allow friend access while hosting", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Adds the provisioning port (${ServerRuntimeContract.PROVISION_PORT}) to the LAN " +
+                                    "posture at the next realm start; Windows Firewall may ask to allow it.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        "Set mode to Host on LAN (Settings → LAN play) to expose invites.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                HorizontalDivider()
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = { note = it.take(64) },
+                        label = { Text("Note (e.g. \"Dave\")") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        enabled = invites.count { it.state == FriendInviteStore.State.OPEN } <
+                            FriendInviteStore.MAX_OPEN_INVITES,
+                        onClick = { model.friendAccess.createInvite(note) },
+                    ) { Text("Invite") }
+                }
+                status?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall)
+                }
+
+                invites.filter { it.state == FriendInviteStore.State.SUBMITTED }.forEach { pending ->
+                    PendingRequestCard(
+                        row = pending,
+                        onApprove = {
+                            scope.launch {
+                                model.friendAccess.approveInvite(pending.inviteId)
+                                refreshRoster()
+                            }
+                        },
+                        onReject = {
+                            model.friendAccess.rejectInvite(pending.inviteId)
+                            refreshRoster()
+                        },
+                    )
+                }
+
+                invites.filter { it.state == FriendInviteStore.State.OPEN }.forEach { invite ->
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            invite.inviteId,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                invite.note.ifEmpty { "no note" } +
+                                    " — waiting for your friend to submit",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        OutlinedButton(onClick = { model.friendAccess.revokeInvite(invite.inviteId) }) {
+                            Text("Revoke")
+                        }
+                    }
+                }
+                val decided = invites.filter {
+                    it.state != FriendInviteStore.State.OPEN && it.state != FriendInviteStore.State.SUBMITTED
+                }
+                decided.take(RECENT_DECIDED_ROWS)
+                    .forEach { invite ->
+                        Text(
+                            "${invite.inviteId}: ${renderState(invite)}" +
+                                (invite.username?.let { " — $it" } ?: "") +
+                                (invite.accountId?.let { " (account $it)" } ?: ""),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+            }
+        }
+
+        // ---- Friends ----
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("Friends", style = MaterialTheme.typography.titleMedium)
+                    OutlinedButton(onClick = { refreshRoster() }) { Text("Refresh") }
+                }
+                rosterReason?.let { reason ->
+                    Text(
+                        "The realm must be up to read accounts" +
+                            (if (reason != "world-not-ready") " ($reason)" else "") + ".",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                roster.forEach { account ->
+                    FriendRowCard(
+                        account = account,
+                        charactersShown = expandedCharacters == account.username,
+                        characters = if (expandedCharacters == account.username) characters else emptyList(),
+                        onToggleCharacters = {
+                            if (expandedCharacters == account.username) {
+                                expandedCharacters = null
+                            } else {
+                                expandedCharacters = account.username
+                                scope.launch {
+                                    characters = model.friendAccess.characters(account.username).characters
+                                }
+                            }
+                        },
+                        onGmLevel = { level ->
+                            scope.launch {
+                                model.friendAccess.setGmLevel(account.username, level)
+                                refreshRoster()
+                            }
+                        },
+                        onBan = { banTarget = account.username },
+                        onUnban = {
+                            scope.launch {
+                                model.friendAccess.unban(account.username)
+                                refreshRoster()
+                            }
+                        },
+                    )
+                }
+            }
+        }
+
+        // ---- Audit tail (§12; no secrets ride these rows) ----
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Recent friend-access activity", style = MaterialTheme.typography.titleMedium)
+                val tail = model.friendAccess.auditTail().takeLast(10).reversed()
+                if (tail.isEmpty()) Text("Nothing yet.", style = MaterialTheme.typography.bodySmall)
+                tail.forEach { row ->
+                    Text(
+                        "${row.optLong("at")} ${row.optString("action")}" +
+                            row.optStringOrNull("inviteId")?.let { " $it" }.orEmpty() +
+                            row.optStringOrNull("username")?.let { " — $it" }.orEmpty() +
+                            " (${row.optString("outcome")})",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+    }
+
+    // The once-only invite code dialog (§5: the raw token is never stored).
+    freshToken?.let { (inviteId, token) ->
+        AlertDialog(
+            onDismissRequest = { model.friendAccess.dismissFreshToken() },
+            title = { Text("Invite $inviteId") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Give this code to your friend:")
+                    Text(token, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Shown only once — the app stores a hash, not the code. Your friend enters it " +
+                            "with your realm address " +
+                            "${snapshot.realmEndpoint.address}:${ServerRuntimeContract.PROVISION_PORT} — " +
+                            "reachable from your LAN only (the provisioning listener binds your LAN " +
+                            "address, never a tunnel address). A friend outside your LAN skips this " +
+                            "flow: create their account on the Guests card.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    Toolkit.getDefaultToolkit().systemClipboard
+                        .setContents(StringSelection("$inviteId $token"), null)
+                    model.friendAccess.dismissFreshToken()
+                }) { Text("Copy & close") }
+            },
+            dismissButton = {
+                TextButton(onClick = { model.friendAccess.dismissFreshToken() }) { Text("Close") }
+            },
+        )
+    }
+
+    banTarget?.let { username ->
+        BanDialog(
+            username = username,
+            onDismiss = { banTarget = null },
+            onBan = { duration, reason ->
+                banTarget = null
+                scope.launch {
+                    model.friendAccess.ban(username, duration, reason)
+                    refreshRoster()
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun PendingRequestCard(
+    row: FriendInviteStore.InviteRow,
+    onApprove: () -> Unit,
+    onReject: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // Plan §1 rule 7: peer addresses are NEVER displayed (the
+            // sourceIp stays in the audit trail, never on this surface).
+            Text(
+                "Request: ${row.username ?: "?"}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                row.note.ifEmpty { "no note" } + " — submitted " + renderAge(row.submittedAtMs),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            // §7's decision window, at the surface where the host acts on
+            // it: the invite expires 15 minutes after the friend submitted
+            // (SUBMISSION_WINDOW_MS), and a late Approve silently lands
+            // EXPIRED — say the deadline and, when it is computable, the
+            // time still left.
+            Text(
+                row.expiresAtMs?.let { expiresAtMs ->
+                    val minutesLeft = (expiresAtMs - System.currentTimeMillis()) / MINUTE_MS
+                    if (minutesLeft > 0) {
+                        "Decide within 15 minutes of submission — about $minutesLeft minute" +
+                            (if (minutesLeft == 1L) "" else "s") + " left."
+                    } else {
+                        "The 15-minute decision window has closed — approving now will not go through."
+                    }
+                } ?: "Decide within 15 minutes of submission.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onApprove) { Text("Approve") }
+                OutlinedButton(onClick = onReject) { Text("Reject") }
+            }
+        }
+    }
+}
+
+@Composable
+@Suppress("MagicNumber", "LongParameterList") // gm labels; one callback per row action (the RealmControlCard pattern)
+private fun FriendRowCard(
+    account: FriendRosterJson.AccountRow,
+    charactersShown: Boolean,
+    characters: List<FriendRosterJson.CharacterRow>,
+    onToggleCharacters: () -> Unit,
+    onGmLevel: (Int) -> Unit,
+    onBan: () -> Unit,
+    onUnban: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "${account.username} · account ${account.id} · " +
+                    (if (account.online) "online now" else "offline") + " · " +
+                    (if (account.banned) "BANNED" else "not banned"),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                "Last logon: " + account.lastLogon.ifEmpty { "never" } +
+                    account.lastLogonIp.takeIf { it.isNotEmpty() }?.let { " from $it" }.orEmpty() +
+                    " · failed attempts since then: ${account.failedLogins} (live counter, resets on logon)",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Permissions:", style = MaterialTheme.typography.bodySmall)
+                GM_LEVELS.forEach { (level, label) ->
+                    if (account.gmLevel == level) {
+                        Button(onClick = {}, enabled = false) { Text(label) }
+                    } else {
+                        OutlinedButton(onClick = { onGmLevel(level) }) { Text(label) }
+                    }
+                }
+            }
+            Text(
+                "Full console outranks these moderation tools — grant it only when you mean it.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onToggleCharacters) {
+                    Text(if (charactersShown) "Hide characters" else "Characters")
+                }
+                if (account.banned) {
+                    OutlinedButton(onClick = onUnban) { Text("Unban") }
+                } else {
+                    OutlinedButton(onClick = onBan) { Text("Ban…") }
+                }
+            }
+            if (charactersShown) {
+                if (characters.isEmpty()) {
+                    Text("No characters yet.", style = MaterialTheme.typography.bodySmall)
+                }
+                characters.forEach { character ->
+                    Text(
+                        "${character.name} — level ${character.level} " +
+                            "(race ${character.race}, class ${character.klass})",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BanDialog(
+    username: String,
+    onDismiss: () -> Unit,
+    onBan: (duration: String, reason: String) -> Unit,
+) {
+    var reason by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ban $username") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it.take(BAN_REASON_MAX_CHARS) },
+                    label = { Text("Reason (kept in the ban record)") },
+                    singleLine = true,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { onBan("1h", reason) }) { Text("1 hour") }
+                    TextButton(onClick = { onBan("1d", reason) }) { Text("24 hours") }
+                    TextButton(onClick = { onBan("0", reason) }) { Text("Permanent") }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+private fun renderState(invite: FriendInviteStore.InviteRow): String = when (invite.state) {
+    FriendInviteStore.State.PROVISIONED -> "provisioned"
+    FriendInviteStore.State.REJECTED -> "rejected"
+    FriendInviteStore.State.EXPIRED -> "expired"
+    FriendInviteStore.State.BURNED -> "burned"
+    else -> invite.state.name.lowercase()
+}
+
+private const val MINUTE_MS = 60_000L
+private const val MINUTES_PER_HOUR = 60L
+
+private fun renderAge(submittedAtMs: Long?): String {
+    if (submittedAtMs == null) return "just now"
+    val minutes = (System.currentTimeMillis() - submittedAtMs) / MINUTE_MS
+    return when {
+        minutes < 1 -> "just now"
+        minutes == 1L -> "1 minute ago"
+        minutes < MINUTES_PER_HOUR -> "$minutes minutes ago"
+        else -> "${minutes / MINUTES_PER_HOUR}h ${(minutes % MINUTES_PER_HOUR).toInt()}m ago"
+    }
+}
+
+private fun org.json.JSONObject.optStringOrNull(key: String): String? =
+    if (has(key) && !isNull(key)) optString(key).ifEmpty { null } else null
+
+// The §10 levels map to cmangos security classes; 3 is labeled honestly.
+@Suppress("MagicNumber") // the gm band is the data
+private val GM_LEVELS = listOf(0 to "Player", 1 to "Helper", 2 to "Moderator", 3 to "Full console")
+private const val RECENT_DECIDED_ROWS = 6
+private const val BAN_REASON_MAX_CHARS = 96

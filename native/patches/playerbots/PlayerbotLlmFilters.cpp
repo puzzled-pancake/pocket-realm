@@ -3,6 +3,7 @@
 #include "PlayerbotLlmBridge.h"
 #include "PlayerbotLlmJson.h"
 #include "PlayerbotLlmTruthCore.h"
+#include "Config/Config.h"
 #include "playerbot/PlayerbotAIConfig.h"
 
 #include <algorithm>
@@ -29,6 +30,29 @@
 #endif
 
 namespace {
+
+// Design §5: the production stage reader — the ONE consumer of the
+// PocketRealm.TimeframeStage conf key. The world conf is generated at
+// world start and pinned for the world's lifetime (ServerRuntimeFiles
+// writes `<stage-or-default>`, never an empty value), so the stage cannot
+// legitimately change mid-session; reading per era surface is live but
+// stable. An unset key resolves to "" inside the truth core, which falls
+// open to the default (final-patch) class set — the pre-control behavior.
+std::string ReadPocketRealmTimeframeStage()
+{
+    return sConfig.GetStringDefault("PocketRealm.TimeframeStage", "");
+}
+
+// Installed at static init, long before the first era surface runs (the
+// first LLM turn). The slot's own static is function-local in the pure
+// core, so no cross-TU init-order hazard exists.
+struct InstallPocketRealmEraStage
+{
+    InstallPocketRealmEraStage()
+    {
+        pocketllm::TimeframeStageProviderSlot() = &ReadPocketRealmTimeframeStage;
+    }
+} const s_installPocketRealmEraStage;
 
 std::mutex& FilterMutex()
 {
@@ -237,7 +261,17 @@ std::string ResolveEraBiasJson()
     {
         if (i)
             json += ",";
-        json += std::to_string(ids[i]) + ":-50"; // -20/-50 class
+        // LVF-bots-llm-009: QUOTED keys + the SPACE after ':' are both
+        // load-bearing. The old splice emitted INVALID JSON with unquoted
+        // keys ({"1179":-50} — captured verbatim from a live dispatch,
+        // tmp/lvf009-repro/proxy-capture.bin conn=9), and the pinned
+        // llama-server fails fast (0xC0000409, no WER event) on that
+        // request — 22+ reproductions (4/4 in-app row runs, 18/18
+        // host-side with the shipped argv). The quoted+spaced object
+        // ({"1179": -50}) is semantically identical and provably survives
+        // (tmp/lvf009-repro/{micro,sizepin,split}.py: clean 400/200,
+        // process alive).
+        json += "\"" + std::to_string(ids[i]) + "\": -50"; // -20/-50 class
     }
     json += "}";
     return json;
@@ -245,9 +279,8 @@ std::string ResolveEraBiasJson()
 
 } // namespace
 
-std::string PlayerbotLlmFilters::HygienePass(std::string const& cleaned, uint32 botGuid)
+std::string PlayerbotLlmFilters::HygienePass(std::string const& cleaned)
 {
-    (void)botGuid;
     // Thinking traces die FIRST: a leaked <think> block can carry
     // markers/markdown that must die with it, not survive the later legs
     std::string out = pocketllm::StripThinking(cleaned);

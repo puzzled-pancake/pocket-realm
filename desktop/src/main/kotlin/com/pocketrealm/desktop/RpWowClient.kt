@@ -1,5 +1,7 @@
 package com.pocketrealm.desktop
 
+import com.pocketrealm.client.ClientFlavors
+import com.pocketrealm.server.ServerRuntimeFiles
 import java.io.InputStream
 import java.io.OutputStream
 import java.math.BigInteger
@@ -15,7 +17,7 @@ import kotlin.concurrent.thread
  * never provide on its own.
  *
  * Wire facts (ported from native/cmangos/src/game/Server/WorldSocket.cpp
- * + AuthCrypt.cpp, the pinned 5875 lane):
+ * + AuthCrypt.cpp, the pinned vanilla lane):
  *  - server opens with SMSG_AUTH_CHALLENGE (raw 4-byte header + u32 seed);
  *  - CMSG_AUTH_SESSION: build u32, unk u32, account zstr, client-seed u32,
  *    SHA1(account ‖ le32(0) ‖ le32(clientSeed) ‖ le32(serverSeed) ‖ K) —
@@ -37,13 +39,14 @@ internal object RpWowClient {
     private const val SMSG_NEW_WORLD = 0x03E
     private const val CMSG_PING = 0x1DC
     private const val MSG_MOVE_WORLDPORT_ACK = 0x0DC
-    private const val SMSG_AUTH_CHALLENGE = 0x1EC
+    // SMSG_AUTH_CHALLENGE resolves through the registry's ONE shared
+    // constant (same value in all three branches) — the check in auth()
+    // fails loud on any other, per ClientFlavors.AUTH_CHALLENGE_OPCODE's
+    // contract.
     private const val CMSG_AUTH_SESSION = 0x1ED
     private const val SMSG_AUTH_RESPONSE = 0x1EE
     private const val SMSG_CHAR_ENUM = 0x03B
     private const val SMSG_CHAR_CREATE = 0x03A
-
-    private const val BUILD_5875 = 5875
     private const val CHAT_TYPE_SAY = 0
     private const val CHAT_TYPE_PARTY = 1
     private const val CHAT_TYPE_YELL = 5
@@ -61,6 +64,91 @@ internal object RpWowClient {
      * capture): the 1.12 wire layout carries the sender as a guid, not a
      * name - the harness resolves guids against the bot list itself. */
     internal data class ChatLine(val type: Int, val senderGuid: Long, val text: String)
+
+    /** One parsed SMSG_CHAR_ENUM record - Player::BuildEnumData's wire
+     * row. guid + name drive the harness ops; race/class/gender/level/
+     * zone/map are surfaced so the decoder test can pin them against the
+     * seeded rows, while the remaining tail fields only pin the record's
+     * stride. */
+    internal data class CharEnumRecord(
+        val guid: Long,
+        val name: String,
+        val race: Int,
+        val classId: Int,
+        val gender: Int,
+        val level: Int,
+        val zone: Int,
+        val mapId: Int,
+    )
+
+    // The enum tail's equipment block: BuildEnumData loops
+    // INVENTORY_SLOT_BAG_START + 1 times (Player.h:585 -> 20 slots),
+    // writing a display-id u32 + inventory-type u8 per slot
+    // (Player.cpp:1792-1806).
+    private const val ENUM_EQUIPMENT_SLOTS = 20
+
+    /** Decode a whole SMSG_CHAR_ENUM payload: u8 count, then one record
+     * per character in exactly the layout Player::BuildEnumData writes
+     * (native/cmangos/src/game/Entities/Player.cpp:1724-1806): guid u64,
+     * name zstr, then the fixed typed tail - race/class/gender, the
+     * playerBytes looks, facial hair, level, zone/map, position x/y/z,
+     * guild, char flags, first-login, the pet block (zeros when petless),
+     * and the equipment slots. Each record is consumed field by field so
+     * record N+1 is read from where record N actually ENDS - the old
+     * fixed 60-byte tail skip covered neither the pet block nor the
+     * equipment slots and misaligned every record after the first on
+     * multi-character accounts (LV-bot-actors-04: RPTEST's record 2
+     * decoded as guid 10875269510332416 / name "" instead of 58/Davos). */
+    internal fun parseCharEnum(payload: ByteArray): List<CharEnumRecord> {
+        check(payload.isNotEmpty()) { "empty CHAR_ENUM payload" }
+        var o = 0
+        val count = payload[o].toInt() and 0xFF; o += 1
+        val records = mutableListOf<CharEnumRecord>()
+        repeat(count) { index ->
+            if (o + 8 > payload.size) {
+                error("CHAR_ENUM record $index truncated before guid (offset $o of ${payload.size})")
+            }
+            var guid = 0L
+            for (b in 0 until 8) guid = guid or ((payload[o + b].toLong() and 0xFF) shl (8 * b))
+            o += 8
+            var nameEnd = o
+            while (nameEnd < payload.size && payload[nameEnd] != 0.toByte()) nameEnd++
+            if (nameEnd >= payload.size) error("CHAR_ENUM record $index (guid $guid): unterminated name")
+            val name = String(payload, o, nameEnd - o, Charsets.US_ASCII)
+            o = nameEnd + 1
+            // the fixed tail, walked in the writer's order; the comment on
+            // each line is the Player.cpp line it mirrors.
+            val race = payload[o].toInt() and 0xFF; o += 1              // :1726
+            val classId = payload[o].toInt() and 0xFF; o += 1           // :1727
+            val gender = payload[o].toInt() and 0xFF; o += 1            // :1728
+            o += 4 // playerBytes: skin, face, hair style, hair color   // :1730-1734
+            o += 1 // playerBytes2: facial hair                         // :1736-1737
+            val level = payload[o].toInt() and 0xFF; o += 1             // :1739
+            val zone = readLe32(payload, o).toInt(); o += 4             // :1740
+            val mapId = readLe32(payload, o).toInt(); o += 4            // :1741
+            o += 12 // position x/y/z f32                               // :1743-1745
+            o += 4 // guild id                                          // :1747
+            o += 4 // character flags                                   // :1761
+            o += 1 // first login                                       // :1764
+            o += 12 // pet display id, level, family (zeros if petless) // :1785-1787
+            o += ENUM_EQUIPMENT_SLOTS * 5 // display u32 + invType u8   // :1792-1806
+            if (o > payload.size) {
+                error("CHAR_ENUM record $index ('$name', guid $guid): tail truncated (ends at $o of ${payload.size})")
+            }
+            records.add(CharEnumRecord(guid, name, race, classId, gender, level, zone, mapId))
+        }
+        return records
+    }
+
+    private fun readLe32(p: ByteArray, off: Int): Long =
+        ((p[off].toLong() and 0xFF)) or
+        ((p[off + 1].toLong() and 0xFF) shl 8) or
+        ((p[off + 2].toLong() and 0xFF) shl 16) or
+        ((p[off + 3].toLong() and 0xFF) shl 24)
+
+    private fun readLe64(p: ByteArray, off: Int): Long =
+        (readLe32(p, off) and 0xFFFFFFFFL) or
+        ((readLe32(p, off + 4) and 0xFFFFFFFFL) shl 32)
 
     /** The auth + header crypt, one instance per world connection. */
     private class Crypt(keyBytes: ByteArray) {
@@ -133,7 +221,9 @@ internal object RpWowClient {
             val header = readRawExactly(4)
             val size = ((header[0].toInt() and 0xFF) shl 8) or (header[1].toInt() and 0xFF)
             val cmd = (header[2].toInt() and 0xFF) or ((header[3].toInt() and 0xFF) shl 8)
-            check(cmd == SMSG_AUTH_CHALLENGE) { "expected AUTH_CHALLENGE, got 0x${cmd.toString(16)}" }
+            check(cmd == ClientFlavors.AUTH_CHALLENGE_OPCODE) {
+                "expected AUTH_CHALLENGE, got 0x${cmd.toString(16)}"
+            }
             val seedBytes = readRawExactly(size - 2)
             val serverSeed = (seedBytes[0].toInt() and 0xFF) or
                 ((seedBytes[1].toInt() and 0xFF) shl 8) or
@@ -165,7 +255,9 @@ internal object RpWowClient {
             )
             val body = ByteArray(8 + name.size + 1 + 4 + 20 + addonBlock.size)
             var o = 0
-            o = writeLe32(body, o, BUILD_5875)
+            // DESK-94: the AUTH_SESSION build rides the one qualified
+            // flavor the in-process server lane runs, never a constant.
+            o = writeLe32(body, o, ServerRuntimeFiles.serverFlavor().build)
             o = writeLe32(body, o, 0)
             System.arraycopy(name, 0, body, o, name.size); o += name.size
             body[o++] = 0
@@ -201,33 +293,15 @@ internal object RpWowClient {
             return response.second[0].toInt() and 0xFF
         }
 
-        /** CMSG_CHAR_ENUM -> [(guid, name)]; parses the first record of
-         * each enum row (guid + name) — a harness account has few chars. */
+        /** CMSG_CHAR_ENUM -> [(guid, name)]; the payload is decoded per
+         * the server's per-record layout (see [parseCharEnum]) so every
+         * record of a multi-character account lands on its own row. */
         fun charEnum(): List<Pair<Long, String>> {
             inbound.clear()
             sendPacket(CMSG_CHAR_ENUM, ByteArray(0))
             val packet = waitFor(SMSG_CHAR_ENUM, 300_000)
                 ?: error("no CHAR_ENUM")
-            val payload = packet.second
-            var o = 0
-            val count = payload[o].toInt() and 0xFF; o += 1
-            val chars = mutableListOf<Pair<Long, String>>()
-            for (i in 0 until count) {
-                var guid = 0L
-                for (b in 0 until 8) guid = guid or ((payload[o + b].toLong() and 0xFF) shl (8 * b))
-                o += 8
-                var nameEnd = o
-                while (nameEnd < payload.size && payload[nameEnd] != 0.toByte()) nameEnd++
-                if (nameEnd >= payload.size) break
-                val name = String(payload, o, nameEnd - o, Charsets.US_ASCII)
-                o = nameEnd + 1
-                chars.add(guid to name)
-                // the remaining per-record fields are skipped wholesale:
-                // the harness only needs guid + name, and its accounts
-                // hold at most a couple of characters
-                o += 60
-            }
-            return chars
+            return parseCharEnum(packet.second).map { it.guid to it.name }
         }
 
         /** CMSG_CHAR_CREATE; returns the SMSG_CHAR_CREATE result byte
@@ -487,17 +561,7 @@ internal object RpWowClient {
             return data
         }
 
-        private fun readLe32(p: ByteArray, off: Int): Long =
-            ((p[off].toLong() and 0xFF)) or
-            ((p[off + 1].toLong() and 0xFF) shl 8) or
-            ((p[off + 2].toLong() and 0xFF) shl 16) or
-            ((p[off + 3].toLong() and 0xFF) shl 24)
-
-        private fun readLe64(p: ByteArray, off: Int): Long =
-            (readLe32(p, off) and 0xFFFFFFFFL) or
-            ((readLe32(p, off + 4) and 0xFFFFFFFFL) shl 32)
-
-        private fun le32(value: Int): ByteArray = byteArrayOf(
+    private fun le32(value: Int): ByteArray = byteArrayOf(
             (value and 0xFF).toByte(),
             ((value shr 8) and 0xFF).toByte(),
             ((value shr 16) and 0xFF).toByte(),

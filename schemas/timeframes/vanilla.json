@@ -1,0 +1,481 @@
+{
+  "schema": 1,
+  "flavor": "vanilla",
+  "default_stage": "vanilla-1.12.1",
+  "gating_model": {
+    "client_scope": "The client patch is FIXED per flavor. Only world CONTENT is gated \u2014 never the binary, DBCs, maps, vmaps, mmaps, or the client's own UI (design \u00a70). Default = the flavor's final patch, so existing worlds are unaffected.",
+    "seed": "One pinned seed per flavor (the flavor's final-patch state, protected by the sqlite-seed-baseline hash chain). Per-stage seeds are rejected; the stage delta is a reversible flag-set layer over the seeded datadir.",
+    "mechanism": "game_event active windows + availability flags: per-stage reversible overlay SQL (flag-set statements only, never DELETE) over the world DB, plus stage-marker game_event rows whose CONDITION_ACTIVE_GAME_EVENT conditions demote vendor/loot/quest/entry rows \u2014 every mechanism shares one activation story (design \u00a72/\u00a73). Applied at world start when the active stage differs from the applied one.",
+    "conf_key": "PocketRealm.TimeframeStage",
+    "status": "v1 = the gating framework (stage registry, settings knobs, conf emission, era-policy linkage) with EMPTY measured id sets; curated per-stage sets land only with the measured DB pins (design \u00a79.2), never before."
+  },
+  "stages": [
+    {
+      "id": "vanilla-1.1",
+      "order": 0,
+      "title": "Patch 1.1",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design \u00a79.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-s4-pin (intra-flavor term deltas are curated at each DB pin \u2014 design \u00a75: illustrative, not asserted as data)"
+      }
+    },
+    {
+      "id": "vanilla-1.2",
+      "order": 1,
+      "title": "Patch 1.2",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design \u00a79.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-s4-pin (intra-flavor term deltas are curated at each DB pin \u2014 design \u00a75: illustrative, not asserted as data)"
+      }
+    },
+    {
+      "id": "vanilla-1.3",
+      "order": 2,
+      "title": "Patch 1.3",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design \u00a79.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-s4-pin (intra-flavor term deltas are curated at each DB pin \u2014 design \u00a75: illustrative, not asserted as data)"
+      }
+    },
+    {
+      "id": "vanilla-1.4",
+      "order": 3,
+      "title": "Patch 1.4",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design \u00a79.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-s4-pin (intra-flavor term deltas are curated at each DB pin \u2014 design \u00a75: illustrative, not asserted as data)"
+      }
+    },
+    {
+      "id": "vanilla-1.5",
+      "order": 4,
+      "title": "Patch 1.5",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design \u00a79.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-s4-pin (intra-flavor term deltas are curated at each DB pin \u2014 design \u00a75: illustrative, not asserted as data)"
+      }
+    },
+    {
+      "id": "vanilla-1.6",
+      "order": 5,
+      "title": "Patch 1.6",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design \u00a79.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-s4-pin (intra-flavor term deltas are curated at each DB pin \u2014 design \u00a75: illustrative, not asserted as data)"
+      }
+    },
+    {
+      "id": "vanilla-1.7",
+      "order": 6,
+      "title": "Patch 1.7",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design \u00a79.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-s4-pin (intra-flavor term deltas are curated at each DB pin \u2014 design \u00a75: illustrative, not asserted as data)"
+      }
+    },
+    {
+      "id": "vanilla-1.8",
+      "order": 7,
+      "title": "Patch 1.8",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design \u00a79.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-s4-pin (intra-flavor term deltas are curated at each DB pin \u2014 design \u00a75: illustrative, not asserted as data)"
+      }
+    },
+    {
+      "id": "vanilla-1.9",
+      "order": 8,
+      "title": "Patch 1.9",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design \u00a79.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-s4-pin (intra-flavor term deltas are curated at each DB pin \u2014 design \u00a75: illustrative, not asserted as data)"
+      }
+    },
+    {
+      "id": "vanilla-1.10",
+      "order": 9,
+      "title": "Patch 1.10",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design \u00a79.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-s4-pin (intra-flavor term deltas are curated at each DB pin \u2014 design \u00a75: illustrative, not asserted as data)"
+      }
+    },
+    {
+      "id": "vanilla-1.11",
+      "order": 10,
+      "title": "Patch 1.11",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design \u00a79.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-s4-pin (intra-flavor term deltas are curated at each DB pin \u2014 design \u00a75: illustrative, not asserted as data)"
+      }
+    },
+    {
+      "id": "vanilla-1.12.1",
+      "order": 11,
+      "title": "Patch 1.12.1 \u2014 current release content",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design \u00a79.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "grounded_baseline": {
+          "always_ban_terms": [
+            "shattrath",
+            "acherus"
+          ],
+          "sense_phrases": [
+            [
+              "flying mount",
+              false
+            ],
+            [
+              "flying mounts",
+              false
+            ],
+            [
+              "portal is open",
+              true
+            ],
+            [
+              "portals are open",
+              true
+            ],
+            [
+              "portal has opened",
+              true
+            ],
+            [
+              "portals have opened",
+              true
+            ],
+            [
+              "gilneas opened",
+              true
+            ],
+            [
+              "gilneas is open",
+              true
+            ],
+            [
+              "gilneas has opened",
+              true
+            ],
+            [
+              "playable worgen",
+              false
+            ],
+            [
+              "dalaran floats",
+              false
+            ],
+            [
+              "sewers of dalaran",
+              false
+            ],
+            [
+              "dalaran's sewers",
+              false
+            ],
+            [
+              "ebon blade",
+              false
+            ],
+            [
+              "wrath of the lich king",
+              false
+            ],
+            [
+              "mists of pandaria",
+              false
+            ],
+            [
+              "warlords of draenor",
+              false
+            ],
+            [
+              "zereth mortis",
+              false
+            ],
+            [
+              "korthia",
+              false
+            ],
+            [
+              "revendreth",
+              false
+            ],
+            [
+              "maldraxxus",
+              false
+            ],
+            [
+              "ardenweald",
+              false
+            ],
+            [
+              "nazjatar",
+              false
+            ],
+            [
+              "hellfire peninsula",
+              false
+            ],
+            [
+              "zangarmarsh",
+              false
+            ],
+            [
+              "terokkar forest",
+              false
+            ],
+            [
+              "blade's edge",
+              false
+            ],
+            [
+              "netherstorm",
+              false
+            ],
+            [
+              "shadowmoon valley",
+              false
+            ]
+          ],
+          "never_ban_discipline": " Round-4 R5-4-1 prune (mirrors final_stage_era_baseline): the corpus-proven vanilla-legitimate terms are NEVER banned for vanilla."
+        },
+        "source": "native/patches/playerbots/PlayerbotLlmTruthCore.h EraAlwaysBanTerms / EraSensePhrases (verbatim; the pinned cmangos tree ce83805d). vanilla-1.12.1 = today's lists unchanged."
+      }
+    }
+  ],
+  "final_stage_era_baseline": {
+    "stage": "vanilla-1.12.1",
+    "always_ban_terms": [
+      "shattrath",
+      "acherus"
+    ],
+    "sense_phrases": [
+      [
+        "flying mount",
+        false
+      ],
+      [
+        "flying mounts",
+        false
+      ],
+      [
+        "portal is open",
+        true
+      ],
+      [
+        "portals are open",
+        true
+      ],
+      [
+        "portal has opened",
+        true
+      ],
+      [
+        "portals have opened",
+        true
+      ],
+      [
+        "gilneas opened",
+        true
+      ],
+      [
+        "gilneas is open",
+        true
+      ],
+      [
+        "gilneas has opened",
+        true
+      ],
+      [
+        "playable worgen",
+        false
+      ],
+      [
+        "dalaran floats",
+        false
+      ],
+      [
+        "sewers of dalaran",
+        false
+      ],
+      [
+        "dalaran's sewers",
+        false
+      ],
+      [
+        "ebon blade",
+        false
+      ],
+      [
+        "wrath of the lich king",
+        false
+      ],
+      [
+        "mists of pandaria",
+        false
+      ],
+      [
+        "warlords of draenor",
+        false
+      ],
+      [
+        "zereth mortis",
+        false
+      ],
+      [
+        "korthia",
+        false
+      ],
+      [
+        "revendreth",
+        false
+      ],
+      [
+        "maldraxxus",
+        false
+      ],
+      [
+        "ardenweald",
+        false
+      ],
+      [
+        "nazjatar",
+        false
+      ],
+      [
+        "hellfire peninsula",
+        false
+      ],
+      [
+        "zangarmarsh",
+        false
+      ],
+      [
+        "terokkar forest",
+        false
+      ],
+      [
+        "blade's edge",
+        false
+      ],
+      [
+        "netherstorm",
+        false
+      ],
+      [
+        "shadowmoon valley",
+        false
+      ]
+    ],
+    "source": "native/patches/playerbots/PlayerbotLlmTruthCore.h EraAlwaysBanTerms / EraSensePhrases (verbatim)",
+    "never_ban_discipline": "Context-allow words (northrend, outland, dalaran, lich king, naxxramas, kel'thuzad, blood elf, wrath, legion, death knight, worgen, ...) collide with earlier legitimate vocabulary and are NEVER banned; only full later-era senses are. Round-4 R5-4-1 prune: draenei/pandaren (always-ban) and argus/zandalar/kul tiras/broken isles/burning crusade (sense needles) are corpus-proven vanilla-legitimate (whole-word enUS hits in the shipped ClassicDB_1_12_1 dump: broadcast_text/npc_text/quest templates) and are NEVER banned for vanilla; W3.1's corpus-driven curation owns the remaining lists."
+  }
+}

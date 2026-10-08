@@ -20,7 +20,7 @@ class PocketRealmNavigationTest {
     }
 
     @Test fun topBarStatusSummarizesEveryRealmState() {
-        assertEquals("Realm stopped", realmStatusBadge(RealmState.Idle))
+        assertEquals("Realm stopped", realmStatusBadge(RealmState.Idle()))
         assertEquals("Starting…", realmStatusBadge(RealmState.Starting(attempt = 2)))
         assertEquals("Realm online", realmStatusBadge(RealmState.Running(0L)))
         assertEquals("Saving…", realmStatusBadge(RealmState.Saving(SaveReason.USER_SAVE_EXIT)))

@@ -8,11 +8,12 @@ import time
 import zlib
 from pathlib import Path
 
-REPO = Path("C:/pocket_realm_complete")
+REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
+import common  # noqa: E402
 from rp_harness.desktop_host import DesktopHost  # noqa: E402
 
-DB = Path(__import__("os").environ["LOCALAPPDATA"]) / "PocketRealm" / "database" / "sqlite-datadir" / "classicrealmd.sqlite3"
+DB = common.product_data_root() / "database" / "sqlite-datadir" / "classicrealmd.sqlite3"
 
 SMSG_AUTH_CHALLENGE = 0x1EC
 CMSG_AUTH_SESSION = 0x1ED

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve module!RVA frames from %LOCALAPPDATA%\\PocketRealm\\crash-trace.txt
+"""Resolve module!RVA frames from the product data root\\crash-trace.txt
 against the pocket_world_runtime PDB (offline dbghelp symbolization).
 
 Usage: python tools/symbolize_crash_trace.py [trace-path]
@@ -11,9 +11,14 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-DLL = REPO / "native" / ".build-win-x86_64" / "pocket-runtime-build" / "pocket_world_runtime.dll"
+sys.path.insert(0, str(REPO / "tools"))
+import common  # noqa: E402
+# The shipped app's world runtime is the MARIADB lane's build (the backend
+# the desktop packages), so the DLL/PDB pair must come from that lane's own
+# -mariadb build root — RVAs from a different lane's build never resolve.
+DLL = REPO / "native" / ".build-win-x86_64-mariadb" / "pocket-runtime-build" / "pocket_world_runtime.dll"
 PDB_DIR = str(DLL.parent)
-DEFAULT_TRACE = Path(os.environ["LOCALAPPDATA"]) / "PocketRealm" / "crash-trace.txt"
+DEFAULT_TRACE = common.product_data_root() / "crash-trace.txt"
 
 PROCESS_CALLBACKS_ENABLED = 0x80000000
 SYMOPT_UNDNAME = 0x2

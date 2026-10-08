@@ -6,7 +6,8 @@ import os
 import sqlite3
 from pathlib import Path
 
-root = Path(os.environ["LOCALAPPDATA"]) / "PocketRealm" / "database" / "sqlite-datadir"
+import common as _common  # local sibling import
+root = _common.product_data_root() / "database" / "sqlite-datadir"
 auth = sqlite3.connect(str(root / "classicrealmd.sqlite3"))
 acct = auth.execute("SELECT id FROM account WHERE username='RPTEST'").fetchone()[0]
 auth.close()

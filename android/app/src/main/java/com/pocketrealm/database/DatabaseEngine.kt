@@ -6,9 +6,15 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteStatement
 import android.os.Build
 import android.os.Process
+import com.pocketrealm.client.ClientFlavors
+import com.pocketrealm.server.ServerRuntimeContract
+import com.pocketrealm.storage.Settings
 import com.pocketrealm.storage.StorageRoots
+import com.pocketrealm.supervisor.AdvertisedAddress
 import com.pocketrealm.supervisor.RealmEndpoint
 import com.pocketrealm.wine.WineSpikeNative
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -57,7 +63,14 @@ internal class DatabaseEngine(private val context: Context) {
     private val dirtyRecord = File(roots.databaseRoot, "recovery.json")
     private val secretFile = File(roots.databaseRoot, "secrets.json")
     private val configFile = File(runDir, "my.cnf")
-    private val snapshotStore = DatabaseSnapshotStore(roots.databaseSnapshots)
+    // GAP-3 (owner census UIUX-3): the snapshot compatibility gate resolves
+    // the active lane from the PERSISTED Home-switcher pick — this
+    // :database process never sees the UI process's in-memory ActiveFlavor
+    // selection, so the multi-process settings store is the one selection
+    // the gate can resolve (the :supervisor realmlist projection's twin).
+    private val snapshotStore = DatabaseSnapshotStore(roots.databaseSnapshots) {
+        runBlocking { Settings(context).flow.first().selectedFlavorOrNull() }
+    }
     private val restoreRecord = File(roots.databaseRoot, "restore-transaction.json")
     private val databaseTransaction = File(roots.databaseRoot, "database-transaction.json")
     private val initializedMarker = File(roots.databaseRoot, "initialized.json")
@@ -198,17 +211,45 @@ internal class DatabaseEngine(private val context: Context) {
         requireProvider()
         recoverIncompleteInitialization()
         if (initialized()) {
-            return when (DatabaseDurableState.initializedDisposition(
+            when (DatabaseDurableState.initializedDisposition(
                 databaseTransaction.takeIf(File::isFile)?.readText(),
                 generationMarker.takeIf(File::isFile)?.readText(),
                 providerIdentity,
             )) {
-                DatabaseDurableState.InitializedDisposition.IDEMPOTENT ->
-                    JSONObject().put("ok", true).put("initialized", true).put("idempotent", true)
-                DatabaseDurableState.InitializedDisposition.DEFER_MIGRATION ->
-                    JSONObject().put("ok", true).put("initialized", true).put("idempotent", true)
-                        .put("migrationTransactionPending", true)
-                        .put("deferredTo", "applyPinnedMigrations")
+                DatabaseDurableState.InitializedDisposition.IDEMPOTENT -> {
+                    // The durable generation already exists, but initialize may
+                    // only answer ok by RE-PROVING its least-privilege contract
+                    // on the live daemon. The former key-less idempotent ok
+                    // (LVF-server-db-015: a leftover initialized datadir
+                    // answered in ~134 ms with the daemon never booting) is
+                    // gone - the sealed generation boots through the ordinary
+                    // start gates (refusing dirty or transaction-pending
+                    // state), the first-run probes re-run for real, and the
+                    // final stop() re-seals the generation clean.
+                    try {
+                        startDaemon()
+                        verifyLeastPrivilegePrivileges(readSecrets())
+                        stop()
+                    } catch (failure: Throwable) {
+                        if (state != State.STOPPED && state != State.FAILED || daemonThread?.isAlive == true) {
+                            runCatching {
+                                cancelAndRequireDaemonDrained("idempotent initialize re-verification failure")
+                            }
+                        }
+                        throw failure
+                    }
+                    return DatabaseDurableState.verifiedMariaDbInitializeAnswer {
+                        put("ok", true).put("initialized", true).put("idempotent", true)
+                            .put("generationUuid", requireGenerationUuid())
+                            .put("leastPrivilegeVerified", true)
+                            .put("privilegedActionDenied", true)
+                            .put("cleanStopped", true)
+                    }
+                }
+                DatabaseDurableState.InitializedDisposition.DEFER_MIGRATION -> error(
+                    "DB-INIT: pending migration transaction blocks initialize's least-privilege " +
+                        "re-verification; run applyPinnedMigrations first",
+                )
                 DatabaseDurableState.InitializedDisposition.FAIL_CLOSED -> error(
                     "DB-TRANSACTION: initialized generation has an incompatible pending transaction",
                 )
@@ -271,11 +312,7 @@ internal class DatabaseEngine(private val context: Context) {
             """.trimIndent())
             val auth = runClient("root", "", setup)
             check(auth.ok) { "DB-INIT: credential/grant setup failed: ${auth.stderr.takeLast(1200)}" }
-            val health = queryHealth()
-            check(health.getBoolean("ok")) { "DB-INIT: least-privilege query failed" }
-            val forbidden = fixedSql("least-privilege-negative", "CREATE USER 'pocket_forbidden'@'localhost' IDENTIFIED BY 'never';")
-            val denied = runClient("pocket_core", secrets.core, forbidden)
-            check(!denied.ok) { "DB-INIT: core user unexpectedly has account-administration privilege" }
+            verifyLeastPrivilegePrivileges(secrets)
             stop()
             atomicWrite(initializedMarker, DatabaseDurableState.initializedSeal(
                 providerIdentity, generationUuid, System.currentTimeMillis(),
@@ -283,18 +320,38 @@ internal class DatabaseEngine(private val context: Context) {
             writeActiveProviderMarker(DatabaseDurableState.ProviderMode.MARIADB)
             updateDatabaseTransactionPhase("INIT", "COMMITTING")
             durableDelete(databaseTransaction)
-            JSONObject().put("ok", true).put("initialized", true)
-                .put("generationUuid", generationUuid)
-                .put("bootstrapSha256", expectedBootstrapSha256)
-                .put("providerClosureSha256", providerIdentity.providerClosureSha256)
-                .put("leastPrivilegeVerified", true).put("privilegedActionDenied", true)
-                .put("cleanStopped", true)
+            return DatabaseDurableState.verifiedMariaDbInitializeAnswer {
+                put("ok", true).put("initialized", true)
+                    .put("generationUuid", generationUuid)
+                    .put("bootstrapSha256", expectedBootstrapSha256)
+                    .put("providerClosureSha256", providerIdentity.providerClosureSha256)
+                    .put("leastPrivilegeVerified", true)
+                    .put("privilegedActionDenied", true)
+                    .put("cleanStopped", true)
+            }
         } catch (failure: Throwable) {
             if (state != State.STOPPED && state != State.FAILED || daemonThread?.isAlive == true) {
                 runCatching { cancelAndRequireDaemonDrained("initialization failure") }
             }
             throw failure
         }
+    }
+
+    /** The pinned least-privilege probes, shared by the first-run bootstrap
+     * and every idempotent re-verification: pocket_core must answer the
+     * fixed health query against the live daemon AND must be denied
+     * account administration. These two probes are exactly what the
+     * initialize answer's leastPrivilegeVerified/privilegedActionDenied
+     * keys assert - they are measured here, never asserted from state. */
+    private fun verifyLeastPrivilegePrivileges(secrets: Secrets) {
+        val health = queryHealth()
+        check(health.getBoolean("ok")) { "DB-INIT: least-privilege query failed" }
+        val forbidden = fixedSql(
+            "least-privilege-negative",
+            "CREATE USER 'pocket_forbidden'@'localhost' IDENTIFIED BY 'never';",
+        )
+        val denied = runClient("pocket_core", secrets.core, forbidden)
+        check(!denied.ok) { "DB-INIT: core user unexpectedly has account-administration privilege" }
     }
 
     fun start(): JSONObject = when (providerModeLocked()) {
@@ -412,37 +469,96 @@ internal class DatabaseEngine(private val context: Context) {
     }
 
     /** Fixed, owner-gated projection consumed by realmd; arbitrary SQL never crosses Binder. */
-    fun projectRealmEndpoint(address: String, worldPort: Int): JSONObject = when (providerModeLocked()) {
-        DatabaseDurableState.ProviderMode.SQLITE -> sqliteProjectRealmEndpoint(address, worldPort)
-        DatabaseDurableState.ProviderMode.MARIADB -> mariadbProjectRealmEndpoint(address, worldPort)
-    }
+    fun projectRealmEndpoint(address: String, worldPort: Int, realmbuilds: String): JSONObject =
+        when (providerModeLocked()) {
+            DatabaseDurableState.ProviderMode.SQLITE -> sqliteProjectRealmEndpoint(address, worldPort, realmbuilds)
+            DatabaseDurableState.ProviderMode.MARIADB -> mariadbProjectRealmEndpoint(address, worldPort, realmbuilds)
+        }
 
-    private fun mariadbProjectRealmEndpoint(address: String, worldPort: Int): JSONObject = synchronized(lock) {
+    private fun mariadbProjectRealmEndpoint(
+        address: String,
+        worldPort: Int,
+        realmbuilds: String,
+    ): JSONObject = synchronized(lock) {
         check(state == State.RUNNING) { "database is not running" }
-        val endpoint = RealmEndpoint.parseStored(address)
+        // Design-tunnel §4.4.1/§5: the projection seam takes the ADVERTISED
+        // grammar (the desktop typed-guard twin) - canonical numeric IPv4 in
+        // the loopback/private/link-local/CGNAT set, so the interpolation and
+        // the bound parameter both stay inside the canonical address shape.
+        val advertised = AdvertisedAddress.parse(address)
         require(worldPort == RealmEndpoint.WORLD_PORT) { "world port is fixed" }
         projectedRealmEndpoint?.let { prior ->
-            check(prior == endpoint.address) {
+            check(prior == advertised.value) {
                 "realm endpoint is immutable for the active database generation"
             }
             return JSONObject().put("ok", true).put("operation", "realm-endpoint-already-projected")
-                .put("address", endpoint.address).put("worldPort", RealmEndpoint.WORLD_PORT)
+                .put("address", advertised.value).put("worldPort", RealmEndpoint.WORLD_PORT)
+        }
+        // The row's realmbuilds advertisement rides the same UPDATE (the
+        // desktop twin's leg): the pinned realmd seed ships an EMPTY build
+        // list, so without this write realmd answers every logon challenge
+        // with ok_build=false until the world's own start UPDATE — this
+        // projection owns the row from database start, before realmd serves
+        // a logon. The list is the session flavor's accepted builds
+        // (ClientFlavor.realmdAcceptedBuilds, correction C1), THREADED through
+        // the seam by the caller (the DesktopDatabaseService twin): the Home
+        // switcher's ActiveFlavor selection is UI-process-local in-memory
+        // state, so THIS process must never re-resolve it — it takes the
+        // caller's value, shape-guarded here like every interpolated literal.
+        val builds = realmbuilds
+        check(builds.length <= REALMBUILDS_MAX_CHARS && REALMBUILDS.matches(builds)) {
+            "realm builds advertisement is not a build list: $builds"
+        }
+        // The projected DATABASE resolves through the flavor registry at
+        // projection time — the ServerRuntimeFiles.serverDatabases() gate's
+        // twin — never a hard-coded vanilla name, so the conf's
+        // LoginDatabaseInfo and this row land in the same database by
+        // construction. The resolve reads the REGISTRY (static
+        // ClientFlavors state, identical bytes in every process), never the
+        // Home switcher's UI-local ActiveFlavor selection this :database
+        // process cannot see (r2/r3's contract keeps that resolve in the
+        // seam's caller); the gate stays honest at the S5 flip — zero or
+        // several qualified flavors refuse loud here, before any SQL
+        // crosses the client, instead of guessing the vanilla row.
+        val realmdDatabase = realmdDatabaseName()
+        check(DATABASE_NAME.matches(realmdDatabase)) {
+            "realmd database name is not a plain identifier: $realmdDatabase"
         }
         val sql = fixedSql("project-realm-endpoint", """
-            UPDATE classicrealmd.realmlist
-               SET address='${endpoint.address}', port=${RealmEndpoint.WORLD_PORT}
+            UPDATE $realmdDatabase.realmlist
+               SET address='${advertised.value}', port=${RealmEndpoint.WORLD_PORT}, realmbuilds='$builds'
              WHERE id=1;
-            SELECT address,port FROM classicrealmd.realmlist WHERE id=1 LIMIT 1;
+            SELECT address,port,realmbuilds FROM $realmdDatabase.realmlist WHERE id=1 LIMIT 1;
         """.trimIndent())
         val result = runClient("pocket_core", readSecrets().core, sql)
         check(result.ok) { "realm endpoint projection failed: ${result.stderr.takeLast(800)}" }
         val projected = result.stdout.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.lastOrNull()
-        check(projected == "${endpoint.address}\t${RealmEndpoint.WORLD_PORT}") {
+        check(projected == "${advertised.value}\t${RealmEndpoint.WORLD_PORT}\t$builds") {
             "realm endpoint projection did not verify"
         }
-        projectedRealmEndpoint = endpoint.address
+        projectedRealmEndpoint = advertised.value
         JSONObject().put("ok", true).put("operation", "realm-endpoint-projected")
-            .put("address", endpoint.address).put("worldPort", RealmEndpoint.WORLD_PORT)
+            .put("address", advertised.value).put("worldPort", RealmEndpoint.WORLD_PORT)
+    }
+
+    /** The realmd database name the MariaDB projection targets — the
+     * ServerRuntimeFiles.serverDatabases() gate's twin (the desktop leg's
+     * flavor-registry routing), resolved from static registry state that is
+     * byte-identical in every process: exactly one qualified flavor, and
+     * that flavor the vanilla lane the conf templates seed, or a loud
+     * refusal BEFORE any SQL crosses the client. */
+    private fun realmdDatabaseName(): String {
+        val qualified = ClientFlavors.qualified()
+        require(qualified.size == 1) {
+            "expected exactly one qualified flavor, found ${qualified.size} — " +
+                "the realmlist projection targets the qualified lane's realmd database"
+        }
+        val flavor = qualified.single()
+        require(flavor.flavorId == ClientFlavors.VANILLA.flavorId) {
+            "the realmlist projection resolves only the vanilla lane; " +
+                "pass its ClientFlavor explicitly"
+        }
+        return flavor.databases.realmd
     }
 
     fun stop(): JSONObject = when (providerModeLocked()) {
@@ -1132,33 +1248,56 @@ internal class DatabaseEngine(private val context: Context) {
         }
     }
 
-    fun sqliteProjectRealmEndpoint(address: String, worldPort: Int): JSONObject = synchronized(lock) {
+    fun sqliteProjectRealmEndpoint(
+        address: String,
+        worldPort: Int,
+        realmbuilds: String,
+    ): JSONObject = synchronized(lock) {
         check(state == State.RUNNING) { "database is not running" }
-        val endpoint = RealmEndpoint.parseStored(address)
+        // Design-tunnel §4.4.1/§5: the projection seam takes the ADVERTISED
+        // grammar (the desktop typed-guard twin) - canonical numeric IPv4 in
+        // the loopback/private/link-local/CGNAT set, so the interpolation and
+        // the bound parameter both stay inside the canonical address shape.
+        val advertised = AdvertisedAddress.parse(address)
         require(worldPort == RealmEndpoint.WORLD_PORT) { "world port is fixed" }
         projectedRealmEndpoint?.let { prior ->
-            check(prior == endpoint.address) {
+            check(prior == advertised.value) {
                 "realm endpoint is immutable for the active database generation"
             }
             return@synchronized JSONObject().put("ok", true).put("operation", "realm-endpoint-already-projected")
-                .put("address", endpoint.address).put("worldPort", RealmEndpoint.WORLD_PORT)
+                .put("address", advertised.value).put("worldPort", RealmEndpoint.WORLD_PORT)
+        }
+        // The row's realmbuilds advertisement rides the same UPDATE (the
+        // MariaDB lane's twin): the replayed sqlite seed ships an EMPTY
+        // build list, so without this write realmd answers every logon
+        // challenge with ok_build=false until the world's own start UPDATE —
+        // this projection owns the row from database start, before realmd
+        // serves a logon. The list is the session flavor's accepted builds
+        // (ClientFlavor.realmdAcceptedBuilds, correction C1), THREADED through
+        // the seam by the caller (the DesktopDatabaseService twin — the Home
+        // switcher's selection is UI-process-local and invisible here),
+        // shape-guarded here like every crossing literal (a bound parameter
+        // on this lane).
+        val builds = realmbuilds
+        check(builds.length <= REALMBUILDS_MAX_CHARS && REALMBUILDS.matches(builds)) {
+            "realm builds advertisement is not a build list: $builds"
         }
         val realmd = DatabaseSqliteControlPlane.databaseFile(sqliteDatadir, "classicrealmd")
         sqliteOpen(realmd, writable = true).use { database ->
             database.execSQL(
-                "UPDATE realmlist SET address = ?, port = ? WHERE id = 1",
-                arrayOf(endpoint.address, RealmEndpoint.WORLD_PORT.toString()),
+                "UPDATE realmlist SET address = ?, port = ?, realmbuilds = ? WHERE id = 1",
+                arrayOf(advertised.value, RealmEndpoint.WORLD_PORT.toString(), builds),
             )
-            database.rawQuery("SELECT address, port FROM realmlist WHERE id = 1 LIMIT 1;", null).use { cursor ->
-                check(cursor.moveToFirst() && cursor.getString(0) == endpoint.address &&
-                    cursor.getInt(1) == RealmEndpoint.WORLD_PORT) {
+            database.rawQuery("SELECT address, port, realmbuilds FROM realmlist WHERE id = 1 LIMIT 1;", null).use { cursor ->
+                check(cursor.moveToFirst() && cursor.getString(0) == advertised.value &&
+                    cursor.getInt(1) == RealmEndpoint.WORLD_PORT && cursor.getString(2) == builds) {
                     "realm endpoint projection did not verify"
                 }
             }
         }
-        projectedRealmEndpoint = endpoint.address
+        projectedRealmEndpoint = advertised.value
         JSONObject().put("ok", true).put("operation", "realm-endpoint-projected")
-            .put("address", endpoint.address).put("worldPort", RealmEndpoint.WORLD_PORT)
+            .put("address", advertised.value).put("worldPort", RealmEndpoint.WORLD_PORT)
     }
 
     fun sqliteRecover(): JSONObject {
@@ -2450,7 +2589,7 @@ internal class DatabaseEngine(private val context: Context) {
         check(!restoreRecord.exists()) { "DB-SNAPSHOT: restore verification is pending" }
         val id = "manual-$name-${System.currentTimeMillis()}"
         val compatibility = databaseCompatibility(activeRequireGenerationUuid())
-            .put("runtimeBuildId", "o09-cmangos-c096bada-nobots-v1")
+            .put("runtimeBuildId", ServerRuntimeContract.RUNTIME_BUILD_ID)
             .put("databaseFamily", "cmangos-classic")
         val snapshot = snapshotStore.create(activeDatadir(), id, databaseStopped = true,
             compatibility = compatibility)
@@ -3254,6 +3393,10 @@ internal class DatabaseEngine(private val context: Context) {
         private const val SQLITE_DRAIN_TIMEOUT_SECONDS = 10L
         private val SAFE_TABLE = Regex("[A-Za-z0-9_]{1,64}")
         private const val MAX_DIAGNOSTIC = 16 * 1024
+        /** The realmlist realmbuilds advertisement's shape (varchar(64):
+         * space-separated client build numbers, correction C1's column). */
+        private val REALMBUILDS = Regex("[0-9]{1,5}( [0-9]{1,5})*")
+        private const val REALMBUILDS_MAX_CHARS = 64
         private const val BOOTSTRAP_ASSET = "database/provider/bootstrap.sql"
         private const val RUNTIME_MANIFEST_ASSET = "database/provider/runtime-manifest.json"
         private const val SQLITE_IDENTITY_ASSET = "database/provider-sqlite/BUILD_PROVENANCE.json"

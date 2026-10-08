@@ -1,5 +1,8 @@
 package com.pocketrealm.importer
 
+import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.client.ClientFlavors
+import com.pocketrealm.client.TwoQualifiedFlavors
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.nio.file.Files
@@ -70,5 +73,61 @@ class DataPreparationStoreTest {
         val root = Files.createTempDirectory("o11-mmap-none").toFile()
         root.deleteRecursively()
         assertEquals(emptyList<Int>(), derivedMmapMapIds(root, root))
+    }
+
+    // ---- R2-4 (code-red round 2): the data manifest's flavor is the
+    // VERIFIED source-generation identity, never the Home switcher's
+    // selection — a mid-prep flavor switch cannot relabel cross-flavor
+    // bytes.
+
+    @Test fun `a mid-prep flavor switch refuses publication instead of relabeling`() {
+        val root = Files.createTempDirectory("o11-verified-flavor").toFile()
+        try {
+            // the generation's VERIFIED identity: the vanilla client the
+            // import gate actually scanned and stamped
+            root.resolve("client-manifest.json").writeText(
+                """{"schema":1,"clientId":"wow-1.12.1-5875"}""")
+            TwoQualifiedFlavors.install(selection = ClientFlavors.TBC.flavorId)
+            val refused = kotlin.runCatching { verifiedSourceFlavor(root) }
+            check(refused.isFailure)
+            val message = refused.exceptionOrNull()!!.message!!
+            check("wow-1.12.1-5875" in message && "active lane is tbc" in message)
+        } finally {
+            ActiveFlavor.reset()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test fun `an agreeing verified identity is the stamped flavor`() {
+        val root = Files.createTempDirectory("o11-verified-flavor-ok").toFile()
+        try {
+            root.resolve("client-manifest.json").writeText(
+                """{"schema":1,"clientId":"wow-1.12.1-5875"}""")
+            check(verifiedSourceFlavor(root) == ClientFlavors.VANILLA)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test fun `an unresolvable verified identity fails loud`() {
+        val root = Files.createTempDirectory("o11-verified-flavor-unknown").toFile()
+        try {
+            root.resolve("client-manifest.json").writeText(
+                """{"schema":1,"clientId":"wow-9.9.9-99999"}""")
+            val refused = kotlin.runCatching { verifiedSourceFlavor(root) }
+            check(refused.isFailure)
+            check("resolves to no registered flavor" in refused.exceptionOrNull()!!.message!!)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test fun `a root without a client manifest keeps the active lane contract`() {
+        val root = Files.createTempDirectory("o11-verified-flavor-bare").toFile()
+        try {
+            check(verifiedSourceFlavor(root) == ClientFlavors.VANILLA)
+        } finally {
+            root.deleteRecursively()
+        }
     }
 }

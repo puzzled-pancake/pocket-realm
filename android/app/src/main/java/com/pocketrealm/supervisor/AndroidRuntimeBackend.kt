@@ -8,8 +8,10 @@ import android.os.Build
 import android.os.Binder
 import android.os.IBinder
 import com.pocketrealm.bots.BotProfiles
+import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.client.ActiveFlavorState
+import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.client.ClientRuntimeContract
-import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.client.ArmRendererAuto
 import com.pocketrealm.client.ClientTweaksConfig
 import com.pocketrealm.client.ClientTeardownGate
@@ -104,8 +106,10 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             if (!runtimeSelection.supported) {
                 return@withContext RuntimeActionResult(false, runtimeSelection.reason)
             }
-            runCatching { ManagedClientStore(appContext).load(CLIENT_BUILD_ID) }
-                .getOrElse { return@withContext RuntimeActionResult(false, "managed client: ${it.message}") }
+            runCatching {
+                ManagedClientStore(appContext)
+                    .load(launchLaneFlavor(Settings(appContext).flow.first()).clientId)
+            }.getOrElse { return@withContext RuntimeActionResult(false, "managed client: ${it.message}") }
             if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
                 val runtimeSettings = Settings(appContext).flow.first()
                 runCatching {
@@ -182,9 +186,28 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             if (!runtimeSettings.allowLanPlayers) {
                 return@withContext RuntimeActionResult(false, "Allow LAN players is disabled in Settings")
             }
-            if (!LanInterfacePolicy.isCurrentPrivateInterface(spec.endpoint)) {
-                return@withContext RuntimeActionResult(false,
-                    "LAN host address is not an active private IPv4 interface")
+            // D1's liveness leg, mode-aware (design-tunnel §10, the desktop
+            // DesktopRuntimeBackend.lanHostLivenessRefusal twin): a plain
+            // LAN start proves the private LAN interface; a
+            // tunnel-advertised start proves the TUNNEL adapter instead
+            // (physical-LAN churn must never refuse a tunnel host), and a
+            // loopback advertisement (the cloudflared recipe) proves
+            // nothing — it binds 0.0.0.0 with no interface to lose.
+            when (val watch = InterfaceWatch.forSession(spec.advertisedAddress?.value)) {
+                InterfaceWatch.None -> Unit
+                InterfaceWatch.Lan ->
+                    if (!LanInterfacePolicy.isCurrentPrivateInterface(spec.endpoint)) {
+                        return@withContext RuntimeActionResult(false,
+                            "LAN host address is not an active private IPv4 interface")
+                    }
+                is InterfaceWatch.Tunnel ->
+                    if (!TunnelInterfacePolicy.isCurrentTunnelInterface(watch.advertised)) {
+                        return@withContext RuntimeActionResult(
+                            false,
+                            "the tunnel adapter carrying ${watch.advertised.value} is not up; " +
+                                "join the tunnel network before hosting over the internet",
+                        )
+                    }
             }
         }
         val db = json(database.api().status())
@@ -237,19 +260,13 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 observation(component, json(database.api().status()), "RUNNING")
             }
             RuntimeComponent.REALM -> {
-                if (spec.mode == RuntimeMode.LAN_HOST) check(
-                    LanInterfacePolicy.isCurrentPrivateInterface(spec.endpoint)) {
-                    "LAN host interface disappeared before realmd start"
-                }
+                checkLanHostInterfaceAtStart(spec, "realmd")
                 json(realm.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
-                json(realm.api().startAt(spec.endpoint.address))
+                json(realm.api().startAt(bindAddressFor(spec)))
                 waitReady(component) { json(realm.api().status()) }
             }
             RuntimeComponent.WORLD -> {
-                if (spec.mode == RuntimeMode.LAN_HOST) check(
-                    LanInterfacePolicy.isCurrentPrivateInterface(spec.endpoint)) {
-                    "LAN host interface disappeared before world start"
-                }
+                checkLanHostInterfaceAtStart(spec, "world")
                 json(world.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
                 val snapshot = Settings(appContext).flow.first()
                 val nearbyInteractTriggerGuardMs = snapshot.nearbyInteractTriggerGuardMs
@@ -257,11 +274,11 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 when {
                     BotProfiles.find(profileId) != null ->
                         json(world.api().startBotProfileAt(
-                            profileId, spec.endpoint.address, nearbyInteractTriggerGuardMs))
+                            profileId, bindAddressFor(spec), nearbyInteractTriggerGuardMs))
                     profileId == INTEGRATED_PROFILE -> json(world.api().startNormalAt(
-                        spec.endpoint.address, nearbyInteractTriggerGuardMs))
+                        bindAddressFor(spec), nearbyInteractTriggerGuardMs))
                     else -> json(world.api().startAt(
-                        spec.endpoint.address, nearbyInteractTriggerGuardMs))
+                        bindAddressFor(spec), nearbyInteractTriggerGuardMs))
                 }
                 waitReady(component) { json(world.api().status()) }
             }
@@ -272,14 +289,68 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     override suspend fun projectRealmEndpoint(
         databaseOwner: ComponentOwner,
         endpoint: RealmEndpoint,
+    ): RuntimeActionResult = projectRealmAdvertisement(databaseOwner, endpoint, endpoint.address)
+
+    /**
+     * Design-tunnel §4.4.2/§5 (the desktop DesktopRuntimeBackend twin): the
+     * ADVERTISED address — what friends' clients dial — lands in the one
+     * realmlist row, diverging from the bind endpoint in tunnel mode. The
+     * raw string is guarded BEFORE it reaches the database seam: it must
+     * fit the realmlist column (varchar(32) upstream; the honest refusal
+     * instead of truncation, §5) and parse as a typed [AdvertisedAddress]
+     * — canonical numeric IPv4 only, which keeps the seam's interpolation
+     * guard trivially closed. The projected row is reported back in the
+     * result detail (§5).
+     */
+    override suspend fun projectRealmAdvertisement(
+        databaseOwner: ComponentOwner,
+        endpoint: RealmEndpoint,
+        advertised: String,
     ): RuntimeActionResult = withContext(Dispatchers.IO) {
-        val projected = json(database.api().projectRealmEndpoint(
-            databaseOwner.instanceToken,
-            endpoint.address,
-            RealmEndpoint.WORLD_PORT,
-        ))
-        RuntimeActionResult(projected.getBoolean("ok"), projected.optString("operation"))
+        val guard = advertisementGuardFailure(advertised)
+        if (guard != null) return@withContext RuntimeActionResult(false, guard)
+        // The row's realmbuilds advertisement rides the same projection (the
+        // desktop DesktopRuntimeBackend twin): the session's flavor is
+        // resolved HERE, in :supervisor, from the PERSISTED Home-switcher
+        // selection — the multi-process settings store is the one flavor
+        // selection this process can see (the ActiveFlavor holder's own
+        // selection is UI-process-local in-memory state that never crossed
+        // the process boundary; only the single-process desktop twin could
+        // resolve it in-memory) — and the accepted-build list is threaded
+        // into :database as a value the engine never re-resolves. The
+        // resolve keeps the machine's fail-loud contract: an empty
+        // selection falls to the sole-qualified default and refuses once a
+        // second flavor qualifies, and a persisted pick that stopped being
+        // qualified refuses the same way — never a silent lane downgrade.
+        val realmbuilds = ActiveFlavorState(Settings(appContext).flow.first().selectedFlavorOrNull())
+            .resolve(ActiveFlavor.qualifiedFlavors, REALMD_BUILDS_LANE).realmdAcceptedBuilds
+        val projected = runCatching {
+            json(database.api().projectRealmEndpoint(
+                databaseOwner.instanceToken,
+                advertised,
+                RealmEndpoint.WORLD_PORT,
+                realmbuilds,
+            ))
+        }.getOrElse {
+            return@withContext RuntimeActionResult(
+                false,
+                "REALMLIST-PROJECTION-FAILED: ${it.message ?: it.javaClass.simpleName}",
+            )
+        }
+        if (!projected.optBoolean("ok")) {
+            return@withContext RuntimeActionResult(
+                false,
+                "REALMLIST-PROJECTION-FAILED: " +
+                    projected.optString("error", projected.optString("operation", "failed")),
+            )
+        }
+        RuntimeActionResult(
+            true,
+            if (advertised == endpoint.address) "realmlist -> $advertised"
+            else "realmlist -> $advertised (bind ${endpoint.address}; tunnel advertisement)",
+        )
     }
+
 
     override suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult =
         withContext(Dispatchers.IO) {
@@ -515,6 +586,74 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         )
     }
 
+    // ------------------------------------------------------------------
+    // Remote friend accounts (design-remote-accounts §3/§8/§9/§11): the
+    // world-side relay ops through the same IWorldControl seam as
+    // provisionAccount — the verifier op carries no password, and the
+    // ban/unban/gm verbs are the shared moderation surface.
+    // ------------------------------------------------------------------
+
+    override suspend fun provisionAccountVerifier(
+        username: String,
+        sHex: String,
+        vHex: String,
+    ): AccountProvisionResult = withContext(Dispatchers.IO) {
+        val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
+        if (!status.ready) {
+            return@withContext AccountProvisionResult(false, "WORLD_NOT_READY")
+        }
+        val verdict = json(world.api().createAccountVerifier(username, sHex, vHex))
+        if (!verdict.optBoolean("ok")) {
+            AccountProvisionResult(false, verdict.optString("code", "ACCOUNT_REJECTED"))
+        } else {
+            AccountProvisionResult(
+                true,
+                "ACCOUNT_CREATED",
+                verdict.optLong("accountId"),
+                gmLevel = 0, // friends provision at gmlevel 0 (the host raises it explicitly, §10)
+            )
+        }
+    }
+
+    override suspend fun accountRoster(): RosterRead = withContext(Dispatchers.IO) {
+        val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
+        if (!status.ready) return@withContext RosterRead("world-not-ready")
+        val roster = json(world.api().accountList())
+        if (!roster.optBoolean("ok")) return@withContext RosterRead(roster.optString("reason", "unavailable"))
+        RosterRead(null, FriendRosterJson.parseAccounts(roster.toString()).second)
+    }
+
+    override suspend fun accountCharacters(username: String): CharactersRead = withContext(Dispatchers.IO) {
+        val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
+        if (!status.ready) return@withContext CharactersRead("world-not-ready")
+        val characters = json(world.api().accountCharacters(username))
+        if (!characters.optBoolean("ok")) {
+            return@withContext CharactersRead(characters.optString("reason", "unavailable"))
+        }
+        CharactersRead(null, FriendRosterJson.parseCharacters(characters.toString()).second)
+    }
+
+    override suspend fun banFriendAccount(username: String, duration: String, reason: String): ModerationResult =
+        withContext(Dispatchers.IO) {
+            val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
+            if (!status.ready) return@withContext ModerationResult(false, "world-not-ready")
+            val verdict = json(world.api().banAccount(username, duration, reason))
+            ModerationResult(verdict.optBoolean("ok"), verdict.optString("output", verdict.optString("reason")))
+        }
+
+    override suspend fun unbanFriendAccount(username: String): ModerationResult = withContext(Dispatchers.IO) {
+        val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
+        if (!status.ready) return@withContext ModerationResult(false, "world-not-ready")
+        val verdict = json(world.api().unbanAccount(username))
+        ModerationResult(verdict.optBoolean("ok"), verdict.optString("output", verdict.optString("reason")))
+    }
+
+    override suspend fun setFriendGmLevel(username: String, level: Int): Boolean = withContext(Dispatchers.IO) {
+        val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
+        if (!status.ready) return@withContext false
+        json(world.api().setAccountGmLevel(username, level)).optBoolean("ok")
+    }
+
     override suspend fun recoverDatabase(): RuntimeActionResult = withContext(Dispatchers.IO) {
         // Recovery is a process-generation boundary. Drop every observation
         // binding first so Android completes old owner-loss teardown before a
@@ -605,6 +744,22 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         }
     }
 
+    /**
+     * GAP-3 (owner census UIUX-3): the launch lanes resolve the ACTIVE lane
+     * through the flavor machine from the PERSISTED Home-switcher pick —
+     * this :supervisor process never sees the UI process's in-memory
+     * [ActiveFlavor] selection, so the multi-process settings store is the
+     * one selection the launch can resolve (the [REALMD_BUILDS_LANE]
+     * projection resolve's twin). The probe/prepare/display client identity
+     * and the tweaks-fallback diagnostic follow the switcher's pick once a
+     * second flavor qualifies; an ambiguous no-pick multi-qualified registry
+     * state refuses the launch loud instead of the former
+     * `qualified().single()` crash at class-load.
+     */
+    private fun launchLaneFlavor(runtimeSettings: Settings.Snapshot): ClientFlavor =
+        ActiveFlavorState(runtimeSettings.selectedFlavorOrNull())
+            .resolve(ActiveFlavor.qualifiedFlavors, CLIENT_BUILD_LANE)
+
     private suspend fun startClient(owner: ComponentOwner, spec: RuntimeLaunchSpec): ComponentObservation {
         val profileId = spec.profileId
         if (profileId != INTEGRATED_PROFILE && BotProfiles.find(profileId) == null) {
@@ -612,6 +767,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 detail = "This client is not compatible with the selected game profile.")
         }
         val runtimeSettings = Settings(appContext).flow.first()
+        val flavor = launchLaneFlavor(runtimeSettings)
         val translator = ArmTranslationBackend.BOX64
         val runtimeSelection = ClientRuntimeSelector.select(appContext, translator)
         check(runtimeSelection.supported) { runtimeSelection.reason }
@@ -689,7 +845,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 .put("translator", translator.id)
                 .put("abi", Build.SUPPORTED_ABIS.firstOrNull().orEmpty()).put("api", Build.VERSION.SDK_INT)
                 .put("pageSize", android.system.Os.sysconf(android.system.OsConstants._SC_PAGESIZE))
-                .put("clientId", CLIENT_BUILD_ID).toString()))
+                .put("clientId", flavor.clientId).toString()))
             check(probe.getBoolean("supported")) {
                 probe.optString("reason", "client runtime unavailable")
             }
@@ -700,7 +856,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             )
             val prepareRequest = JSONObject()
                 .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
-                .put("clientId", CLIENT_BUILD_ID).put("renderer", renderer)
+                .put("clientId", flavor.clientId).put("renderer", renderer)
                 .put("audioMode", audioModeLiteral).put("translator", translator.id)
                 .put("inputSafeMode", runtimeSettings.inputSafeMode)
                 .put("realmEndpoint", spec.endpoint.address)
@@ -715,9 +871,12 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 prepared.getString("effectiveTweaks"),
             ).toJson()
             if (prepared.optBoolean("tweaksFallback")) {
+                // GAP-3: the diagnostic names the launch's resolved lane
+                // build ([flavor]) — never a re-resolution that could
+                // crash on a second qualified flavor.
                 AppLog.w(
                     TAG,
-                    "optional client tweaks skipped: imported build ${ClientFlavors.qualified().single().build} " +
+                    "optional client tweaks skipped: imported build ${flavor.build} " +
                         "has an unqualified byte layout",
                 )
             }
@@ -748,7 +907,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 val proof = JSONObject(
                     world.api().verifyAccountPassword(candidate.username, candidate.password),
                 )
-                when (AutoLoginCredentialProof.evaluate(
+                val proofDisposition = AutoLoginCredentialProof.evaluate(
                     expectedOwner = worldOwner,
                     expectedAccountId = candidate.accountId,
                     expectedGmLevel = candidate.gmLevel,
@@ -759,22 +918,40 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                     gmLevel = proof.optInt("gmLevel", -1),
                     ownerSessionId = proof.optString("ownerSessionId").takeIf(String::isNotEmpty),
                     ownerInstanceToken = proof.optString("instanceToken").takeIf(String::isNotEmpty),
-                )) {
-                    AutoLoginCredentialProof.Disposition.ACCEPT -> verifiedAccount = candidate
+                )
+                if (proofDisposition == AutoLoginCredentialProof.Disposition.AUTHORITY_UNAVAILABLE) {
+                    // The realm could not answer authoritatively (transport
+                    // failure, or world ownership changed mid-start) — the
+                    // same DesktopAppModel.autoLoginIfEnabled disposition as
+                    // the INVALID_CREDENTIAL leg below: the saved account is
+                    // KEPT, credentialForLaunch injects nothing, and this
+                    // start continues to the manual login screen instead of
+                    // failing the client launch on Android only.
+                    AppLog.w(
+                        TAG,
+                        "auto-login verification unavailable; the saved account is kept - " +
+                            "auto-login is skipped and login stays manual until the realm " +
+                            "answers authoritatively",
+                    )
+                }
+                if (proofDisposition == AutoLoginCredentialProof.Disposition.INVALID_CREDENTIAL) {
                     // Keep the record for explicit correction/clear. A realm
                     // proof can race a user replacing the saved account in the
                     // UI; deleting here could erase the newer credential based
-                    // on rejection of the older candidate.
-                    AutoLoginCredentialProof.Disposition.INVALID_CREDENTIAL -> error(
-                        "The saved account no longer matches this realm. " +
-                            "Create or verify it again, then tap Retry game. " +
-                            "The saved account was kept.",
-                    )
-                    AutoLoginCredentialProof.Disposition.AUTHORITY_UNAVAILABLE -> error(
-                        "Auto-login verification changed while the game was starting. " +
-                            "Your saved account was kept; tap Retry game.",
+                    // on rejection of the older candidate — and a stale record
+                    // is user data, not a launch failure: this start continues
+                    // to the manual login screen with no injected credential,
+                    // the DesktopAppModel.autoLoginIfEnabled disposition, so a
+                    // stale saved account degrades to manual login on BOTH
+                    // platforms instead of failing the client launch.
+                    AppLog.w(
+                        TAG,
+                        "saved account rejected by the realm; the saved account is kept - " +
+                            "auto-login is skipped and login stays manual until the account " +
+                            "is created or verified again",
                     )
                 }
+                verifiedAccount = AutoLoginCredentialProof.credentialForLaunch(proofDisposition, candidate)
             }
             val displayPrepared = json(display.api().prepare(
                 prepared.getString("runtimeRoot"),
@@ -783,7 +960,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 verifiedAccount?.password.orEmpty(),
                 runtimeSettings.effectiveAutoLoginTimings().toControlJson(),
                 audioModeLiteral,
-                CLIENT_BUILD_ID,
+                flavor.clientId,
                 renderer,
                 vulkanDriverId.orEmpty(),
                 rendererPackageId.orEmpty(),
@@ -1113,12 +1290,83 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         private const val WAIT_READY_TIMEOUT_MS = 10 * MINUTES_MS
         private const val CLIENT_START_TIMEOUT_MS = 10 * MINUTES_MS
 
+
+        /**
+         * The projection guards, PURE so the tunnel suite pins them without
+         * a device: oversize (the realmlist column), non-canonical input
+         * (the injection guard — the typed parse), and the machine marker
+         * every refusal carries. Null = the advertisement may project.
+         */
+        internal fun advertisementGuardFailure(advertised: String): String? {
+            if (advertised.length > AdvertisedAddress.MAX_LENGTH) {
+                return "REALMLIST-PROJECTION-FAILED: realmlist projection refuses an address " +
+                    "longer than ${AdvertisedAddress.MAX_LENGTH} characters (the realmlist column)"
+            }
+            return try {
+                AdvertisedAddress.parse(advertised)
+                null
+            } catch (failure: IllegalArgumentException) {
+                "REALMLIST-PROJECTION-FAILED: realmlist projection refuses " +
+                    (failure.message ?: "the address") + ": $advertised"
+            }
+        }
+
+        /**
+         * Design-tunnel §4.4.2: the bind value the servers receive. Plain
+         * LOCAL/LAN keeps the typed endpoint; a tunnel-advertised start
+         * binds the wildcard (0.0.0.0 — the raw conf value, never a
+         * [RealmEndpoint]) because the advertised tunnel address is only
+         * reachable through the tunnel adapter. A loopback advertisement
+         * (the cloudflared recipe) binds the wildcard the same way.
+         */
+        internal fun bindAddressFor(spec: RuntimeLaunchSpec): String =
+            if (spec.tunnelAdvertising) RealmEndpoint.WILDCARD_BIND else spec.endpoint.address
+
+        /**
+         * The start-time liveness leg, mode-aware (design-tunnel §10, the
+         * desktop checkLanHostInterfaceAtStart twin): plain LAN_HOST
+         * re-proves the private LAN interface; a tunnel-advertised start
+         * proves the TUNNEL adapter instead; a loopback advertisement
+         * proves nothing. Refusing throws the stage (the supervisor
+         * degrades it to the honest ERROR/stop path).
+         */
+        private fun checkLanHostInterfaceAtStart(spec: RuntimeLaunchSpec, component: String) {
+            if (spec.mode != RuntimeMode.LAN_HOST) return
+            when (val watch = InterfaceWatch.forSession(spec.advertisedAddress?.value)) {
+                InterfaceWatch.None -> Unit // cloudflared: bind 0.0.0.0, no interface to prove
+                InterfaceWatch.Lan -> check(
+                    LanInterfacePolicy.isCurrentPrivateInterface(spec.endpoint)) {
+                    "LAN host interface disappeared before $component start"
+                }
+                is InterfaceWatch.Tunnel -> check(
+                    TunnelInterfacePolicy.isCurrentTunnelInterface(watch.advertised)) {
+                    "the tunnel adapter carrying ${watch.advertised.value} disappeared " +
+                        "before $component start"
+                }
+            }
+        }
+
         private const val TAG = "AndroidRuntimeBackend"
         private const val MAX_DATABASE_PREPARATION_STEPS = 12
+        /** The ActiveFlavor lane suffix naming the projection's build-list
+         * resolution (moved with the resolve from the engine to this seam:
+         * :database cannot see the selection, and this :supervisor seam
+         * resolves the PERSISTED Home-switcher pick, not the UI process's
+         * in-memory ActiveFlavor state). */
+        private const val REALMD_BUILDS_LANE =
+            "the realmlist projection resolves the active lane's accepted builds"
+
+        /** GAP-3: the [ActiveFlavor] lane suffix naming the launch-path
+         * client-build resolution (the persisted Home-switcher pick — the
+         * same multi-process source [REALMD_BUILDS_LANE] resolves, replacing
+         * the former companion `val CLIENT_BUILD_ID =
+         * ClientFlavors.qualified().single().clientId` that crashed at
+         * class-load the moment a second flavor qualified). */
+        private const val CLIENT_BUILD_LANE =
+            "the runtime launch resolves the active lane's client build"
         const val DEFAULT_PROFILE = "mobile-low-v1"
         const val INTEGRATED_PROFILE = "mobile-low-v2-normal"
         const val BOT_LOW_25_PROFILE = "mobile-low-b1-25-v1"
-        val CLIENT_BUILD_ID = ClientFlavors.qualified().single().clientId
     }
 }
 

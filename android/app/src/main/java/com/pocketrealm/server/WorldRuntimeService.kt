@@ -15,8 +15,14 @@ import com.pocketrealm.bots.BotProfiles
 import com.pocketrealm.bots.BotResourceSample
 import com.pocketrealm.bots.BotResourceSampler
 import com.pocketrealm.bots.BotRuntimeMetrics
+import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.client.TimeframeStages
+import com.pocketrealm.database.DatabaseSqliteControlPlane
+import com.pocketrealm.database.TimeframeOverlayApplier
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.service.RealmService
+import com.pocketrealm.storage.Settings
+import com.pocketrealm.storage.StorageRoots
 import com.pocketrealm.supervisor.ComponentOwnership
 import com.pocketrealm.supervisor.RealmEndpoint
 import org.json.JSONObject
@@ -136,13 +142,27 @@ class WorldRuntimeService : Service() {
         override fun startAt(bindAddress: String, nearbyInteractTriggerGuardMs: Int) =
             guarded { transitionGate.run {
             stopAccepted = false
-            val endpoint = RealmEndpoint.parseStored(bindAddress)
+            // Design-tunnel §4.4.2: the wildcard (0.0.0.0) is the ONE raw
+            // conf value beside the typed grammar — the tunnel host's bind.
+            val bind = ServerRuntimeContract.resolveBindAddress(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
             files.prepareWorldLogsForStart(currentNativeState())
-            files.writeLifecycle("world", false, "start", endpoint.address)
-            activeBindAddress = endpoint.address
-            val rc = WorldNative.startNative(files.worldConfig(
-                endpoint.address, nearbyInteractTriggerGuardMs).absolutePath)
+            files.writeLifecycle("world", false, "start", bind)
+            activeBindAddress = bind
+            // Design-timeframe §4.3: conf first (an unprepared install
+            // refuses at the conf gate), then the stage overlay, then the
+            // native boot - never a world whose conf names a stage the DB
+            // never reached. ONE settings snapshot feeds both the conf write
+            // and the overlay's desired stage, so a :ui/:supervisor settings
+            // write landing between two reads cannot split them.
+            val settingsSnapshot = Settings(this@WorldRuntimeService).blockingSnapshot()
+            val config = files.worldConfig(
+                bind,
+                nearbyInteractTriggerGuardMs,
+                settingsSnapshot = settingsSnapshot,
+            )
+            applyStageOverlayOrRefuse(settingsSnapshot)
+            val rc = WorldNative.startNative(config.absolutePath)
             if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             ServerStatusJson.operation("world", "start", rc)
         } }
@@ -153,13 +173,27 @@ class WorldRuntimeService : Service() {
         override fun startNormalAt(bindAddress: String, nearbyInteractTriggerGuardMs: Int) =
             guarded { transitionGate.run {
             stopAccepted = false
-            val endpoint = RealmEndpoint.parseStored(bindAddress)
+            // Design-tunnel §4.4.2: the wildcard (0.0.0.0) is the ONE raw
+            // conf value beside the typed grammar — the tunnel host's bind.
+            val bind = ServerRuntimeContract.resolveBindAddress(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
             files.prepareWorldLogsForStart(currentNativeState())
-            files.writeLifecycle("world", false, "start-normal", endpoint.address)
-            activeBindAddress = endpoint.address
-            val rc = startWithNormalData { files.worldConfigNormal(
-                endpoint.address, nearbyInteractTriggerGuardMs) }
+            files.writeLifecycle("world", false, "start-normal", bind)
+            activeBindAddress = bind
+            // Design-timeframe §4.3: conf, then the stage overlay, then the
+            // native boot (inside the lease guard - an overlay failure
+            // closes the lease and refuses the start loudly). ONE settings
+            // snapshot feeds both the conf write and the overlay.
+            val settingsSnapshot = Settings(this@WorldRuntimeService).blockingSnapshot()
+            val rc = startWithNormalData {
+                val config = files.worldConfigNormal(
+                    bind,
+                    nearbyInteractTriggerGuardMs,
+                    settingsSnapshot = settingsSnapshot,
+                )
+                applyStageOverlayOrRefuse(settingsSnapshot)
+                config
+            }
             if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             ServerStatusJson.operation("world", "start-normal", rc)
         } }
@@ -175,14 +209,26 @@ class WorldRuntimeService : Service() {
             nearbyInteractTriggerGuardMs: Int,
         ) = guarded { transitionGate.run {
             stopAccepted = false
-            val endpoint = RealmEndpoint.parseStored(bindAddress)
+            // Design-tunnel §4.4.2: the wildcard (0.0.0.0) is the ONE raw
+            // conf value beside the typed grammar — the tunnel host's bind.
+            val bind = ServerRuntimeContract.resolveBindAddress(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
             files.prepareWorldLogsForStart(currentNativeState())
             val profile = BotProfiles.require(profileId)
-            files.writeLifecycle("world", false, "start-bot-profile", "${profile.id}@${endpoint.address}")
-            activeBindAddress = endpoint.address
-            val rc = startWithNormalData { files.worldConfigBot(
-                profile, endpoint.address, nearbyInteractTriggerGuardMs) }
+            files.writeLifecycle("world", false, "start-bot-profile", "${profile.id}@${bind}")
+            activeBindAddress = bind
+            // Design-timeframe §4.3: conf, then the stage overlay, then the
+            // native boot (inside the lease guard - an overlay failure
+            // closes the lease and refuses the start loudly). ONE settings
+            // snapshot feeds both the conf write and the overlay.
+            val settingsSnapshot = Settings(this@WorldRuntimeService).blockingSnapshot()
+            val rc = startWithNormalData {
+                val config = files.worldConfigBot(
+                    profile, bind, nearbyInteractTriggerGuardMs,
+                    settingsSnapshot = settingsSnapshot)
+                applyStageOverlayOrRefuse(settingsSnapshot)
+                config
+            }
             if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             if (rc == 0) startAdmissionMonitor(profile)
             ServerStatusJson.operation("world", "start-bot-profile", rc).put("profileId", profile.id)
@@ -202,7 +248,24 @@ class WorldRuntimeService : Service() {
             ServerRuntimeContract.requireAccountToken("username", username)
             ServerRuntimeContract.requireAccountToken("password", password)
             val rc = WorldNative.createAccountNative(username, password, ServerRuntimeContract.CONTROL_TIMEOUT_MS)
-            accountResult("create-account", username, rc)
+            // F1-10 (lanes item 12): the fresh row is born with the seed's
+            // expansion default (0), and the core gates expansion content
+            // per account row — so the ACTIVE flavor's level is written
+            // here, after a successful create and before first login
+            // (vanilla stays 0; the resolve fails loud on an ambiguous
+            // flavor state, exactly like the start lanes' resolve). A
+            // refused addon op fails the answer naming its own error,
+            // never a silently classic tbc/wotlk account.
+            val expansion = ActiveFlavor.resolve(ACCOUNT_EXPANSION_LANE).accountExpansion
+            val addonRc = if (rc == 0) {
+                WorldNative.setAccountAddonNative(
+                    username, expansion, ServerRuntimeContract.CONTROL_TIMEOUT_MS)
+            } else {
+                null
+            }
+            accountResult("create-account", username, addonRc ?: rc)
+                .put("expansion", expansion)
+                .put("addonCode", addonRc?.let { ServerRuntimeContract.errorName(it.toLong()) } ?: "SKIPPED")
         }
         override fun verifyAccountPassword(username: String, password: String) = guarded { transitionGate.run {
             ServerRuntimeContract.requireAccountToken("username", username)
@@ -223,6 +286,35 @@ class WorldRuntimeService : Service() {
         override fun accountStatus(username: String) = guarded {
             ServerRuntimeContract.requireAccountToken("username", username)
             accountResult("account-status", username, 0)
+        }
+        override fun createAccountVerifier(username: String, sHex: String, vHex: String) = guarded {
+            ServerRuntimeContract.requireAccountToken("username", username)
+            require(FriendProvisionProtocol.isSrpHex(sHex) && FriendProvisionProtocol.isSrpHex(vHex)) {
+                "verifier must be 64 lowercase hex chars"
+            }
+            val verdict = WorldNative.createAccountVerifierNative(username, sHex, vHex)
+            val rc = verdict.getOrElse(0) { Long.MAX_VALUE }.toInt()
+            accountResult("create-account-verifier", username, rc)
+                .put("accountId", verdict.getOrElse(1) { 0L })
+        }
+        override fun accountList() = guarded {
+            JSONObject(WorldNative.accountListNative())
+                .put("schema", 1).put("component", "world").put("operation", "account-list")
+        }
+        override fun accountCharacters(username: String) = guarded {
+            ServerRuntimeContract.requireAccountToken("username", username)
+            JSONObject(WorldNative.accountCharactersNative(username))
+                .put("schema", 1).put("component", "world").put("operation", "account-characters")
+        }
+        override fun banAccount(username: String, duration: String, reason: String) = guarded {
+            ServerRuntimeContract.requireAccountToken("username", username)
+            JSONObject(WorldNative.banAccountNative(username, duration, reason, ServerRuntimeContract.CONTROL_TIMEOUT_MS))
+                .put("schema", 1).put("component", "world").put("operation", "ban-account")
+        }
+        override fun unbanAccount(username: String) = guarded {
+            ServerRuntimeContract.requireAccountToken("username", username)
+            JSONObject(WorldNative.unbanAccountNative(username, ServerRuntimeContract.CONTROL_TIMEOUT_MS))
+                .put("schema", 1).put("component", "world").put("operation", "unban-account")
         }
         override fun characterPersistence(username: String, characterName: String) = guarded {
             ServerRuntimeContract.requireAccountToken("username", username)
@@ -365,6 +457,40 @@ class WorldRuntimeService : Service() {
         } catch (error: Throwable) {
             lease.close()
             throw error
+        }
+    }
+
+    /**
+     * Design-timeframe §4.3 (the Android execution leg): bring the world DB
+     * from its recorded stage to the stage the conf names — the shared
+     * decision plan executed through TimeframeOverlayApplier. The desktop
+     * lane runs the identical plan through its SQLite seam; any failure
+     * here refuses the world start loudly (the transition gate turns the
+     * throw into the honest failure JSON, and the lifecycle record names
+     * the overlay).
+     */
+    @Suppress("TooGenericExceptionCaught") // the loud-refusal contract (the desktop startWorld twin)
+    private fun applyStageOverlayOrRefuse(settingsSnapshot: Settings.Snapshot) {
+        // The CALLER's snapshot — the same one the conf write consumed — so
+        // the conf's PocketRealm.TimeframeStage and the overlay's desired
+        // stage can never disagree (one stage resolution per start).
+        val desiredStage = TimeframeStages.confValue(settingsSnapshot.timeframeStage)
+        try {
+            TimeframeOverlayApplier.prepareForStart(
+                java.io.File(
+                    StorageRoots.get(this).databaseRoot,
+                    DatabaseSqliteControlPlane.SQLITE_DATADIR_NAME,
+                ),
+                desiredStage = desiredStage,
+            )
+        } catch (overlayFailure: Throwable) {
+            files.writeLifecycle(
+                "world",
+                false,
+                "start-failed-overlay",
+                overlayFailure.message ?: "overlay failure",
+            )
+            error("world start refused: timeframe overlay failed: ${overlayFailure.message}")
         }
     }
 
@@ -678,6 +804,11 @@ class WorldRuntimeService : Service() {
         private const val ADMISSION_JOIN_TIMEOUT_MS = 6_000L
         private const val BOT_STATUS_SIZE = 19
         private const val PERFORMANCE_STATUS_SIZE = 10
+        /** F1-10: create-account's expansion write resolves the qualified
+         * lane (the ActiveFlavor fail-loud suffix, PreparedDataStore's
+         * SERVER_DATA_LANE idiom). */
+        private const val ACCOUNT_EXPANSION_LANE =
+            "account expansion resolves the qualified lane"
         /** Supervisor-driven specialUse FGS promotion intents. */
         const val ACTION_PROMOTE_FOREGROUND = "com.pocketrealm.action.WORLD_FOREGROUND_PROMOTE"
         const val ACTION_DEMOTE_FOREGROUND = "com.pocketrealm.action.WORLD_FOREGROUND_DEMOTE"

@@ -76,4 +76,114 @@ class RuntimeFailureCopyTest {
         )
         assertEquals("", RuntimeFailureCopy.humanize(""))
     }
+
+    // ------------------------------------------------------------------
+    // D9 (design-lan §7): the LAN-aware entries.
+    // ------------------------------------------------------------------
+
+    @Test fun `lan host interface loss stop reason maps to the restart copy`() {
+        val human = RuntimeFailureCopy.humanize("LAN_HOST_INTERFACE_LOST")
+        assertTrue(human.contains("network connection changed"))
+        assertTrue(human.contains("world was saved"))
+        assertFalse(human.contains("LAN_HOST_INTERFACE_LOST"))
+    }
+
+    @Test fun `stale lan host address refusal maps to the pick-an-address copy`() {
+        val human = RuntimeFailureCopy.humanize(
+            "world start failed: LAN host address is not an active private IPv4 interface",
+        )
+        // Platform-neutral wording: the copy renders on Android too, where
+        // there is no "Settings → LAN play" destination and no PC.
+        assertTrue(human.contains("isn't active on this device"))
+        assertTrue(human.contains("LAN hosting settings"))
+        assertFalse(human.contains("this PC"))
+        assertFalse(human.contains("Settings → LAN play"))
+        assertFalse(human.contains("active private IPv4 interface"))
+    }
+
+    @Test fun `join preflight client refusal maps to the import copy`() {
+        val human = RuntimeFailureCopy.humanize(
+            "LAN-JOIN-CLIENT-MISSING: no client directory resolves",
+        )
+        assertTrue(human.contains("Joining doesn't need a local realm"))
+        assertTrue(human.contains("open Import"))
+        assertFalse(human.contains("LAN-JOIN"))
+    }
+
+    @Test fun `probe failure carries the probed address and the firewall remedy`() {
+        val human = RuntimeFailureCopy.humanize(
+            "LAN-PROBE-UNREACHABLE: no answer from 192.168.1.50 within 2000 ms",
+        )
+        assertTrue(human.contains("No realm answered at 192.168.1.50:3724"))
+        assertTrue(human.contains("Windows Firewall on the host"))
+        assertFalse(human.contains("LAN-PROBE"))
+    }
+
+    @Test fun `probe failure without an address still renders the remedy`() {
+        val human = RuntimeFailureCopy.humanize("LAN-PROBE-UNREACHABLE")
+        assertTrue(human.contains("No realm answered at the host's address:3724"))
+    }
+
+    @Test fun `non-lan probe target maps to the tunnel address-class copy`() {
+        val human = RuntimeFailureCopy.humanize("LAN-PROBE-NOT-LAN: 100.100.0.1")
+        assertTrue(human.contains("inside the host's tunnel"))
+        assertFalse(human.contains("LAN-PROBE-NOT-LAN"))
+    }
+
+    @Test fun `banned account surfaces with the extracted name`() {
+        val human = RuntimeFailureCopy.humanize(
+            "AUTH_LOGON_FAILED_BANNED: account 'FRIENDONE' is banned",
+        )
+        assertEquals(
+            "FRIENDONE is banned on this realm; they can't log in until you unban them.",
+            human,
+        )
+    }
+
+    @Test fun `banned account without a name in the detail still renders the copy`() {
+        val human = RuntimeFailureCopy.humanize("AUTH_LOGON_FAILED_BANNED")
+        assertTrue(human.contains("banned on this realm"))
+        assertTrue(human.contains("unban"))
+    }
+
+    @Test fun `lan entries never shadow the pre-existing mappings`() {
+        // The LAN markers' wording must not accidentally contain the older
+        // raw markers (the when-chain is substring keyed).
+        listOf(
+            "LAN_HOST_INTERFACE_LOST",
+            "LAN host address is not an active private IPv4 interface",
+            "LAN-JOIN-CLIENT-MISSING",
+            "LAN-PROBE-UNREACHABLE",
+            "LAN-PROBE-NOT-LAN",
+            "AUTH_LOGON_FAILED_BANNED",
+        ).forEach { marker ->
+            assertFalse("marker shadows UNVERIFIED_ORPHAN: $marker", "UNVERIFIED_ORPHAN" in marker)
+            assertFalse("marker shadows the timeout marker: $marker", "TimeoutCancellationException" in marker)
+        }
+    }
+
+    @Test fun `missing staged overlay refusal maps to the re-prepare copy`() {
+        // Design-timeframe §4.3's fail-closed family: the shared plan's
+        // unstaged refusal, wrapped by the start-leg's loud prefix, must
+        // never reach the card as raw engineer detail.
+        val human = RuntimeFailureCopy.humanize(
+            "world start refused: timeframe overlay failed: timeframe overlay: " +
+                "no overlay staged for \"vanilla-1.1\" (staged stages: " +
+                "[vanilla-1.2, vanilla-1.12.1])",
+        )
+        assertTrue(human.contains("Re-prepare the game files"))
+        assertFalse(human.contains("no overlay staged for"))
+        assertFalse(human.contains("staged stages"))
+    }
+
+    @Test fun `overlay statement failure maps to the recover copy`() {
+        val human = RuntimeFailureCopy.humanize(
+            "world start refused: timeframe overlay failed: timeframe overlay for " +
+                "vanilla-1.5: statement (INSERT OR IGNORE ...) failed: database disk " +
+                "image is malformed",
+        )
+        assertTrue(human.contains("Use Recover"))
+        assertFalse(human.contains("statement ("))
+        assertFalse(human.contains("malformed"))
+    }
 }

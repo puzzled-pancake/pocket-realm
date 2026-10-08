@@ -21,7 +21,10 @@ import org.junit.Test
  * a failure for the CI native lane).
  */
 class NativeCoLoadTest {
-    private val runtimeDir = File("..").resolve("native/.build-win-x86_64/pocket-runtime-build")
+    // The mariadb lane's build root (-mariadb suffix): the desktop loads
+    // the backend it ships, whose root is disjoint from the sqlite dev
+    // lane's (a shared root let the last rebuild swap the DLLs silently).
+    private val runtimeDir = File("..").resolve("native/.build-win-x86_64-mariadb/pocket-runtime-build")
 
     private fun stagedDll(name: String): File {
         val dll = runtimeDir.resolve(name)

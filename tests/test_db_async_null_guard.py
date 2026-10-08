@@ -283,7 +283,42 @@ def test_lockfiles_pin_patches_content() -> None:
         assert pinned == expected, (
             f"{name} patches content is stale vs the working tree: "
             f"changed={sorted(set(expected) ^ set(pinned))[:6]}... - "
-            "rebuild that lane (the lockfile pins what IS staged)")
+            "a native/patches edit landed without its lockfile refresh; run "
+            "python tools/build_o09_realm_runtime.py --write-lockfiles and "
+            "commit the regenerated pins in the same change (a full lane "
+            "rebuild only moves the ARTIFACT pins)")
+
+
+def test_patches_content_tripwire_names_the_refresh_remedy(
+        tmp_path, monkeypatch) -> None:
+    """Round-6 process pin: a native/patches edit that lands without its
+    lockfile refresh trips the tripwire above in pre-commit AND CI (both
+    run this file), so the failure message is the one place the wave owner
+    reliably looks — it must name the documented one-command remedy (the
+    --write-lockfiles warm-dir regen the driver's --help documents), never
+    a hours-long lane rebuild or nothing at all. The round-6 wave landed
+    red precisely because the old message said "rebuild that lane"."""
+    import json
+
+    import pytest
+
+    schemas = tmp_path / "schemas"
+    schemas.mkdir()
+    (schemas / "realm-runtime-lockfile.json").write_text(json.dumps(
+        {"patches_content": {"native/patches/stale.cpp": "0" * 64}}),
+        encoding="utf-8")
+    patches = tmp_path / "native" / "patches"
+    patches.mkdir(parents=True)
+    (patches / "edited.cpp").write_text("// edited\n", encoding="utf-8")
+    # Hermetic ROOT/NATIVE for both the tripwire's schemas lookup and the
+    # driver's digest walk (the same patching pattern the o09 wiring test
+    # uses); monkeypatch restores the real globals at teardown.
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(driver, "ROOT", tmp_path)
+    monkeypatch.setattr(driver, "NATIVE", tmp_path / "native")
+    with pytest.raises(AssertionError,
+                       match=r"build_o09_realm_runtime\.py --write-lockfiles"):
+        test_lockfiles_pin_patches_content()
 
 
 def test_write_lockfiles_mode_is_idempotent_and_content_only() -> None:

@@ -42,10 +42,10 @@ public:
     // rolling short-term conversational continuity (in-memory, tail-capped);
     // whisper history is per (bot, player), party/raid history is shared per
     // (bot, channel) including the bot's own lines
-    static void AppendTurn(uint32 bot, uint32 playerOrChannel, bool sharedChannel, std::string const& speaker, std::string const& line);
+    static void AppendTurn(uint32 bot, uint32 playerOrChannel, std::string const& speaker, std::string const& line);
 
     // ordered byte-stable context for the in-process backend
-    static std::string BuildPromptContext(Player* bot, Player* player, int chatChannelSource, std::string const& chanName);
+    static std::string BuildPromptContext(Player* bot, Player* player, int chatChannelSource);
 
     // ---- trained prompt format (HTTP path, AiPlayerbot.LLMPromptFormat = 1):
     // assembles the COMPLETE chat request the trained contract defines -
@@ -129,7 +129,7 @@ public:
     static std::string GetGossipSlice(uint32 bot);
 
     // share_gossip gate: only alongside a real, verified trigger event
-    static void NoteVerifiedEvent(uint32 bot, uint32 eventId);
+    static void NoteVerifiedEvent(uint32 bot);
     static bool HasRecentVerifiedEvent(uint32 bot);
 
     // journal surface (facts + milestones) for a gossip-window page: one
@@ -458,7 +458,7 @@ public:
     // the shared per-pairing daily cap consumed by turns AND
     // shared-kills (C6: trade/quest/first-visit stay exempt)
     static bool AwardCappedPoints(Player* bot, Player* player, int32 points);
-    static void OnQuestRewarded(Player* player, uint32 questId,
+    static void OnQuestRewarded(Player* player,
         std::string const& questTitle, bool repeatable);
 
     // ---- C4: deterministic party digests. A bounded per-master rolling

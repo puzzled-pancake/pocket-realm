@@ -233,9 +233,6 @@ def parse_instrumentation(instr_out: str) -> InstrumentOutcome:
         elif s.startswith("OK (0 tests)"):
             zero_test_summary = True
     failed = max(ran - passed, summary_failures)
-    if zero_test_summary and ran == 0:
-        # Explicit "no tests ran" — not ok regardless of terminal code.
-        failed = max(failed, 0)  # ran==0 already makes ok() False; keep note honest
     note = (f"parsed {ran} started, {passed} passed, {failed} failed "
             f"(summary_failures={summary_failures}, zero_test_summary="
             f"{zero_test_summary}, terminal INSTRUMENTATION_CODE={code})")
@@ -256,11 +253,13 @@ def _selftest() -> int:
     rc 0 and INSTRUMENTATION_CODE 0 even when zero tests matched the filter."""
     failures = []
 
-    def check(name, instr_out, expect_ok, expect_ran=None, expect_failed=None):
+    def check(name, instr_out, expect_ok, expect_ran=None, expect_failed=None,
+              expect_note_has=None):
         o = parse_instrumentation(instr_out)
         ok = (o.ok == expect_ok
               and (expect_ran is None or o.ran == expect_ran)
-              and (expect_failed is None or o.failed == expect_failed))
+              and (expect_failed is None or o.failed == expect_failed)
+              and (expect_note_has is None or expect_note_has in o.note))
         if not ok:
             failures.append(f"{name}: expected ok={expect_ok} ran={expect_ran} "
                             f"failed={expect_failed}, got {o!r}")
@@ -277,11 +276,14 @@ def _selftest() -> int:
           expect_ok=True, expect_ran=1, expect_failed=0)
 
     # Zero tests matched the class filter: rc 0, the `OK (0 tests)` summary, no
-    # per-test status. This is the regression — must be NOT ok.
+    # per-test status. This is the regression — must be NOT ok, with ran==0 (not
+    # a fabricated failed count) doing the gating and the parsed zero-test
+    # summary surfaced in the note so the failure reason is visible in evidence.
     check("zero_tests",
           "INSTRUMENTATION_RESULT: stream=\n\nTime: 0.001\nOK (0 tests)\n\n"
           "INSTRUMENTATION_CODE: 0\n",
-          expect_ok=False, expect_ran=0, expect_failed=0)
+          expect_ok=False, expect_ran=0, expect_failed=0,
+          expect_note_has="zero_test_summary=True")
 
     # A failing assertion: test STARTED but never reached code 0, plus the
     # `There was 1 failure:` / FAILURES summary. Must be NOT ok with failed=1.

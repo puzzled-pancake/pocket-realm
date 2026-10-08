@@ -34,6 +34,11 @@ import java.util.concurrent.TimeUnit
  *   db-status | db-health | db-stop
  *   realm-start | realm-status | realm-stop
  *   world-start | world-start-bot <profileId> | world-status |
+ *       (both world boots prove the DB-lane precondition first: a stopped
+ *       or unanswering lane answers the typed refusal instead of firing a
+ *       native boot that never returns, and the start call itself is
+ *       bounded like every composite stage - a wedged boot is named, not
+ *       sat on)
  *   world-bots <target> | world-bot-status | world-save |
  *   world-account <user> <pass> | world-verify <user> <pass> |
  *   world-gm <user> <level> | world-account-status <user> |
@@ -48,7 +53,15 @@ import java.util.concurrent.TimeUnit
  *       per-(bot,prefix) fact counts; empty player = world summary)
  *   stack-up-bot <profileId>   (supervisor DB-RECOVERY gate when the
  *       journal is dirty + engine clean-marker verify/heal when it is
- *       not, then db init+migrations+start → realm → world)
+ *       not, then db init+migrations+start → health gate → realm → world;
+ *       the composite runs through StackUpComposite - every stage is
+ *       bounded by its designed window capped by the op budget's
+ *       remainder, a not-running lane refuses BEFORE realm/world fire,
+ *       and the whole op answers inside its total budget: a stage that
+ *       outlives its window fails the op naming the refusing component,
+ *       a spent budget answers the named STACKUP_TOTAL_DEADLINE refusal,
+ *       never an indefinite hang past the host console's 900s slow-op
+ *       window)
  *   quit
  *   ping   (harness attach probe: alive/uptimeMs + runtimeBuildId and the
  *       native source-commit pins baked from the lane lockfile at build
@@ -145,8 +158,17 @@ class WorldConsoleRelay {
             "realm-start" -> passthrough(op) { realmApi().start() }
             "realm-status" -> passthrough(op) { realmApi().status() }
             "realm-stop" -> passthrough(op) { realmApi().stop() }
-            "world-start" -> passthrough(op) { worldApi().start() }
-            "world-start-bot" -> passthrough(op) { worldApi().startBotProfile(arg1) }
+            // The DB lane is a world boot's foundation (dependency order
+            // DB -> realmd -> world): the recorded row -09 world-start
+            // fired a native boot into a STOPPED lane and hung. The
+            // precondition is proven first - a stopped or unanswering lane
+            // answers the typed refusal naming the sanctioned boot path -
+            // and the start call itself is bounded like every composite
+            // stage, so a wedged native boot is named, never sat on.
+            "world-start" -> worldBootRefusal("world-start", databaseStatus())
+                ?: boundWorldStart("world-start") { worldApi().start() }
+            "world-start-bot" -> worldBootRefusal("world-start-bot", databaseStatus())
+                ?: boundWorldStart("world-start-bot") { worldApi().startBotProfile(arg1) }
             "world-status" -> passthrough(op) { worldApi().status() }
             "world-bots" -> passthrough(op) { worldApi().setBotTarget(arg1.toIntOrNull() ?: 0) }
             "world-bot-status" -> passthrough(op) { worldApi().botStatus() }
@@ -205,53 +227,133 @@ class WorldConsoleRelay {
     private fun passthrough(op: String, call: () -> String): JSONObject =
         JSONObject(call()).put("op", op)
 
-    private fun stackUpBot(profileId: String): JSONObject {
-        val out = JSONObject().put("op", "stack-up-bot")
-        // DB-RECOVERY gate (the dirty-stop lesson): driving db
-        // initialize/migrations/start directly over an unsealed generation
-        // failed dbMigrations/dbStart and left the world leg at DB_REVISION.
-        // The sanctioned heal is the supervisor's recovery lane - the same
-        // DurableRuntimeSupervisor.recover() an app-led Start realm runs -
-        // driven over its Binder, never re-implemented here, PLUS the
-        // engine's own marker check (relay composites are not journaled, so
-        // the journal alone cannot prove the generation sealed). If the lane
-        // cannot heal, fail fast and actionably instead of driving the legs.
-        val recovery = healDatabaseThroughSupervisor()
-        out.put("dbRecovery", recovery.optBoolean("ok"))
-            .put("dbRecoveryDetail", recovery.optString("action", recovery.optString("error")))
-        if (!recovery.optBoolean("ok")) {
-            return out.put("ok", false)
-                .put("errorClass", "DB_REVISION")
-                .put("error", recovery.optString("error") + "; remedy: one app-led Start " +
-                    "realm (Home -> Start) heals the database, then re-run stack-up-bot")
+    // The world boot's DB-lane precondition, proven BEFORE any native boot
+    // is fired: dependency order is DB -> realmd -> world, and a start over
+    // a stopped lane wedges the native boot (the recorded row -09 hang)
+    // instead of refusing. null = the lane answered RUNNING and the boot may
+    // proceed; otherwise the refusal names the observed lane state and the
+    // sanctioned boot path. Pure in the status so the guard's decision table
+    // is testable against synthetic lanes as well as the real one.
+    internal fun worldBootRefusal(op: String, status: JSONObject?): JSONObject? {
+        if (status?.optString("state") == "RUNNING") return null
+        val observed = if (status == null) {
+            "the database lane did not answer status within " +
+                "${StackUpComposite.STATUS_READ_WINDOW_MS / 1000}s"
+        } else {
+            "state=${status.optString("state")}, " +
+                "initialized=${status.optBoolean("initialized")}, " +
+                "providerMode=${status.optString("providerMode")}"
         }
-        val database = db()
-        out.put("dbInit", JSONObject(database.initialize()).optBoolean("ok"))
-        out.put("dbMigrations", JSONObject(database.applyPinnedMigrations()).optBoolean("ok"))
-        out.put("dbStart", JSONObject(database.start()).optBoolean("ok"))
-        out.put("dbHealth", JSONObject(database.queryHealth()).optBoolean("ok"))
-        out.put("realmStart", JSONObject(realmApi().start()).optBoolean("ok"))
-        val worldStart = JSONObject(worldApi().startBotProfile(profileId))
-        out.put("worldStartBotProfile", worldStart.optBoolean("ok"))
-        out.put("ok", out.optBoolean("dbStart") && out.optBoolean("realmStart")
-            && worldStart.optBoolean("ok"))
-        // A failed leg never answers a bare ok:false (the QA hit:
-        // dbMigrations/dbStart false with no errorClass and no remedy): the
-        // composite's foundation is the database, so the legs failure carries
-        // the gate path's own errorClass and the SAME remedy string, with the
-        // error naming exactly which legs failed.
-        if (!out.optBoolean("ok")) {
-            val failedLegs = listOf(
-                "dbInit", "dbMigrations", "dbStart", "dbHealth",
-                "realmStart", "worldStartBotProfile",
-            ).filterNot { leg -> out.optBoolean(leg) }
-            return out.put("errorClass", "DB_REVISION")
-                .put("error", "legs failed: ${failedLegs.joinToString(",")}; " +
-                    "remedy: one app-led Start realm (Home -> Start) heals the database, " +
-                    "then re-run stack-up-bot")
-        }
-        return out
+        return JSONObject()
+            .put("ok", false)
+            .put("op", op)
+            .put("errorClass", if (status == null) "DATABASE_NOT_READY" else "DB_NOT_RUNNING")
+            .put("error", "world boot precondition unmet: database lane is not running ($observed)")
+            .put("remedy", "run stack-up-bot <profileId> (supervisor DB-RECOVERY gate, " +
+                "db init+migrations+start, realm, world) before $op")
     }
+
+    /** One bounded status read from the real database lane (the guard's input). */
+    internal fun databaseStatus(): JSONObject? =
+        boundLeg("DATABASE", StackUpComposite.STATUS_READ_WINDOW_MS, Long.MAX_VALUE) {
+            db().status()
+        }
+
+    // One bounded component call: the leg's parsed answer, or null when the
+    // call outlives its (effective) window - see [boundedCall].
+    private fun boundLeg(
+        component: String,
+        windowMs: Long,
+        opDeadlineMs: Long,
+        call: () -> String,
+    ): JSONObject? = boundedCall(component, effectiveWindowMs(windowMs, opDeadlineMs)) {
+        JSONObject(call())
+    }
+
+    // The fail-fast mechanism under every bounded stage: the synchronous
+    // Binder call runs on a worker thread and the caller joins it for the
+    // stage's window. A call that outlives the window is abandoned on its
+    // worker (a wedged transit cannot be interrupted; the recorded row -09
+    // composite sat silent past the host's 900s window on exactly such a
+    // call) and null is returned so the caller answers the typed stage
+    // timeout. A finished worker's failure is rethrown on the caller -
+    // join() provides the happens-before.
+    internal fun <T> boundedCall(component: String, windowMs: Long, call: () -> T): T? {
+        if (windowMs <= 0L) return null
+        var answer: T? = null
+        var failure: Throwable? = null
+        val worker = Thread({
+            try {
+                answer = call()
+            } catch (error: Throwable) {
+                failure = error
+            }
+        }, "console-bound-$component")
+        worker.start()
+        worker.join(windowMs)
+        if (worker.isAlive) return null
+        failure?.let { throw it }
+        return answer
+    }
+
+    private fun effectiveWindowMs(windowMs: Long, opDeadlineMs: Long): Long =
+        windowMs.coerceAtMost((opDeadlineMs - System.currentTimeMillis()).coerceAtLeast(0L))
+
+    // The stage-timeout shape shared by every bounded stage - owned by
+    // StackUpComposite (host-unit-tested); the relay keeps the delegate so
+    // the world-boot guard and the instrumentation tests share one shape.
+    internal fun stageTimeoutResponse(
+        op: String,
+        leg: String,
+        component: String,
+        windowMs: Long,
+    ): JSONObject = StackUpComposite.stageTimeoutResponse(op, leg, component, windowMs)
+
+    private fun stackUpBot(profileIdArg: String): JSONObject {
+        // The composite (StackUpComposite, host-unit-tested) owns the
+        // sequence, the total deadline and every named answer; the relay
+        // supplies the real Binder legs and the bounded-call abandonment.
+        val composite = StackUpComposite(
+            op = "stack-up-bot",
+            nowMs = System::currentTimeMillis,
+            bound = { _, component, windowMs, leg ->
+                // The composite hands each stage its already-capped window
+                // (design capped by the op budget's remainder); the relay's
+                // abandonment semantics apply within that window.
+                boundLeg(component, windowMs, Long.MAX_VALUE, leg)
+            },
+            legs = object : StackUpComposite.Legs {
+                override fun dbRecoveryGate(): String =
+                    healDatabaseThroughSupervisor().toString()
+                override fun dbStatus(): String = db().status()
+                override fun dbInitialize(): String = db().initialize()
+                override fun dbMigrations(): String = db().applyPinnedMigrations()
+                override fun dbStart(): String = db().start()
+                override fun dbHealth(): String = db().queryHealth()
+                override fun realmStart(): String = realmApi().start()
+                override fun worldStartBotProfile(profileId: String): String =
+                    worldApi().startBotProfile(profileId)
+            },
+        )
+        // The composite-level net (defect stackup-wedge / LVF-server-db-014):
+        // the whole op is bounded by ITS OWN budget - if the composite body
+        // ever outlives it (a stage escaped its bounded window, or a future
+        // regression adds an unbounded call), the net abandons it and answers
+        // the named total-deadline refusal. The recorded wedge sat silent
+        // past the stage sum + 210s; with every stage capped by the budget
+        // remainder AND the body under this net, the host console's 900s
+        // slow-op window always sees an answer. Never an indefinite hang.
+        return boundedCall("STACKUP", StackUpComposite.STACKUP_OP_BUDGET_MS) {
+            composite.run(profileIdArg)
+        } ?: StackUpComposite.totalDeadlineResponse("stack-up-bot", "composite",
+            "the composite body outlived its own budget (a stage escaped its " +
+                "bounded window)")
+    }
+    private fun boundWorldStart(op: String, call: () -> String): JSONObject =
+        boundLeg("WORLD", StackUpComposite.WORLD_START_STAGE_WINDOW_MS, Long.MAX_VALUE, call)
+            ?.put("op", op)
+            ?: StackUpComposite.stageTimeoutResponse(op, op, "WORLD",
+                StackUpComposite.WORLD_START_STAGE_WINDOW_MS)
 
     /**
      * DB-RECOVERY gate for stack-up-bot: a dirty supervisor journal (a dirty
@@ -266,16 +368,23 @@ class WorldConsoleRelay {
      * journaled, so a power-loss/emulator kill during one leaves the journal
      * STOPPED-clean while the engine died unsealed (db-status cleanMarker
      * false). The gate therefore also verifies the ENGINE's own marker and,
-     * when it is unsealed, heals the generation with the engine's own
-     * recover verb - the exact RECOVER_DIRTY_GENERATION leg the supervisor's
-     * prepare lane drives on every DATABASE start - before answering
-     * none-needed.
+     * when it is unsealed, routes by the production preparation order
+     * (DatabaseStartPreparation): an interrupted INIT/MIGRATION transaction
+     * resumes through the initialize/applyPinnedMigrations legs' own
+     * engine-side resume paths, a NEVER-INITIALIZED generation is the
+     * first-boot INITIALIZE route, and only an unsealed INITIALIZED
+     * generation with no pending transaction has a recover verb that will
+     * take it - the exact RECOVER_DIRTY_GENERATION leg the supervisor's
+     * prepare lane drives on every DATABASE start - so that one case alone
+     * goes to the engine's recover verb and the rest is admitted to the
+     * composite's bounded legs with the engine enforcing every seal.
      */
     private fun healDatabaseThroughSupervisor(): JSONObject = runCatching {
         val supervisor = bind("com.pocketrealm.service.RealmService")
             { IRuntimeSupervisorControl.Stub.asInterface(it) }
         try {
-            val deadline = System.currentTimeMillis() + SUPERVISOR_RECOVERY_TIMEOUT_MS
+            val deadline = System.currentTimeMillis() +
+                StackUpComposite.SUPERVISOR_RECOVERY_TIMEOUT_MS
             var recoverySubmitted = false
             while (System.currentTimeMillis() < deadline) {
                 val status = JSONObject(supervisor.api.status())
@@ -285,9 +394,33 @@ class WorldConsoleRelay {
                 // phase is an active or interrupted generation.
                 val phase = status.optString("phase")
                 val settled = phase in setOf("STOPPED", "UNCONFIGURED", "ERROR")
-                if (settled && status.optBoolean("clean"))
+                if (settled && status.optBoolean("clean")) {
+                    val engine = JSONObject(db().status())
+                    if (!engine.optBoolean("cleanMarker")) {
+                        // Route the unsealed generation to the verb that can
+                        // actually accept it - the production preparation
+                        // order (DatabaseStartPreparation): an interrupted
+                        // INIT/MIGRATION transaction resumes through the
+                        // initialize/applyPinnedMigrations legs' own
+                        // engine-side resume paths, a never-initialized
+                        // generation is the first-boot flow (INITIALIZE
+                        // route - the recover verb refuses it), and only a
+                        // sealed-initialized dirty generation with no
+                        // pending transaction has a recover verb that will
+                        // take it (dirtyRecoveryPermitted): that one case
+                        // goes to the engine half below.
+                        val recoverEligible = engine.optBoolean("initialized") &&
+                            !engine.optBoolean("databaseTransactionPending")
+                        if (!recoverEligible) {
+                            return JSONObject().put("ok", true).put("action",
+                                "fresh-prepare (unsealed generation admitted to the " +
+                                    "composite's bounded db legs: the engine's own " +
+                                    "initialize/migrations resume guards own this state)")
+                        }
+                    }
                     return verifyEngineSealedOrHeal(
                         if (recoverySubmitted) "supervisor-recover" else "none-needed")
+                }
                 if (phase == "RECOVERING") {
                     Thread.sleep(1_000); continue
                 }
@@ -308,7 +441,7 @@ class WorldConsoleRelay {
             }
             JSONObject().put("ok", false)
                 .put("error", "supervisor DB recovery did not settle within " +
-                    "${SUPERVISOR_RECOVERY_TIMEOUT_MS / 1000}s")
+                    "${StackUpComposite.SUPERVISOR_RECOVERY_TIMEOUT_MS / 1000}s")
         } finally {
             supervisor.close()
         }
@@ -389,7 +522,13 @@ class WorldConsoleRelay {
     }
 
     companion object {
-        /** stack-up-bot's supervisor recovery budget; the host console waits 900 s for slow ops. */
-        private const val SUPERVISOR_RECOVERY_TIMEOUT_MS = 420_000L
+        // The stack-up-bot composite's stage windows and total budget - the
+        // DESIGNED bounds and their grounding (engine tool bounds, the O09
+        // readiness windows, the host console's 900s slow-op window) - live
+        // in StackUpComposite (host-unit-tested, the single source of truth).
+        // This relay contributes only the mechanism: boundedCall abandonment,
+        // the per-op Binder revalidation, and the whole-op net that answers
+        // the named total-deadline refusal if the composite body ever
+        // outlives its own budget.
     }
 }

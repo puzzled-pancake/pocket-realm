@@ -16,8 +16,14 @@ import com.pocketrealm.supervisor.RuntimeMode
  */
 sealed interface RealmState {
 
-    /** App/OS just started or recovered; no realm process exists yet. */
-    data object Idle : RealmState
+    /**
+     * App/OS just started or recovered; no realm process exists yet.
+     * [stopCopy] carries the humanized D9 reason when the previous stop was
+     * the interface-loss monitor's call (LAN/TUNNEL_HOST_INTERFACE_LOST) —
+     * a phone whose network churned mid-hosting must not present a clean,
+     * unexplained stop (design-lan §7/§8, both platforms).
+     */
+    data class Idle(val stopCopy: String? = null) : RealmState
 
     /**
      * A start was requested and we are bringing the native realm up. Not yet
@@ -33,6 +39,14 @@ sealed interface RealmState {
         val sinceEpochMs: Long,
         val mode: RuntimeMode = RuntimeMode.LOCAL,
         val endpointAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
+        /**
+         * Design-tunnel §5: the live session's ADVERTISED address when a
+         * tunnel host is up (the realmlist row friends dial); null = the
+         * plain endpoint advertisement. The host UI renders THIS as the
+         * live advertisement — never re-derived from settings, so the copy
+         * cannot promise an address the running session does not carry.
+         */
+        val advertisedAddress: String? = null,
         /** The game is independently startable while a local/LAN-host realm remains online. */
         val clientState: ClientLaunchState = ClientLaunchState.READY,
         val clientFailure: String? = null,
@@ -76,6 +90,19 @@ sealed interface RealmState {
         val unverifiedOrphan: Boolean = false,
         val dbOwnedByDeadSession: Boolean = false,
     ) : RealmState
+
+    /**
+     * The supervisor's status lane is UNREACHABLE — an explicit emission,
+     * never silence (design realm-status-browser.md §6.4): the poll's
+     * binder death (the :supervisor process died or the binding died) and
+     * a repeated decode failure (e.g. an unknown phase enum from a newer
+     * supervisor) must surface as a distinct state within ONE poll
+     * interval, because an unreadable upstream is not evidence that the
+     * realm is offline — the UI must say "unreachable", not guess a
+     * polarity. Downstream page/status consumers treat this exactly as
+     * §6.4's degraded lane: realmOnline publishes as null, never false.
+     */
+    data class SupervisorUnreachable(val reason: String) : RealmState
 }
 
 enum class ClientLaunchState { NOT_STARTED, READY, FAILED }

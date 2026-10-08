@@ -6,6 +6,7 @@ import com.pocketrealm.BuildConfig
 import com.pocketrealm.client.ClientRuntimeContract
 import com.pocketrealm.database.DatabaseRuntimeContract
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.server.ServerRuntimeContract
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -33,7 +34,7 @@ class SupportBundleExporter(private val context: Context) {
             } else {
                 DatabaseRuntimeContract.X86_PROVIDER_ID
             })
-            .put("server", "o09-cmangos-c096bada-nobots-v1")
+            .put("server", ServerRuntimeContract.RUNTIME_BUILD_ID)
             .put("wine", ClientRuntimeContract.RUNTIME_BUILD_ID)
             .put("renderer", ClientRuntimeContract.RENDERER_BUILD_ID).toString(2)
         entries["device.json"] = JSONObject().put("schema", 1)
@@ -42,8 +43,16 @@ class SupportBundleExporter(private val context: Context) {
         entries["logs.json"] = AppLog.exportJson()
         fixedFile(context.noBackupFilesDir, "runtime-supervisor/journal.json")
             ?.let { entries["supervisor-journal.json"] = it }
-        fixedFile("content/o11-server/active.json")?.let { entries["data-active.json"] = it }
-        fixedFile("clients/active.json")?.let { entries["client-active.json"] = it }
+        // G3-5: the per-flavor pointer namespaces ride the bundle beside the
+        // pre-flavor un-namespaced names (best-effort diagnostics either way).
+        listOf(
+            "content/o11-server/active.json" to "data-active.json",
+            "content/o11-server/active-vanilla.json" to "data-active-vanilla.json",
+            "clients/active.json" to "client-active.json",
+            "clients/active-vanilla.json" to "client-active-vanilla.json",
+        ).forEach { (path, entryName) ->
+            fixedFile(path)?.let { entries[entryName] = it }
+        }
         // User-imported Vulkan lane: registry (ids/labels/digests/streaks,
         // no paths) and the last session record written by the crash guard.
         fixedFile("drivers/registry.json")

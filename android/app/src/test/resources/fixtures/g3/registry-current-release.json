@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "installed": [
+    {
+      "id": "mrthinger__wow-voiceover",
+      "repository": "mrthinger/wow-voiceover",
+      "displayName": "WoW VoiceOver",
+      "commitSha": "abc1234567890abcdef1234567890abcdef12345",
+      "archiveSha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "installedAtEpochMs": 1759200000000,
+      "packagePath": "packages/mrthinger__wow-voiceover/AI_VoiceOver",
+      "folders": [
+        "AI_VoiceOver"
+      ]
+    },
+    {
+      "id": "builtin__androidport",
+      "repository": "builtin",
+      "displayName": "Android Port",
+      "commitSha": "builtin",
+      "archiveSha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "installedAtEpochMs": 1759100000000,
+      "packagePath": "packages/builtin__androidport/AndroidPort",
+      "folders": [
+        "AndroidPort"
+      ]
+    }
+  ]
+}

@@ -270,7 +270,9 @@ static void TestEraLists()
 {
     using namespace pocketllm;
     CHECK(EraScan("the shattrath portal is open") == "shattrath");
-    CHECK(EraScan("never trust a draenei") == "draenei");
+    // Round-4 R5-4-1: draenei is corpus-proven vanilla-legitimate
+    // (broadcast_text 5296) - the old false ban is GONE.
+    CHECK(EraScan("never trust a draenei").empty());
     CHECK(EraScan("I rode a flying mount home").find("flying") == 0);
     CHECK(EraScan("Dalaran floats above Northrend").find("dalaran") == 0);
     CHECK(EraScan("the Ebon Blade marches").find("ebon") == 0);
@@ -283,11 +285,12 @@ static void TestEraLists()
     CHECK(EraScan("I have never heard of any draenei").empty());
     CHECK(EraScan("no draenei trades in these lands").empty());
     CHECK(EraScan("never met a pandaren in my life, not one").empty());
-    // ...but affirming shapes still trip, before AND after the term
-    CHECK(EraScan("never trust a draenei") == "draenei");
-    CHECK(EraScan("aye, the draenei trader comes at dawn") == "draenei");
-    // plural-s no longer escapes the always-ban word boundary
-    CHECK(EraScan("a whole caravan of pandarens") == "pandaren");
+    // ...and the affirming shapes are clean too: draenei/pandaren are
+    // corpus-proven vanilla-legitimate (R5-4-1: npc_text 154 "Pandaren
+    // really do exist!", broadcast_text 5296) - never banned for vanilla.
+    CHECK(EraScan("never trust a draenei").empty());
+    CHECK(EraScan("aye, the draenei trader comes at dawn").empty());
+    CHECK(EraScan("a whole caravan of pandarens").empty());
     // a negated first mention must not mask an affirmed second
     CHECK(!EraScan("the portal is not open. Aye, the portal is open this week.").empty());
     // "cannot" is not a denial (the evade class this check exists for)
@@ -303,19 +306,95 @@ static void TestEraLists()
 
     // always-ban terms: word-boundary form
     std::vector<std::string> terms = EraAlwaysBanTerms();
-    bool hasShatt = false, hasDraenei = false;
+    bool hasShatt = false, hasAcherus = false, hasDraenei = false;
     for (std::string const& t : terms)
     {
         hasShatt = hasShatt || t == "shattrath";
+        hasAcherus = hasAcherus || t == "acherus";
         hasDraenei = hasDraenei || t == "draenei";
     }
-    CHECK(hasShatt && hasDraenei);
+    CHECK(hasShatt && hasAcherus);
+    CHECK(!hasDraenei); // R5-4-1: vanilla-legitimate, never banned
     // the context-allow words are NEVER in the always-ban list
     for (std::string const& t : terms)
     {
         CHECK(t != "dalaran" && t != "northrend" && t != "outland");
         CHECK(t != "worgen" && t != "wrath" && t != "naxxramas");
     }
+}
+
+// Design-timeframe §5: the era class set resolves from the world's chosen
+// content-patch stage (PocketRealm.TimeframeStage). These legs install
+// stages through the provider slot (the production reader lives in
+// PlayerbotLlmFilters.cpp) and pin: every registered stage resolves a
+// non-empty class set; unset/unknown falls open to the grounded default;
+// the era instruction line is empty at the default stage, names the patch
+// at a non-final stage, and composes with the pack seasoning without ever
+// changing the default-stage output.
+static void TestEraStageResolution()
+{
+    using namespace pocketllm;
+
+    // No provider installed = the default stage: the pre-control verdict.
+    CHECK(TimeframeStageProviderSlot() == 0);
+    CHECK(ActiveTimeframeStage().empty());
+    CHECK(erastages::IsDefaultStage(""));
+    CHECK(erastages::IsDefaultStage(erastages::DefaultStage()));
+    CHECK(!erastages::IsDefaultStage("vanilla-1.5"));
+    CHECK(EraStageLine().empty()); // default: byte-identical trained wording
+    CHECK(EraSeasoningFor("").empty());
+    CHECK(EraSeasoningFor("pack line") == "pack line");
+
+    // The registered stage list covers all three flavor timelines.
+    std::vector<std::string> const& stages = erastages::RegisteredStages();
+    CHECK(stages.size() == 22);
+    CHECK(stages.front() == "vanilla-1.1");
+    CHECK(stages[11] == "vanilla-1.12.1");
+    CHECK(stages[16] == "tbc-2.4.3");
+    CHECK(stages.back() == "wotlk-3.3.5a");
+    CHECK(erastages::DefaultStage() == "vanilla-1.12.1");
+
+    // Every registered stage resolves a NON-EMPTY class set, and today
+    // (v1: no curated deltas yet) every stage's set is the same grounded
+    // baseline the default carries - the manifests' documented posture.
+    static std::string const kUnsetStage;
+    std::vector<std::string> const& defaultBan = erastages::AlwaysBanTermsFor(kUnsetStage);
+    CHECK(defaultBan.size() == 2); // shattrath + acherus (R5-4-1 prune)
+    CHECK(erastages::SensePhrasesFor(kUnsetStage).size() == 29);
+    for (std::string const& stage : stages)
+    {
+        CHECK(&erastages::AlwaysBanTermsFor(stage) == &defaultBan);
+        CHECK(&erastages::SensePhrasesFor(stage) == &erastages::SensePhrasesFor(""));
+    }
+    // An unknown stage falls open to the default too (double-guard).
+    CHECK(&erastages::AlwaysBanTermsFor("garbage-9.9") == &defaultBan);
+    CHECK(erastages::PatchLabel("garbage-9.9").empty());
+    CHECK(erastages::PatchLabel("vanilla-1.5") == "1.5");
+    CHECK(erastages::PatchLabel("wotlk-3.3.5a") == "3.3.5a");
+
+    // A non-final stage through the provider slot: the scan still works
+    // and the instruction line names the world's patch.
+    static std::string hostStage;
+    TimeframeStageProviderSlot() = []() -> std::string { return hostStage; };
+    hostStage = "vanilla-1.5";
+    CHECK(ActiveTimeframeStage() == "vanilla-1.5");
+    CHECK(!EraStageLine().empty());
+    CHECK(EraStageLine().find("patch 1.5") != std::string::npos);
+    CHECK(EraSeasoningFor("").find("patch 1.5") != std::string::npos);
+    CHECK(EraSeasoningFor("pack line") == EraStageLine() + " " + "pack line");
+    // the era scan itself is stage-live (the same verdict at the
+    // baseline-equal v1 stage sets, pinned so a curated delta cannot
+    // silently break the scan)
+    CHECK(EraScan("the shattrath portal is open") == "shattrath");
+    // ...and an UNKNOWN stage value falls open to the default (no line,
+    // default terms) instead of half-failing.
+    hostStage = "vanilla-9.9";
+    CHECK(EraStageLine().empty());
+    CHECK(EraScan("the shattrath portal is open") == "shattrath");
+    hostStage = "vanilla-1.12.1"; // the explicit default
+    CHECK(EraStageLine().empty());
+    TimeframeStageProviderSlot() = 0; // restore the unset default for later legs
+    CHECK(EraSeasoningFor("pack line") == "pack line");
 }
 
 static void TestFilters()
@@ -440,6 +519,7 @@ int main()
     TestFrozenDirective();
     TestLoreIndex();
     TestEraLists();
+    TestEraStageResolution();
     TestFilters();
     if (g_failures)
     {

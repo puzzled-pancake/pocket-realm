@@ -102,7 +102,9 @@ def test_scripts_directory_is_scanned(tmp_path):
 
 
 def test_json_shape_carries_the_allowlist(tmp_path):
-    make_tree(tmp_path, {})
+    # R2-2: a zero-file scan is a degraded-scan FAILURE now, so the shape
+    # fixture needs one clean scannable file to be a legitimate OK case
+    make_tree(tmp_path, {str(Path("tools") / "clean.py"): "x = 1\n"})
     result = run_sweep(tmp_path, "--json")
     assert result.returncode == 0
     report = json.loads(result.stdout)
@@ -466,3 +468,90 @@ def test_repo_allowlist_has_no_stale_entries():
     assert spec, "sweep on the real repo must emit JSON"
     stale = [f for f in spec["findings"] if "stale allowlist entry" in str(f.get("text", ""))]
     assert stale == [], json.dumps(stale, indent=2)
+
+
+def test_journal_schema_bump_is_a_finding(tmp_path):
+    """G3-4: the supervisor journal schema stays 3 — the sweep greps for any
+    `JOURNAL_SCHEMA = <n>` other than 3 in the supervisor package."""
+    supervisor = tmp_path / "android" / "app" / "src" / "main" / "java" / "com" / "pocketrealm" / "supervisor"
+    supervisor.mkdir(parents=True)
+    (supervisor / "RuntimeModel.kt").write_text(
+        "object RuntimeSnapshot { const val JOURNAL_SCHEMA = 4 }\n", encoding="utf-8"
+    )
+    (supervisor / "Clean.kt").write_text(
+        "const val JOURNAL_SCHEMA = 3\n", encoding="utf-8"
+    )
+    findings, _allowlisted, _scanned = leak_sweep.sweep(tmp_path)
+    bumps = [f for f in findings if f["literals"] == ["<journal-schema-bump>"]]
+    assert len(bumps) == 1
+    assert bumps[0]["path"].endswith("RuntimeModel.kt")
+    assert bumps[0]["line"] == 1
+
+
+def test_journal_schema_three_is_quiet(tmp_path):
+    supervisor = tmp_path / "android" / "app" / "src" / "main" / "java" / "com" / "pocketrealm" / "supervisor"
+    supervisor.mkdir(parents=True)
+    (supervisor / "RuntimeModel.kt").write_text(
+        "const val JOURNAL_SCHEMA = 3\nval reference = RuntimeSnapshot.JOURNAL_SCHEMA\n",
+        encoding="utf-8",
+    )
+    findings, _allowlisted, _scanned = leak_sweep.sweep(tmp_path)
+    assert not [f for f in findings if f["literals"] == ["<journal-schema-bump>"]]
+
+
+def test_real_repo_journal_schema_stays_three():
+    spec = json.loads(run_sweep(ROOT, "--json").stdout or "{}")
+    assert not [
+        f for f in spec.get("findings", []) if f.get("literals") == ["<journal-schema-bump>"]
+    ]
+
+# ---- R1-1/R3-1/R2-2 (code-red round 1): the sweep covers UNTRACKED
+# commit-candidate files and fails loudly when it cannot scan.
+
+
+def _git_repo_with(tmp_path: Path, committed: dict, untracked: dict) -> Path:
+    import subprocess
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=root, check=True)
+    for rel, content in {**committed, **untracked}.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    if committed:
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m",
+                        "synthetic", "--no-gpg-sign", "--no-verify"],
+                       cwd=root, check=True)
+    return root
+
+
+def test_untracked_files_are_swept(tmp_path):
+    """R1-1/R3-1: an untracked-but-committable file with a banned
+    literal fails the sweep - the finalize commit can never flip the gate
+    red after the fact."""
+    leak_rel = Path("android/app/src/main/java/com/pocketrealm/client/Leaky.kt").as_posix()
+    root = _git_repo_with(
+        tmp_path,
+        committed={str(Path("tools/clean.py")): "x = 1"},
+        untracked={leak_rel: 'val db = "classicrealmd"'},
+    )
+    result = run_sweep(root, "--json")
+    report = json.loads(result.stdout)
+    assert not report["ok"], report["findings"]
+    assert any(f["path"] == leak_rel for f in report["findings"])
+
+
+def test_zero_file_scan_is_a_loud_degraded_scan(tmp_path):
+    """R2-2: a root with neither git nor any legacy SCAN_ROOTS
+    directory is a degraded-scan finding - zero coverage is never OK."""
+    empty_root = tmp_path / "nowhere"
+    empty_root.mkdir()
+    result = run_sweep(empty_root, "--json")
+    report = json.loads(result.stdout)
+    assert not report["ok"]
+    assert any("<degraded-scan>" in f["literals"]
+               for f in report["findings"])

@@ -19,6 +19,7 @@ Output: native/.build-win-x86_64/sqlite-seam-build/pocket_sqlite.dll
 
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import subprocess
@@ -28,12 +29,41 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import build_win_realm_runtime as realm  # noqa: E402
+try:
+    from tools import flavor_layout
+except ImportError:  # direct execution: python tools/<script>.py
+    import flavor_layout
 
 BUILD = ROOT / "native" / ".build-win-x86_64" / "sqlite-seam-build"
 PROJECT = ROOT / "native" / "desktop-sqlite"
 AMALGAMATION = ROOT / "native" / ".deps" / "src" / "sqlite" / "sqlite-amalgamation-3460100"
 SHIM = ROOT / "desktop/src/main/kotlin/com/pocketrealm/database/DesktopSqlite.kt"
 PINNED_VERSION = "3.46.1"
+
+
+def resolve_flavor_or_die(flavor_id: str) -> flavor_layout.FlavorLayout:
+    """P2-6 item 2: the seam lane is per-flavor in its PINS, not its DLL —
+    the pocket_sqlite.dll artifact is the flavor-agnostic SQLite engine + JNI
+    surface (decision D37); only the overlay/seed pins recorded in the
+    flavor's realm-runtime-lockfile-sqlite-win-{flavor}.json differ. A flavor
+    whose per-flavor overlay set is not yet registered (expected before S2
+    re-derives the o09 overlays per branch) fails loud here, BEFORE any MSVC
+    environment is set up or any file is touched. Vanilla falls through and
+    builds exactly as before."""
+    layout = flavor_layout.resolve(flavor_id)
+    if flavor_id != "vanilla":
+        try:
+            realm.o09.overlays_for(flavor_id, "sqlite")
+        except RuntimeError as exc:
+            raise SystemExit(f"ERROR: {exc}")
+    return layout
+
+
+def flavor_lockfile(layout: flavor_layout.FlavorLayout) -> Path:
+    """The flavor's win SQLite-seam lockfile path (P2-6 item 1 naming):
+    realm-runtime-lockfile-sqlite-win[-{flavor}].json — vanilla keeps the
+    unqualified alias."""
+    return ROOT / layout.sqlite_win_lockfile()
 
 
 def in_msvc_env(vcvars: Path, workdir: Path, body: str, log: Path) -> None:
@@ -81,6 +111,18 @@ def main() -> int:
         print("windows-only lane", file=sys.stderr)
         return 2
 
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--flavor", default="vanilla",
+                        choices=tuple(flavor_layout.FLAVOR_IDS),
+                        help="flavor whose seam pins this build records "
+                             "(default vanilla; the DLL itself is "
+                             "flavor-agnostic — decision D37). tbc/wotlk fail "
+                             "loud until their per-flavor overlay sets are "
+                             "re-derived at S2 (P2-6).")
+    args = parser.parse_args()
+    layout = resolve_flavor_or_die(args.flavor)
+    lockfile = flavor_lockfile(layout)
+
     if not (AMALGAMATION / "sqlite3.c").is_file():
         raise RuntimeError(
             f"pinned amalgamation missing: {AMALGAMATION}\n"
@@ -116,8 +158,9 @@ def main() -> int:
     missing = [symbol for symbol in expected if symbol not in exports]
     assert not missing, f"pocket_sqlite.dll missing JNI exports: {missing}"
 
-    print(f"desktop sqlite seam built ({PINNED_VERSION}, "
-          f"{len(expected)} JNI exports verified):\n  {dll}")
+    print(f"desktop sqlite seam built ({PINNED_VERSION}, flavor {layout.flavor_id}, "
+          f"{len(expected)} JNI exports verified; pins lockfile: "
+          f"{lockfile.name}):\n  {dll}")
     return 0
 
 

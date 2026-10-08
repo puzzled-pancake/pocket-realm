@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "flavor": "tbc",
+  "default_stage": "tbc-2.4.3",
+  "gating_model": {
+    "client_scope": "The client patch is FIXED per flavor. Only world CONTENT is gated — never the binary, DBCs, maps, vmaps, mmaps, or the client's own UI (design §0). Default = the flavor's final patch, so existing worlds are unaffected.",
+    "seed": "One pinned seed per flavor (the flavor's final-patch state, protected by the sqlite-seed-baseline hash chain). Per-stage seeds are rejected; the stage delta is a reversible flag-set layer over the seeded datadir.",
+    "mechanism": "game_event active windows + availability flags: per-stage reversible overlay SQL (flag-set statements only, never DELETE) over the world DB, plus stage-marker game_event rows whose CONDITION_ACTIVE_GAME_EVENT conditions demote vendor/loot/quest/entry rows — every mechanism shares one activation story (design §2/§3). Applied at world start when the active stage differs from the applied one.",
+    "conf_key": "PocketRealm.TimeframeStage",
+    "status": "v1 = the gating framework (stage registry, settings knobs, conf emission, era-policy linkage) with EMPTY measured id sets; curated per-stage sets land only with the measured DB pins (design §9.2), never before."
+  },
+  "stages": [
+    {
+      "id": "tbc-2.0.1",
+      "order": 0,
+      "title": "Patch 2.0.1",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design §9.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+      }
+    },
+    {
+      "id": "tbc-2.1",
+      "order": 1,
+      "title": "Patch 2.1",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design §9.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+      }
+    },
+    {
+      "id": "tbc-2.2",
+      "order": 2,
+      "title": "Patch 2.2",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design §9.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+      }
+    },
+    {
+      "id": "tbc-2.3",
+      "order": 3,
+      "title": "Patch 2.3",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design §9.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+      }
+    },
+    {
+      "id": "tbc-2.4.3",
+      "order": 4,
+      "title": "Patch 2.4.3 — current release content",
+      "availability": {
+        "event_open_ids": [],
+        "event_close_ids": [],
+        "quest_required_condition_ids": [],
+        "vendor_demote_entries": [],
+        "loot_demote_entries": [],
+        "zone_entry_gates": [],
+        "provenance": "pending-s4-pin: measured id sets land with the per-(flavor, stage) DB pin (design §9.2); empty sets = the seed's own availability"
+      },
+      "era_terms": {
+        "delta_from_flavor_final": null,
+        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+      }
+    }
+  ]
+}

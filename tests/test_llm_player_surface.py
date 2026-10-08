@@ -81,7 +81,7 @@ def test_reply_class_budgets_thread_through_both_callers():
     # pin the ORDER, not just presence - history and the player
     # must see the same words
     assert recorder.index("ApplyReplyBudget(lines, replyClass") < \
-        recorder.index("AppendTurn(botGuid, playerOrChannel, true, botName"), \
+        recorder.index("AppendTurn(botGuid, playerOrChannel, botName"), \
         "the clamp runs before the history recorder writes the lines"
     # the chat async resolves the cue flag stamp-checked
     # against the generation's own license (the RPG path defaults false)
@@ -172,12 +172,15 @@ def test_login_onboarding_hook_is_anchored_and_restored():
     assert "PlayerbotLlmMemory::OnPlayerLogin(this);" in anchor
     assert "SendItemDurations();" in anchor, \
         "the anchor is the tail of SendInitialPacketsAfterAddToMap (login)"
-    # CORE-tree anchors need BOTH the apply and restore entries
+    # CORE-tree anchors need BOTH the apply and restore entries, now in the
+    # multi-flavor forms: the vanilla pair leads the *core_anchor_pair(...)
+    # apply call and the matching *core_anchor_restore_pair(...) entry
     apply_count = driver.count(
-        "CORE_LOGIN_ONBOARDING_UPSTREAM, CORE_LOGIN_ONBOARDING_ANDROID)")
+        "*core_anchor_pair(\n"
+        "        CORE_LOGIN_ONBOARDING_UPSTREAM, CORE_LOGIN_ONBOARDING_ANDROID,")
     restore_count = driver.count(
-        "        CORE_LOGIN_ONBOARDING_ANDROID,\n"
-        "        CORE_LOGIN_ONBOARDING_UPSTREAM,\n    )")
+        "*core_anchor_restore_pair(\n"
+        "        CORE_LOGIN_ONBOARDING_UPSTREAM, CORE_LOGIN_ONBOARDING_ANDROID,")
     assert apply_count == 1 and restore_count == 1
 
 

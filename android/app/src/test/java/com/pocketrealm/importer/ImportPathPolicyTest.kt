@@ -19,6 +19,12 @@ class ImportPathPolicyTest {
         assertThrows(ImportRejected::class.java) { policy.providerChild("Data", "sub/name") }
     }
 
+    @Test fun normalizeEntryRejectsTrailingDotOrSpaceComponents() {
+        assertEquals("Data/base.MPQ", policy.normalizeEntry("Data\\base.MPQ"))
+        listOf("WoW.exe.", "WoW.exe ", "Data/patch-3.mpq.", "Data/sub ")
+            .forEach { value -> assertThrows(value, ImportRejected::class.java) { policy.normalizeEntry(value) } }
+    }
+
     @Test fun caseFoldKeyDetectsPortableCollisions() {
         assertEquals(policy.caseFoldKey("Data/base.MPQ"), policy.caseFoldKey("data/BASE.mpq"))
         assertNotEquals(policy.caseFoldKey("Data/base.MPQ"), policy.caseFoldKey("Data/dbc.MPQ"))

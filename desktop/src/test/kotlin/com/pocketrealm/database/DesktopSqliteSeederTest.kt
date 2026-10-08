@@ -1,6 +1,7 @@
 package com.pocketrealm.database
 
 import com.pocketrealm.database.DatabaseSqliteControlPlane.DATABASES
+import com.pocketrealm.fs.FileDigests
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.charset.StandardCharsets
@@ -10,6 +11,7 @@ import java.util.zip.GZIPOutputStream
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import com.pocketrealm.desktop.requireNativeIfDemanded
@@ -212,6 +214,50 @@ class DesktopSqliteSeederTest {
             assertTrue("must carry the offset: $message", "offset" in message)
             assertTrue("must carry sqlite's own text: $message", "missing_table" in message)
         }
+    }
+
+    @Test
+    fun stampsMigrationAndCleanSealsAtSeed() {
+        stagedDll()
+        val staging = folder.newFolder("staging")
+        stageSynthetic(staging)
+        val datadir = folder.newFolder("datadir")
+        val provenance = File(staging, "BUILD_PROVENANCE.json")
+
+        val result = DesktopSqliteSeeder(File(staging, "assets"), provenance)
+            .seedAll(UUID.randomUUID().toString(), datadir)
+
+        // The shared migration seal proves against the seed's own identity
+        // (DESK-19/53: the seal is written over the schema-list corpus).
+        val identity = DesktopSqliteSeals.identityFromProvenance(provenance.readText())
+        val migrationMarker = DesktopSqliteSealMarkers.migrationMarkerFile(datadir).readText()
+        assertTrue(
+            "the stamped seal must prove current",
+            DesktopSqliteSeals.migrationSealCurrent(migrationMarker, identity),
+        )
+        // The generation marker carries the revision record (DESK-98)
+        // whose digest matches the stamped marker's bytes.
+        val record = DesktopSqliteSeals.revisionRecord(
+            DesktopSqliteSealMarkers.generationMarkerFile(datadir).readText(),
+        )
+        assertNotNull(record)
+        assertEquals(FileDigests.sha256(migrationMarker), record!!.migrationSealSha256)
+        assertTrue(DesktopSqliteSeals.sealMatchesRecord(migrationMarker, record))
+        assertEquals(result.getString("migrationSealSha256"), record.migrationSealSha256)
+        // A freshly seeded datadir is born clean-stopped (clean LAST).
+        assertTrue(
+            "the born-clean seal must validate",
+            DesktopSqliteSeals.cleanSealCurrent(DesktopSqliteSealMarkers.cleanMarkerFile(datadir).readText()),
+        )
+        // And a published-marker tamper is detectable through the record.
+        DesktopSqliteSealMarkers.atomicWriteMarker(
+            datadir,
+            DesktopSqliteSeals.MIGRATION_MARKER_NAME,
+            migrationMarker.replace("\"schema\":1", "\"schema\":1 "),
+        )
+        val tampered = DesktopSqliteSealMarkers.migrationMarkerFile(datadir).readText()
+        assertTrue("tamper must change the bytes", tampered != migrationMarker)
+        assertFalse(DesktopSqliteSeals.sealMatchesRecord(tampered, record))
     }
 
     private fun sha256Hex(bytes: ByteArray): String =

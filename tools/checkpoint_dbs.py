@@ -4,7 +4,8 @@ import os
 import sqlite3
 from pathlib import Path
 
-root = Path(os.environ["LOCALAPPDATA"]) / "PocketRealm" / "database" / "sqlite-datadir"
+import common as _common  # local sibling import
+root = _common.product_data_root() / "database" / "sqlite-datadir"
 for name in ("classicrealmd", "classicmangos", "classiccharacters", "classiclogs"):
     path = root / f"{name}.sqlite3"
     conn = sqlite3.connect(str(path))

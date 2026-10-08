@@ -30,6 +30,20 @@ class ImportPathPolicy(private val limits: ImportLimits = ImportLimits()) {
         return normalized.joinToString("/")
     }
 
+    /** Archive-entry normalization: [normalize] plus rejection of
+     *  Windows-illegal trailing dot/space components — they survive NFKC
+     *  and NTFS aliases "x." onto "x", evading the importer's
+     *  root-executable exclusion and the fold-collision duplicate gate. */
+    fun normalizeEntry(rawRelative: String): String {
+        val normalized = normalize(rawRelative)
+        normalized.split('/').forEach { component ->
+            if (component.length > 1 && (component.last() == '.' || component.last() == ' ')) {
+                throw ImportRejected("VAL-07: trailing dot or space in component: '$component'")
+            }
+        }
+        return normalized
+    }
+
     fun providerChild(parent: String?, displayName: String): String {
         if (displayName.contains('/') || displayName.contains('\\')) {
             throw ImportRejected("VAL-07: provider name contains a path separator")

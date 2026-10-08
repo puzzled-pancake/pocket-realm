@@ -45,6 +45,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pocketrealm.bots.BotProfile
 import com.pocketrealm.bots.BotSelection
+import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.client.FlavorChip
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.client.IntegratedClientDisplay
 import com.pocketrealm.client.ArmRendererAuto
@@ -103,7 +105,7 @@ fun HomeScreen(
     val context = LocalContext.current
     val supervisorClient = remember(context) { RuntimeSupervisorClient(context) }
     val stateUpdates = remember(supervisorClient) { supervisorClient.observeRealmState() }
-    val state by stateUpdates.collectAsState(initial = RealmState.Idle)
+    val state by stateUpdates.collectAsState(initial = RealmState.Idle())
     val settings = remember(context) { Settings(context) }
     // Null until DataStore's first emission: launching with the all-default
     // snapshot in that cold-start window would ignore the saved preset and
@@ -416,11 +418,53 @@ fun HomeScreen(
         // Orientation, not a second tablet-width threshold, is authoritative
         // for the landscape home layout.
         val landscape = maxWidth > maxHeight
+        // The flavor switcher's chip state: re-read per recomposition so a
+        // selection re-renders the chips and the derived lanes immediately.
+        var flavorChips by remember { mutableStateOf(ActiveFlavor.switcherChips()) }
+        // Cold-start hydration: the PERSISTED selection is the source of
+        // truth the :supervisor realmlist projection reads, and this UI
+        // process's ActiveFlavor holder is in-memory state that starts
+        // empty after a process recreation — re-apply the persisted pick
+        // once the real snapshot arrives. Never overrides an explicit
+        // in-session pick, and a persisted id that stopped being qualified
+        // stays refused (select throws; the machine fails loud rather
+        // than silently downgrading the lane).
+        LaunchedEffect(settingsSnapshotState) {
+            val persisted = settingsSnapshotState?.selectedFlavorOrNull()
+                ?: return@LaunchedEffect
+            if (ActiveFlavor.selectedId == null) {
+                runCatching { ActiveFlavor.select(persisted) }.onSuccess {
+                    flavorChips = ActiveFlavor.switcherChips()
+                }
+            }
+        }
+        val flavorSwitcher: @Composable (Modifier) -> Unit = { modifier ->
+            FlavorSwitcherCard(
+                chips = flavorChips,
+                onSelect = { chip ->
+                    ActiveFlavor.select(chip.flavor.flavorId)
+                    flavorChips = ActiveFlavor.switcherChips()
+                    // The pick must outlive this process: :supervisor (a
+                    // separate process) reads the persisted key when it
+                    // projects the session's realmlist row, so the write
+                    // rides the same tap.
+                    scope.launch {
+                        runCatching {
+                            settings.update { it.copy(selectedFlavorId = chip.flavor.flavorId) }
+                        }.onFailure {
+                            AppLog.w("Home", "flavor selection was not persisted: ${it.message}")
+                        }
+                    }
+                },
+                modifier = modifier,
+            )
+        }
         if (landscape) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                flavorSwitcher(Modifier.fillMaxWidth())
                 RealmControlCard(
                     state = state,
                     botProfile = botProfile,
@@ -481,6 +525,7 @@ fun HomeScreen(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                flavorSwitcher(Modifier.fillMaxWidth())
                 RealmControlCard(
                     state = state,
                     botProfile = botProfile,
@@ -530,6 +575,53 @@ fun HomeScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * The flavor switcher (the multi-flavor lift): one chip per declared flavor
+ * — vanilla / TBC / WotLK — over [ActiveFlavor]'s machine. Qualified chips
+ * switch the active lane (per-flavor import, data generation and prepared-
+ * data resolution follow); declared-but-disabled flavors render present but
+ * unselectable, honestly mirroring the registry (a qualification is a data
+ * change, never a UI flag).
+ */
+@Composable
+private fun FlavorSwitcherCard(
+    chips: List<FlavorChip>,
+    onSelect: (FlavorChip) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.testTag("flavor-switcher"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                "Game flavor",
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                chips.forEach { chip ->
+                    AssistChip(
+                        onClick = { onSelect(chip) },
+                        enabled = chip.selectable,
+                        label = { Text(chip.label) },
+                        modifier = Modifier.testTag("flavor-chip-${chip.flavor.flavorId}"),
+                    )
+                }
+            }
+            Text(
+                "Switching the flavor re-targets imports, prepared world data and " +
+                    "bot populations on that lane. Unqualified flavors stay off until " +
+                    "their client is qualified.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -611,7 +703,12 @@ private fun RealmControlCard(
         // widths can never starve the text column to zero.
         val actionArea: @Composable (fillRow: Boolean) -> Unit = { fillRow ->
             when (state) {
-                is RealmState.Idle, is RealmState.Failed, is RealmState.Recovering -> {
+                // SupervisorUnreachable joins the start-actions group: the
+                // §6.4 dead-poll lane is exactly the "needs a human decision"
+                // class (and Start/recover is the honest remedy).
+                is RealmState.Idle, is RealmState.Failed, is RealmState.Recovering,
+                is RealmState.SupervisorUnreachable,
+                -> {
                     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Button(
@@ -966,7 +1063,13 @@ private fun AccountFields(
 }
 
 private fun realmStatus(state: RealmState): Pair<String, String> = when (state) {
-    is RealmState.Idle -> "Ready to start" to "Your local realm is stopped and safely saved."
+    // Design-lan D9: an interface-loss stop explains itself instead of
+    // presenting a clean, unexplained stop (the desktop Home card twin).
+    is RealmState.Idle -> if (state.stopCopy != null) {
+        "Hosting stopped" to state.stopCopy!!
+    } else {
+        "Ready to start" to "Your local realm is stopped and safely saved."
+    }
     is RealmState.Starting -> "Starting" to "Preparing the realm (attempt ${state.attempt})."
     is RealmState.Running -> if (state.clientState == ClientLaunchState.FAILED) {
         "Realm online; game needs retry" to gamePreparationFailureMessage(state.clientFailure)
@@ -975,7 +1078,12 @@ private fun realmStatus(state: RealmState): Pair<String, String> = when (state) 
     } else when (state.mode) {
         RuntimeMode.LOCAL -> "Realm online" to "The world and loopback-only services are ready."
         RuntimeMode.LAN_HOST -> "LAN realm online" to
-            "Hosting on ${state.endpointAddress}; manage LAN in the LAN destination."
+            // Design-tunnel §5: the subtitle displays the LIVE advertised
+            // address, whichever mode is active (the tunnel address when a
+            // tunnel host is up — never the LAN IP then).
+            "Hosting on ${state.endpointAddress}" +
+                state.advertisedAddress?.let { " — advertising $it (tunnel)" }.orEmpty() +
+                "; manage LAN in the LAN destination."
         RuntimeMode.LAN_JOIN -> "LAN client online" to
             "Client-only session for ${state.endpointAddress}; manage it in the LAN destination."
     }
@@ -983,6 +1091,11 @@ private fun realmStatus(state: RealmState): Pair<String, String> = when (state) 
     is RealmState.Stopping -> "Stopping" to "Closing the client and local services safely."
     is RealmState.Recovering -> "Recovering" to state.note
     is RealmState.Failed -> "Needs attention" to state.message
+    // §6.4: an unreadable supervisor is NOT an offline claim — the copy
+    // says the status lane is unreachable and never guesses a polarity.
+    is RealmState.SupervisorUnreachable -> "Supervisor unreachable" to
+        "The realm's status could not be read (${state.reason}). The realm is " +
+            "not known to be offline — try Start to reconnect the supervisor."
 }
 
 private fun gamePreparationFailureMessage(detail: String?): String {

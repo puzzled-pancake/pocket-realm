@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,8 +21,16 @@ try:
     from tools import common
 except ImportError:  # direct execution: python tools/<script>.py
     import common
+try:
+    from tools import flavor_layout
+except ImportError:  # direct execution: python tools/<script>.py
+    import flavor_layout
 SOURCE = ROOT / "native" / "cmangos"
 TARGET_ABI = "x86_64"
+FLAVOR_ID = "vanilla"
+# The active flavor's core pin (set by select_flavor); vanilla asserts it
+# equals the o09 driver constant so the two cannot drift again (decision D36).
+FLAVOR_CORE_COMMIT = o09.CMANGOS_COMMIT
 BUILD = ROOT / "native" / ".build-o11-x86_64" / "extractors"
 PATCHED_SOURCE = ROOT / "native" / ".build-o11-x86_64" / "cmangos-patched"
 STAGE = ROOT / "native" / ".build-o11-x86_64" / "extractor-staging" / "jniLibs" / "x86_64"
@@ -29,6 +38,50 @@ PROVENANCE = STAGE.parents[1] / "BUILD_PROVENANCE.json"
 LOCKFILE = ROOT / "schemas" / "o11-extractor-lockfile.json"
 MAX_PAGE = 0x4000
 PATCHES = [ROOT / "native" / "patches" / "o11-cmangos-safe-mpq-listfile.patch"]
+# Flavor-conditional EXTRA source patches, applied after the shared mpq
+# listfile patch (select_flavor composes the full list into PATCHES). The
+# only entry today is the tbc ICU guard: the pinned cmangos-tbc tree gates
+# its ICU find on `if (UNIX OR APPLE)` while the pinned classic and wotlk
+# trees gate on `if (APPLE)` only — and the NDK toolchain sets UNIX=1
+# while the android dep prefix (native/.deps/prefix-*) stages no ICU, so
+# the tbc android configure died at FindICU before any target existed.
+# The guard change cannot alter the produced binaries: the extractor
+# tools never link ICU (every flavor's staged DT_NEEDED sets are
+# libc/libdl/libm only). A flavor without an entry keeps the historical
+# patch list byte-for-byte, so its lockfile's source_patches record does
+# not drift.
+# The file lives under native/o11-patches/ — NOT native/patches/ —
+# because that tree is blanket-pinned as RUNTIME-lane build input
+# (patches_content in every realm-runtime lockfile rglob-walks it, and
+# the R6 mtime tripwire in test_world_runtime_honest_ready then demands
+# every win lane's world DLL postdate it). This patch rides only the o11
+# extractor archive; the provenance that matters for it is the o11
+# lockfiles' own source_patches row (path + sha256), which pins it
+# byte-exactly.
+FLAVOR_PATCHES: dict[str, list[Path]] = {
+    "tbc": [ROOT / "native" / "o11-patches" / "o11-cmangos-tbc-icu-apple-guard.patch"],
+}
+
+
+def select_flavor(flavor_id: str) -> None:
+    """Resolve the flavor's pin and source tree (port plan S1 item 5).
+    Vanilla keeps the pre-parameterization literal paths; tbc/wotlk get
+    -{flavor} suffixed build roots and lockfiles and are refused loud until
+    their core pin is registered (the S1 unregistered-pin failure class)."""
+    global FLAVOR_ID, SOURCE, FLAVOR_CORE_COMMIT, PATCHES
+    layout = flavor_layout.resolve(flavor_id)
+    pins = flavor_layout.require_flavor_pins(flavor_id, groups=("server_core",))
+    if flavor_id == "vanilla" and pins["server_core"] != o09.CMANGOS_COMMIT:
+        raise RuntimeError(
+            f"vanilla server_core pin drifted: flavor.json says "
+            f"{pins['server_core']}, the o09/o11 drivers pin {o09.CMANGOS_COMMIT} — "
+            "reconcile before building (provenance split, decision D36)"
+        )
+    FLAVOR_ID = flavor_id
+    FLAVOR_CORE_COMMIT = pins["server_core"]
+    SOURCE = ROOT / layout.core_submodule
+    PATCHES = [ROOT / "native" / "patches" / "o11-cmangos-safe-mpq-listfile.patch"] \
+        + FLAVOR_PATCHES.get(flavor_id, [])
 
 
 def select_abi(abi: str) -> None:
@@ -36,13 +89,18 @@ def select_abi(abi: str) -> None:
     if abi not in {"x86_64", "arm64-v8a"}:
         raise ValueError(f"unsupported extractor ABI: {abi}")
     TARGET_ABI = abi
-    root = ROOT / "native" / f".build-o11-{abi}"
+    layout = flavor_layout.resolve(FLAVOR_ID)
+    root = ROOT / layout.o11_build_root(abi)
     BUILD = root / "extractors"
     PATCHED_SOURCE = root / "cmangos-patched"
     STAGE = root / "extractor-staging" / "jniLibs" / abi
     PROVENANCE = STAGE.parents[1] / "BUILD_PROVENANCE.json"
-    LOCKFILE = ROOT / ("schemas/o11-extractor-lockfile.json" if abi == "x86_64"
-                       else f"schemas/o11-extractor-lockfile-{abi}.json")
+    # The lockfile is flavor-resolved like every other output: a tbc/wotlk
+    # build must write ITS lockfile, never the shared vanilla one — the S1
+    # divergence CI (check_repo.check_extractor_provenance) pins the vanilla
+    # extractor provenance, and a flavor build silently overwriting it is
+    # exactly the hazard the S1 repair exists to prevent.
+    LOCKFILE = ROOT / layout.o11_lockfile(abi)
 
 
 def run(args: list[object], cwd: Path | None = None) -> None:
@@ -79,7 +137,7 @@ def prepare_source(commit: str, force: bool) -> Path:
 
 def configure(force: bool = False) -> tuple[Path, Path]:
     actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=SOURCE, text=True).strip()
-    if actual != o09.CMANGOS_COMMIT:
+    if actual != FLAVOR_CORE_COMMIT:
         raise RuntimeError(f"CMaNGOS pin mismatch: {actual}")
     if subprocess.run(["git", "diff", "--quiet"], cwd=SOURCE).returncode != 0:
         raise RuntimeError("CMaNGOS submodule is dirty; extractor patches must live in native/patches")
@@ -161,7 +219,7 @@ def stage(llvm: Path) -> dict:
                         "sha256": sha256(target), "needed": needed, "load_alignments": aligns})
     record = {
         "schema": 1, "built_at_utc": datetime.now(timezone.utc).isoformat(), "abi": TARGET_ABI,
-        "min_api": 26, "elf_max_page_size": "0x4000", "cmangos_commit": o09.CMANGOS_COMMIT,
+        "min_api": 26, "elf_max_page_size": "0x4000", "cmangos_commit": FLAVOR_CORE_COMMIT,
         "purpose": "Finite on-device DBC/map/vmap/mmap preparation",
         "source_patches": [{"path": path.relative_to(ROOT).as_posix(), "sha256": sha256(path)} for path in PATCHES],
         "artifacts": records,
@@ -177,8 +235,18 @@ def main() -> int:
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--abi", choices=("x86_64", "arm64-v8a"), default="x86_64")
+    parser.add_argument("--flavor", default="vanilla",
+                        choices=tuple(flavor_layout.FLAVOR_IDS),
+                        help="game flavor to build extractors for (default "
+                             "vanilla; tbc/wotlk fail loud until their core "
+                             "fork/pin is registered — port plan S1 item 5)")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+    try:
+        select_flavor(args.flavor)
+    except flavor_layout.FlavorPinError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     select_abi(args.abi)
     o09.select_abi(args.abi)
     llvm, _ = configure(args.force)

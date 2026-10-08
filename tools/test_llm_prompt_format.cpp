@@ -236,21 +236,28 @@ static int RunBodyDump(char const* path)
         std::string body = BuildChatRequestBody("local", sysm, history, user, s);
         ++bodiesChecked;
 
-        // the body must re-parse with the shipped JSON client
+        // the body must re-parse with the shipped JSON client. The history
+        // here ends user, so the current turn ABSORBS into that trailing
+        // user message (the alternation law: a stacked u,u adjacency is
+        // the exact shape the chat templates 400 on) - system + the 3
+        // history turns with the current turn merged into the last.
         JV root;
         CHECK(detail::ParseJson(body, root) && root.type == detail::JSON_OBJECT,
               "body parses as a JSON object");
         JV const* messages = root.Find("messages");
         CHECK(messages && messages->type == detail::JSON_ARRAY &&
-              messages->items.size() == 5, "5 messages: system + 3 history + current");
-        if (messages && messages->items.size() == 5)
+              messages->items.size() == 4,
+              "4 messages: system + 3 history, current absorbed into the last");
+        if (messages && messages->items.size() == 4)
         {
             CHECK(Str(messages->items[0].Find("role")) == "system", "first message is system");
             CHECK(Str(messages->items[0].Find("content")) == sysm, "system content round-trips");
             CHECK(Str(messages->items[1].Find("role")) == "user", "history turn 1 user");
             CHECK(Str(messages->items[2].Find("role")) == "assistant", "history turn 2 assistant");
-            CHECK(Str(messages->items[4].Find("role")) == "user", "CURRENT turn is last");
-            CHECK(Str(messages->items[4].Find("content")) == user, "user content round-trips");
+            CHECK(Str(messages->items[3].Find("role")) == "user", "CURRENT turn is last");
+            CHECK(Str(messages->items[3].Find("content")) ==
+                      "latest player line\n" + user,
+                  "current turn absorbs into the trailing user history turn");
         }
         CHECK(body.find("\"max_tokens\":120,") != std::string::npos, "max_tokens lands");
         CHECK(body.find("\"temperature\":0.7,") != std::string::npos, "temperature lands");
@@ -302,7 +309,9 @@ static int RunBodyDump(char const* path)
               "the llama KV-cache hint stays on local tiers");
     }
 
-    // S2's retry splice must find the last user message in the built body
+    // S2's retry splice must find the last user message in the built body.
+    // The assistant-only history folds into the system message (head law),
+    // so the body is system + the current user turn.
     {
         Row const& r = rows.front();
         std::string sysm = SysmForCard(r.persona, r.player, r.tier, r.absence, r.facts);
@@ -316,9 +325,123 @@ static int RunBodyDump(char const* path)
         JV root;
         CHECK(detail::ParseJson(copy, root), "spliced built body re-parses");
         JV const* m = root.Find("messages");
-        CHECK(m && m->items.size() == 3 &&
-              Str(m->items[2].Find("content")) == user + " Answer directly.",
+        CHECK(m && m->items.size() == 2 &&
+              Str(m->items[1].Find("content")) == user + " Answer directly.",
               "spliced current turn gained exactly the instruction");
+    }
+
+    // Role-alternation law (the external-lane 400 pin, LVF-bots-llm-010
+    // family): after the system message the transcript must OPEN with a
+    // user turn and strictly alternate, ending on the current user turn -
+    // the contract the strictest chat templates enforce at parse time
+    // (Gemma family via llama.cpp --jinja: "Conversation roles must
+    // alternate" is an HTTP 400 before a token is processed). Pinned
+    // shapes: same-role runs (bot double-replies, back-to-back event
+    // turns), a window that OPENS on the bot's own turn (a hydrated slice
+    // landing mid-bot-speech), the time-reversed hydration shape that
+    // shipped the 400, and a single assistant-only history.
+    {
+        Row const& r = rows.front();
+        std::string sysm = SysmForCard(r.persona, r.player, r.tier, r.absence, r.facts);
+        std::string user = ComposeUserTurn(r.playerLine, {}, {}, {}, r.state, {}, {}, "", "");
+        auto checkAlternation = [&](std::string const& body,
+                                    std::string const& tag)
+        {
+            JV root;
+            CHECK(detail::ParseJson(body, root) && root.type == detail::JSON_OBJECT,
+                  (tag + ": body parses").c_str());
+            JV const* messages = root.Find("messages");
+            CHECK(messages && messages->type == detail::JSON_ARRAY &&
+                  messages->items.size() >= 2,
+                  (tag + ": messages array present").c_str());
+            if (!messages || messages->items.size() < 2)
+                return;
+            CHECK(Str(messages->items[0].Find("role")) == "system",
+                  (tag + ": first message is system").c_str());
+            CHECK(Str(messages->items[1].Find("role")) == "user",
+                  (tag + ": transcript opens with the player").c_str());
+            for (size_t i = 2; i < messages->items.size(); ++i)
+            {
+                std::string const prev = Str(messages->items[i - 1].Find("role"));
+                std::string const cur = Str(messages->items[i].Find("role"));
+                CHECK(prev != cur,
+                      (tag + ": roles strictly alternate at " +
+                       std::to_string(i)).c_str());
+            }
+            CHECK(Str(messages->items[messages->items.size() - 1].Find("role")) == "user",
+                  (tag + ": current user turn is last").c_str());
+        };
+
+        // same-role runs coalesce into one message each (the first-half fix)
+        {
+            std::vector<HistoryTurn> runs;
+            runs.push_back(HistoryTurn{false, "player one"});
+            runs.push_back(HistoryTurn{false, "player two"});
+            runs.push_back(HistoryTurn{true, "bot reply one"});
+            runs.push_back(HistoryTurn{true, "bot reply two"});
+            runs.push_back(HistoryTurn{false, "player three"});
+            std::string body = BuildChatRequestBody("local", sysm, runs, user, s);
+            checkAlternation(body, "stacked runs");
+            JV root;
+            CHECK(detail::ParseJson(body, root), "stacked runs re-parses");
+            JV const* m = root.Find("messages");
+            CHECK(m && m->items.size() == 4,
+                  "stacked runs: system + 3 coalesced (current absorbed)");
+            if (m && m->items.size() == 4)
+                CHECK(Str(m->items[2].Find("content")) ==
+                      "bot reply one\nbot reply two",
+                      "assistant run joins with a newline");
+        }
+        // a window that opens on the bot's own turn folds into the system
+        // message (the head law): the transcript still opens with the player
+        {
+            std::vector<HistoryTurn> botFirst;
+            botFirst.push_back(HistoryTurn{true, "bot opener line"});
+            botFirst.push_back(HistoryTurn{false, "player answer"});
+            std::string body = BuildChatRequestBody("local", sysm, botFirst, user, s);
+            checkAlternation(body, "bot-first window");
+            JV root;
+            CHECK(detail::ParseJson(body, root), "bot-first window re-parses");
+            JV const* m = root.Find("messages");
+            CHECK(m && m->items.size() == 2,
+                  "bot-first window: system fold + answer (current absorbed)");
+            if (m && m->items.size() == 2)
+                CHECK(Str(m->items[0].Find("content")) ==
+                      sysm + "\nbot opener line",
+                      "pre-window bot turn rides the system message");
+        }
+        // the exact hydrated shape that shipped the 400: the reversed
+        // hydration walk handed the builder a newest-first deque - an
+        // alternating history that STARTS assistant and runs back-to-front
+        {
+            std::vector<HistoryTurn> reversedWindow;
+            for (int i = 9; i >= 0; --i)
+                reversedWindow.push_back(HistoryTurn{(i % 2) == 1,
+                    (i % 2 ? std::string("bot line ") : std::string("player line ")) +
+                    std::to_string(i)});
+            std::string body = BuildChatRequestBody("local", sysm, reversedWindow, user, s);
+            checkAlternation(body, "reversed window");
+        }
+        // assistant-only history: the whole window folds, the current turn
+        // remains, nothing is dropped
+        {
+            std::vector<HistoryTurn> botOnly;
+            botOnly.push_back(HistoryTurn{true, "only bot line"});
+            std::string body = BuildChatRequestBody("local", sysm, botOnly, user, s);
+            checkAlternation(body, "bot-only window");
+            JV root;
+            CHECK(detail::ParseJson(body, root), "bot-only window re-parses");
+            JV const* m = root.Find("messages");
+            CHECK(m && m->items.size() == 2 &&
+                  Str(m->items[0].Find("content")) == sysm + "\nonly bot line",
+                  "bot-only window: system fold + current turn");
+        }
+        // empty history stays system+current (the ambient lane shape)
+        {
+            std::string body = BuildChatRequestBody("local", sysm,
+                std::vector<HistoryTurn>(), user, s);
+            checkAlternation(body, "empty history");
+        }
     }
 
     std::printf("{\"bodies_checked\": %zu}\n", bodiesChecked);

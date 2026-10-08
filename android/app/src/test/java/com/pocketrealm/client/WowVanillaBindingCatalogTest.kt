@@ -56,7 +56,23 @@ class WowVanillaBindingCatalogTest {
             WowBindingCategory.MULTI_ACTION_BARS to 48,
             WowBindingCategory.RAID_MARKERS to 9,
         )
-        assertEquals(expected.keys, WowBindingCategory.entries.toSet() - WowBindingCategory.INTERNAL_POINTER)
+        // D31/G3-10: the shared enum may APPEND per-flavor categories (the
+        // wotlk totem-bar/vehicle entries) after the vanilla set, so this
+        // pins the vanilla catalog's categories exactly — every vanilla
+        // category exists with its pinned count, and any appended category
+        // owns ZERO vanilla rows (nothing per-flavor leaks into vanilla).
+        assertTrue(
+            "every pinned vanilla category must exist on the shared enum",
+            WowBindingCategory.entries.toSet().containsAll(expected.keys),
+        )
+        val appended = WowBindingCategory.entries.toSet() - expected.keys - WowBindingCategory.INTERNAL_POINTER
+        appended.forEach { category ->
+            assertEquals(
+                "${category.name} is an appended per-flavor category: it must own no vanilla rows",
+                0,
+                WowVanillaBindingCatalog.inCategory(category).size,
+            )
+        }
         expected.forEach { (category, count) ->
             assertEquals(category.name, count, WowVanillaBindingCatalog.inCategory(category).size)
         }

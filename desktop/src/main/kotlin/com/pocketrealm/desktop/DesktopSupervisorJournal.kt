@@ -20,6 +20,13 @@ import org.json.JSONObject
  * materializes an ERROR/dirty snapshot so the supervisor's one-attempt
  * recovery owns the verdict instead of the journal throwing).
  *
+ * LVF-server-db-007: the corrupt-file materialization is DURABLE, not
+ * in-memory only — the ERROR/dirty snapshot is written back through
+ * [write] and the corruption is logged loudly — so recovery never
+ * silently resets a corrupt history: the next writer overwrites a
+ * persisted honest record (carrying the JOURNAL_CORRUPT detail), never
+ * an unrecorded one.
+ *
  * fsync discipline mirrors the Android journal where Windows allows it:
  * file contents are forced before the atomic rename. The Android journal's
  * directory-entry fsync has no Windows equivalent (directories cannot be
@@ -34,14 +41,17 @@ class DesktopSupervisorJournal(private val directory: File) : SupervisorJournal 
     }
 
     // Corrupt-file posture mirrors the Android journal: any decode failure
-    // materializes an ERROR/dirty snapshot instead of throwing.
+    // materializes an ERROR/dirty snapshot instead of throwing — and that
+    // materialization is durable (written back through write()) plus loud
+    // (an ERROR log line carrying the JOURNAL_CORRUPT detail), so the
+    // recovery that follows never resets the history silently.
     @Suppress("TooGenericExceptionCaught")
     override fun read(): RuntimeSnapshot? = synchronized(lock) {
         if (!journal.isFile) return null
         try {
             RuntimeSnapshotJournalCodec.decode(JSONObject(journal.readText(Charsets.UTF_8)))
         } catch (error: Throwable) {
-            RuntimeSnapshot(
+            val corrupt = RuntimeSnapshot(
                 phase = RuntimePhase.ERROR,
                 clean = false,
                 lastDurableAction = "journal-decode-failed",
@@ -52,6 +62,20 @@ class DesktopSupervisorJournal(private val directory: File) : SupervisorJournal 
                 updatedAtWallMs = System.currentTimeMillis(),
                 updatedAtElapsedMs = AndroidRuntimeClock.elapsedMs(),
             )
+            DesktopLog.e(LOG_TAG, "journal corrupt; materialized ERROR/dirty snapshot: ${corrupt.lastError}")
+            // Best effort: the corrupt-file contract is never-a-throw, so a
+            // failed durable materialization is logged, not rethrown.
+            try {
+                write(corrupt)
+            } catch (persistError: Throwable) {
+                DesktopLog.e(
+                    LOG_TAG,
+                    "ERROR/dirty snapshot persist FAILED " +
+                        "(${persistError.message ?: persistError.javaClass.simpleName}); " +
+                        "recovery proceeds on the in-memory snapshot only",
+                )
+            }
+            corrupt
         }
     }
 
@@ -86,5 +110,6 @@ class DesktopSupervisorJournal(private val directory: File) : SupervisorJournal 
 
     private companion object {
         const val CORRUPT_DETAIL_MAX = 384
+        const val LOG_TAG = "SupJournal"
     }
 }

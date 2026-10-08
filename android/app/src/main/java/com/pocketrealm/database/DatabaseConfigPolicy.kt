@@ -15,7 +15,9 @@ internal object DatabaseConfigPolicy {
         errorLog: String,
         secureFileDirectory: String,
     ): String {
-        require(abi == "arm64-v8a" || abi == "x86_64") { "unsupported database ABI" }
+        require(abi == "arm64-v8a" || abi == "x86_64" || abi == "windows-x86_64") {
+            "unsupported database ABI"
+        }
         val lines = mutableListOf(
             "[mariadbd]",
             "datadir=$datadir",
@@ -37,6 +39,12 @@ internal object DatabaseConfigPolicy {
         if (abi == "arm64-v8a") {
             lines += "innodb-flush-neighbors=0"
             lines += "host-cache-size=0"
+        }
+        if (abi == "windows-x86_64") {
+            // The Windows lane's local transport under the same
+            // skip-networking pin: with TCP disabled, clients reach the
+            // server through the named pipe the socket= line names.
+            lines += "enable-named-pipe=1"
         }
         lines += "secure-file-priv=$secureFileDirectory"
         return lines.joinToString(separator = "\n", postfix = "\n")

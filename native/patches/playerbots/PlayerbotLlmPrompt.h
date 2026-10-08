@@ -606,6 +606,16 @@ inline std::string JsonNumber(double value)
  * surgery. Message order: system, prior turns (oldest first), the current
  * user turn LAST. Field order mirrors the app template.
  *
+ * Roles strictly alternate: the rolling history legitimately carries
+ * same-speaker runs (bot double-replies, back-to-back event pseudo-turns,
+ * street lines from other speakers) and a user-ended history would meet
+ * the current user turn, so every same-role run is coalesced into ONE
+ * message joined with newlines and a trailing user turn absorbs the
+ * current turn. Verbatim emission built user,user / assistant,assistant
+ * arrays that the chat-template renderers reject ("Conversation roles
+ * must alternate user/assistant" -> HTTP 400 external, dead --jinja
+ * sidecar embedded).
+ *
  * Thinking suppression (providerSafe path — the API tier): reasoning
  * models leak chain-of-thought unless told not to. thinkingKwargs emits
  * the llama.cpp chat_template_kwargs; reasoningEffortNone adds the
@@ -619,12 +629,49 @@ inline std::string BuildChatRequestBody(std::string const& model,
     std::string const& user, RequestSampling const& s,
     bool reasoningEffortNone = false)
 {
+    // alternation enforcement at body-build time: coalesce each same-role
+    // history run into one newline-joined message, and merge the current
+    // user turn into a user-ended history (a stacked second user is the
+    // exact adjacency the templates reject)
+    std::vector<HistoryTurn> merged;
+    merged.reserve(history.size() + 1);
+    for (HistoryTurn const& turn : history)
+    {
+        if (!merged.empty() && merged.back().assistant == turn.assistant)
+            merged.back().content += "\n" + turn.content;
+        else
+            merged.push_back(turn);
+    }
+    if (!merged.empty() && !merged.back().assistant)
+        merged.back().content += "\n" + user;
+    else
+        merged.push_back(HistoryTurn(false, user));
+
+    // head law - the other half of the alternation contract: a window that
+    // OPENS on the bot's own turn (a hydrated slice landing mid-bot-speech,
+    // a bot-initiated opener at the cap boundary) would emit
+    // system,assistant,... and the strictest chat templates reject that
+    // head-on: the Gemma family (llama.cpp --jinja on the shipped GGUF,
+    // measured) raises "Conversation roles must alternate" at template
+    // parse - HTTP 400 before a token is processed. The transcript after
+    // the system turn must open with the player, so the pre-window
+    // assistant run folds into the system message, newline-joined - the
+    // same law as the run coalescing above; every byte still reaches the
+    // model and the order is preserved. User-first histories never enter
+    // this branch, so the byte-diff battery's pinned shapes are untouched.
+    std::string systemOut = system;
+    if (!merged.empty() && merged.front().assistant)
+    {
+        systemOut += "\n" + merged.front().content;
+        merged.erase(merged.begin());
+    }
+
     std::string out = "{\"model\":\"";
     out += EscapeJsonString(model);
     out += "\",\"messages\":[{\"role\":\"system\",\"content\":\"";
-    out += EscapeJsonString(system);
+    out += EscapeJsonString(systemOut);
     out += "\"}";
-    for (HistoryTurn const& turn : history)
+    for (HistoryTurn const& turn : merged)
     {
         out += ",{\"role\":\"";
         out += turn.assistant ? "assistant" : "user";
@@ -632,9 +679,7 @@ inline std::string BuildChatRequestBody(std::string const& model,
         out += EscapeJsonString(turn.content);
         out += "\"}";
     }
-    out += ",{\"role\":\"user\",\"content\":\"";
-    out += EscapeJsonString(user);
-    out += "\"}],\"max_tokens\":";
+    out += "],\"max_tokens\":";
     out += std::to_string(s.maxTokens);
     out += ",\"temperature\":" + JsonNumber(s.temperature);
     out += ",\"top_p\":" + JsonNumber(s.topP);

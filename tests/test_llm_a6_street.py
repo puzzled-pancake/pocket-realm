@@ -15,6 +15,11 @@ tests/test_llm_gates.py; this file pins the runtime halves:
     kStreetShort pool as the failure fallback, delivery via an authored
     SAY EventReaction (2-5 s stagger) - never the chatter queue, never
     an A2 arm
+  - the detached worker is guarded like every sibling (the Chatter
+    batches, the llama worker, the recap worker): the body carries the
+    logged catch pair (an escaping throw on a detached thread is
+    std::terminate) and the spawn site wraps std::thread's
+    std::system_error - log and fall through, the emote stays dropped
   - StreetShortLine: guid-stable speaker cell, the E0 state-key layout,
     banter-off returns empty (then silence)
 """
@@ -151,6 +156,30 @@ class TestStreetWorker:
         assert "Player*" not in fields
         assert "Session*" not in fields
         assert "WorldPacket" not in fields
+
+    def test_worker_body_carries_the_standard_catch_pair(self):
+        body = street_worker()
+        # an escaping throw on a detached thread is std::terminate - the
+        # bad_alloc-in-string-building class the Chatter comment names.
+        # The logged pair (the sibling llama/recap worker law) answers
+        # with silence instead
+        assert "catch (std::exception const& e)" in body
+        assert 'sLog.outError("BotLLM: street worker failed: %s", e.what());' in body
+        assert "catch (...)" in body
+        assert 'sLog.outError("BotLLM: street worker failed (unknown exception)");' in body
+
+    def test_spawn_site_is_guarded_the_chatter_way(self):
+        body = street_impl()
+        # std::thread throws std::system_error on resource exhaustion -
+        # this spawn runs on the chat-handling thread, so the bare
+        # .detach() is wrapped: the arms log, then the dispatch falls
+        # through to return true (this street say is lost and the crowd
+        # emote stays dropped)
+        assert re.search(
+            r"try\s*\{\s*std::thread\(RunStreetReaction, job\)\.detach\(\);", body)
+        assert 'sLog.outError("BotLLM: street worker spawn failed: %s", e.what());' in body
+        assert 'sLog.outError("BotLLM: street worker spawn failed (unknown exception)");' in body
+        assert body.find("return true;") > body.find("std::thread(RunStreetReaction, job).detach();")
 
 
 class TestChatterCoreBuilders:

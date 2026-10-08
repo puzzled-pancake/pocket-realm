@@ -1,5 +1,6 @@
 package com.pocketrealm.ui
 
+import com.pocketrealm.supervisor.UserAccountStore
 import org.json.JSONObject
 import java.io.File
 import java.io.InputStream
@@ -20,6 +21,14 @@ internal object RealmDataArchive {
     private const val SNAPSHOT_PREFIX = "snapshot/"
     private const val ACCOUNT_ENTRY = "account.json"
     private const val BUFFER = 1 shl 16
+
+    /** Hard cap on one in-memory meta/account entry, in bytes — the
+     * provisioning frame's 4 KiB discipline
+     * ([com.pocketrealm.server.FriendProvisionProtocol.MAX_REQUEST_BYTES]):
+     * a user-picked archive is hostile input, so those two entries may
+     * never be read into memory whole (snapshot entries stay streamed). */
+    private const val MAX_ENTRY_BYTES = 4_096
+    private val SNAPSHOT_ID = Regex("[a-zA-Z0-9._-]{1,96}")
 
     data class ArchiveInfo(
         val kind: String,
@@ -67,7 +76,7 @@ internal object RealmDataArchive {
             while (true) {
                 val entry = zip.nextEntry ?: break
                 if (!entry.isDirectory && entry.name == META_ENTRY) {
-                    val meta = JSONObject(zip.readBytes().toString(Charsets.UTF_8))
+                    val meta = JSONObject(readCapped(zip).toString(Charsets.UTF_8))
                     check(meta.optInt("schema") == 1 && meta.optString("kind") == KIND) {
                         "not a Pocket Realm characters archive"
                     }
@@ -83,6 +92,27 @@ internal object RealmDataArchive {
         }
         throw IllegalArgumentException("archive manifest entry missing")
     }
+
+    /** The manifest's snapshot id names the EXTRACTION ROOT in both import
+     * lanes (android SettingsScreen, desktop DesktopAppModel), so its grammar
+     * is the snapshot store's own validId rule — [a-zA-Z0-9._-]{1,96} and no
+     * leading dot. Callers must run this BEFORE mkdir-ing the target: an id
+     * like "../x" would walk the extraction root out of the snapshots tree,
+     * which the per-entry zip-slip gate cannot see because the root itself
+     * moved. */
+    fun validSnapshotId(id: String): Boolean =
+        SNAPSHOT_ID.matches(id) && !id.startsWith('.')
+
+    /**
+     * The account entry is hostile bytes until proven a real record: an
+     * import lane may write them over the device's saved auto-login
+     * account only after they pass the SAME decode the store runs at load
+     * ([UserAccountStore.decodeRecord]). Both import lanes (android
+     * SettingsScreen, desktop DesktopAppModel) gate on this — an invalid
+     * record rejects only the account leg, never the database import.
+     */
+    fun isValidAccountRecord(bytes: ByteArray): Boolean =
+        runCatching { UserAccountStore.decodeRecord(JSONObject(String(bytes, Charsets.UTF_8))) }.isSuccess
 
     /**
      * Extracts the snapshot into [snapshotRoot] (an empty, not-yet-published
@@ -102,7 +132,7 @@ internal object RealmDataArchive {
                 val name = entry.name
                 when {
                     name == META_ENTRY -> {
-                        val meta = JSONObject(zip.readBytes().toString(Charsets.UTF_8))
+                        val meta = JSONObject(readCapped(zip).toString(Charsets.UTF_8))
                         check(meta.optInt("schema") == 1 && meta.optString("kind") == KIND) {
                             "not a Pocket Realm characters archive"
                         }
@@ -114,11 +144,15 @@ internal object RealmDataArchive {
                             abi = meta.optString("abi"),
                         )
                     }
-                    name == ACCOUNT_ENTRY -> account = zip.readBytes()
+                    name == ACCOUNT_ENTRY -> account = readCapped(zip)
                     name.startsWith(SNAPSHOT_PREFIX) -> {
                         val relative = name.removePrefix(SNAPSHOT_PREFIX)
                         check(safeRelative(relative)) { "unsafe archive path: $relative" }
-                        val target = File(snapshotRoot, relative)
+                        val target = File(snapshotRoot, relative).canonicalFile
+                        val rootPath = snapshotRoot.canonicalFile.toPath()
+                        check(target.toPath().startsWith(rootPath) && target != snapshotRoot.canonicalFile) {
+                            "normalized archive path escaped the extraction root"
+                        }
                         target.parentFile?.mkdirs()
                         target.outputStream().use { output -> zip.copyTo(output, BUFFER) }
                     }
@@ -139,8 +173,30 @@ internal object RealmDataArchive {
         check(sha256(manifest) == digestFile.readText().trim()) { "snapshot manifest digest mismatch" }
     }
 
+    /** Zip-slip gate: entry names travel with '/' separators only — a '\'
+     * would be a path separator on Windows hosts (the desktop import lane),
+     * hiding traversal from the component scan — and every component must be
+     * a real name. Legit exports never carry '\': writeArchive stores
+     * invariantSeparatorsPath names. */
     private fun safeRelative(relative: String): Boolean =
-        relative.isNotEmpty() && !relative.startsWith("/") && relative.split('/').none { it == ".." || it.isEmpty() }
+        '\\' !in relative && relative.isNotEmpty() && !relative.startsWith("/") &&
+            relative.split('/').none { it == ".." || it.isEmpty() }
 
     private fun sha256(file: File): String = com.pocketrealm.fs.FileDigests.sha256(file)
+
+    /** Reads at most [MAX_ENTRY_BYTES] of the current entry (the +1 probe
+     * tells "at the cap" from "over it") so a hostile archive cannot size
+     * the allocation. Oversize refuses the whole import, like every other
+     * codec gate. */
+    private fun readCapped(zip: ZipInputStream): ByteArray {
+        val buffer = ByteArray(MAX_ENTRY_BYTES + 1)
+        var read = 0
+        while (read < buffer.size) {
+            val n = zip.read(buffer, read, buffer.size - read)
+            if (n < 0) break
+            read += n
+        }
+        check(read <= MAX_ENTRY_BYTES) { "archive entry exceeds $MAX_ENTRY_BYTES bytes" }
+        return buffer.copyOf(read)
+    }
 }

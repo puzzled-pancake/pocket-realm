@@ -69,12 +69,21 @@ internal object LlmRuntimePolicy {
      * supported band. Reply length bounds every bot generation
      * (AiPlayerbot.LLMMaxNewTokens, also interpolated into the legacy
      * LLMApiJson body); the timeout bounds the queue-inclusive generation
-     * wait (AiPlayerbot.LLMGenerationTimeout).
+     * wait (AiPlayerbot.LLMGenerationTimeout). The band stays finite on
+     * purpose — 0 follows the tier's measured wall (the embedded lanes'
+     * LlmModelRegistry.MEASURED_COLD_START_TIMEOUT_SEC, the external
+     * endpoint's MEASURED_GENERATION_TIMEOUT_SEC), a positive value
+     * clamps into [MIN_GENERATION_TIMEOUT_SEC, MAX_GENERATION_TIMEOUT_SEC];
+     * no input resolves to an unbounded wait. The ceiling sits above the
+     * closeout measured worst need (~310 s of prompt eval at the recorded
+     * 3.12 tok/s on the ~967-token cold whisper) and above the tier default
+     * it must enclose (the 360 s embedded wall), still well under the
+     * native compiled default (600 s) that the staged conf replaces.
      */
     const val MIN_MAX_NEW_TOKENS = 24
     const val MAX_MAX_NEW_TOKENS = 600
     const val MIN_GENERATION_TIMEOUT_SEC = 15
-    const val MAX_GENERATION_TIMEOUT_SEC = 240
+    const val MAX_GENERATION_TIMEOUT_SEC = 360
 
     fun normalizeMaxNewTokensOverride(tokens: Int): Int =
         if (tokens <= 0) 0 else tokens.coerceIn(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS)
@@ -106,7 +115,9 @@ internal object LlmRuntimePolicy {
      * leading/trailing trim and a backslash has no safe conf encoding here.
      * A bare origin (no path) gets [EXTERNAL_CHAT_COMPLETIONS_PATH] appended,
      * so `https://api.openai.com` just works; an explicit path is kept as-is
-     * (proxies, `/ollama/v1`, custom gateway routes).
+     * (proxies, `/ollama/v1`, custom gateway routes). http:// survives
+     * normalization (keyless LAN endpoints stay usable) but can never pair
+     * with a key — [isCleartextKeyedEndpoint].
      */
     fun normalizeExternalEndpoint(url: String): String? {
         val trimmed = url.trim()
@@ -165,6 +176,21 @@ internal object LlmRuntimePolicy {
         }
         return trimmed
     }
+
+    /**
+     * True when the pair would put the bearer key on the wire in cleartext:
+     * an http:// endpoint with a non-empty key. The native client sends
+     * `Authorization: Bearer` over the endpoint's own socket
+     * (PlayerbotLLMInterface), so http + key hands the cloud key to anything
+     * on the path — against the app's no-cleartext-egress posture
+     * (network_security_config.xml). Keyless http stays usable (a LAN llama
+     * box needs no key); https carries keys. Enforced at both key choke
+     * points: [confBlockExternal] fails closed to no block, and the composer
+     * lane ([chatterLines]) drops its lines.
+     */
+    fun isCleartextKeyedEndpoint(endpoint: String?, apiKey: String?): Boolean =
+        !endpoint.isNullOrBlank() && !apiKey.isNullOrBlank() &&
+            endpoint.substringBefore("://").equals("http", ignoreCase = true)
 
     /**
      * The appended aiplayerbot.conf block, or null when the runtime is off.
@@ -234,7 +260,9 @@ internal object LlmRuntimePolicy {
      * body — both were validated conf/JSON-safe by their normalizers, so raw
      * interpolation is safe here. [apiKey] empty emits no key line; the
      * native client sends it as an `Authorization: Bearer` header
-     * (PlayerbotLLMInterface.GenerateHttp). Any null input means "no block".
+     * (PlayerbotLLMInterface.GenerateHttp). Any null input means "no block",
+     * and so does an http:// endpoint paired with a non-empty key — the
+     * Bearer key must never cross in cleartext ([isCleartextKeyedEndpoint]).
      */
     fun confBlockExternal(
         endpoint: String?,
@@ -256,6 +284,9 @@ internal object LlmRuntimePolicy {
         logLines: Boolean = false,
     ): String? {
         if (endpoint == null || model == null || apiKey == null) return null
+        // http + key never pairs: the Bearer key must not cross in
+        // cleartext — fail closed exactly like any other unusable field.
+        if (isCleartextKeyedEndpoint(endpoint, apiKey)) return null
         return confLines(
             endpoint = endpoint,
             model = model,
@@ -292,9 +323,15 @@ internal object LlmRuntimePolicy {
         repeatPenalty = 1.0, maxTokens = 600,
     )
 
-    /** External-endpoint runtime knobs (16/bot, 48 global; 60s generation; ctx 128k). */
+    /**
+     * External-endpoint runtime knobs (16/bot, 48 global; ctx 128k). The
+     * wall is the MEASURED budget (LVF-bots-llm-013): the old 60 s default
+     * cut both chatter legs of the round-2 external run at exactly the wall
+     * (class=empty, durMs=60013/60058) against ~100-120 s cold completions.
+     */
     val EXTERNAL_TIER = LlmTierProfile(
-        contextLength = 131072, generationTimeoutSec = 60,
+        contextLength = 131072,
+        generationTimeoutSec = LlmModelRegistry.MEASURED_GENERATION_TIMEOUT_SEC,
         maxSimultaneousGenerations = 4,
         governorBotMax = 16, governorGlobalMax = 48,
         factsCap = 48, memoriesTail = 16,
@@ -495,8 +532,13 @@ internal object LlmRuntimePolicy {
         if (chatterPowerFile.isNullOrBlank()) {
             return "\n            AiPlayerbot.LLMChatterEnabled = 0"
         }
+        // An http composer endpoint paired with a key drops the composer
+        // lines entirely (the native composer-off state) — the key must
+        // never cross in cleartext (isCleartextKeyedEndpoint).
         val composerLines =
-            if (composerEndpoint.isNullOrBlank()) ""
+            if (composerEndpoint.isNullOrBlank() ||
+                isCleartextKeyedEndpoint(composerEndpoint, composerApiKey)
+            ) ""
             else {
                 "\n            AiPlayerbot.LLMChatterComposerUrl = $composerEndpoint" +
                     "\n            AiPlayerbot.LLMChatterComposerModel = ${composerModel ?: DEFAULT_EXTERNAL_MODEL}" +

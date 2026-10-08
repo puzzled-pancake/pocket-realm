@@ -94,13 +94,22 @@ def send(op: str, arg1: str = "", arg2: str = "", timeout_s: int = 120) -> dict:
     payload = json.dumps({"op": op, "arg1": arg1, "arg2": arg2})
     local = ROOT / "build" / "world-console-in.json"
     local.write_text(payload, encoding="utf-8")
-    app_uid = uid()
-    LANE.run([LANE.ADB, "shell", "rm", "-f", OUT_PATH], check=False, timeout=30)
-    LANE.run([LANE.ADB, "push", str(local), IN_PATH], check=True, timeout=60)
-    LANE.run([LANE.ADB, "shell", "chown", app_uid, IN_PATH],
-             check=True, timeout=30)
-    LANE.run([LANE.ADB, "shell", "chmod", "644", IN_PATH],
-             check=True, timeout=30)
+    try:
+        app_uid = uid()
+        LANE.run([LANE.ADB, "shell", "rm", "-f", OUT_PATH],
+                 check=False, timeout=30)
+        LANE.run([LANE.ADB, "push", str(local), IN_PATH], check=True,
+                 timeout=60)
+        LANE.run([LANE.ADB, "shell", "chown", app_uid, IN_PATH],
+                 check=True, timeout=30)
+        LANE.run([LANE.ADB, "shell", "chmod", "600", IN_PATH],
+                 check=True, timeout=30)
+    finally:
+        # the payload can carry plaintext credentials (world-account /
+        # world-verify) - never leave it on the host past the push, not
+        # even on a failed or interrupted round trip (quit included: it
+        # is a send too)
+        local.unlink(missing_ok=True)
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         raw = LANE.run([LANE.ADB, "shell", "cat", OUT_PATH],

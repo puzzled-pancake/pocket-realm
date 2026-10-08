@@ -19,6 +19,22 @@ interface RuntimeBackend : AutoCloseable {
         databaseOwner: ComponentOwner,
         endpoint: RealmEndpoint,
     ): RuntimeActionResult
+
+    /**
+     * Design-tunnel §4.4.2 (bind/advertise split): write the realm
+     * ADVERTISEMENT — the address friends' clients actually dial, from the
+     * launch spec's `advertisedOrDefault` — which may diverge from the
+     * [endpoint] the servers bound (a tunnel address). The default keeps
+     * the endpoint-address advertisement: only lanes that implement the
+     * split (the desktop host) override it, so the Android lane's behavior
+     * is unchanged and any future Android advertisement work is a
+     * deliberate override, not a silent reinterpretation of this seam.
+     */
+    suspend fun projectRealmAdvertisement(
+        databaseOwner: ComponentOwner,
+        endpoint: RealmEndpoint,
+        advertised: String,
+    ): RuntimeActionResult = projectRealmEndpoint(databaseOwner, endpoint)
     suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult
     suspend fun forceStop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult
 
@@ -44,8 +60,62 @@ interface RuntimeBackend : AutoCloseable {
         password: String,
         gmLevel: Int,
     ): AccountProvisionResult
+
+    /**
+     * The READ-ONLY credential proof (the join-friend lifecycle's parity
+     * seam): prove a stored username + password against the live world
+     * WITHOUT creating or mutating anything — never a provision leg, so a
+     * credential saved from a friend-join can never mint a local identity,
+     * on either platform. Authoritative answers: ACCOUNT_VERIFIED (row
+     * exists + password proven), ACCOUNT_PASSWORD_MISMATCH (row exists,
+     * password refuted), ACCOUNT_UNKNOWN (the world never knew the
+     * identity). Everything else is transport-class and never rejects a
+     * stored record. Default refuses (transport-class) so test fakes and
+     * backends without the lane stay compiling.
+     */
+    suspend fun verifyAccount(
+        owner: ComponentOwner,
+        username: String,
+        password: String,
+    ): AccountProvisionResult = AccountProvisionResult(false, "UNSUPPORTED")
     suspend fun recoverDatabase(): RuntimeActionResult
     override fun close() = Unit
+
+    // ------------------------------------------------------------------
+    // Remote friend accounts (design-remote-accounts §3/§8/§9/§11): the
+    // host-side verbs the Players surfaces and the approval flow ride.
+    // Every default REFUSES honestly so a backend that has not adopted the
+    // lane (and every test fake) stays compiling — the same
+    // default-override pattern as projectRealmAdvertisement above; the
+    // desktop and Android runtimes both override all six.
+    // ------------------------------------------------------------------
+
+    /** §3: inserts the friend-derived (s, v) verbatim — no password ever
+     * crosses the host. ACCOUNT_EXISTS on a name collision; the HOST
+     * rejects the request, the friend picks another name. */
+    suspend fun provisionAccountVerifier(
+        username: String,
+        sHex: String,
+        vHex: String,
+    ): AccountProvisionResult = AccountProvisionResult(false, "UNSUPPORTED")
+
+    /** §11: the Players roster read (identity + ban state + the live
+     * failed-logins counter + the last SUCCESSFUL logon + online). */
+    suspend fun accountRoster(): RosterRead = RosterRead("unsupported")
+
+    /** §8: one account's characters. */
+    suspend fun accountCharacters(username: String): CharactersRead = CharactersRead("unsupported")
+
+    /** §9: `ban account <name> <duration> <reason>` through the console
+     * relay (duration "0" = permanent). */
+    suspend fun banFriendAccount(username: String, duration: String, reason: String): ModerationResult =
+        ModerationResult(false, "unsupported")
+
+    /** §9: `unban account <name>`. */
+    suspend fun unbanFriendAccount(username: String): ModerationResult = ModerationResult(false, "unsupported")
+
+    /** §10: per-friend gmlevel 0..3. */
+    suspend fun setFriendGmLevel(username: String, level: Int): Boolean = false
 }
 
 data class AccountProvisionResult(
@@ -55,6 +125,15 @@ data class AccountProvisionResult(
     val gmLevel: Int = 0,
     val detail: String = code,
 )
+
+/** One moderation verb's honest verdict (the console output rides as detail). */
+data class ModerationResult(val ok: Boolean, val detail: String)
+
+/** A roster read: null [reason] = success; otherwise the honest refusal copy. */
+data class RosterRead(val reason: String?, val accounts: List<FriendRosterJson.AccountRow> = emptyList())
+
+/** A characters read for one account. */
+data class CharactersRead(val reason: String?, val characters: List<FriendRosterJson.CharacterRow> = emptyList())
 
 interface RuntimeClock {
     fun wallMs(): Long

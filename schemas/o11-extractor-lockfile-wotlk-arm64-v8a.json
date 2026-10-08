@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "abi": "arm64-v8a",
+  "min_api": 26,
+  "elf_max_page_size": "0x4000",
+  "cmangos_commit": "c3a8d86fe4e61c3373eff424eb12cd7e7e8282b5",
+  "purpose": "Finite on-device DBC/map/vmap/mmap preparation",
+  "source_patches": [
+    {
+      "path": "native/patches/o11-cmangos-safe-mpq-listfile.patch",
+      "sha256": "f0103d0aa7426bbfd9237225657e25eb5c3446baefd98cbebb05a72ddefe27d0"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "native/.build-o11-arm64-v8a-wotlk/extractor-staging/jniLibs/arm64-v8a/libpocket_ad.so",
+      "size": 405632,
+      "sha256": "683130ef2579c7a67e504e8b6173ac7eaea59fd503f971229cf79bf9d2d23799",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o11-arm64-v8a-wotlk/extractor-staging/jniLibs/arm64-v8a/libpocket_vmap_extractor.so",
+      "size": 459720,
+      "sha256": "2925a15663280208d209b1e7e6fc930b146f38cd638ee6489fb8ec62a459d5ed",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o11-arm64-v8a-wotlk/extractor-staging/jniLibs/arm64-v8a/libpocket_vmap_assembler.so",
+      "size": 353680,
+      "sha256": "6cd07f6af16283ac9b8ff0996b5e239864db36346e6e1b8ba26229f699144c3b",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o11-arm64-v8a-wotlk/extractor-staging/jniLibs/arm64-v8a/libpocket_movemapgen.so",
+      "size": 1984280,
+      "sha256": "aca2873173d672cad3b262c63caaccb0293b2609f0cb49dbb4b3844f4de64d96",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    }
+  ]
+}

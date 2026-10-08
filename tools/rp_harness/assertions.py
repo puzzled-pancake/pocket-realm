@@ -54,6 +54,7 @@ def bot_reply(events, bot: str, since_ms: float | None = None) -> AssertionResul
     target = normalize(bot)
     if not target:
         return AssertionResult(False, "bot_reply: empty bot name")
+    short = None  # first under-guard line from the bot, cited if none qualify
     for record in _reply_records(events):
         if since_ms is not None and record.get("mono_ms", 0.0) < since_ms:
             continue
@@ -64,10 +65,13 @@ def bot_reply(events, bot: str, since_ms: float | None = None) -> AssertionResul
         if len(words) >= MIN_REPLY_WORDS:
             return AssertionResult(
                 True, f"{bot} replied ({len(words)} words)", record)
+        if short is None:
+            short = record
+    if short is not None:
         return AssertionResult(
             False,
             f"{bot} line is under the {MIN_REPLY_WORDS}-word guard: "
-            f"{record.get('text', '')!r}", record)
+            f"{short.get('text', '')!r}", short)
     return AssertionResult(
         False,
         f"no reply line from {bot} in "

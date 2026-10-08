@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "PlayerbotLlmJson.h"
+#include "PlayerbotLlmEraStages.generated.h"
 
 namespace pocketllm {
 
@@ -817,49 +818,83 @@ private:
 };
 
 // ---- the corrected era policy (verbatim classes) ----
-// Always-ban: unambiguous later-era words. Context-allow terms NEVER
-// appear here (Dalaran, death knight, Northrend, Outland, blood elf,
-// worgen, Lich King, Naxxramas, Kel'Thuzad are all 1.12-legitimate; and
-// the word "wrath" is ordinary speech, never banned).
-inline std::vector<std::string> EraAlwaysBanTerms()
+// STAGE-AWARE (design §5): the world resolves its class set from the
+// PocketRealm.TimeframeStage conf key. The per-stage lists live in
+// PlayerbotLlmEraStages.generated.h, generated from the
+// schemas/timeframes manifests by tools/generate_timeframe_era.py; the
+// default/final stage (and any unset/unknown stage) resolves to the
+// grounded 1.12.1 baseline - byte-equivalent to the pre-control behavior.
+// The production stage reader is installed by PlayerbotLlmFilters.cpp
+// (the one TU that can see sConfig); the host battery installs test
+// stages through the same slot.
+
+/** The stage provider slot: one function reading the world's stage.
+ *  Unset provider (or an empty value) = the default stage. */
+typedef std::string (*TimeframeStageProvider)();
+
+inline TimeframeStageProvider& TimeframeStageProviderSlot()
 {
-    static std::vector<std::string> const terms = {
-        "shattrath", "draenei", "pandaren", "acherus",
-    };
-    return terms;
+    static TimeframeStageProvider provider = 0;
+    return provider;
+}
+
+/** The world's active content-patch stage. Read per era surface, never
+ *  cached here: the conf is generated at world start and pinned for the
+ *  world's lifetime (ServerRuntimeFiles), so the stage cannot legitimately
+ *  change mid-session, and one map lookup per reply is nothing next to
+ *  the scan itself. */
+inline std::string ActiveTimeframeStage()
+{
+    TimeframeStageProvider const provider = TimeframeStageProviderSlot();
+    return provider ? provider() : std::string();
+}
+
+inline std::vector<std::string> const& EraAlwaysBanTerms()
+{
+    return erastages::AlwaysBanTermsFor(ActiveTimeframeStage());
 }
 
 // Later-expansion SENSES of context-allow words: banned as phrases only.
 // Each entry is (needle-lowercase, negation-escapes) - when the reply
 // negates the sense ("the portal is not open"), it is clean.
-inline std::vector<std::pair<std::string, bool>> EraSensePhrases()
+inline std::vector<std::pair<std::string, bool>> const& EraSensePhrases()
 {
-    static std::vector<std::pair<std::string, bool>> const phrases = {
-        { "flying mount", false }, { "flying mounts", false },
-        { "portal is open", true }, { "portals are open", true },
-        { "portal has opened", true }, { "portals have opened", true },
-        { "gilneas opened", true }, { "gilneas is open", true },
-        { "gilneas has opened", true }, { "playable worgen", false },
-        { "dalaran floats", false }, { "sewers of dalaran", false },
-        { "dalaran's sewers", false }, { "ebon blade", false },
-        { "burning crusade", false }, { "wrath of the lich king", false },
-        { "mists of pandaria", false },
-        { "warlords of draenor", false },
-        { "argus", false }, { "zereth mortis", false }, { "korthia", false },
-        { "revendreth", false }, { "maldraxxus", false },
-        { "ardenweald", false }, { "nazjatar", false },
-        { "kul tiras", false }, { "zandalar", false },
-        { "broken isles", false }, { "hellfire peninsula", false },
-        { "zangarmarsh", false }, { "terokkar forest", false },
-        { "blade's edge", false }, { "netherstorm", false },
-        { "shadowmoon valley", false },
-    };
-    // NEVER in any ban list: wrath, legion, dragonflight(s), northrend,
-    // outland, dalaran, worgen, death knight, naxxramas, lich king,
-    // kel'thuzad, blood elf - all vanilla-legitimate words (the
-    // "Dragonflight"/"Wrath"/"Legion" expansion TITLES collide with
-    // them, so only full multi-word titles are banned).
-    return phrases;
+    return erastages::SensePhrasesFor(ActiveTimeframeStage());
+}
+
+// NEVER in any ban list (the discipline the generated lists must keep;
+// pinned by the shared TimeframeStageTest and the check_timeframes gate):
+// wrath, legion, dragonflight(s), northrend, outland, dalaran, worgen,
+// death knight, naxxramas, lich king, kel'thuzad, blood elf - all
+// vanilla-legitimate words (the "Dragonflight"/"Wrath"/"Legion" expansion
+// TITLES collide with them, so only full multi-word titles are banned).
+
+// Design §5: the stage-era instruction line. EMPTY at the default stage
+// (the trained wording stays byte-identical); for a non-final stage it
+// covers what term-level lint cannot - a later-era fact that names no
+// bannable term still must not be voiced as current.
+inline std::string EraStageLine()
+{
+    std::string const stage = ActiveTimeframeStage();
+    if (erastages::IsDefaultStage(stage))
+        return std::string();
+    std::string const label = erastages::PatchLabel(stage);
+    if (label.empty())
+        return std::string();
+    return "The world is currently in patch " + label +
+        ": places and things from later patches do not exist yet.";
+}
+
+// The seasoning combiner at the SysmForCard call site: the era line rides
+// the EXISTING instruction span (before the player's pack seasoning), so
+// the trained prompt shape is unchanged and the default stage emits
+// byte-identical output.
+inline std::string EraSeasoningFor(std::string const& packSeasoning)
+{
+    std::string const era = EraStageLine();
+    if (era.empty())
+        return packSeasoning;
+    return packSeasoning.empty() ? era : era + " " + packSeasoning;
 }
 
 // Scans reply text for era violations. Returns the matched needle, or

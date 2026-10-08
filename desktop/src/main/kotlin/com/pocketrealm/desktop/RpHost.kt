@@ -1,6 +1,7 @@
 package com.pocketrealm.desktop
 
 import com.pocketrealm.server.ServerRuntimeContract
+import com.pocketrealm.server.ServerRuntimeFiles
 import com.pocketrealm.server.WorldNative
 import com.pocketrealm.supervisor.ComponentLifecycle
 import com.pocketrealm.supervisor.ComponentOwner
@@ -24,6 +25,9 @@ import kotlin.system.exitProcess
  * Ops: hello | account {user,pass,gm} | chat {char,channel,target,text}
  *      | memory {player} | reset {player} | online | save | detail
  *      | autologin {user,pass} | stop
+ *
+ * The account op chains the F1-10 expansion write after a fresh create
+ * (the active flavor's level rides the "addon" result field; vanilla is 0).
  *
  * The chat/memory/reset ops are the same native console verbs the
  * Android relay harness drives (world-chat, llm-memory-state,
@@ -114,11 +118,24 @@ fun main() {
                     val pass = request.getString("pass")
                     val created = WorldNative.createAccountNative(
                         user, pass, ServerRuntimeContract.CONTROL_TIMEOUT_MS)
+                    // F1-10 (lanes item 12): a fresh row carries the active
+                    // flavor's expansion before first login (vanilla stays
+                    // 0), resolved through the same serverFlavor() gate the
+                    // backend's own provisioning uses; a refused write flips
+                    // ok, never a silently classic flavor account.
+                    val addon = if (created == 0) {
+                        WorldNative.setAccountAddonNative(
+                            user, ServerRuntimeFiles.serverFlavor().accountExpansion,
+                            ServerRuntimeContract.CONTROL_TIMEOUT_MS)
+                    } else {
+                        -1
+                    }
                     val gm = request.optInt("gm", -1)
                     val gmResult = if (gm >= 0) WorldNative.setAccountGmLevelNative(
                         user, gm, ServerRuntimeContract.CONTROL_TIMEOUT_MS) else -1
-                    JSONObject().put("ok", created == 0 || created == 10)
+                    JSONObject().put("ok", created == 10 || (created == 0 && addon == 0))
                         .put("created", created)
+                        .put("addon", addon)
                         .put("gm", gmResult)
                 }
                 "chat" -> JSONObject(
@@ -175,13 +192,13 @@ fun main() {
                     break
                 }
                 "proto-login" -> {
-                    val user = request.getString("user").uppercase()
+                    val user = protoLoginUser(request.getString("user"))
                     val pass = request.getString("pass")
                     val srp = VsrpMath.verifierFor(user, pass)
                     val realmd = com.pocketrealm.database.DatabaseSqliteControlPlane
-                        .databaseFile(roots.sqliteDatadir, "classicrealmd")
+                        .databaseFile(roots.sqliteDatadir, ServerRuntimeFiles.serverDatabases().realmd)
                     com.pocketrealm.database.DesktopSqliteConnection(realmd.absolutePath).use { db ->
-                        db.exec("UPDATE account SET v = '${srp.vHex}', s = '${srp.sHex}' WHERE username = '$user';")
+                        db.exec(protoLoginAccountUpdate(user, srp))
                     }
                     val key = VsrpClient.logon(
                         RealmEndpoint.LOOPBACK_ADDRESS,
@@ -276,6 +293,24 @@ fun main() {
 private fun requestOp(line: String): String = runCatching {
     JSONObject(line).optString("op")
 }.getOrDefault("")
+
+/** The proto-login username: the engine's account-token shape every
+ * other lane enforces (1..16 ASCII alnum) — a quoted stdin payload
+ * refuses here, before any SRP identity or SQL exists. */
+internal fun protoLoginUser(raw: String): String {
+    val user = raw.uppercase()
+    ServerRuntimeContract.requireAccountToken("username", user)
+    return user
+}
+
+/** The proto-login UPDATE against the realmd account row. The username
+ * is token-gated by [protoLoginUser] and still single-quote doubled:
+ * the DesktopSqliteConnection JNI seam interpolates with no bind
+ * parameters (the DesktopGuestBans escape idiom); v/s are fixed-width
+ * lowercase hex by construction. */
+internal fun protoLoginAccountUpdate(user: String, srp: VsrpMath.Verifier): String =
+    "UPDATE account SET v = '${srp.vHex}', s = '${srp.sHex}' " +
+        "WHERE username = '${user.replace("'", "''")}';"
 
 /** Register a fresh admission generation and set the random-bot target
  * (the app layers' startAdmissionMonitor contract, minimal form: the

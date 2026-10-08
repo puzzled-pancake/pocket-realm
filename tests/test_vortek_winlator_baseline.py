@@ -181,17 +181,28 @@ def test_source_built_guest_is_pinned_and_reports_receiver_map_errno() -> None:
     builder = (ROOT / "tools/build_vortek_guest.py").read_text()
     stage = (ROOT / "tools/stage_renderer_packages.py").read_text()
     gradle = (ROOT / "android/app/build.gradle.kts").read_text()
+    sources = (ROOT / "schemas/sources.json").read_text()
+    driver_catalog = (ROOT / "schemas/vulkan-driver-catalog.json").read_text()
 
-    assert 'SOURCE_COMMIT = "ab7329c4b445a4abd9b9af91b8148e1ca41464fa"' in builder
-    assert "ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea" in builder
+    # Provenance is centralized (D16 direction): the builder derives its pin
+    # and builder image from the sources.json vortek-guest entry, and the
+    # stager derives the guest bytes from the vulkan driver catalog - the
+    # owning tables carry the values, the tools carry the derivations.
+    assert 'SOURCE_COMMIT = VORTEK_DRIVER["source"]["commit"]' in builder
+    assert 'BUILDER_IMAGE = VORTEK_DRIVER["source"]["builder_image"]' in builder
+    assert '"id": "vortek-guest-ab7329c"' in sources
+    assert '"commit": "ab7329c4b445a4abd9b9af91b8148e1ca41464fa"' in sources
+    assert "ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea" in sources
     assert "VORTEK_MEMORY_DIAGNOSTIC_LIMIT 32" in builder
     assert "PocketVortekGuest: event=memory-map" in builder
     assert 'placedAddr ? "placed" : "map2"' in builder
     assert "recvmsgErrno=%d" in builder
     assert "mmapErrno=%d" in builder
-    assert 'VORTEK_GUEST_SIZE = 406_496' in stage
-    assert 'VORTEK_GUEST_SHA256 = "10208431d516184e0e92ac1612a04c25a2e6a8925e89f3ef4829ee35eb1164d9"' in stage
-    assert '"protocol_profile": "winlator-2.1-source-matched"' in stage
+    assert 'VORTEK_GUEST_SIZE = VORTEK_GUEST_RECORD["size"]' in stage
+    assert 'VORTEK_GUEST_SHA256 = VORTEK_GUEST_RECORD["sha256"]' in stage
+    assert '"size": 406496' in driver_catalog
+    assert '"sha256": "10208431d516184e0e92ac1612a04c25a2e6a8925e89f3ef4829ee35eb1164d9"' in driver_catalog
+    assert '"protocol_profile": "winlator-2.1-source-matched"' in driver_catalog
     assert 'tasks.register<Exec>("buildVortekGuest")' in gradle
     assert "buildVortekGuest?.let { dependsOn(it) }" in gradle
 
@@ -246,7 +257,13 @@ def test_idle_ring_wait_uses_peer_loss_and_progressive_backoff() -> None:
 
     assert "int peerFd;" in ring_header
     assert "RingBuffer_setPeerFd" in ring_header
-    assert "RING_WAIT_MAX_SLEEP_US 2000u" in ring
+    # R2-4-1 (round 2): 100u is the MEASURED fix (ffc7da4: the 2ms cap
+    # throttled the request handler to ~500 wakes/s and collapsed GL
+    # throughput to ~4k req/s on Adreno+Mali; 100us restores ~36k req/s) -
+    # this pin was stale from the day ffc7da4 landed and round-1's triage
+    # wrongly honored it. Pin the measured value AND its comment together.
+    assert "RING_WAIT_MAX_SLEEP_US 100u" in ring
+    assert "100 us restores the ~36k requests/second pipeline" in ring
     assert "poll(&peer, 1" in ring
     assert "POLLHUP | POLLERR | POLLNVAL" in ring
     assert "if (ring->peerFd < 0)" in ring

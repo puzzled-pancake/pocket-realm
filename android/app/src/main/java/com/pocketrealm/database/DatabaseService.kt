@@ -77,6 +77,22 @@ class DatabaseService : Service() {
             .setOnlyAlertOnce(true)
             .build()
 
+    /**
+     * Claim law for this binder: requireOwner authorizes exactly the verbs
+     * that act on the owning session's live resources or release the claim
+     * itself (projectRealmEndpoint, stopOwned, forceStopOwned). Preparation
+     * and maintenance verbs deliberately run claim-less: the supervisor's
+     * maintenance lane admits backup/restore only on a clean-stopped
+     * runtime - a state entered via stopOwned, which has already cleared
+     * the claim - and that lane's verification leg claims and releases
+     * through its own supervisor.start/stop, so no claim taken before
+     * beginRestore could still cover the commitRestore that follows the
+     * verification stop. Crash recovery (rollbackPendingRestore, recover)
+     * is ownerless by definition: it repairs what a dead owner left
+     * behind, and the start lane claims before it prepares. The engine
+     * holds the destructive half of this gate: every backup/restore verb
+     * refuses anything but a clean stopped datadir.
+     */
     private val binder = object : IDatabaseControl.Stub() {
         override fun claim(sessionId: String, instanceToken: String, ownerLease: IBinder): String =
             guarded { ownership.claim(sessionId, instanceToken, ownerLease) }
@@ -84,9 +100,14 @@ class DatabaseService : Service() {
         override fun initialize(): String = guarded { engine.initialize() }
         override fun start(): String = guarded { engine.start() }
         override fun queryHealth(): String = guarded { engine.queryHealth() }
-        override fun projectRealmEndpoint(instanceToken: String, address: String, worldPort: Int): String = guarded {
+        override fun projectRealmEndpoint(
+            instanceToken: String,
+            address: String,
+            worldPort: Int,
+            realmbuilds: String,
+        ): String = guarded {
             ownership.requireOwner(instanceToken)
-            engine.projectRealmEndpoint(address, worldPort)
+            engine.projectRealmEndpoint(address, worldPort, realmbuilds)
         }
         override fun applyPinnedMigrations(): String = guarded { engine.applyPinnedMigrations() }
         override fun provisionSqliteProvider(): String = guarded { engine.provisionSqliteProvider() }
@@ -138,6 +159,9 @@ class DatabaseService : Service() {
             check(BuildConfig.DEBUG) { "snapshot/restore fault injection is debug-only" }
             engine.snapshotAndRestoreTest()
         }
+        // Backup/restore are maintenance verbs under the binder's claim law:
+        // only the supervisor's clean-stopped maintenance lane reaches them,
+        // and the engine requires a clean stopped datadir besides.
         override fun createNamedBackup(name: String): String = guarded { engine.createNamedBackup(name) }
         override fun listBackups(): String = guarded { engine.listBackups() }
         override fun beginRestore(snapshotId: String): String = guarded { engine.beginRestore(snapshotId) }

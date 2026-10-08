@@ -200,11 +200,18 @@ class RelaySession:
     def _round_trip(self, payload: str, timeout_s: float) -> dict:
         local = self.workdir / "console-in.json"
         local.write_text(payload, encoding="utf-8")
-        app_uid = self._app_uid()
-        self.run("shell", "rm", "-f", OUT_PATH, timeout=30.0, check=False)
-        self.run("push", str(local), IN_PATH, timeout=60.0)
-        self.run("shell", "chown", app_uid, IN_PATH, timeout=30.0)
-        self.run("shell", "chmod", "644", IN_PATH, timeout=30.0)
+        try:
+            app_uid = self._app_uid()
+            self.run("shell", "rm", "-f", OUT_PATH, timeout=30.0,
+                     check=False)
+            self.run("push", str(local), IN_PATH, timeout=60.0)
+            self.run("shell", "chown", app_uid, IN_PATH, timeout=30.0)
+            self.run("shell", "chmod", "600", IN_PATH, timeout=30.0)
+        finally:
+            # the payload can carry plaintext credentials (world-account /
+            # world-verify) - never leave it on the host past the push,
+            # not even on a failed or interrupted round trip
+            local.unlink(missing_ok=True)
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             raw = self.run("shell", "cat", OUT_PATH, timeout=30.0, check=False)

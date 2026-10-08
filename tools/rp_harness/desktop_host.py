@@ -9,7 +9,7 @@ responses carry "op"). EOF/stop drains the stack with a save.
 Usage:
     host = DesktopHost(REPO_ROOT)
     host.wait_ready(timeout_s=900)
-    host.account("rptest", "rptestpass", gm=3)
+    host.account(RPTEST_USER, RPTEST_PASS, gm=3)
     answer = host.chat("Seth", "whisper", "Varleigh", "Hail, friend")
     ...
     host.close()
@@ -23,6 +23,22 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+
+# The ONE RPTEST credential every desktop harness twin logs in with
+# (boots/soak/toolprobe/smoke/play). The account row itself is uppercase:
+# AccountMgr::CreateAccount normalizes the name and tools/create_davos.py
+# + tools/reset_davos.py bind Davos with WHERE username='RPTEST', while
+# RpHost's proto-login re-provisions v/s right before the SRP6 logon -
+# so the only real contract is that no twin redefines this pair.
+RPTEST_USER = "RPTEST"
+RPTEST_PASS = "rptest"
+
+# Round-5 R5-1 (D50): the shared product-root resolver (tools/common.py)
+# so the harness and every tool surface agree with the app on ONE root.
+import sys as _sys  # noqa: E402
+
+_sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import common  # noqa: E402
 
 
 class DesktopHostError(RuntimeError):
@@ -63,6 +79,11 @@ class DesktopHost:
         if bots > 0:
             argv.append(f"-PrpBots={bots}")
         env = dict(os.environ)
+        # Round-5 R5-1 (D50): the child rpHost JVM must resolve the SAME
+        # product data root the harness tools do - set the override
+        # explicitly so a registry-only variable (invisible to some spawn
+        # contexts) can never boot the app back onto %LOCALAPPDATA%.
+        env["POCKET_REALM_DATA_ROOT"] = str(common.product_data_root())
         # The no-manifest 1.12 client trips Windows' installer-detection
         # heuristic and comes up ELEVATED; UIPI then eats every synthetic
         # input from a non-elevated driver. RUNASINVOKER disables the

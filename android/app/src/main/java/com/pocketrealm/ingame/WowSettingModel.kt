@@ -24,11 +24,16 @@ enum class WowSettingBackend { CVAR, UVAR, FUNCTION }
 /**
  * How each catalog fact was verified — the provenance split pinned by
  * on-device ground truth. FRAMEXML_PIN facts come from the
- * MOUZU mirror of Blizzard's 1.12.1 FrameXML (commit 776d64e); DEVICE_CAPTURE
- * facts come from the live build-5875 WTF tree pulled from the Retroid
- * Pocket 6 on 2026-08-16.
+ * MOUZU mirror of Blizzard's 1.12.1 FrameXML (commit 776d64e) — or, for the
+ * tbc/wotlk catalogs, from the staged genuine clients' own FrameXML
+ * extracted out of their locale MPQ chains (out/flavor-capture, capture
+ * harness tools/capture_flavor_framexml.py); DEVICE_CAPTURE facts come from
+ * the live build-5875 WTF tree pulled from the Retroid Pocket 6 on
+ * 2026-08-16; STAGED_CLIENT_WTF facts come from the staged client's own
+ * WTF/Config.wtf write-out (keys the real client wrote, values not treated
+ * as defaults because the tree only carries changed-from-default values).
  */
-enum class WowSettingProvenance { FRAMEXML_PIN, DEVICE_CAPTURE }
+enum class WowSettingProvenance { FRAMEXML_PIN, DEVICE_CAPTURE, STAGED_CLIENT_WTF }
 
 enum class WowSettingCapabilityRequirement { PIXEL_SHADERS, GLOW_EFFECTS }
 

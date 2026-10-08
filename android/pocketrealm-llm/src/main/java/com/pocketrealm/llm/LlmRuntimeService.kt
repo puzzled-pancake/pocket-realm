@@ -781,7 +781,7 @@ class LlmRuntimeService : Service() {
         )
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("PocketRealm LLM runtime")
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth) // replace with app icon
+            .setSmallIcon(R.drawable.ic_stat_llm)
             .setOngoing(true)
             .build()
     }

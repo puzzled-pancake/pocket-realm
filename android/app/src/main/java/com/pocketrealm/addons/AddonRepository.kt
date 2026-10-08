@@ -757,19 +757,7 @@ class AddonRepository private constructor(context: Context) {
     }
 
     private fun registryJson(installed: List<InstalledAddon>): String =
-        JSONObject().put("schema", 1).put("installed", JSONArray().apply {
-            installed.forEach { addon ->
-                put(JSONObject()
-                    .put("id", addon.id)
-                    .put("repository", addon.repository)
-                    .put("displayName", addon.displayName)
-                    .put("commitSha", addon.commitSha)
-                    .put("archiveSha256", addon.archiveSha256)
-                    .put("installedAtEpochMs", addon.installedAtEpochMs)
-                    .put("packagePath", addon.packagePath)
-                    .put("folders", JSONArray(addon.folders)))
-            }
-        }).toString(2)
+        AddonRegistryCodec.encode(installed)
 
     private fun retireRemovedProducts() {
         for (file in listOf(registry, previousRegistry)) {
@@ -792,29 +780,7 @@ class AddonRepository private constructor(context: Context) {
 
     private fun loadRegistryStrict(file: File): List<InstalledAddon> {
         if (!file.isFile) return emptyList()
-        val rootJson = JSONObject(file.readText())
-        require(rootJson.getInt("schema") == 1)
-        val array = rootJson.getJSONArray("installed")
-        return List(array.length()) { index ->
-            val item = array.getJSONObject(index)
-            val id = item.getString("id")
-            InstalledAddon(
-                id = id,
-                repository = item.getString("repository"),
-                displayName = if (id == AndroidPortPackage.INSTALL_ID) {
-                    AndroidPortPackage.DISPLAY_NAME
-                } else {
-                    item.getString("displayName")
-                },
-                commitSha = item.getString("commitSha"),
-                archiveSha256 = item.getString("archiveSha256"),
-                installedAtEpochMs = item.getLong("installedAtEpochMs"),
-                packagePath = item.getString("packagePath"),
-                folders = item.getJSONArray("folders").let { folders ->
-                    List(folders.length()) { folders.getString(it) }
-                },
-            ).also { require(File(root, it.packagePath).isDirectory) }
-        }
+        return AddonRegistryCodec.decodeInstalled(root, file.readText())
     }
 
     private fun prunePackages(active: List<InstalledAddon>, previous: List<InstalledAddon>) {

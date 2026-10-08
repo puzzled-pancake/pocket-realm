@@ -74,7 +74,7 @@ internal object ScratchArchiveExtractor {
      * shared path policy, directories preserved. Keys stay the archive's
      * original names (the sources look entries up by them); relative paths
      * are the normalized forms used for the scratch layout. Mirrors the
-     * fold/collision/aggregate-cap guarantees of
+     * fold/collision/trailing-dot/aggregate-cap guarantees of
      * [ImportExtractionPolicy.classify] without its client allow-lists.
      */
     private fun classifyForScratch(
@@ -89,7 +89,7 @@ internal object ScratchArchiveExtractor {
         for (entry in entries.sortedBy { it.name }) {
             val unified = entry.name.replace('\\', '/').trimEnd('/')
             if (unified.isEmpty()) continue
-            val normalized = policy.normalize(unified)
+            val normalized = policy.normalizeEntry(unified)
             val key = policy.caseFoldKey(normalized)
             val previous = folded.putIfAbsent(key, normalized to entry.directory)
             if (previous != null) {

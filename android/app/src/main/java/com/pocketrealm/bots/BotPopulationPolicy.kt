@@ -1,5 +1,7 @@
 package com.pocketrealm.bots
 
+import com.pocketrealm.client.ClientFlavor
+import com.pocketrealm.client.ClientFlavors
 import kotlin.math.ceil
 
 /**
@@ -42,6 +44,71 @@ object BotPopulationPolicy {
 
     /** Upper bound for an auto-provisioned account pool. */
     const val MAX_ACCOUNTS = 2_000
+
+    /**
+     * G3-10: the per-flavor population values. The VANILLA row IS today's
+     * constants — [BotPopulationPolicyVanillaRowTest] pins the equality, so a
+     * per-flavor table (H3R2-1) can only ever add rows, never retune the
+     * classic lane in place.
+     */
+    data class PopulationRow(
+        val charactersPerBotAccount: Int,
+        val minCustomTarget: Int,
+        val maxSupportedTarget: Int,
+        val maxBuiltInTarget: Int,
+        val maxAccounts: Int,
+    )
+
+    val VANILLA_ROW: PopulationRow = PopulationRow(
+        charactersPerBotAccount = CHARACTERS_PER_BOT_ACCOUNT,
+        minCustomTarget = MIN_CUSTOM_TARGET,
+        maxSupportedTarget = MAX_SUPPORTED_TARGET,
+        maxBuiltInTarget = MAX_BUILT_IN_TARGET,
+        maxAccounts = MAX_ACCOUNTS,
+    )
+
+    /**
+     * H3R2-1 (census lanes item 16): the TBC row mirrors
+     * `schemas/flavor.json` `bot_policy` — `characters_per_account: 9`
+     * (MANGOSBOT_ONE takes the pinned factory's non-TWO path,
+     * `maxAllowed = 9 - count`). Target/account bounds are the shared
+     * PocketRealm device bounds (see [MAX_SUPPORTED_TARGET]), not engine
+     * facts, so they match the vanilla row until a measured reason diverges.
+     */
+    val TBC_ROW: PopulationRow = PopulationRow(
+        charactersPerBotAccount = CHARACTERS_PER_BOT_ACCOUNT,
+        minCustomTarget = MIN_CUSTOM_TARGET,
+        maxSupportedTarget = MAX_SUPPORTED_TARGET,
+        maxBuiltInTarget = MAX_BUILT_IN_TARGET,
+        maxAccounts = MAX_ACCOUNTS,
+    )
+
+    /**
+     * H3R2-1 (census lanes item 16): the WotLK row. The engine's
+     * MANGOSBOT_TWO path allows **10** bots per account
+     * (RandomPlayerbotFactory.cpp: `maxAllowed = 10 - count`), but the
+     * manifest pins the headroom-conservative `characters_per_account: 9`
+     * ("player character occupies one slot; client UI cap is 10 per
+     * realm") — this row mirrors the manifest value, deliberately under
+     * the engine ceiling.
+     */
+    val WOTLK_ROW: PopulationRow = PopulationRow(
+        charactersPerBotAccount = CHARACTERS_PER_BOT_ACCOUNT,
+        minCustomTarget = MIN_CUSTOM_TARGET,
+        maxSupportedTarget = MAX_SUPPORTED_TARGET,
+        maxBuiltInTarget = MAX_BUILT_IN_TARGET,
+        maxAccounts = MAX_ACCOUNTS,
+    )
+
+    /** The population policy for [flavor]; every declared flavor has a row,
+     *  unknown ids still fail loud (add-only: a new flavor adds a row here,
+     *  it never retunes an existing one — G3-10). */
+    fun forFlavor(flavor: ClientFlavor): PopulationRow = when (flavor.flavorId) {
+        ClientFlavors.VANILLA.flavorId -> VANILLA_ROW
+        ClientFlavors.TBC.flavorId -> TBC_ROW
+        ClientFlavors.WOTLK.flavorId -> WOTLK_ROW
+        else -> error("bot population policy for flavor \"${flavor.flavorId}\" is not defined")
+    }
 
     /** Account-pool headroom: +20% over the required pool, rounded up. */
     fun allocatedAccounts(target: Int): Int {

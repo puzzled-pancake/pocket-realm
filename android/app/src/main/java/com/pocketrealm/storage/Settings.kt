@@ -396,6 +396,46 @@ class Settings(private val context: Context) {
         /** Missing legacy values migrate to LOCAL; LAN hosting remains opt-in. */
         val runtimeMode: RuntimeMode = RuntimeMode.LOCAL,
         val allowLanPlayers: Boolean = false,
+        /** design-remote-accounts: friend access while LAN hosting — when
+         * true the :supervisor service binds the provisioning listener
+         * (ServerRuntimeContract.PROVISION_PORT) for the hosting session's
+         * lifetime. Off (the default) never binds the socket. */
+        val friendAccessEnabled: Boolean = false,
+        /**
+         * Design-tunnel §4/§5: the ADVERTISED tunnel address (the same
+         * field name/semantics as the desktop Settings twin). Empty = plain
+         * LAN hosting, byte-identical behavior; when set (and LAN hosting
+         * starts), the servers bind the wildcard and the one realmlist row
+         * carries THIS address — a canonical numeric IPv4 in the
+         * loopback/private/link-local/CGNAT set ([com.pocketrealm.supervisor.
+         * AdvertisedAddress]); hostnames and public IPv4 stay out of v1.
+         * Validated at the start gate and at projection — never trusted
+         * raw from the store.
+         */
+        val tunnelAdvertisedAddress: String = "",
+        /**
+         * Design-timeframe §4.1: the persisted content-patch stage id
+         * ("" = the qualified flavor's final patch), resolved through the
+         * shared [com.pocketrealm.client.TimeframeStages.resolveStored] — a
+         * value that is not a registered stage of the qualified lane
+         * degrades to "" (never throws), so a flavor change cannot strand a
+         * world silently. Applies at the next realm start as the world
+         * conf's PocketRealm.TimeframeStage.
+         */
+        val timeframeStage: String = "",
+        /**
+         * The Home flavor switcher's persisted lane selection ("" = no
+         * explicit pick; resolution falls to the ActiveFlavor machine's
+         * sole-qualified default). Persisted because the realmlist
+         * projection consumes it from :supervisor — a SEPARATE process
+         * from the switcher's in-memory [com.pocketrealm.client.
+         * ActiveFlavor] state, so this multi-process store is the one
+         * selection every runtime lane can see. Validated only through
+         * the machine's fail-loud resolve at use: a stale or
+         * no-longer-qualified persisted pick refuses the start, never
+         * silently downgrades to another lane.
+         */
+        val selectedFlavorId: String = "",
         /**
          * Playerbot LLM runtime (:llm process, llama-server + optional Hexagon
          * NPU hybrid). Default OFF — the base conf keeps
@@ -490,6 +530,9 @@ class Settings(private val context: Context) {
     ) {
         /** Persisted selection; [ArmClientRendererCatalog.AUTO_ID] is allowed. */
         fun selectedArmRendererId(): String = armRendererId
+
+        /** The persisted flavor pick, or null when resolution falls to the default. */
+        fun selectedFlavorOrNull(): String? = selectedFlavorId.takeIf { it.isNotEmpty() }
 
         fun isAutoRenderer(): Boolean =
             ArmClientRendererCatalog.isAutoSelection(armRendererId)
@@ -806,6 +849,17 @@ class Settings(private val context: Context) {
         runtimeMode = runCatching { RuntimeMode.valueOf(this[Keys.RUNTIME_MODE] ?: "") }
             .getOrDefault(RuntimeMode.LOCAL),
         allowLanPlayers = (this[Keys.ALLOW_LAN_PLAYERS] ?: 0) == 1,
+        friendAccessEnabled = (this[Keys.FRIEND_ACCESS_ENABLED] ?: 0) == 1,
+        tunnelAdvertisedAddress = this[Keys.TUNNEL_ADVERTISED_ADDRESS] ?: "",
+        // Design-timeframe §4.1: validated at read time against the
+        // qualified lane; an impossible/stale stage degrades to "".
+        timeframeStage = com.pocketrealm.client.TimeframeStages.resolveStored(
+            this[Keys.TIMEFRAME_STAGE] ?: "",
+        ),
+        // The flavor pick persists VERBATIM (never normalized here): the
+        // ActiveFlavor machine's fail-loud resolve at use is the only
+        // validator, so a stale pick refuses instead of downgrading.
+        selectedFlavorId = this[Keys.SELECTED_FLAVOR] ?: "",
         llmEnabled = llm.enabled,
         llmComputeMode = llm.computeMode,
         llmCoresMask = llm.coresMask,
@@ -902,6 +956,10 @@ private object Keys {
     val WORLD_DEBUG_LOGS = intPreferencesKey("world_debug_logs")
     val RUNTIME_MODE = stringPreferencesKey("runtime_mode")
     val ALLOW_LAN_PLAYERS = intPreferencesKey("allow_lan_players")
+    val FRIEND_ACCESS_ENABLED = intPreferencesKey("friend_access_enabled")
+    val TUNNEL_ADVERTISED_ADDRESS = stringPreferencesKey("tunnel_advertised_address")
+    val TIMEFRAME_STAGE = stringPreferencesKey("timeframe_stage")
+    val SELECTED_FLAVOR = stringPreferencesKey("selected_flavor_id")
     val LLM_ENABLED = intPreferencesKey("llm_enabled")
     val LLM_COMPUTE_MODE = stringPreferencesKey("llm_compute_mode")
     val LLM_CORES_MASK = longPreferencesKey("llm_cores_mask")
@@ -1078,6 +1136,13 @@ internal fun MutablePreferences.writeSnapshotWrites(
     this[Keys.WORLD_DEBUG_LOGS] = if (next.worldDebugLogs) 1 else 0
     this[Keys.RUNTIME_MODE] = next.runtimeMode.name
     this[Keys.ALLOW_LAN_PLAYERS] = if (next.allowLanPlayers) 1 else 0
+    this[Keys.FRIEND_ACCESS_ENABLED] = if (next.friendAccessEnabled) 1 else 0
+    this[Keys.TUNNEL_ADVERTISED_ADDRESS] = next.tunnelAdvertisedAddress
+    // Design-timeframe §4.1: the stage persists through the shared
+    // resolution so an impossible value can never be re-persisted.
+    this[Keys.TIMEFRAME_STAGE] =
+        com.pocketrealm.client.TimeframeStages.resolveStored(next.timeframeStage)
+    this[Keys.SELECTED_FLAVOR] = next.selectedFlavorId
     this[Keys.LLM_ENABLED] = if (next.llmEnabled) 1 else 0
     this[Keys.LLM_COMPUTE_MODE] = next.llmComputeMode.name
     this[Keys.LLM_CORES_MASK] = LlmRuntimePolicy.normalizeCoresMask(next.llmCoresMask)

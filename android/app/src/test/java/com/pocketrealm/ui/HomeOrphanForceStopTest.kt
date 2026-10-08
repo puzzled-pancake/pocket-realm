@@ -29,7 +29,7 @@ class HomeOrphanForceStopTest {
         // and every non-failure state, keep the generic surface.
         assertNull(unverifiedOrphanFailure(RealmState.Failed("cannot verify as its own")))
         assertNull(unverifiedOrphanFailure(RealmState.Failed("runtime failed")))
-        assertNull(unverifiedOrphanFailure(RealmState.Idle))
+        assertNull(unverifiedOrphanFailure(RealmState.Idle()))
         assertNull(unverifiedOrphanFailure(RealmState.Starting(1)))
         assertNull(unverifiedOrphanFailure(
             RealmState.Running(System.currentTimeMillis(), RuntimeMode.LOCAL),
@@ -52,7 +52,7 @@ class HomeOrphanForceStopTest {
         // state, keep the generic surface with no affordance.
         assertNull(forceStopRepairFailure(RealmState.Failed("database is locked")))
         assertNull(forceStopRepairFailure(RealmState.Failed("runtime failed")))
-        assertNull(forceStopRepairFailure(RealmState.Idle))
+        assertNull(forceStopRepairFailure(RealmState.Idle()))
         assertNull(forceStopRepairFailure(RealmState.Starting(1)))
         assertNull(forceStopRepairFailure(
             RealmState.Running(System.currentTimeMillis(), RuntimeMode.LOCAL)))

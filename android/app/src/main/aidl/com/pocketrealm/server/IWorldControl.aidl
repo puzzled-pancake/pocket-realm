@@ -19,6 +19,16 @@ interface IWorldControl {
     String setAccountGmLevel(String username, int level);
     String accountStatus(String username);
     String characterPersistence(String username, String characterName);
+    /** Remote friend accounts (design-remote-accounts §3/§8/§9/§11): the verifier
+     * provisioning op (no password input; the friend derived s/v on their
+     * device), the roster read, per-friend characters, and the ban/unban
+     * verbs through the SEC_CONSOLE relay. JSON answers follow the
+     * characterPersistence pattern. */
+    String createAccountVerifier(String username, String sHex, String vHex);
+    String accountList();
+    String accountCharacters(String username);
+    String banAccount(String username, String duration, String reason);
+    String unbanAccount(String username);
     /** H2 relay-min smoke rail: inject a player chat line via the real chat opcode handler (channel is say|party|whisper|yell; target is the receiving bot name for whisper). */
     String worldChat(String characterName, String channel, String target, String text);
     /** H2 relay-min smoke rail: clear bot_player_facts/bot_player_relationship for one player (empty = all). */

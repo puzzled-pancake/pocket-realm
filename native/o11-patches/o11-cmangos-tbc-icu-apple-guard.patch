@@ -1,0 +1,12 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -217,7 +217,7 @@
+ 
+ # Find needed packages and if necessery abort if something important is missing
+ find_package(Boost 1.70.0 REQUIRED COMPONENTS program_options thread regex serialization filesystem)
+-if (UNIX OR APPLE)
++if (APPLE) # pocket-realm o11: the pinned classic/wotlk trees gate ICU on APPLE only; the NDK toolchain sets UNIX=1 while the android dep prefix stages no ICU, and the extractor tools never link it (DT_NEEDED: libc/libdl/libm only)
+     find_package(ICU COMPONENTS uc i18n data REQUIRED)
+     add_library(icuuc ALIAS ICU::uc)
+     add_library(icui18n ALIAS ICU::i18n)

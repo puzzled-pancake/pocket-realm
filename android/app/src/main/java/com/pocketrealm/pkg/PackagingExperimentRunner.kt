@@ -330,7 +330,7 @@ class PackagingExperimentRunner(private val context: Context) {
                 break
             }
             val (h, pid, ps) = tickResult.getOrThrow()
-            println("PKG-06 TICK\ttick=$tickCount\tt=${System.currentTimeMillis()}\thello=$h\tpid=$pid\tpageSize=$ps")
+            AppLog.i(TAG, pkg06TickLine(tickCount, System.currentTimeMillis(), h, pid, ps))
             if (tickCount == 1) evidence["firstTick"] = "tick=1 hello=$h pid=$pid"
             kotlinx.coroutines.delay(HEARTBEAT_INTERVAL_MS)
         }
@@ -373,6 +373,15 @@ class PackagingExperimentRunner(private val context: Context) {
         private const val HEARTBEAT_INTERVAL_MS = 60_000L
         private const val EXEC_TIMEOUT_MS = 30_000L
         private const val WAIT_POLL_MS = 500L  // slice for the timed waitFor() loop
+
+        /**
+         * The PKG-06 heartbeat line. Pinned by unit test: the host driver
+         * (`tools/run_pkg_experiments.py`) greps the literal "PKG-06 TICK"
+         * substring out of logcat, so this exact tab-separated shape is a
+         * cross-process contract.
+         */
+        internal fun pkg06TickLine(tick: Int, atMs: Long, hello: String, pid: Int, pageSize: Int): String =
+            "PKG-06 TICK\ttick=$tick\tt=$atMs\thello=$hello\tpid=$pid\tpageSize=$pageSize"
     }
 }
 

@@ -354,9 +354,11 @@ def test_trained_builder_gains_tier_note_and_say_cap():
         "A18: the ambient say cross-injection window caps at 5 lines"
     # the load-bearing wiring: the shipped sysm actually receives the
     # staged pack seasoning AND the mood weather line (deleting either
-    # argument would otherwise pass every pure-function test)
-    assert "LoadPackSeasoning()," in trained and "MoodLineFor(botGuid)" in trained, \
-        "the trained builder passes the pack seasoning and mood line into SysmForCard"
+    # argument would otherwise pass every pure-function test). The
+    # seasoning rides the stage-era leg (EraSeasoningFor, empty at the
+    # default stage) - same span the truth-side pin pins.
+    assert "pocketllm::EraSeasoningFor(LoadPackSeasoning())," in trained and "MoodLineFor(botGuid)" in trained, \
+        "the trained builder passes the era-seasoned pack seasoning and mood line into SysmForCard"
     assert "sPlayerbotAIConfig.llmMoodSeasoning ? MoodLineFor(botGuid) : std::string()" in trained, \
         "the mood line is conf-gated (LLMMoodSeasoning, default on)"
 
@@ -423,7 +425,7 @@ def test_plan_v5_slice1_core_hooks_are_anchored():
         "the trade anchor calls the completion hook pre-moveItems"
     assert 'replace_anchor(cmangos / "src" / "game" / "Trade" / "TradeHandler.cpp", CORE_TRADE_UPSTREAM, CORE_TRADE_ANDROID)' in driver, \
         "the trade anchor is registered in the apply list"
-    assert 'restore_anchor(\n        NATIVE / "cmangos" / "src" / "game" / "Trade" / "TradeHandler.cpp",\n        CORE_TRADE_ANDROID,' in driver, \
+    assert 'restore_anchor(\n        cmangos / "src" / "game" / "Trade" / "TradeHandler.cpp",\n        CORE_TRADE_ANDROID,' in driver, \
         "the trade anchor restores for --configure-only"
 
 

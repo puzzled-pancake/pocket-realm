@@ -91,7 +91,7 @@ class LlmRuntimePolicyTest {
             "AiPlayerbot.LLMRepeatPenalty = 1",
             "AiPlayerbot.LLMPresencePenalty = 1",
             "AiPlayerbot.LLMMaxNewTokens = 230",
-            "AiPlayerbot.LLMGenerationTimeout = 60",
+            "AiPlayerbot.LLMGenerationTimeout = 360",
             "AiPlayerbot.LLMConnectTimeout = 10",
             "AiPlayerbot.LLMMaxSimultaniousGenerations = 2",
             "AiPlayerbot.LLMGovernorWindow = 60",
@@ -647,7 +647,7 @@ class LlmRuntimePolicyTest {
         assertTrue(block.contains("AiPlayerbot.LLMContextLength = 131072\n"))
         assertTrue(block.contains("AiPlayerbot.LLMFactsCap = 48\n"))
         assertTrue(block.contains("AiPlayerbot.LLMMemoriesTail = 16\n"))
-        assertTrue(block.contains("AiPlayerbot.LLMGenerationTimeout = 60\n"))
+        assertTrue(block.contains("AiPlayerbot.LLMGenerationTimeout = 240\n"))
         // The external-block governor
         // trio, value-pinned like the embedded one - a silent regression
         // of EXTERNAL_TIER's governor knobs would otherwise pass a looser
@@ -682,6 +682,96 @@ class LlmRuntimePolicyTest {
         assertNull(LlmRuntimePolicy.confBlockExternal(null, "m", ""))
         assertNull(LlmRuntimePolicy.confBlockExternal(endpoint, null, ""))
         assertNull(LlmRuntimePolicy.confBlockExternal(endpoint, "m", null))
+    }
+
+    @Test
+    fun cleartextKeyedEndpointPairsAreDetectedCaseInsensitively() {
+        // the pair the no-cleartext-egress posture must reject: an http
+        // endpoint carrying a bearer key (scheme casing included — the
+        // normalizer keeps the user's casing, the check must not care)
+        assertTrue(
+            LlmRuntimePolicy.isCleartextKeyedEndpoint(
+                "http://192.168.1.10:8080/v1/chat/completions", "sk-x",
+            )
+        )
+        assertTrue(
+            LlmRuntimePolicy.isCleartextKeyedEndpoint(
+                "HTTP://example.com/v1/chat/completions", "sk-x",
+            )
+        )
+        assertFalse(
+            LlmRuntimePolicy.isCleartextKeyedEndpoint(
+                "https://api.openai.com/v1/chat/completions", "sk-x",
+            )
+        )
+        // keyless http stays a legal LAN lane; an absent lane/key never blocks
+        assertFalse(
+            LlmRuntimePolicy.isCleartextKeyedEndpoint(
+                "http://192.168.1.10:8080/v1/chat/completions", "",
+            )
+        )
+        assertFalse(LlmRuntimePolicy.isCleartextKeyedEndpoint(null, "sk-x"))
+        assertFalse(
+            LlmRuntimePolicy.isCleartextKeyedEndpoint(
+                "http://192.168.1.10:8080/v1/chat/completions", null,
+            )
+        )
+    }
+
+    @Test
+    fun externalBlockFailsClosedOnAnHttpEndpointPairedWithAKey() {
+        // the bearer key must never cross in cleartext: http + key emits
+        // no block at all (the unusable-field posture), while the two
+        // legal pairings around it keep working.
+        assertNull(
+            LlmRuntimePolicy.confBlockExternal(
+                "http://192.168.1.10:8080/v1/chat/completions", "local", "sk-test",
+            )
+        )
+        // keyless http (a LAN llama box) still emits, key line absent
+        val keyless = LlmRuntimePolicy.confBlockExternal(
+            "http://192.168.1.10:8080/v1/chat/completions", "local", "",
+        )!!
+        assertFalse(keyless.contains("AiPlayerbot.LLMApiKey"))
+        // https + key still carries the key line
+        val secure = LlmRuntimePolicy.confBlockExternal(
+            "https://api.openai.com/v1/chat/completions", "local", "sk-test",
+        )!!
+        assertTrue(secure.contains("AiPlayerbot.LLMApiKey = sk-test"))
+    }
+
+    @Test
+    fun composerLaneDropsACleartextKeyedComposerButKeepsTheChatterSubsystem() {
+        // the composer rides the same external URL/key fields on BOTH
+        // lanes, so the http + key pair must drop the composer lines
+        // (native composer-off) without silencing chatter itself.
+        val on = LlmRuntimePolicy.confBlock(
+            llmEnabled = true,
+            chatterPowerFile = "/srv/run/chatter-power.txt",
+            composerEndpoint = "http://192.168.1.10:8080/v1/chat/completions",
+            composerModel = "script-writer",
+            composerApiKey = "sk-x",
+        )!!
+        assertTrue(on.contains("AiPlayerbot.LLMChatterEnabled = 1\n"))
+        assertTrue(on.contains("AiPlayerbot.LLMChatterPowerFile = \"/srv/run/chatter-power.txt\"\n"))
+        assertFalse(on.contains("AiPlayerbot.LLMChatterComposerUrl"))
+        assertFalse(on.contains("AiPlayerbot.LLMChatterComposerModel"))
+        assertFalse(on.contains("AiPlayerbot.LLMChatterComposerKey"))
+        // the https composer pair keeps the full surface on the external
+        // lane too (chatterLines is shared by both emissions)
+        val external = LlmRuntimePolicy.confBlockExternal(
+            "https://api.openai.com/v1/chat/completions", "local", "sk-test",
+            chatterPowerFile = "/srv/run/chatter-power.txt",
+            composerEndpoint = "https://api.example.com/v1/chat/completions",
+            composerModel = "script-writer",
+            composerApiKey = "sk-x",
+        )!!
+        assertTrue(
+            external.contains(
+                "AiPlayerbot.LLMChatterComposerUrl = https://api.example.com/v1/chat/completions\n",
+            )
+        )
+        assertTrue(external.contains("AiPlayerbot.LLMChatterComposerKey = sk-x\n"))
     }
 
     companion object {

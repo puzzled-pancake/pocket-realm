@@ -2,6 +2,7 @@ package com.pocketrealm.supervisor
 
 import com.pocketrealm.bots.BotProfiles
 import kotlinx.coroutines.delay
+import org.json.JSONObject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +36,15 @@ class DurableRuntimeSupervisor(
     private var foregroundPromoted = false
     private var foregroundEmptySamples = 0
     private var foregroundSessionId: String? = null
+    /**
+     * Components that reached a READY observation in the CURRENT session;
+     * guarded by operationLock, cleared when a start accepts a new session.
+     * GAP-2 root fix (a): a stage NOT in this set when its start fails never
+     * started anything native - its journaled ownership is bookkeeping for a
+     * start that did not happen, so the failure unwind must not attempt a
+     * native stop of it (see [unwindNeverStartedStage]).
+     */
+    private val startedComponents = mutableSetOf<RuntimeComponent>()
     private val _state = MutableStateFlow(journal.read() ?: RuntimeSnapshot())
     val state: StateFlow<RuntimeSnapshot> = _state.asStateFlow()
 
@@ -77,11 +87,16 @@ class DurableRuntimeSupervisor(
         }
 
         val sessionId = mintSessionId()
+        startedComponents.clear()
         publish(RuntimeSnapshot(
             sessionId = sessionId,
             requestedProfile = spec.profileId,
             runtimeMode = spec.mode,
             realmEndpoint = spec.endpoint,
+            // Design-tunnel §5: the session's live advertisement rides the
+            // snapshot, so the monitor and the UI read what the projection
+            // actually wrote — never re-derived from settings.
+            advertisedAddress = spec.advertisedAddress?.value,
             clean = false,
             lastDurableAction = "start-accepted",
             updatedAtWallMs = clock.wallMs(),
@@ -102,7 +117,14 @@ class DurableRuntimeSupervisor(
             }
             if (component == RuntimeComponent.DATABASE) {
                 val projected = runCatching {
-                    backend.projectRealmEndpoint(checkNotNull(ownerOf(component)), spec.endpoint)
+                    // Design-tunnel §4.4.2: the row carries the spec's
+                    // ADVERTISED address (endpoint address when no override
+                    // is set — byte-identical to the pre-split behavior).
+                    backend.projectRealmAdvertisement(
+                        checkNotNull(ownerOf(component)),
+                        spec.endpoint,
+                        spec.advertisedOrDefault,
+                    )
                 }.getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
                 if (!projected.ok) {
                     failStage(component, "realm endpoint projection failed: ${projected.detail}")
@@ -221,11 +243,20 @@ class DurableRuntimeSupervisor(
         operation(result.ok, result.detail)
     }
 
-    suspend fun stop(mode: StopMode): RuntimeOperation = operationLock.withLock {
+    /**
+     * Stop the stack. [reason] carries the D9 stop marker when the stop is
+     * an automatic monitor's call (the interface-loss lanes pass
+     * LAN_HOST_INTERFACE_LOST / TUNNEL_HOST_INTERFACE_LOST): it rides the
+     * terminal snapshot's `stopReason` so the host UI can say WHY hosting
+     * ended, instead of presenting a clean unexplained stop. A user/verb
+     * stop passes nothing (ordinary stop, nothing to explain). The reason
+     * clears by construction at the next start (a fresh snapshot).
+     */
+    suspend fun stop(mode: StopMode, reason: String? = null): RuntimeOperation = operationLock.withLock {
         if (_state.value.phase == RuntimePhase.STOPPED && _state.value.clean) {
             return@withLock operation(true, "already stopped")
         }
-        stopLocked(mode, finalPhase = RuntimePhase.STOPPED, preserveError = null)
+        stopLocked(mode, finalPhase = RuntimePhase.STOPPED, preserveError = null, stopReason = reason)
     }
 
     suspend fun recover(): RuntimeOperation = operationLock.withLock {
@@ -258,7 +289,18 @@ class DurableRuntimeSupervisor(
     suspend fun consentedForceStopOrphanStack(): RuntimeOperation = operationLock.withLock {
         val current = _state.value
         if (current.phase == RuntimePhase.STOPPED && current.clean) {
-            return@withLock operation(true, "already stopped")
+            // GAP-2: "already stopped" must mean nothing left to repair. A
+            // clean journal can still carry a service-side DATABASE claim
+            // the automatic lanes could not release (the refused start that
+            // surfaced DB_OWNED_BY_DEAD_SESSION settles at rest with the
+            // claim intact) - an ended session's leftover lock is exactly
+            // this verb's repair, so the verb stays reachable from a clean
+            // journal whenever the database still reports one.
+            val database = runCatching { backend.observe(RuntimeComponent.DATABASE) }.getOrNull()
+            val staleClaim = database?.owner?.takeIf { it != ownerOf(RuntimeComponent.DATABASE) }
+            if (staleClaim == null) {
+                return@withLock operation(true, "already stopped")
+            }
         }
         publish(current.copy(
             phase = RuntimePhase.STOPPING,
@@ -427,6 +469,29 @@ class DurableRuntimeSupervisor(
         }
     }
 
+    /**
+     * F9 (census-backend-tools): the read-only players-online sample behind
+     * the LAN screen's joined-mode line — the DesktopAppModel
+     * .lanPlayersOnline twin over the same shared contract
+     * ([RuntimeBackend.observeWorldPresence]). Never mutates supervisor
+     * state, never starts anything, and carries the SAME stopped-world
+     * guard as [reconcileForegroundPromotion]: a stopped world (a joined
+     * device runs client-only, RuntimeLaunchSpec.componentPlan) is sampled
+     * as definitively playerless WITHOUT binding :world — a UI poll must
+     * never resurrect a service just to hear "stopped".
+     */
+    suspend fun worldPresence(): JSONObject {
+        val sample =
+            if (_state.value.components.getValue(RuntimeComponent.WORLD).state != ComponentLifecycle.STOPPED) {
+                runCatching { backend.observeWorldPresence() }.getOrDefault(WorldPresenceSample.EMPTY)
+            } else WorldPresenceSample.EMPTY
+        return JSONObject()
+            .put("state", sample.state.name)
+            .put("realPlayers", sample.realPlayers)
+            .put("playerbotsEnabled", sample.playerbotsEnabled)
+            .put("onlinePlayers", sample.onlinePlayers)
+    }
+
     /** Drops any supervisor-driven FGS promotion of :world/:database. */
     private suspend fun demoteForegroundStack() {
         foregroundEmptySamples = 0
@@ -462,6 +527,7 @@ class DurableRuntimeSupervisor(
                 requestedProfile = current.requestedProfile,
                 runtimeMode = current.runtimeMode,
                 realmEndpoint = current.realmEndpoint,
+                advertisedAddress = current.advertisedAddress,
                 clean = true,
                 components = RuntimeSnapshot.stoppedComponents(),
                 lastDurableAction = "unexpected-operation-failure-before-generation",
@@ -496,6 +562,106 @@ class DurableRuntimeSupervisor(
             .getOrElse { AccountProvisionResult(false, "ACCOUNT_CONTROL_FAILED", detail = it.javaClass.simpleName) }
         publish(_state.value.copy(lastDurableAction = if (result.ok)
             "account-provisioned-core-command" else "account-provision-failed"))
+        result
+    }
+
+    /**
+     * The READ-ONLY credential proof (the desktop auto-login leg; the
+     * Android client stack drives its read-only verify directly). Same
+     * guards as [provisionAccount], but the backend never creates or
+     * mutates an identity here — a stored join-friend credential must
+     * never mint a local one. Read-only: no journal publish, no durable
+     * action.
+     */
+    suspend fun verifyAccountCredentials(
+        username: String,
+        password: String,
+    ): AccountProvisionResult = operationLock.withLock {
+        if (username.length !in 1..16 || !username.all { it.isLetterOrDigit() && it.code < 128 }) {
+            return@withLock AccountProvisionResult(false, "ACCOUNT_INVALID", detail = "invalid username")
+        }
+        if (password.length !in 1..16 || !password.all { it.isLetterOrDigit() && it.code < 128 }) {
+            return@withLock AccountProvisionResult(false, "ACCOUNT_INVALID", detail = "invalid password")
+        }
+        val current = _state.value
+        if (current.phase !in setOf(RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.CLIENT_FAILED)) {
+            return@withLock AccountProvisionResult(false, "WORLD_NOT_READY")
+        }
+        val owner = ownerOf(RuntimeComponent.WORLD)
+            ?: return@withLock AccountProvisionResult(false, "WORLD_NOT_OWNED")
+        runCatching { backend.verifyAccount(owner, username, password) }
+            .getOrElse { AccountProvisionResult(false, "ACCOUNT_CONTROL_FAILED", detail = it.javaClass.simpleName) }
+    }
+
+    // ------------------------------------------------------------------
+    // Remote friend accounts (design-remote-accounts): the shared seam the
+    // design's §11 names — "the AIDL surface already grew createAccount
+    // once; the same seam carries the new verbs". Each verb phase-guards
+    // like provisionAccount, routes to the backend's friend-verb override,
+    // and publishes a durable journal action (§12) so provision/ban/gm
+    // decisions survive like every other supervisor transition.
+    // ------------------------------------------------------------------
+
+    /** §3/§5: the approval leg — inserts the friend-derived (s, v) with no
+     * password input. Journal: friend-account-provisioned-verifier. */
+    suspend fun provisionFriendAccount(
+        username: String,
+        sHex: String,
+        vHex: String,
+    ): AccountProvisionResult = operationLock.withLock {
+        if (username.length !in 1..16 || !username.all { it.isLetterOrDigit() && it.code < 128 }) {
+            return@withLock AccountProvisionResult(false, "ACCOUNT_INVALID", detail = "invalid username")
+        }
+        if (!com.pocketrealm.server.FriendProvisionProtocol.isSrpHex(sHex) ||
+            !com.pocketrealm.server.FriendProvisionProtocol.isSrpHex(vHex)
+        ) {
+            return@withLock AccountProvisionResult(false, "ACCOUNT_INVALID", detail = "invalid verifier")
+        }
+        val current = _state.value
+        if (current.phase !in setOf(RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.CLIENT_FAILED)) {
+            return@withLock AccountProvisionResult(false, "WORLD_NOT_READY")
+        }
+        ownerOf(RuntimeComponent.WORLD)
+            ?: return@withLock AccountProvisionResult(false, "WORLD_NOT_OWNED")
+        val result = runCatching { backend.provisionAccountVerifier(username, sHex, vHex) }
+            .getOrElse { AccountProvisionResult(false, "ACCOUNT_CONTROL_FAILED", detail = it.javaClass.simpleName) }
+        publish(_state.value.copy(lastDurableAction = if (result.ok)
+            "friend-account-provisioned-verifier" else "friend-account-provision-failed"))
+        result
+    }
+
+    /** §9: the shared moderation surface. Journal: friend-banned. */
+    suspend fun banFriendAccount(username: String, duration: String, reason: String): ModerationResult =
+        moderateFriend("ban", username) { backend.banFriendAccount(username, duration, reason) }
+
+    /** §9: revoke. Journal: friend-unbanned. */
+    suspend fun unbanFriendAccount(username: String): ModerationResult =
+        moderateFriend("unban", username) { backend.unbanFriendAccount(username) }
+
+    /** §10: per-friend gmlevel 0..3. Journal: friend-gm-changed. */
+    suspend fun setFriendGmLevel(username: String, level: Int): Boolean {
+        if (username.length !in 1..16 || !username.all { it.isLetterOrDigit() && it.code < 128 } || level !in 0..3) {
+            return false
+        }
+        return moderateFriend("gm", username) {
+            ModerationResult(backend.setFriendGmLevel(username, level), "gmlevel=$level")
+        }.ok
+    }
+
+    /** The moderation verbs' shared shape: run the backend verb, publish
+     * the durable action either way (an honest failure is a journal event
+     * too), return the verdict. */
+    private suspend fun moderateFriend(
+        action: String,
+        username: String,
+        verb: suspend () -> ModerationResult,
+    ): ModerationResult = operationLock.withLock {
+        if (username.length !in 1..16 || !username.all { it.isLetterOrDigit() && it.code < 128 }) {
+            return@withLock ModerationResult(false, "invalid username")
+        }
+        val result = runCatching { verb() }
+            .getOrElse { ModerationResult(false, it.javaClass.simpleName) }
+        publish(_state.value.copy(lastDurableAction = if (result.ok) "friend-$action-applied" else "friend-$action-failed"))
         result
     }
 
@@ -631,6 +797,7 @@ class DurableRuntimeSupervisor(
             return false
         }
         updateComponent(component, ComponentLifecycle.READY, owner, observation.detail)
+        startedComponents += component
         publish(_state.value.copy(lastDurableAction = "${component.name.lowercase()}-ready"))
         return true
     }
@@ -864,13 +1031,56 @@ class DurableRuntimeSupervisor(
 
     private suspend fun stopStartedAfterFailure(failed: RuntimeComponent) {
         val detail = _state.value.lastError ?: "$failed failed"
-        stopLocked(StopMode.GRACEFUL, RuntimePhase.ERROR, detail)
+        unwindNeverStartedStage(failed)
+        // A start refusal whose unwind drained everything the start actually
+        // brought up leaves the runtime at rest: settle at STOPPED - clean
+        // when the unwind stopped cleanly - carrying the refusal's own
+        // detail as lastError (the disclosed reason the start did not
+        // happen). Never the secondary stop error, and never a poisoned
+        // ERROR journal the next fresh process has to recover from.
+        stopLocked(StopMode.GRACEFUL, RuntimePhase.STOPPED, detail)
+    }
+
+    /**
+     * GAP-2 root fix (a): [failed] never reached a READY observation under
+     * this generation, so its journaled ownership is bookkeeping for a start
+     * that did not happen. When the component observably holds nothing of
+     * this generation's to stop - an at-rest state (STOPPED, or the FAILED
+     * residue a start refusal parks a native in with no worker behind it),
+     * or a claim that is not this generation's - there is nothing running,
+     * and a native stop would burn its whole control budget timing out on a
+     * runtime that was never started (the deterministic restore-gate wedge:
+     * the disclosed WRONG_STATE rc=2 one-lifetime refusal was buried under
+     * "cannot stop owned WORLD: forced world stop rc=9" and the journal was
+     * left in ERROR across process restarts). Unwind the ownership
+     * bookkeeping directly instead. A stage observed LIVE under this
+     * generation's claim keeps the ordinary stop path: a start that timed
+     * out mid-boot really does leave a worker behind to stop.
+     */
+    private suspend fun unwindNeverStartedStage(failed: RuntimeComponent) {
+        if (failed in startedComponents) return
+        val claim = ownerOf(failed)
+        val observed = runCatching { backend.observe(failed) }.getOrNull()
+        val liveUnderOurClaim = observed != null &&
+            observed.owner == claim &&
+            observed.state !in NEVER_STARTED_AT_REST_STATES
+        if (liveUnderOurClaim) return
+        val posture = when {
+            observed == null -> "component unobservable"
+            observed.owner == claim -> "observed ${observed.state}"
+            else -> "observed ${observed.state} under a foreign claim"
+        }
+        updateComponent(failed, ComponentLifecycle.STOPPED,
+            detail = "start never completed; $posture; ownership unwound without a native stop")
+        publish(_state.value.copy(
+            lastDurableAction = "${failed.name.lowercase()}-never-started-unwound"))
     }
 
     private suspend fun stopLocked(
         mode: StopMode,
         finalPhase: RuntimePhase,
         preserveError: String?,
+        stopReason: String? = null,
     ): RuntimeOperation {
         publish(_state.value.copy(
             phase = RuntimePhase.STOPPING,
@@ -892,8 +1102,12 @@ class DurableRuntimeSupervisor(
                 durable = false
                 val forced = forceOwned(RuntimeComponent.CLIENT, clientOwner)
                 if (!forced.ok) {
-                    fail(RuntimePhase.ERROR, "cannot stop owned CLIENT: ${forced.detail}")
-                    return operation(false, _state.value.lastError ?: "stop failed")
+                    val surfaced = failStopCleanup(
+                        RuntimeComponent.CLIENT,
+                        "cannot stop owned CLIENT: ${forced.detail}",
+                        preserveError,
+                    )
+                    return operation(false, surfaced)
                 }
             }
             updateComponent(RuntimeComponent.CLIENT, ComponentLifecycle.STOPPED,
@@ -921,14 +1135,23 @@ class DurableRuntimeSupervisor(
                 durable = false
                 val forced = forceOwned(component, owner)
                 if (!forced.ok) {
-                    fail(RuntimePhase.ERROR, "cannot stop owned $component: ${forced.detail}")
-                    return operation(false, _state.value.lastError ?: "stop failed")
+                    val surfaced = failStopCleanup(
+                        component,
+                        "cannot stop owned $component: ${forced.detail}",
+                        preserveError,
+                    )
+                    return operation(false, surfaced)
                 }
             }
             updateComponent(component, ComponentLifecycle.STOPPED, detail = if (graceful.ok) "clean stop" else "forced stop")
             publish(_state.value.copy(lastDurableAction = "${component.name.lowercase()}-stopped"))
         }
-        val finalClean = durable && preserveError == null
+        // A preserved error no longer forces a dirty settle by itself: the
+        // start-refusal unwind passes one while its own stops may all have
+        // drained cleanly, and that combination is genuinely at rest (the
+        // refusal's reason rides lastError). Only a stop that actually
+        // failed keeps the journal dirty.
+        val finalClean = durable
         demoteForegroundStack()
         publish(_state.value.copy(
             phase = finalPhase,
@@ -937,9 +1160,41 @@ class DurableRuntimeSupervisor(
             lastDurableAction = if (finalClean) "clean-stop-committed" else "dirty-stop-committed",
             lastError = preserveError?.let(::bounded) ?: if (finalClean) null else _state.value.lastError,
             recoverability = if (finalClean) Recoverability.NONE else Recoverability.RECOVERY_REQUIRED,
+            stopReason = stopReason?.takeIf { finalClean },
         ))
         return operation(finalClean || finalPhase == RuntimePhase.ERROR,
             if (finalClean) "clean stop complete" else "stack stopped dirty")
+    }
+
+    /**
+     * GAP-2 root fix (b): a secondary stop failure during an unwind must
+     * never overwrite the FIRST failure's detail. With no preserved error
+     * (an ordinary stop) the secondary is the headline, exactly as before.
+     * With one (the start-failure unwind passes the honest refusal - the
+     * WRONG_STATE one-lifetime refusal is the disclosed fact the caller
+     * must surface) the journal keeps the ORIGINAL lastError, settles dirty
+     * at ERROR for recovery, and records the secondary separately: on the
+     * component's own record and in the durable action, never in the
+     * headline. Returns the detail the operation should surface.
+     */
+    private fun failStopCleanup(
+        component: RuntimeComponent,
+        secondary: String,
+        preserveError: String?,
+    ): String {
+        if (preserveError == null) {
+            fail(RuntimePhase.ERROR, secondary)
+            return secondary
+        }
+        updateComponent(component, ComponentLifecycle.FAILED,
+            detail = bounded("cleanup stop failed: ${secondary.substringAfter(": ", secondary)}"))
+        publish(_state.value.copy(
+            phase = RuntimePhase.ERROR,
+            clean = false,
+            lastDurableAction = bounded("stop-cleanup-failed: $secondary"),
+            recoverability = Recoverability.RECOVERY_REQUIRED,
+        ))
+        return preserveError
     }
 
     private suspend fun stopOwned(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult {
@@ -998,6 +1253,7 @@ class DurableRuntimeSupervisor(
             requestedProfile = spec.profileId,
             runtimeMode = spec.mode,
             realmEndpoint = spec.endpoint,
+            advertisedAddress = spec.advertisedAddress?.value,
             clean = true,
             components = RuntimeSnapshot.stoppedComponents(),
             lastDurableAction = "preflight-failed",
@@ -1032,7 +1288,32 @@ class DurableRuntimeSupervisor(
     private fun operation(ok: Boolean, detail: String) = RuntimeOperation(ok, _state.value, bounded(detail))
     private fun bounded(value: String) = value.take(512)
 
-    override fun close() = backend.close()
+    /**
+     * Teardown must quiesce like every other state path: backend.close()
+     * (client kill, native stop) runs outside the backend's transition
+     * locks, so it must never overlap an in-flight operation — the classic
+     * case is the interface-loss monitor's graceful stop reaching
+     * saveWorld/stopOwned while close() tears the backend down. The wait is
+     * BOUNDED: close() also runs on Android's main thread
+     * (RealmService.onDestroy), where an unbounded block would freeze the
+     * app, and an operation still holding the lock past the bound is itself
+     * bounded by the stop timeouts — teardown proceeds rather than hanging.
+     */
+    override fun close() {
+        kotlinx.coroutines.runBlocking {
+            val quiesced = kotlinx.coroutines.withTimeoutOrNull(CLOSE_QUIESCE_TIMEOUT_MS) {
+                while (!operationLock.tryLock()) {
+                    delay(CLOSE_QUIESCE_POLL_MS)
+                }
+                true
+            } ?: false
+            try {
+                backend.close()
+            } finally {
+                if (quiesced) operationLock.unlock()
+            }
+        }
+    }
 
     private fun launchSpecOf(snapshot: RuntimeSnapshot, includeClient: Boolean): RuntimeLaunchSpec {
         val profile = checkNotNull(snapshot.requestedProfile)
@@ -1054,10 +1335,33 @@ class DurableRuntimeSupervisor(
         // Re-observe cadence inside the recovery-lane orphan grace;
         // mirrors the 1s health-monitor tick.
         private const val ORPHAN_REOBSERVE_INTERVAL_MS = 1_000L
+        // close()'s bounded quiesce: how long teardown waits for an
+        // in-flight operation to settle before proceeding (see close()).
+        // The bound must cover the operation it shields: a graceful stop
+        // holds the lock for the world save (30 s control timeout) plus
+        // the component stop budgets (60 s / 30 s) — 90 s is that envelope,
+        // and it stays inside RealmService's FOREGROUND-service lifecycle
+        // ANR budget (~200 s), so onDestroy blocking on it is safe. (The
+        // desktop lane covers the same window before close() via its
+        // monitor's own 120 s settle join.) KNOWN SHORTCOMING, deliberate:
+        // a BOT-profile world START legally holds the lock up to
+        // botWorldStartMs (600 s), which no Android-safe bound covers —
+        // teardown proceeding under it is the designed dirty-journal
+        // recovery lane, not corruption; the desktop drain instead waits
+        // out the whole start before its close.
+        private const val CLOSE_QUIESCE_TIMEOUT_MS = 90_000L
+        private const val CLOSE_QUIESCE_POLL_MS = 50L
         // A stale DATABASE ownership claim may be released (automatically or
         // consented-and-killed) only while the engine observably has no live
         // generation; a live one belongs to the engine-ordered stop lanes.
         private val ENDED_DATABASE_STATES = setOf(ComponentLifecycle.STOPPED, ComponentLifecycle.FAILED)
+        // GAP-2 fix (a): observed states in which a never-started stage holds
+        // nothing of this generation's to stop - STOPPED, or the FAILED
+        // residue a start refusal parks a native in with no worker behind it.
+        private val NEVER_STARTED_AT_REST_STATES = setOf(
+            ComponentLifecycle.STOPPED,
+            ComponentLifecycle.FAILED,
+        )
         private val STARTABLE = setOf(RuntimePhase.STOPPED, RuntimePhase.ERROR, RuntimePhase.UNCONFIGURED)
         private val INACTIVE_TERMINAL_PHASES = setOf(
             RuntimePhase.STOPPED,

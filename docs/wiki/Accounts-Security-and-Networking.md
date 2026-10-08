@@ -59,15 +59,54 @@ An add-on still runs inside the original game client's add-on system. Validation
 
 In normal local mode, the client connects to 127.0.0.1. That address means this device only.
 
-The game uses the classic realm login port 3724 and world port 8085. These are fixed gameplay ports. MariaDB uses a private file socket and does not listen on a public TCP port.
+The game uses the classic realm login port 3724 and world port 8085. These are fixed gameplay ports. When friend access is enabled (below), one more fixed port — TCP 3725 — listens while a hosted session with friend access is up, and never otherwise. MariaDB uses a private file socket and does not listen on a public TCP port.
 
 ## LAN host and join
 
-LAN hosting is off by default. When enabled, Pocket Realm accepts one exact numeric private or link-local IPv4 address from the active network interface. It rejects public addresses and hostnames.
+LAN hosting is off by default, and hosting additionally requires the explicit "Allow LAN players" toggle. When enabled, Pocket Realm accepts one exact numeric private or link-local IPv4 address from the active network interface. It rejects public addresses and hostnames. Virtual adapters (Hyper-V, vEthernet, WAN Miniports) are excluded from the offered addresses, and the address you pick is re-proved against the live interfaces before each host start and while hosting — if the network changes, the session saves the world and stops instead of advertising an unreachable address.
 
-A LAN joining device runs its client stack and points it at that private host. There is no automatic public discovery, router port forwarding, or Internet server mode.
+A LAN joining device runs its client stack and points it at that private host. There is no automatic public discovery and no router port forwarding; internet play exists only through a personal tunnel you set up yourself (see "Hosting over the internet" below), never through the app opening your router. A joining guest can test the host's address first (a connectivity check to port 3724); the invitation is just the address literal, because the game ports are fixed (3724 realm login, 8085 world).
 
 If the host's active interface or address changes, the session is no longer considered the same safe binding. The player must restart it on the intended network.
+
+### Guest accounts
+
+A guest account is created by the host while the realm is hosting — for a friend physically in the room, or for a tunnel friend whom the invite directed to the Guests card. The host types the account name; the password is generated (16 characters, unambiguous alphabet). Guest accounts are always Player-level, and the credential pair is shown only on the host's screen with the instruction to hand it over privately — in person, or a one-to-one message — never pasted into a group chat. A pasted credential is a permanent working secret on an uncontrolled channel.
+
+The host's own remembered account is never typed at another realm's login screen: when your app joins a LAN host, automatic login stays off for that session and you log in with the account the host created for you. Characters a guest creates live in the host's realm database — they exist wherever that host's realm runs.
+
+Revocation today: while hosting, the app can ban a guest account — the ban takes effect at the guest's next login attempt — and lift the ban again from the Guests list. A guest who is online when banned stays in the world until they log out or the host saves and exits (disconnecting an online guest immediately is not available in this build). There is no in-app guest account deletion (deleting an account orphans its characters).
+
+### Password guessing lockout
+
+When the realm binds any address other than loopback, the login server enables a brute-force lockout: ten wrong passwords from one address bans that address for 15 minutes. The lockout deliberately does not apply to the local (loopback) realm, where a lockout could only ever lock you out of your own game. A successful login resets the counter.
+
+### Windows Firewall
+
+The first time you host, Windows Firewall may ask to allow Pocket Realm on your private network. The prompt must be answered **Allow** for **Private networks**. If the prompt was cancelled, or the LAN is marked **Public** in Windows, guests cannot connect even though the host sees its own realm online — set the network to Private in Windows Settings and host again, or run this once from an admin prompt:
+
+```text
+netsh advfirewall firewall add rule name="PocketRealm LAN" dir=in action=allow protocol=TCP localport=3724,8085,3725 profile=private
+```
+
+The three-port rule covers friend access's provisioning port (3725); if you never enable friend access, the two gameplay ports (3724, 8085) are all the realm uses. No UPnP, no port forwarding, and no inbound rules beyond the app's own executable. The realm list shows the host's LAN address; support bundles record the current LAN mode and address so a stuck session reports its own topology.
+
+### Friend accounts from the app (friend access)
+
+With "Allow friend access while hosting" enabled, one extra listener comes up with the realm: a provisioning port (TCP 3725) bound to the host's LAN address only — never 0.0.0.0, never a tunnel address, and only while a hosted session with friend access is up. A friend running the Pocket Realm app submits an invite id, an invite code, and a chosen name and password from the same LAN. The password never crosses the network: the app derives an SRP verifier and sends only that, so the host can approve a name without ever holding the secret.
+
+Invite codes are shown once and stored hashed. Expired, used, unknown, and rate-locked requests all receive the same refusal, and submissions are rate-limited per address. Approval is the host's explicit per-request action, and invites, approvals, bans, and privilege changes are written to a local audit trail that carries no secrets.
+
+This lane is LAN-only by design: the listener does not bind a tunnel address, so a friend joining through your tunnel cannot submit a request. For a tunnel friend, create the account on the Guests card instead.
+
+### Hosting over the internet (tunnel)
+
+Pocket Realm has no Internet server mode that opens your router. Hosting for friends outside your LAN works through a personal tunnel you install and control (Tailscale, ZeroTier, or a similar tool): the app advertises the tunnel address you configure, and the tunnel carries the traffic. Anyone inside your tunnel network can reach the realm; anyone outside it cannot.
+
+Two honesty notes this lane owes you:
+
+- Game payloads are not encrypted. Logins use SRP verification — the password itself never crosses the wire — but world chat and gameplay traffic are plaintext. The tunnel is the only confidentiality layer, so anyone in your tunnel network can read world chat.
+- Tailscale's free tier allows 3 users / 100 devices per tailnet; a full realm of friends can exceed it. Check your plan (or use ZeroTier) before inviting.
 
 ## Failure boundaries
 
@@ -80,6 +119,7 @@ These measures reduce accidental cross-session control. They do not turn an acti
 - Use a normal Player account for everyday play.
 - Do not reuse an important Internet password for a local realm account.
 - Keep LAN hosting off unless another device needs it.
+- Keep friend access off unless you plan to use it.
 - Install custom add-ons only from repositories you trust.
 - Review a support bundle before sharing it.
 - Use Save & Exit so the full local stack closes cleanly.

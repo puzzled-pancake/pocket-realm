@@ -29,13 +29,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
+import common  # noqa: E402
 
-from rp_harness.desktop_host import DesktopHost, DesktopHostError  # noqa: E402
+from rp_harness.desktop_host import (DesktopHost, DesktopHostError,  # noqa: E402
+                                     RPTEST_PASS, RPTEST_USER)
 from rp_harness.desktop_play import audit, wait_population  # noqa: E402
 from rp_harness.protocol import make_sentinel  # noqa: E402
 
-WORLD_LOG = (Path(__import__("os").environ["LOCALAPPDATA"]) /
-             "PocketRealm" / "runtime" / "server" / "logs" / "world.log")
+WORLD_LOG = common.product_data_root() / "runtime" / "server" / "logs" / "world.log"
 
 RE_DISPATCH = re.compile(r"BotLLM: dispatch bot=(\d+) src=(\d+) lane=(\S+)")
 RE_LINE = re.compile(r"BotLLM: line req=\d+ bot=(\d+) chan=(\d+) text=(.*)")
@@ -100,8 +101,8 @@ def main(argv: list[str] | None = None) -> int:
         transcript.append(f"[boot] onlineBots={online}")
         host.reset("")
 
-        login = host.send_raw({"op": "proto-login", "user": "RPTEST", "pass": "rptest"})
-        host.send_raw({"op": "proto-world", "user": "RPTEST"})
+        login = host.send_raw({"op": "proto-login", "user": RPTEST_USER, "pass": RPTEST_PASS})
+        host.send_raw({"op": "proto-world", "user": RPTEST_USER})
         chars = host.send_raw({"op": "proto-chars"}).get("chars") or []
         davos = next((c for c in chars if c.get("name") == "Davos"), None)
         if davos is None:

@@ -71,23 +71,19 @@ data class ImportLimits(
     companion object { const val GIB = 1024L * 1024L * 1024L }
 }
 
-/** The single qualified flavor; any other registry state fails loud. */
-private fun qualifiedFlavor(): com.pocketrealm.client.ClientFlavor {
-    val qualified = com.pocketrealm.client.ClientFlavors.qualified()
-    require(qualified.size == 1) {
-        "expected exactly one qualified flavor, found ${qualified.size} — " +
-            "import size limits resolve the qualified lane"
-    }
-    return qualified.single()
-}
-
 /**
- * The qualified flavor's measured import-total cap
- * (schemas/flavor.json storage.max_total_bytes). There is no fallback:
- * a qualified flavor without a measured budget fails loud.
+ * The active flavor's measured import-total cap
+ * (schemas/flavor.json storage.max_total_bytes), resolved through the
+ * multi-flavor [com.pocketrealm.client.ActiveFlavor] machine: the Home
+ * flavor switcher's active lane drives the cap, and genuinely ambiguous
+ * registry states (no qualified flavor, several qualified flavors without
+ * an explicit active selection, a stale non-qualified selection) fail
+ * loud. There is no fallback: a qualified flavor without a measured
+ * budget fails loud.
  */
 private fun qualifiedMaxTotalBytes(): Long {
-    val flavor = qualifiedFlavor()
+    val flavor = com.pocketrealm.client.ActiveFlavor
+        .resolve("import size limits resolve the qualified lane")
     return requireNotNull(flavor.maxTotalBytes) {
         "${flavor.flavorId} is qualified without a measured storage.max_total_bytes"
     }

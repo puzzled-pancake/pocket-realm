@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""Validate and stage a user-owned WoW 1.12.1 build 5875 client.
+"""Validate and stage a user-owned WoW client (vanilla / tbc / wotlk).
 
 This is the temporary debug import path for early client bring-up.
 It never executes or modifies the source directory. Files are streamed into a
 private app staging generation, published per-file through .partial + rename,
 verified on-device, then the complete generation is atomically activated.
+
+Per-flavor identity (client id, version tuple, exe hashes, MPQ exact set) is
+resolved from schemas/flavor.json through tools/flavor_layout — the S5.1
+registration is data, so staging a newly registered flavor is a --flavor
+argument, never a code edit (port plan S5 item 8 host fixture; lanes item 13).
+This is the host debug lane only: the in-app import gate still rejects any
+flavor with qualified=false.
 """
 from __future__ import annotations
 
@@ -26,13 +33,13 @@ from pathlib import Path, PurePosixPath
 
 try:
     from tools import common
+    from tools import flavor_layout
 except ImportError:  # direct execution: python tools/<script>.py
     import common
+    import flavor_layout
 
 
 PACKAGE = "com.pocketrealm"
-CLIENT_ID = "wow-1.12.1-5875"
-EXPECTED_EXE_SHA256 = "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7"
 SAFE_REALMLIST = b"set realmlist 127.0.0.1\r\n"
 # Mirrors ClientGenerationStore.SAFE_CONFIG key-for-key (F3e lockstep). The
 # old inert WotLK-era Sound_Enable* "0" family was never written by the
@@ -61,15 +68,95 @@ SET ffxDeath "0"\r
 SET farclip "177"\r
 SET realmName "MaNGOS"\r
 """
-REQUIRED_MPQS = {
-    "base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq",
-    "model.mpq", "sound.mpq", "speech.mpq", "terrain.mpq", "texture.mpq",
-    "wmo.mpq",
-}
-STANDARD_ROOT_DLLS = {
+# Root DLL allowlist for the VAL-10 unrecognized-DLL warning. The vanilla
+# 2006 English ship set is byte-frozen (the vanilla lane's verdicts never
+# change); later flavors extend it with the DLLs measured on the staged
+# genuine clients (S5.1; tbc's root carries no DLL outside the vanilla set).
+STANDARD_ROOT_DLLS = frozenset({
     "dbghelp.dll", "divxdecoder.dll", "fmod.dll", "ijl15.dll", "scan.dll",
     "unicows.dll",
+})
+EXTRA_ROOT_DLLS = {
+    "wotlk": frozenset({"battle.net.dll", "msvcr80.dll"}),
 }
+
+
+@dataclass(frozen=True)
+class FlavorProfile:
+    """Per-flavor staging identity resolved from schemas/flavor.json."""
+
+    flavor_id: str
+    client_id: str
+    version_resource: str
+    version_tuple: tuple[int, int, int, int]
+    expected_exe_sha256: str | None
+    expected_exe_size: int | None
+    # Lowercase paths relative to Data/ with forward slashes (the manifest's
+    # mpq_set.required convention; later flavors add the enus/ locale segment).
+    required_mpqs: frozenset[str]
+    root_dlls: frozenset[str]
+    locale_label: str
+    locale_warning: str
+
+
+def load_profile(flavor_id: str) -> FlavorProfile:
+    """Fail-closed flavor resolution: unknown ids, missing manifest blocks, or
+    an unregistered identity (no hashes / no MPQ set) refuse to stage."""
+    flavor_layout.resolve(flavor_id)  # validates the id against the valid set
+    manifest = flavor_layout.load_flavor_manifest()
+    block = next(
+        (f for f in manifest.get("flavors", [])
+         if isinstance(f, dict) and f.get("id") == flavor_id),
+        None,
+    )
+    if block is None:
+        raise ImportFailure(
+            f"flavor {flavor_id!r} not found in {flavor_layout.FLAVOR_MANIFEST}"
+        )
+    try:
+        parts = tuple(int(p) for p in str(block["version_resource"]).split("."))
+    except (KeyError, ValueError) as exc:
+        raise ImportFailure(f"flavor {flavor_id!r} has no parsable version_resource") from exc
+    if len(parts) != 4:
+        raise ImportFailure(
+            f"flavor {flavor_id!r} version_resource must be a 4-part tuple "
+            f"like '1.12.1.5875', got {block.get('version_resource')!r}"
+        )
+    client_binary = block.get("client_binary") or {}
+    wine = block.get("wine") or {}
+    required = (block.get("mpq_set") or {}).get("required") or []
+    if not required:
+        raise ImportFailure(
+            f"flavor {flavor_id!r} has no registered MPQ exact set "
+            "(mpq_set.required) — nothing to validate the client against"
+        )
+    if flavor_id == "vanilla":
+        locale_label = "enUS-flat-classic"
+        locale_warning = "VAL-05: FLAT_ENGLISH_LOCALE_INFERRED"
+    else:
+        locale_label = "enUS-locale-dir"
+        locale_warning = (
+            "VAL-05: LOCALE_ENUS_INFERRED (Data\\enUS present; locale stays "
+            "infer-not-gate per port plan S5 item 6)"
+        )
+    if not wine.get("known_exe_sha256") or not client_binary.get("known_exe_size_bytes"):
+        raise ImportFailure(
+            f"flavor {flavor_id!r} has no registered exe identity "
+            "(wine.known_exe_sha256 / client_binary.known_exe_size_bytes) — "
+            "nothing to verify the staged bytes against (S5.1 registration)"
+        )
+    return FlavorProfile(
+        flavor_id=flavor_id,
+        client_id=str(block["client_id"]),
+        version_resource=str(block["version_resource"]),
+        version_tuple=parts,
+        expected_exe_sha256=wine.get("known_exe_sha256"),
+        expected_exe_size=client_binary.get("known_exe_size_bytes"),
+        required_mpqs=frozenset(name.lower() for name in required),
+        root_dlls=STANDARD_ROOT_DLLS | EXTRA_ROOT_DLLS.get(flavor_id, frozenset()),
+        locale_label=locale_label,
+        locale_warning=locale_warning,
+    )
 
 
 class ImportFailure(RuntimeError):
@@ -84,7 +171,16 @@ class SourceFile:
 
 
 sha256_file = common.sha256_file
-def parse_wow_exe(path: Path) -> dict[str, object]:
+
+# VAL-08 plausibility bounds (module-level so tests can stage synthetic
+# sub-gigabyte clients without weakening the production check).
+MIN_FILE_COUNT = 20
+MAX_FILE_COUNT = 100_000
+MIN_TOTAL_BYTES = 1 * 1024**3
+MAX_TOTAL_BYTES = 20 * 1024**3
+
+
+def parse_wow_exe(path: Path, profile: FlavorProfile) -> dict[str, object]:
     data = path.read_bytes()
     if len(data) < 512 or data[:2] != b"MZ":
         raise ImportFailure("VAL-01/02: WoW.exe is not a PE executable")
@@ -99,16 +195,17 @@ def parse_wow_exe(path: Path) -> dict[str, object]:
         )
     signature = struct.pack("<I", 0xFEEF04BD)
     positions = [m.start() for m in re.finditer(re.escape(signature), data)]
+    expected = profile.version_tuple
     version = None
     for pos in positions:
         if pos + 16 <= len(data):
             version_ms, version_ls = struct.unpack_from("<II", data, pos + 8)
             candidate = (version_ms >> 16, version_ms & 0xFFFF, version_ls >> 16, version_ls & 0xFFFF)
-            if candidate == (1, 12, 1, 5875):
+            if candidate == expected:
                 version = candidate
                 break
-    if version != (1, 12, 1, 5875):
-        raise ImportFailure(f"VAL-03: expected 1.12.1.5875, detected {version or 'no matching version resource'}")
+    if version != expected:
+        raise ImportFailure(f"VAL-03: expected {profile.version_resource}, detected {version or 'no matching version resource'}")
     return {
         "machine": machine,
         "optionalMagic": optional_magic,
@@ -119,14 +216,14 @@ def parse_wow_exe(path: Path) -> dict[str, object]:
     }
 
 
-def scan_source(root: Path) -> tuple[list[SourceFile], dict[str, object]]:
+def scan_source(root: Path, profile: FlavorProfile) -> tuple[list[SourceFile], dict[str, object]]:
     root = root.resolve(strict=True)
     if not root.is_dir():
         raise ImportFailure("selected source is not a directory")
     exe = root / "WoW.exe"
     if not exe.is_file():
         raise ImportFailure("VAL-01: WoW.exe is absent or unreadable")
-    identity = parse_wow_exe(exe)
+    identity = parse_wow_exe(exe, profile)
 
     files: list[SourceFile] = []
     folded: dict[str, str] = {}
@@ -157,45 +254,53 @@ def scan_source(root: Path) -> tuple[list[SourceFile], dict[str, object]]:
 
     files.sort(key=lambda f: f.relative.casefold())
     total = sum(f.size for f in files)
-    if not (20 <= len(files) <= 100_000) or not (1 * 1024**3 <= total <= 20 * 1024**3):
+    if not (MIN_FILE_COUNT <= len(files) <= MAX_FILE_COUNT) or not (MIN_TOTAL_BYTES <= total <= MAX_TOTAL_BYTES):
         raise ImportFailure(f"VAL-08: implausible client size/count: files={len(files)} bytes={total}")
 
     data_dir = root / "Data"
     if not data_dir.is_dir():
         raise ImportFailure("VAL-04: Data directory is absent")
-    mpq_files = [
-        path for path in data_dir.iterdir()
-        if path.is_file() and path.suffix.casefold() == ".mpq"
-    ]
-    present_mpqs = {p.name.casefold() for p in mpq_files}
-    missing = sorted(REQUIRED_MPQS - present_mpqs)
+    # The MPQ exact set is locale-aware (S5 item 5): later flavors carry
+    # Data\<locale>\ entries, so the walk covers the whole Data tree and
+    # compares lowercase posix paths relative to Data/ — the manifest's
+    # mpq_set.required convention.
+    mpq_files: list[Path] = []
+    for current, _dirs, names in os.walk(data_dir):
+        for name in names:
+            if name.casefold().endswith(".mpq"):
+                mpq_files.append(Path(current) / name)
+    present_mpqs = {
+        p.relative_to(data_dir).as_posix().casefold() for p in mpq_files
+    }
+    missing = sorted(profile.required_mpqs - present_mpqs)
     if missing:
         raise ImportFailure(f"VAL-04: missing base MPQ set: {', '.join(missing)}")
     for file in mpq_files:
         with file.open("rb") as stream:
             if stream.read(4) != b"MPQ\x1a":
-                raise ImportFailure(f"VAL-04: invalid MPQ header: Data/{file.name}")
-    # This 2006 client uses the supported flat English layout; GlueStrings.lua
-    # was confirmed in interface.MPQ/patch.MPQ during the read-only inspection.
-    warnings.append("VAL-05: FLAT_ENGLISH_LOCALE_INFERRED")
+                relative = file.relative_to(data_dir).as_posix()
+                raise ImportFailure(f"VAL-04: invalid MPQ header: Data/{relative}")
+    # Locale stays infer-not-gate (port plan S5 item 6): the enUS shape is
+    # recorded as a warning, never a rejection.
+    warnings.append(profile.locale_warning)
 
     custom = [
         f.relative for f in files
         if "/" not in f.relative and f.path.suffix.casefold() == ".dll"
-        and f.path.name.casefold() not in STANDARD_ROOT_DLLS
+        and f.path.name.casefold() not in profile.root_dlls
     ]
     if custom:
         warnings.append("VAL-10: unrecognized root DLLs: " + ", ".join(custom))
-    if identity["sha256"] != EXPECTED_EXE_SHA256:
+    if identity["sha256"] != profile.expected_exe_sha256:
         warnings.append("VAL-03: build confirmed but executable hash is not on the local evidence allowlist")
     else:
-        warnings.append("VAL-03: executable hash matches the inspected user-supplied build 5875 copy")
+        warnings.append("VAL-03: executable hash matches the flavor-registered pristine client")
     return files, {
         **identity,
-        "clientId": CLIENT_ID,
+        "clientId": profile.client_id,
         "fileCount": len(files),
         "sourceBytes": total,
-        "locale": "enUS-flat-classic",
+        "locale": profile.locale_label,
         "warnings": warnings,
     }
 
@@ -321,9 +426,10 @@ def stage(
     serial: str,
     package: str,
     replace: bool,
+    profile: FlavorProfile,
     restore_arm64_after_app_data_loss: bool = False,
 ) -> dict[str, object]:
-    files, identity = scan_source(source)
+    files, identity = scan_source(source, profile)
     adb = Adb(serial, package)
     props = subprocess.run(adb.command("shell", "getprop", "ro.product.cpu.abi"), capture_output=True, text=True, check=True).stdout.strip()
     page = subprocess.run(adb.command("shell", "getconf", "PAGESIZE"), capture_output=True, text=True, check=True).stdout.strip()
@@ -331,7 +437,7 @@ def stage(
     exact_arm64_restore = (
         restore_arm64_after_app_data_loss and
         props == "arm64-v8a" and page == "4096" and
-        identity["sha256"] == EXPECTED_EXE_SHA256
+        identity["sha256"] == profile.expected_exe_sha256
     )
     if not ordinary_lane and not exact_arm64_restore:
         raise ImportFailure(
@@ -402,7 +508,7 @@ def stage(
     manifest = {
         "schema": 1,
         "complete": True,
-        "clientId": CLIENT_ID,
+        "clientId": profile.client_id,
         "identity": identity,
         "executable": "WoW.exe",
         "directLaunch": True,
@@ -445,6 +551,13 @@ def stage(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, type=Path)
+    parser.add_argument(
+        "--flavor",
+        default="vanilla",
+        choices=flavor_layout.FLAVOR_IDS,
+        help="which flavor's registered S5.1 identity to validate and stage "
+             "(resolved from schemas/flavor.json; default: vanilla)",
+    )
     parser.add_argument("--serial", required=True,
                         help="target device/emulator serial (e.g. emulator-5554); "
                              "no implicit device default")
@@ -454,17 +567,18 @@ def main() -> int:
     parser.add_argument(
         "--restore-arm64-after-app-data-loss",
         action="store_true",
-        help="explicitly restore the inspected build-5875 source to an ARM64 device",
+        help="explicitly restore the hash-verified --flavor source to an ARM64 device",
     )
     parser.add_argument("--evidence-out", type=Path)
     args = parser.parse_args()
     try:
-        files, identity = scan_source(args.source)
+        profile = load_profile(args.flavor)
+        files, identity = scan_source(args.source, profile)
         print(json.dumps(identity, indent=2, sort_keys=True))
         if args.evidence_out:
             evidence = {
                 "schema": 1,
-                "clientId": CLIENT_ID,
+                "clientId": profile.client_id,
                 "sourceMutated": False,
                 "sourceRuntimeDependency": False,
                 "directLaunch": True,
@@ -481,6 +595,7 @@ def main() -> int:
                 args.serial,
                 args.package,
                 args.replace,
+                profile,
                 args.restore_arm64_after_app_data_loss,
             )
         return 0

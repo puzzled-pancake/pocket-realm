@@ -1,7 +1,6 @@
 package com.pocketrealm.bots
 
 import com.pocketrealm.client.ClientFlavor
-import com.pocketrealm.client.ClientFlavors
 import java.security.MessageDigest
 
 /** A measured bot tier. Values are product policy, not mutable upstream defaults. */
@@ -211,24 +210,24 @@ data class BotProfile(
     """.trimIndent() + "\n"
 }
 
-/** The qualified flavor's bot population ceiling
- * (schemas/flavor.json bot_policy.max_level). */
+/** The active flavor's bot population ceiling
+ * (schemas/flavor.json bot_policy.max_level) — resolved through the
+ * multi-flavor [ActiveFlavor] machine at every emission, so the Home
+ * flavor switcher's active lane drives the conf, and genuinely ambiguous
+ * registry states fail loud instead of silently keeping VANILLA
+ * semantics. */
 private fun flavorBotMaxLevel(): Int = qualifiedFlavor().botMaxLevel
 
-/** The qualified flavor's random-bot spawn maps
+/** The active flavor's random-bot spawn maps
  * (schemas/flavor.json bot_policy.random_maps), conf-formatted. */
 private fun flavorBotRandomMaps(): String = qualifiedFlavor().botRandomMaps.joinToString(",")
 
-/** The single qualified flavor; any other registry state fails loud
- * instead of silently keeping VANILLA semantics. */
-private fun qualifiedFlavor(): ClientFlavor {
-    val qualified = ClientFlavors.qualified()
-    require(qualified.size == 1) {
-        "expected exactly one qualified flavor, found ${qualified.size} — " +
-            "bot population policy resolves the qualified lane"
-    }
-    return qualified.single()
-}
+/** The active flavor of the qualified-flavor list; ambiguous registry
+ * states (zero qualified, several qualified without an explicit active
+ * selection, a stale non-qualified selection) fail loud. */
+private fun qualifiedFlavor(): ClientFlavor =
+    com.pocketrealm.client.ActiveFlavor
+        .resolve("bot population policy resolves the qualified lane")
 
 /** The "range"/"map" login-criteria line,
  * emitted only when the preset opts in — the default (absent line) keeps

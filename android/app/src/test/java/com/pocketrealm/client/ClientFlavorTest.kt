@@ -61,7 +61,7 @@ class ClientFlavorTest {
     }
 
     @Test
-    fun requiredMpqsAreVanillaOnlyUntilQualification() {
+    fun requiredMpqsAreTheS51ExactSetsPerFlavor() {
         assertEquals(
             setOf(
                 "base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq",
@@ -70,9 +70,31 @@ class ClientFlavorTest {
             ClientFlavors.VANILLA.requiredMpqs,
         )
         assertEquals(11, ClientFlavors.VANILLA.requiredMpqs.size)
-        // Empty until the genuine qualified client derives the set (port plan S5).
-        assertTrue(ClientFlavors.TBC.requiredMpqs.isEmpty())
-        assertTrue(ClientFlavors.WOTLK.requiredMpqs.isEmpty())
+        // S5.1 registration (lanes item 13): the exact sets enumerated from the
+        // staged genuine clients — Data/ root plus the enus/ locale segment,
+        // lowercase forward-slash paths relative to Data/ (correction C2).
+        assertEquals(
+            setOf(
+                "common.mpq", "expansion.mpq", "patch.mpq", "patch-2.mpq",
+                "enus/locale-enus.mpq", "enus/speech-enus.mpq",
+                "enus/expansion-locale-enus.mpq", "enus/expansion-speech-enus.mpq",
+                "enus/patch-enus.mpq", "enus/patch-enus-2.mpq",
+            ),
+            ClientFlavors.TBC.requiredMpqs,
+        )
+        assertEquals(
+            setOf(
+                "common.mpq", "common-2.mpq", "expansion.mpq", "lichking.mpq",
+                "patch.mpq", "patch-2.mpq", "patch-3.mpq",
+                "enus/locale-enus.mpq", "enus/speech-enus.mpq",
+                "enus/expansion-locale-enus.mpq", "enus/expansion-speech-enus.mpq",
+                "enus/lichking-locale-enus.mpq", "enus/lichking-speech-enus.mpq",
+                "enus/patch-enus.mpq", "enus/patch-enus-2.mpq", "enus/patch-enus-3.mpq",
+            ),
+            ClientFlavors.WOTLK.requiredMpqs,
+        )
+        // No patch-4: the WotLK exact set deliberately excludes it (C2).
+        assertFalse("patch-4.mpq" in ClientFlavors.WOTLK.requiredMpqs)
     }
 
     @Test
@@ -132,17 +154,24 @@ class ClientFlavorTest {
     }
 
     @Test
-    fun knownExeSha256IsVanillaOnlyUntilQualification() {
-        // Pinned literal of the documented pristine 1.12.1 WoW.exe
-        // (schemas/flavor.json wine.known_exe_sha256); a registry edit cannot
+    fun knownExeSha256IsRegisteredForEveryFlavor() {
+        // Pinned literals of the documented pristine WoW.exe SHA-256s
+        // (schemas/flavor.json wine.known_exe_sha256): vanilla's inspected
+        // 5875 copy plus the S5.1 registrations measured on the staged
+        // genuine tbc/wotlk clients (lanes item 13). A registry edit cannot
         // silently swap the warning-only telltale.
         assertEquals(
             "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7",
             ClientFlavors.VANILLA.knownExeSha256,
         )
-        // Null until the genuine qualified client pins the hash (port plan S5).
-        assertNull(ClientFlavors.TBC.knownExeSha256)
-        assertNull(ClientFlavors.WOTLK.knownExeSha256)
+        assertEquals(
+            "8f8d7f4cf3909e61fd34b09df9c9b56c21aec76a9ad1883353f1fa5d9b8411e2",
+            ClientFlavors.TBC.knownExeSha256,
+        )
+        assertEquals(
+            "aa63a5750d60ef16746c686b3d5e26876d98953eab08b1c026cd0faf78e88cb8",
+            ClientFlavors.WOTLK.knownExeSha256,
+        )
     }
 
     @Test
@@ -193,6 +222,54 @@ class ClientFlavorTest {
     }
 
     @Test
+    fun planCorrectionsC1C3C7C8ArePinnedInTheRegistry() {
+        // C1: realmbuilds accepted sets (never a gamebuild column).
+        assertEquals("5875 6005 6141", ClientFlavors.VANILLA.realmdAcceptedBuilds)
+        assertEquals("8606", ClientFlavors.TBC.realmdAcceptedBuilds)
+        assertEquals("12340", ClientFlavors.WOTLK.realmdAcceptedBuilds)
+        // C3: ONE shared auth-challenge opcode; every branch's frame length is
+        // verified (S8, lanes item 14): vanilla 26 (BUILD_6005 form), tbc/wotlk
+        // 32 (sAuthLogonProof_S: cmd+error+M2[20]+accountFlags+surveyId+unkFlags).
+        assertEquals(0x1EC, ClientFlavors.AUTH_CHALLENGE_OPCODE)
+        assertEquals(26, ClientFlavors.VANILLA.proofResponseBytes)
+        assertEquals(32, ClientFlavors.TBC.proofResponseBytes)
+        assertEquals(32, ClientFlavors.WOTLK.proofResponseBytes)
+        // C7: shipped 5875, 8606 and 12340 images are all NOT large-address-
+        // aware — tbc/wotlk measured at S5.1 from the staged exes' PE
+        // characteristics (no 0x0020 LAA bit).
+        assertEquals(false, ClientFlavors.VANILLA.largeAddressAware)
+        assertEquals(false, ClientFlavors.TBC.largeAddressAware)
+        assertEquals(false, ClientFlavors.WOTLK.largeAddressAware)
+        // C8: WTF layouts and the WotLK-only char-level cache set.
+        assertEquals("account-level", ClientFlavors.VANILLA.wtfLayout)
+        assertEquals("3-level", ClientFlavors.TBC.wtfLayout)
+        assertEquals("3-level", ClientFlavors.WOTLK.wtfLayout)
+        assertTrue(ClientFlavors.VANILLA.wtfCharacterCacheFiles.isEmpty())
+        assertTrue(ClientFlavors.TBC.wtfCharacterCacheFiles.isEmpty())
+        assertEquals(
+            setOf(
+                "config-cache.wtf", "bindings-cache.wtf", "macros-cache.txt",
+                "layout-local.txt", "chat-cache.txt",
+            ),
+            ClientFlavors.WOTLK.wtfCharacterCacheFiles,
+        )
+    }
+
+    @Test
+    fun planCorrectionC6ExeProvenanceIsRegisteredPerFlavor() {
+        // C6: vanilla's pristine-exe size is the pinned installer fact (its
+        // MD5 cross-check stays unregistered); tbc/wotlk carry the full S5.1
+        // registrations measured on the staged genuine clients (lanes item 13)
+        // — sizes and MD5s equal the anzz1 pristine prefixes.
+        assertEquals(4775986L, ClientFlavors.VANILLA.knownExeSizeBytes)
+        assertNull(ClientFlavors.VANILLA.knownExeMd5)
+        assertEquals(8272528L, ClientFlavors.TBC.knownExeSizeBytes)
+        assertEquals("57c5c03097103e15f9abe2803aebdc3c", ClientFlavors.TBC.knownExeMd5)
+        assertEquals(7704216L, ClientFlavors.WOTLK.knownExeSizeBytes)
+        assertEquals("45892bdedd0ad70aed4ccd22d9fb5984", ClientFlavors.WOTLK.knownExeMd5)
+    }
+
+    @Test
     fun detectedMessageForParsedButUnmatchedIdentityNamesTheResource() {
         // A version resource no qualified flavor claims still parses: the
         // identity carries the detected version with flavorId null, and the
@@ -204,5 +281,36 @@ class ClientFlavorTest {
         val message = ClientPeIdentity.detected(identity)
         assertTrue(message.contains("no qualified flavor matches"))
         assertTrue(message.contains(identity.version!!))
+    }
+
+    @Test
+    fun accountExpansionLevelsFollowTheCoreExpansionDomain() {
+        // F1-10 (lanes item 12): the account-side expansion level the
+        // core's `account set addon` console verb writes — the values the
+        // account-creation wirings chain after a fresh create, resolved
+        // through the registry so a callsite literal can never drift from
+        // the flavor data.
+        assertEquals(0, ClientFlavors.VANILLA.accountExpansion)
+        assertEquals(1, ClientFlavors.TBC.accountExpansion)
+        assertEquals(2, ClientFlavors.WOTLK.accountExpansion)
+        // An unregistered family fails loud instead of guessing a level.
+        val stranger = ClientFlavor(
+            flavorId = "stranger", serverFamily = "somewhere-else",
+            clientId = "wow-9.9.9-9999", build = 9999, versionResource = "9.9.9.9999",
+            expansion = "Stranger Things", qualified = false,
+            databases = ClientFlavor.DatabaseNames(
+                realmd = "strangerrealmd", world = "strangermangos",
+                characters = "strangercharacters", logs = "strangerlogs"),
+            addonInterfaces = emptySet(), winePrefixSegment = "wow9999",
+            knownExeSha256 = null, requiredMpqs = emptySet(),
+            extractedEstimateBytes = null, maxTotalBytes = null,
+            botMaxLevel = 60, botRandomMaps = listOf(0),
+            realmdAcceptedBuilds = "9999", proofResponseBytes = null,
+            wtfLayout = "account-level", wtfCharacterCacheFiles = emptySet(),
+            knownExeMd5 = null, knownExeSizeBytes = null, largeAddressAware = null,
+        )
+        val failure = runCatching { stranger.accountExpansion }.exceptionOrNull()
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure!!.message!!.contains("somewhere-else"))
     }
 }

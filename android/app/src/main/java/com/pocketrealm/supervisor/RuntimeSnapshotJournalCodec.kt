@@ -1,5 +1,6 @@
 package com.pocketrealm.supervisor
 
+import com.pocketrealm.client.ClientFlavors
 import org.json.JSONObject
 
 /**
@@ -8,6 +9,12 @@ import org.json.JSONObject
  * (not AtomicSupervisorJournal.kt) so the Windows desktop build compiles it
  * from this same tree; the desktop journal is a JVM twin of the atomic file
  * mechanics around it.
+ *
+ * G3-4: the session flavor rides as an OPTIONAL field at the existing
+ * schema pair ([LEGACY_SCHEMA] / [RuntimeSnapshot.JOURNAL_SCHEMA] — the
+ * constants never move to introduce it). The key is written only when
+ * non-vanilla, so every journal bytes written by the pre-flavor release
+ * re-encode identically; a journal without the key decodes as vanilla.
  */
 internal object RuntimeSnapshotJournalCodec {
     fun encode(value: RuntimeSnapshot): JSONObject = JSONObject()
@@ -35,12 +42,27 @@ internal object RuntimeSnapshotJournalCodec {
         .put("updatedAtWallMs", value.updatedAtWallMs)
         .put("updatedAtElapsedMs", value.updatedAtElapsedMs)
         .put("recoverability", value.recoverability.name)
+        .also { encoded ->
+            if (value.flavor != ClientFlavors.VANILLA.flavorId) encoded.put("flavor", value.flavor)
+            // Design-tunnel §5: the tunnel advertisement rides as an
+            // OPTIONAL field at the existing schema pair (the flavor-field
+            // precedent) — written only when set, so every journal bytes
+            // written before the tunnel lane decode identically, and a
+            // journal without the key decodes as the plain advertisement.
+            if (value.advertisedAddress != null) encoded.put("advertisedAddress", value.advertisedAddress)
+            // Design-lan D9: the interface-loss stop reason rides the same
+            // OPTIONAL-field pattern — written only when the stop was the
+            // monitor's call; pre-field journals decode as an ordinary stop.
+            if (value.stopReason != null) encoded.put("stopReason", value.stopReason)
+        }
 
     fun decode(value: JSONObject): RuntimeSnapshot {
         val storedSchema = value.getInt("schema")
         require(storedSchema == LEGACY_SCHEMA || storedSchema == RuntimeSnapshot.JOURNAL_SCHEMA) {
             "unsupported journal schema"
         }
+        val flavor = value.optString("flavor", ClientFlavors.VANILLA.flavorId)
+        require(flavor in ClientFlavors.ALL.map { it.flavorId }) { "unsupported journal flavor" }
         fun nullable(name: String): String? = if (value.isNull(name)) null else value.getString(name)
         val session = nullable("sessionId")
         if (session != null) java.util.UUID.fromString(session)
@@ -81,6 +103,13 @@ internal object RuntimeSnapshotJournalCodec {
             requestedProfile = nullable("requestedProfile"),
             runtimeMode = mode,
             realmEndpoint = endpoint,
+            // Optional tunnel-advertisement field (the flavor precedent):
+            // absent/null on pre-tunnel journals decodes as the plain
+            // endpoint advertisement. The grammar re-validates on decode —
+            // a journal is durable state, not a trusted input.
+            advertisedAddress = nullable("advertisedAddress")?.let { raw ->
+                com.pocketrealm.supervisor.AdvertisedAddress.parse(raw).value
+            },
             clean = value.getBoolean("clean"),
             components = components,
             lastDurableAction = value.getString("lastDurableAction").take(ACTION_MAX_CHARS),
@@ -88,6 +117,8 @@ internal object RuntimeSnapshotJournalCodec {
             updatedAtWallMs = value.getLong("updatedAtWallMs"),
             updatedAtElapsedMs = value.getLong("updatedAtElapsedMs"),
             recoverability = Recoverability.valueOf(value.getString("recoverability")),
+            flavor = flavor,
+            stopReason = nullable("stopReason")?.take(DETAIL_MAX_CHARS),
         )
     }
 

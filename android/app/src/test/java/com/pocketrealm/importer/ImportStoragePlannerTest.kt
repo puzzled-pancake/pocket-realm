@@ -1,9 +1,13 @@
 package com.pocketrealm.importer
 
+import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.ClientFlavors
+import com.pocketrealm.client.testFlavor
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import kotlin.math.ceil
 
@@ -12,6 +16,41 @@ class ImportStoragePlannerTest {
         // ImportLimits.maxTotalBytes is flavor data, not a hard-coded cap:
         // its default resolves the qualified flavor's storage.max_total_bytes.
         assertEquals(ClientFlavors.VANILLA.maxTotalBytes, ImportLimits().maxTotalBytes)
+    }
+
+    @After fun restoreRegistryDefaults() {
+        ActiveFlavor.reset()
+    }
+
+    @Test fun importTotalCapResolvesTheActiveLaneThroughTheFlavorMachine() {
+        // The multi-flavor lift: with a second qualified lane selected, the
+        // cap is THAT lane's measured storage.max_total_bytes — never a
+        // silent vanilla constant.
+        val tbcBudget = 24L * ImportLimits.GIB
+        ActiveFlavor.qualifiedSource = {
+            listOf(
+                testFlavor("vanilla", qualified = true),
+                testFlavor("tbc", qualified = true, maxTotalBytes = tbcBudget),
+            )
+        }
+        ActiveFlavor.select("tbc")
+        assertEquals(tbcBudget, ImportLimits().maxTotalBytes)
+    }
+
+    @Test fun ambiguousQualifiedStateKeepsFailingLoudInLimits() {
+        // Zero qualified flavors: the former single-qualified honesty is
+        // preserved by the machine (the site's lane suffix names it).
+        ActiveFlavor.qualifiedSource = { emptyList() }
+        try {
+            ImportLimits()
+            fail("limits over an empty registry must fail loud")
+        } catch (expected: IllegalStateException) {
+            assertEquals(
+                "no qualified flavor is registered — " +
+                    "import size limits resolve the qualified lane",
+                expected.message,
+            )
+        }
     }
 
     @Test fun reportFormulaIncludesEveryOwnerAndTwentyPercentMargin() {

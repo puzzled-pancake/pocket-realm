@@ -38,6 +38,34 @@ class RuntimeSupervisorClientTest {
         assertTrue(decoded is RealmState.Failed)
     }
 
+    @Test fun anInterfaceLossStopDecodesAsIdleWithTheHumanizedWhy() {
+        // Design-lan D9: the Android loss-stop producer rides the snapshot's
+        // stopReason; the decode humanizes it into the shared copy so a
+        // network change mid-hosting never presents as a clean, unexplained
+        // stop. An ordinary stop carries no note.
+        val lossStop = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.STOPPED,
+            clean = true,
+            stopReason = "LAN_HOST_INTERFACE_LOST",
+        ))) as RealmState.Idle
+        assertEquals(
+            RuntimeFailureCopy.humanize("LAN_HOST_INTERFACE_LOST"),
+            lossStop.stopCopy,
+        )
+        assertTrue(lossStop.stopCopy!!.contains("network connection changed"))
+        val tunnelStop = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.STOPPED,
+            clean = true,
+            stopReason = "TUNNEL_HOST_INTERFACE_LOST",
+        ))) as RealmState.Idle
+        assertTrue(tunnelStop.stopCopy!!.contains("tunnel connection"))
+        val ordinary = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.STOPPED,
+            clean = true,
+        ))) as RealmState.Idle
+        assertEquals(null, ordinary.stopCopy)
+    }
+
     @Test fun clientFailureRetainsOnlineRealmAndExposesRetryReason() {
         val decoded = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
             phase = RuntimePhase.CLIENT_FAILED,
@@ -228,6 +256,26 @@ class RuntimeSupervisorClientTest {
             lastError = raw,
         ))) as RealmState.Failed
         assertTrue(dirtyStopped.dbOwnedByDeadSession)
+    }
+
+    @Test fun tunnelAdvertisingSessionCarriesTheAdvertisedAddressThroughTheStatusDecode() {
+        val running = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.RUNNING,
+            runtimeMode = RuntimeMode.LAN_HOST,
+            realmEndpoint = RealmEndpoint.parseLan("192.168.1.50"),
+            advertisedAddress = "100.64.12.34",
+        ), generationActive = true)) as RealmState.Running
+        assertEquals(
+            "design-tunnel §5: the UI renders the live advertisement",
+            "100.64.12.34",
+            running.advertisedAddress,
+        )
+        assertEquals("192.168.1.50", running.endpointAddress)
+
+        val plain = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.RUNNING,
+        ), generationActive = true)) as RealmState.Running
+        assertEquals("absent key decodes as the plain advertisement", null, plain.advertisedAddress)
     }
 
     private fun encoded(snapshot: RuntimeSnapshot, generationActive: Boolean = false): String =

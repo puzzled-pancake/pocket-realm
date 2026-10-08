@@ -1,6 +1,7 @@
 package com.pocketrealm.client
 
 import android.content.Context
+import com.pocketrealm.importer.GenerationPointers
 import com.pocketrealm.supervisor.RealmEndpoint
 import org.json.JSONObject
 import java.io.File
@@ -57,7 +58,7 @@ internal class ManagedClientStore(context: Context) {
 
     private fun loadUnlocked(clientId: String): ManagedClient {
         require(ClientFlavors.isManagedClientId(clientId)) { "unsupported managed client id" }
-        val pointer = File(clientRoot, "active.json")
+        val pointer = activePointerFor(clientId)
         var expectedManifestHash: String? = null
         var generationIdentity = "legacy-active"
         val expected = if (pointer.isFile) {
@@ -132,6 +133,48 @@ internal class ManagedClientStore(context: Context) {
             manifest,
         )
     }
+
+    /**
+     * G3-5: the runtime reads [clientId]'s per-flavor pointer namespace; on
+     * first read after the multi-flavor update, an un-namespaced `active.json`
+     * is adopted under the flavor's canonical name (atomic move, with the
+     * plain-replace fallback the store's own write discipline carries) so the
+     * pre-flavor managed client is never orphaned by the rename. The
+     * canonical name wins the moment it exists — never both as authoritative.
+     */
+    private fun activePointerFor(clientId: String): File {
+        val flavor = requireNotNull(ClientFlavors.byClientId(clientId)) { "unsupported managed client id" }
+        val canonical = File(clientRoot, GenerationPointers.activePointerName(flavor.flavorId))
+        if (!canonical.isFile) {
+            val legacy = File(clientRoot, GenerationPointers.LEGACY_ACTIVE)
+            if (legacy.isFile && legacyAdoptionTargetsThisFlavor(legacy, clientId)) {
+                try {
+                    Files.move(
+                        legacy.toPath(), canonical.toPath(),
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    )
+                } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                    Files.move(legacy.toPath(), canonical.toPath())
+                }
+            }
+        }
+        return canonical
+    }
+
+    /**
+     * Round-5 R5-R2-2: legacy adoption may only fire when the legacy
+     * pointer's BODY belongs to the requesting flavor — the body stamps
+     * the owning clientId (the same field loadUnlocked verifies). On a
+     * mismatch the legacy file is LEFT IN PLACE: a stored selection on a
+     * second qualified flavor must not consume flavor A's sole managed
+     * client into flavor B's namespace (the never-orphaned rule the
+     * rename exists for). An unreadable body keeps the single-qualified
+     * legacy behavior (adopt), which loadUnlocked then verifies.
+     */
+    private fun legacyAdoptionTargetsThisFlavor(legacy: File, clientId: String): Boolean =
+        runCatching {
+            JSONObject(legacy.readText()).getString("clientId")
+        }.getOrNull()?.let { it == clientId } ?: true
 
     private fun sha256(file: File): String = com.pocketrealm.fs.FileDigests.sha256(file)
 }

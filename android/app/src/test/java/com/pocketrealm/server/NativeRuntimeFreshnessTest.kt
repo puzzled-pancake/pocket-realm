@@ -7,6 +7,8 @@ import com.pocketrealm.server.NativeRuntimeFreshness.Identity
 import com.pocketrealm.server.NativeRuntimeFreshness.Labels
 import com.pocketrealm.server.NativeRuntimeFreshness.StagedArtifact
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -230,6 +232,100 @@ class NativeRuntimeFreshnessTest {
             !message.contains("pocketSkipNativeFreshness"),
         )
     }
+
+    // --- lockfile/provenance record parsing shared by BOTH gradle gates --
+    // Real lockfile row shape (schemas/realm-runtime-lockfile*.json): pin
+    // fields ride alongside sibling fields ("needed", "load_alignments"),
+    // and the writer's serialization order is an implementation detail. The
+    // gates must resolve rows by field name through the parsed document -
+    // a textual-order-dependent gate (the retired regex record match in
+    // validateRealmRuntime) errors 'no record' on a writer field reorder
+    // while its JsonSlurper sibling passes the same bytes.
+
+    private val realmdPath =
+        "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/libpocket_realmd_runtime.so"
+    private val worldPath =
+        "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/libpocket_world_runtime.so"
+
+    @Test fun artifactPinsResolveRowsByFieldNameRegardlessOfSerializedOrder() {
+        val record: Map<*, *> = mapOf(
+            "artifacts" to listOf(
+                // keys deliberately NOT in writer order (path, size, sha256)
+                mapOf(
+                    "load_alignments" to listOf(16384, 16384),
+                    "sha256" to worldSha,
+                    "needed" to listOf("libc.so", "libz.so"),
+                    "size" to worldBytes,
+                    "path" to worldPath,
+                ),
+                mapOf(
+                    "sha256" to realmdSha,
+                    "size" to realmdBytes,
+                    "path" to realmdPath,
+                ),
+            ),
+        )
+        val pins = NativeRuntimeFreshness.artifactPins(record)
+        assertEquals(2, pins.size)
+        val world = pins.single { it.path == worldPath }
+        assertEquals(worldBytes, world.size)
+        assertEquals(worldSha, world.sha256)
+        val realmd = pins.single { it.path == realmdPath }
+        assertEquals(realmdBytes, realmd.size)
+        assertEquals(realmdSha, realmd.sha256)
+    }
+
+    @Test fun artifactPinsSkipRowsMissingPinFieldsInsteadOfHalfParsing() {
+        val record: Map<*, *> = mapOf(
+            "artifacts" to listOf(
+                mapOf("path" to worldPath, "size" to worldBytes), // no sha256
+                mapOf("path" to worldPath, "sha256" to worldSha), // no size
+                "not-an-object",
+                mapOf("path" to realmdPath, "size" to realmdBytes, "sha256" to realmdSha),
+            ),
+        )
+        val pins = NativeRuntimeFreshness.artifactPins(record)
+        assertEquals(listOf(realmdPath), pins.map { it.path })
+        assertEquals(realmdBytes, pins.single().size)
+        assertEquals(realmdSha, pins.single().sha256)
+    }
+
+    @Test fun artifactPinsTreatAbsentArtifactsArrayAsNoPins() {
+        assertTrue(NativeRuntimeFreshness.artifactPins(mapOf("abi" to "x86_64")).isEmpty())
+        assertTrue(NativeRuntimeFreshness.artifactPins(mapOf("artifacts" to "not-a-list")).isEmpty())
+    }
+
+    @Test fun seedTranscriptPinsResolveByFieldNameRegardlessOfSerializedOrder() {
+        // classiccharacters row from the real x86_64 sqlite-lane lockfile
+        // (schemas/realm-runtime-lockfile-sqlite.json), keys deliberately
+        // reordered so gzip_size precedes gzip_sha256.
+        val record: Map<*, *> = mapOf(
+            "seed_transcripts" to mapOf(
+                "classiccharacters" to mapOf(
+                    "gzip_size" to 7107915L,
+                    "size" to 153514454L,
+                    "gzip_sha256" to "42c6e149453702d38de9007f77b2eeab309e5f62d03e2543f6203d436f597ad1",
+                    "sha256" to "6792fdb1eef2e0d80f7048a457a417484b97608212c29b2715ddf4cab7a5e829",
+                ),
+            ),
+        )
+        val pin = NativeRuntimeFreshness.seedTranscriptPin(record, "classiccharacters")
+        assertNotNull(pin)
+        assertEquals("42c6e149453702d38de9007f77b2eeab309e5f62d03e2543f6203d436f597ad1", pin!!.gzipSha256)
+        assertEquals(7107915L, pin.gzipSize)
+    }
+
+    @Test fun seedTranscriptPinIsNullWhenDatabaseOrGzipFieldsAbsent() {
+        val record: Map<*, *> = mapOf(
+            "seed_transcripts" to mapOf(
+                "classicrealmd" to mapOf("sha256" to worldSha, "size" to worldBytes),
+            ),
+        )
+        assertNull("unknown database has no pin", NativeRuntimeFreshness.seedTranscriptPin(record, "classiclogs"))
+        assertNull("row without gzip fields has no pin", NativeRuntimeFreshness.seedTranscriptPin(record, "classicrealmd"))
+        assertNull("document without seed_transcripts has no pin", NativeRuntimeFreshness.seedTranscriptPin(mapOf("abi" to "x86_64"), "classicrealmd"))
+    }
+
 
     private fun Check.copy(
         identity: Identity = this.identity,

@@ -1,5 +1,7 @@
 package com.pocketrealm.database
 
+import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.client.ActiveFlavorState
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -12,6 +14,17 @@ import java.util.UUID
 internal class DatabaseSnapshotStore(
     private val snapshotsRoot: File,
     private val syncDirectory: (File) -> Unit = DatabaseDurability::syncDirectory,
+    /**
+     * GAP-3 (owner census UIUX-3): the PERSISTED Home-switcher pick the
+     * restore compatibility gate resolves the active lane from. This
+     * :database process never sees the UI process's in-memory
+     * [ActiveFlavor] selection, so the engine hands it the multi-process
+     * settings store's pick — the same seam the :supervisor realmlist
+     * projection resolves through. Null (the JVM-test default) falls to
+     * the machine's sole-qualified default, byte-identical to the former
+     * `qualified().single()` on today's single-qualified registry.
+     */
+    private val persistedActiveFlavorId: () -> String? = { null },
 ) {
     data class Snapshot(val id: String, val root: File, val manifest: File, val digest: String)
 
@@ -64,6 +77,7 @@ internal class DatabaseSnapshotStore(
             "DB-SNAPSHOT: restore destination is not empty"
         }
         val manifest = validatePublished(snapshot)
+        checkSnapshotFlavorMatchesLane(manifest)
         val createdDestination = !destination.exists()
         destination.mkdirs()
         val files = manifest.getJSONArray("files")
@@ -137,6 +151,31 @@ internal class DatabaseSnapshotStore(
         FileOutputStream(file).use { output -> output.write(value.toByteArray()); output.fd.sync() }
     }
 
+    /**
+     * G3-9: the flavor dimension rides INSIDE the free-form `compatibility`
+     * object — never as a sixth top-level manifest key (that would fail every
+     * snapshot the current release took through `validatePublished`'s strict
+     * `manifest.length() == 5` check) and never by relaxing the per-file
+     * `record.length() == 3` rows. A snapshot whose
+     * `compatibility.flavor` disagrees with the active session lane refuses
+     * here, fail-closed, naming both flavors; the no-flavor compatibility
+     * object everything before the multi-flavor work writes continues to
+     * restore on the vanilla lane.
+     */
+    private fun checkSnapshotFlavorMatchesLane(manifest: JSONObject) {
+        val compatibility = manifest.getJSONObject("compatibility")
+        val stored = compatibility.optString("flavor", "").ifBlank { null } ?: return
+        // GAP-3: the lane resolves through the flavor machine from the
+        // persisted pick — a second qualified flavor routes the gate to the
+        // selected lane instead of `qualified().single()` throwing, and an
+        // ambiguous no-pick multi-qualified state still refuses loud.
+        val lane = ActiveFlavorState(persistedActiveFlavorId())
+            .resolve(ActiveFlavor.qualifiedFlavors, SNAPSHOT_COMPATIBILITY_LANE).flavorId
+        check(stored == lane) {
+            "DB-SNAPSHOT: snapshot flavor $stored does not match the active lane $lane"
+        }
+    }
+
     private fun validatePublished(snapshot: Snapshot): JSONObject {
         check(validId(snapshot.id) && snapshot.root == File(snapshotsRoot, snapshot.id)) {
             "DB-SNAPSHOT: invalid snapshot identity"
@@ -184,6 +223,12 @@ internal class DatabaseSnapshotStore(
     companion object {
         private val ID = Regex("[a-zA-Z0-9._-]{1,96}")
         private val SHA256 = Regex("[0-9a-f]{64}")
+
+        /** GAP-3: the [ActiveFlavor] lane suffix naming the restore
+         * compatibility gate. */
+        internal const val SNAPSHOT_COMPATIBILITY_LANE =
+            "the database snapshot compatibility gate resolves the active lane"
+
         private fun validId(id: String): Boolean = ID.matches(id) && !id.startsWith('.')
     }
 }

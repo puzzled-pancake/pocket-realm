@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "complete": true,
+  "mode": "NORMAL",
+  "clientBuild": 5875,
+  "cmangosFamily": "classic",
+  "generator": {
+    "artifactSet": [],
+    "abi": "arm64-v8a",
+    "pageSize": 16384,
+    "cmangosCommit": "c096bada9e4ed23ad4ca706c67160a26d7121337",
+    "api": 34
+  },
+  "sourceClientGeneration": "123e4567-e89b-12d3-a456-426614174000",
+  "counts": {
+    "dbc": 120,
+    "maps": 130,
+    "vmapTrees": 2,
+    "vmapTiles": 9,
+    "mmapMaps": 120,
+    "mmapTiles": 50
+  },
+  "files": [
+    {
+      "path": "dbc/Spell.dbc",
+      "size": 8,
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    {
+      "path": "maps/0002035.map",
+      "size": 16,
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+    }
+  ],
+  "publishedAtMs": 1759200000000
+}

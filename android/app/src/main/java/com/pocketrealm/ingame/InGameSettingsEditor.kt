@@ -1,7 +1,7 @@
 package com.pocketrealm.ingame
 
 import android.content.Context
-import com.pocketrealm.client.ClientFlavors
+import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.ManagedClientStore
 import com.pocketrealm.client.WowVanillaBindingCatalog
 import com.pocketrealm.client.X86DirectWineRuntime
@@ -10,6 +10,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+
+/** GAP-3: the [ActiveFlavor] lane suffix naming the editor's lease gate. */
+private const val INGAME_EDITOR_LANE =
+    "the in-game settings editor resolves the qualified lane"
 
 /**
  * UI-process editor facade. While the client is stopped it
@@ -87,7 +91,16 @@ internal class InGameSettingsEditor(private val context: Context) {
     private suspend fun <T> underLease(block: suspend (File) -> T): T? {
         val leased = withContext(Dispatchers.IO) {
             runCatching {
-                ManagedClientStore(context).acquireRuntime(ClientFlavors.qualified().single().clientId)
+                // GAP-3 (owner census UIUX-3): this UI-process facade resolves
+                // the ACTIVE lane through the [ActiveFlavor] machine — the
+                // same in-memory selection the Home switcher seeds — so a
+                // second qualified flavor routes the lease to the selected
+                // lane's runtime instead of `qualified().single()` throwing
+                // (the runCatching boundary keeps an ambiguous unselected
+                // registry state a fail-soft "no lease", never a crash).
+                ManagedClientStore(context).acquireRuntime(
+                    ActiveFlavor.resolve(INGAME_EDITOR_LANE).clientId,
+                )
             }.getOrNull()
         } ?: return null
         return leased.use { held ->

@@ -41,10 +41,13 @@ import androidx.compose.ui.unit.dp
 import com.pocketrealm.addons.AddonCatalog
 import com.pocketrealm.addons.AddonCatalogState
 import com.pocketrealm.addons.AddonCompatibility
+import com.pocketrealm.addons.AddonFlavorCatalog
 import com.pocketrealm.addons.AddonInstallSource
 import com.pocketrealm.addons.AddonRepository
 import com.pocketrealm.addons.CatalogAddon
 import com.pocketrealm.addons.InstalledAddon
+import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.client.ClientFlavor
 
 /** Progressive, landscape-first add-on hub. The built-in Android Port installs on fresh installs. */
 @Composable
@@ -58,6 +61,13 @@ fun AddonsHubScreen(
     val repository = remember(context) { AddonRepository.get(context) }
     val catalog = remember(context) { AddonCatalog.load(context) }
     val state by repository.state.collectAsState()
+    // The multi-flavor lift: every catalog list is the ACTIVE flavor's set
+    // (AddonFlavorCatalog projects the research data); the registry ("My
+    // add-ons") stays complete — manageability is its own contract.
+    val activeFlavor = remember { activeFlavorForAddons() }
+    val flavorAddons = remember(catalog, activeFlavor) {
+        AddonFlavorCatalog.forFlavor(catalog.addons, activeFlavor)
+    }
 
     AddonPage(repository, state) {
         LazyColumn(
@@ -71,6 +81,14 @@ fun AddonsHubScreen(
                         "everything else stays optional and applies on the next game launch.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            item {
+                Text(
+                    "Showing the ${activeFlavor.expansion} (${activeFlavor.flavorId}) add-on set — " +
+                        "switch the flavor on Home.",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.testTag("addon-active-flavor"),
                 )
             }
             item {
@@ -98,8 +116,8 @@ fun AddonsHubScreen(
             }
             item {
                 AddonHubRow(
-                    title = "Browse all ${catalog.addons.size}",
-                    summary = "Search the researched Vanilla 1.12 catalog by name, role or feature.",
+                    title = "Browse all ${flavorAddons.size}",
+                    summary = "Search the researched ${activeFlavor.expansion} catalog by name, role or feature.",
                     status = "Verified ${catalog.researchedAt}",
                     onClick = onBrowse,
                     tag = "addon-hub-browse",
@@ -108,8 +126,9 @@ fun AddonsHubScreen(
             item {
                 AddonHubRow(
                     title = "Install from GitHub",
-                    summary = "Advanced: validate and install a public Vanilla-compatible repository not yet listed.",
-                    status = "GitHub only · archive and Interface 11200 checks",
+                    summary = "Advanced: validate and install a public repository not yet listed.",
+                    status = "GitHub only · archive and Interface " +
+                        "${activeFlavor.addonInterfaces.min()} checks",
                     onClick = onCustom,
                     tag = "addon-hub-custom",
                 )
@@ -118,12 +137,25 @@ fun AddonsHubScreen(
     }
 }
 
+/**
+ * The add-ons screens' active flavor — the [ActiveFlavor] machine's fail-
+ * loud resolution (ambiguous registry states refuse to render a silently
+ * wrong list).
+ */
+internal fun activeFlavorForAddons(): ClientFlavor =
+    ActiveFlavor.resolve("add-ons resolve the qualified lane")
+
 @Composable
 fun RecommendedAddonsScreen(onOpenAddon: (String) -> Unit) {
     val context = LocalContext.current
     val repository = remember(context) { AddonRepository.get(context) }
     val catalog = remember(context) { AddonCatalog.load(context) }
     val state by repository.state.collectAsState()
+    // The ACTIVE flavor's researched set only — the multi-flavor lift.
+    val activeFlavor = remember { activeFlavorForAddons() }
+    val flavorRecommended = remember(catalog, activeFlavor) {
+        AddonFlavorCatalog.forFlavor(catalog.recommended, activeFlavor)
+    }
 
     AddonPage(repository, state) {
         Text(
@@ -132,11 +164,18 @@ fun RecommendedAddonsScreen(onOpenAddon: (String) -> Unit) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (flavorRecommended.isEmpty()) {
+            EmptyAddonMessage(
+                "No researched recommendation for the ${activeFlavor.expansion} client yet. " +
+                    "The catalog keeps researching; Browse lists every entry whose " +
+                    "research covers this flavor.",
+            )
+        }
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f).testTag("addon-recommended-list"),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(catalog.recommended, key = CatalogAddon::matrixId) { addon ->
+            items(flavorRecommended, key = CatalogAddon::matrixId) { addon ->
                 val installed = state.installed.any { it.id == addon.installId }
                 AddonListRow(
                     addon = addon,
@@ -237,7 +276,12 @@ fun BrowseAddonsScreen(onOpenAddon: (String) -> Unit) {
     val catalog = remember(context) { AddonCatalog.load(context) }
     val state by repository.state.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
-    val visible = remember(query, catalog) { catalog.filter(query, null) }
+    // The ACTIVE flavor's researched set only — the multi-flavor lift.
+    val activeFlavor = remember { activeFlavorForAddons() }
+    val flavorAddons = remember(catalog, activeFlavor) {
+        AddonFlavorCatalog.forFlavor(catalog.addons, activeFlavor)
+    }
+    val visible = remember(query, flavorAddons) { AddonFlavorCatalog.filter(flavorAddons, query) }
 
     AddonPage(repository, state) {
         OutlinedTextField(
@@ -248,11 +292,19 @@ fun BrowseAddonsScreen(onOpenAddon: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth().testTag("addon-catalog-search"),
         )
         Text(
-            "${visible.size} result${if (visible.size == 1) "" else "s"} · ${state.installed.size} installed",
+            "${visible.size} result${if (visible.size == 1) "" else "s"} for the " +
+                "${activeFlavor.expansion} client · ${state.installed.size} installed",
             style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.testTag("addon-browse-flavor-count"),
         )
         if (visible.isEmpty()) {
-            EmptyAddonMessage("No researched add-on matches that search.")
+            EmptyAddonMessage(
+                if (query.isBlank()) {
+                    "No researched add-on covers the ${activeFlavor.expansion} client yet."
+                } else {
+                    "No researched add-on matches that search."
+                },
+            )
         } else {
             LazyColumn(
                 Modifier.fillMaxWidth().weight(1f).testTag("addon-catalog-list"),
@@ -365,11 +417,12 @@ fun CustomAddonInstallScreen() {
     val state by repository.state.collectAsState()
     var customUrl by rememberSaveable { mutableStateOf("") }
     val busy = state.operation != null
+    val activeFlavor = remember { activeFlavorForAddons() }
 
     AddonPage(repository, state) {
         Text("Install from GitHub", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text(
-            "Advanced option for a public Vanilla-compatible project not yet in the catalog. Use the repository's main URL, not a download link.",
+            "Advanced option for a public add-on project not yet in the catalog. Use the repository's main URL, not a download link.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OutlinedTextField(
@@ -381,7 +434,9 @@ fun CustomAddonInstallScreen() {
             modifier = Modifier.fillMaxWidth().testTag("addon-repository-url"),
         )
         Text(
-            "Pocket Realm downloads from GitHub, records the exact commit and checksum, rejects oversized or unsafe archives, and requires Vanilla Interface 11200 metadata.",
+            "Pocket Realm downloads from GitHub, records the exact commit and checksum, rejects oversized or unsafe archives, and requires " +
+                "${activeFlavor.expansion} Interface ${activeFlavor.addonInterfaces.min()} metadata " +
+                "(the active flavor's accepted set).",
             style = MaterialTheme.typography.bodySmall,
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {

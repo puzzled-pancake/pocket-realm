@@ -49,6 +49,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pocketrealm.BuildConfig
+import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.ArmTranslationBackend
 import com.pocketrealm.client.ArmRendererAuto
 import com.pocketrealm.client.ArmClientRenderer
@@ -93,6 +94,9 @@ private const val BACKUP_AWAIT_TIMEOUT_MINUTES = 10L
 private const val BACKUP_AWAIT_TIMEOUT_MS = BACKUP_AWAIT_TIMEOUT_MINUTES * 60_000L
 
 private const val MIB = 1024L * 1024
+
+/** Stage chips per row in the World-timeframe card (design-timeframe §6). */
+private const val TIMEFRAME_CHIP_ROW = 3
 
 @Composable
 // onLlm joins the sibling navigation params; the list is one
@@ -223,22 +227,76 @@ fun SettingsScreen(
         pendingImport = source to info
     }
 
+    /**
+     * Atomic write of the archive's imported credentials record, byte-form
+     * of the UserAccountStore.writeLocked discipline (temp + fd.sync +
+     * chmod + rename + directory fsync — the desktop twin's
+     * writeImportedAccount). Writing the bytes directly over the live
+     * account.json would leave a torn record that the next
+     * loadOrQuarantine quarantines, silently discarding the previously
+     * saved auto-login account. Returns false (writing nothing) when the
+     * record is invalid — an invalid record rejects ONLY this leg, never
+     * the database import.
+     */
+    suspend fun writeImportedAccount(bytes: ByteArray): Boolean = withContext(Dispatchers.IO) {
+        if (!RealmDataArchive.isValidAccountRecord(bytes)) return@withContext false
+        val directory = java.io.File(context.noBackupFilesDir, "user-account")
+        directory.mkdirs()
+        android.system.Os.chmod(directory.absolutePath,
+            android.system.OsConstants.S_IRUSR or android.system.OsConstants.S_IWUSR or
+                android.system.OsConstants.S_IXUSR)
+        val accountFile = java.io.File(directory, "account.json")
+        val temp = java.io.File(directory, ".user-account.${android.os.Process.myPid()}.tmp")
+        java.io.FileOutputStream(temp).use { stream ->
+            stream.write(bytes)
+            stream.fd.sync()
+        }
+        android.system.Os.chmod(temp.absolutePath,
+            android.system.OsConstants.S_IRUSR or android.system.OsConstants.S_IWUSR)
+        android.system.Os.rename(temp.absolutePath, accountFile.absolutePath)
+        val descriptor = android.system.Os.open(
+            directory.absolutePath, android.system.OsConstants.O_RDONLY, 0)
+        try { android.system.Os.fsync(descriptor) } finally { android.system.Os.close(descriptor) }
+        true
+    }
+
     suspend fun restoreRealmCharacters(source: Uri, info: RealmDataArchive.ArchiveInfo) {
         realmDataBusy = true
         try {
+            // The id names the extraction root, and it comes out of the
+            // ARCHIVE — so the snapshot store's validId gate must run HERE,
+            // before target.mkdirs(): an id like "../x" would otherwise walk
+            // File(roots.databaseSnapshots, id) and the mkdirs/extract behind
+            // it out of the snapshots tree, because the store's own refusal
+            // fires only at restore time, after the write (the desktop gate
+            // in DesktopAppModel.importRealmArchive, mirrored).
+            if (!RealmDataArchive.validSnapshotId(info.snapshotId)) {
+                realmDataStatus = "Archive has an invalid snapshot id."
+                return
+            }
             val target = java.io.File(roots.databaseSnapshots, info.snapshotId)
             if (target.exists()) {
                 realmDataStatus = "Snapshot ${info.snapshotId} already exists on this device."
                 return
             }
-            val accountBytes = withContext(Dispatchers.IO) {
-                check(target.mkdirs()) { "could not create snapshot directory" }
-                val input = context.contentResolver.openInputStream(source)
-                    ?: throw IllegalStateException("could not open archive")
-                input.use { stream -> RealmDataArchive.extractSnapshot(stream, target).second }
+            val accountBytes = try {
+                withContext(Dispatchers.IO) {
+                    check(target.mkdirs()) { "could not create snapshot directory" }
+                    val input = context.contentResolver.openInputStream(source)
+                        ?: throw IllegalStateException("could not open archive")
+                    input.use { stream -> RealmDataArchive.extractSnapshot(stream, target).second }
+                }
+            } catch (failure: Throwable) {
+                // A half-extracted tree is not a published snapshot.
+                withContext(Dispatchers.IO) { target.deleteRecursively() }
+                throw failure
             }
             val accepted = runCatching { supervisor.restoreBackup(info.snapshotId) }
             if (accepted.getOrNull()?.optBoolean("ok") != true) {
+                // The extract existed only to feed this restore — a refusal
+                // must not leave the imported tree published in the
+                // snapshots root.
+                withContext(Dispatchers.IO) { target.deleteRecursively() }
                 realmDataStatus = accepted.fold(
                     { it.optString("error").ifBlank { "restore rejected" } },
                     { "restore failed: ${it.javaClass.simpleName}" },
@@ -246,16 +304,26 @@ fun SettingsScreen(
                 return
             }
             if (!awaitBackupCompletion()) return
-            accountBytes?.let { bytes ->
-                withContext(Dispatchers.IO) {
-                    val accountFile = java.io.File(context.noBackupFilesDir, "user-account/account.json")
-                    accountFile.parentFile?.mkdirs()
-                    accountFile.writeBytes(bytes)
-                    android.system.Os.chmod(accountFile.absolutePath,
-                        android.system.OsConstants.S_IRUSR or android.system.OsConstants.S_IWUSR)
-                }
-            }
-            realmDataStatus = "Realm data imported."
+            // The archive's account bytes are user-picked input: they must
+            // pass the store's own decode (RealmDataArchive.isValidAccountRecord)
+            // before they may replace this device's saved auto-login record.
+            // An invalid record rejects ONLY this leg — the database import
+            // above stays — and so does the leg's own IO failure: folded into
+            // the note, never thrown past the committed restore above as an
+            // "Import failed" (the desktop twin's importedAccountNote).
+            val accountNote = accountBytes?.let { bytes ->
+                runCatching { writeImportedAccount(bytes) }.fold(
+                    { written ->
+                        if (written) " Saved login replaced from the archive."
+                        else " The archive's saved login was invalid and was not restored."
+                    },
+                    { failure ->
+                        " Characters restored, but the saved login could not be written: " +
+                            (failure.message ?: failure.javaClass.simpleName)
+                    },
+                )
+            }.orEmpty()
+            realmDataStatus = "Realm data imported.$accountNote"
         } catch (failure: Throwable) {
             realmDataStatus = "Import failed: ${failure.message ?: failure.javaClass.simpleName}"
         } finally {
@@ -1090,6 +1158,79 @@ fun SettingsScreen(
             )
         }
 
+        // Design-timeframe §6: the per-flavor content-patch knob, wired to
+        // the shared TimeframeStages core — the qualified flavor's ordered
+        // stages, default = final patch, applies at the next realm start.
+        SettingCard("World timeframe") {
+            // Round-5 R5-2: resolve through the ActiveFlavor machine — the
+            // documented fail-loud resolver; never a silent VANILLA
+            // fallback at the W4 multi-qualified flip.
+            val flavor = remember {
+                com.pocketrealm.client.ActiveFlavor.resolve(
+                    "the world-timeframe card resolves the active lane")
+            }
+            val stages = remember(flavor.flavorId) {
+                com.pocketrealm.client.TimeframeStages.stagesFor(flavor.flavorId)
+            }
+            val selectedId = com.pocketrealm.client.TimeframeStages
+                .resolveStored(snap.timeframeStage)
+                .ifEmpty { com.pocketrealm.client.TimeframeStages.defaultStageId(flavor.flavorId) }
+            val selected = requireNotNull(
+                com.pocketrealm.client.TimeframeStages.byId(flavor.flavorId, selectedId),
+            ) { "resolved stage $selectedId must be registered for ${flavor.flavorId}" }
+            stages.chunked(TIMEFRAME_CHIP_ROW).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    row.forEach { stage ->
+                        FilterChip(
+                            selected = stage.id == selectedId,
+                            onClick = {
+                                // The final patch persists as "" (the
+                                // default): existing-world behavior is the
+                                // stored state too, not a special case.
+                                scope.launch {
+                                    settings.update {
+                                        it.copy(
+                                            timeframeStage =
+                                                if (stage.isFinal) "" else stage.id,
+                                        )
+                                    }
+                                }
+                            },
+                            label = { Text(stage.id.removePrefix("${flavor.flavorId}-")) },
+                            modifier = Modifier.testTag("timeframe-stage-${stage.id}"),
+                        )
+                    }
+                }
+            }
+            Text(
+                "The game client stays at its fixed version; this gates world content only. " +
+                    "Applies when the realm next starts.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (!selected.isFinal) {
+                // Design §11.4 honesty: the present-tense "later content
+                // closes" claim is only true once the stage's availability
+                // data is measured. Until the measured per-stage sets land,
+                // no build gates anything — asserting closure would promise
+                // a restriction the shipped data does not enforce.
+                val measured = com.pocketrealm.client.TimeframeStages
+                    .eventGating(selected).measured
+                Text(
+                    if (measured) {
+                        "${selected.title}: later content closes; items, levels, and spells your " +
+                            "characters already have stay."
+                    } else {
+                        "${selected.title}: this stage's content availability is not measured " +
+                            "yet, so nothing closes yet — the world still runs the current " +
+                            "release's content and the choice is only recorded for the realm " +
+                            "(the AI guides speak the era's wording). The measured per-stage " +
+                            "data ships in a later update."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+
         SettingCard("Nearby use / open") {
             Text(
                 "L1 chooses the nearest eligible corpse, chest, or ordinary usable loot object and opens it as one realm action. " +
@@ -1496,7 +1637,9 @@ fun SettingsScreen(
                     "Characters from snapshot ${info.snapshotId} (from app ${info.appVersionName}, " +
                         "created " + java.text.SimpleDateFormat("d MMM yyyy HH:mm", java.util.Locale.US)
                             .format(java.util.Date(info.createdAtMs)) + ") will replace the current " +
-                        "realm database. The realm stops during the restore.",
+                        "realm database. The realm stops during the restore. If the archive carries " +
+                        "saved login credentials, they also replace this device's saved auto-login " +
+                        "account.",
                 )
             },
             confirmButton = {

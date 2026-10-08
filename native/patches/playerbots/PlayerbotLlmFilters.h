@@ -32,7 +32,7 @@ class PlayerbotLlmFilters
 public:
     // The deterministic passes, in order. Never fails: a filter problem
     // must cost polish, not the reply.
-    static std::string HygienePass(std::string const& cleaned, uint32 botGuid);
+    static std::string HygienePass(std::string const& cleaned);
 
     // True when the reply is leak-class (5-gram overlap with the request
     // body's instruction furniture, or an era backstop hit) and must be

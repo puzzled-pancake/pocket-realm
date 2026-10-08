@@ -7,15 +7,12 @@ import com.pocketrealm.database.DatabaseSqliteControlPlane.QUICK_CHECK
 import com.pocketrealm.database.DatabaseSqliteControlPlane.SeedStatementScanner
 import com.pocketrealm.database.DatabaseSqliteConfigPolicy.renderConnectionPragmas
 import com.pocketrealm.database.DatabaseUserStateBridge.Importer.partialFor
+import com.pocketrealm.fs.FileDigests
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.security.DigestInputStream
 import java.security.MessageDigest
 import java.util.zip.GZIPInputStream
@@ -36,14 +33,24 @@ import org.json.JSONObject
  *    atomic partial→live rename;
  *  - the generation marker (`.pocketrealm-generation.json`, same
  *    schema as the Android DatabaseDurableState marker) written once
- *    per fresh datadir.
+ *    per fresh datadir, extended with the revision record (identity +
+ *    migration-seal digest — the DESK-98 start re-proof input);
+ *  - the shared seals stamped at seed (DESK-19/53/79): the
+ *    [DatabaseMigrationSeal] over the pinned corpus
+ *    (`.pocketrealm-migrations.json`, the Android sqliteMigrationMarker
+ *    name) and the clean-stop seal [DatabaseGenerationSeal.clean]
+ *    validates (`.pocketrealm-clean-stop.json`) — a freshly seeded
+ *    datadir is born clean-stopped, CLEAN WRITTEN LAST (the Android
+ *    initialize order: a kill mid-block can never leave a
+ *    clean-stamped datadir behind the seals).
  *
  * Differences from Android, both documented posture: no directory-entry
  * fsync (Windows cannot open a directory through FileChannel; NTFS
  * journals the rename — same stance as the desktop supervisor journal
- * twin), and the meta migration ledger + revision verification land
- * with the full engine twin (the servers only need the four seeded
- * databases + marker to boot).
+ * twin), and the engine-created meta migration-ledger DATABASE
+ * (pocketrealm_meta) still lands with the full engine twin — the seals
+ * pin the seed corpus today; the servers only need the four seeded
+ * databases + seals + marker to boot.
  *
  * Single-thread by contract (SQLITE_THREADSAFE=2): the caller drives
  * seeding from its database thread.
@@ -51,6 +58,10 @@ import org.json.JSONObject
 internal class DesktopSqliteSeeder(
     private val seedDir: File,
     private val provenanceFile: File,
+    /** Optional transcript resolver (the runtime bootstrap's flat
+     * packaged layout); default is the staging layout
+     * [DatabaseSqliteControlPlane.seedAsset] under [seedDir]. */
+    private val transcriptFor: ((database: String) -> File)? = null,
 ) {
     data class SeedPin(
         val database: String,
@@ -80,10 +91,14 @@ internal class DesktopSqliteSeeder(
         }
     }
 
-    /** Seed every database into [sqliteDatadir]. Returns the per-database
-     * replay record (statement count + published byte size). */
+    /** Seed every database into [sqliteDatadir] and stamp the seals.
+     * Returns the per-database replay record (statement count + published
+     * byte size) plus the stamped migration seal's digest. */
     fun seedAll(generationUuid: String, sqliteDatadir: File): JSONObject {
         require(UUID_REGEX.matches(generationUuid)) { "not a generation uuid: $generationUuid" }
+        val identity = DesktopSqliteSeals.identityFromProvenance(
+            provenanceFile.readText(StandardCharsets.UTF_8),
+        )
         val pins = provenancePins()
         check(DATABASES.all { database ->
             !DatabaseSqliteControlPlane.databaseFile(sqliteDatadir, database).isFile
@@ -94,16 +109,34 @@ internal class DesktopSqliteSeeder(
         for (database in DATABASES) {
             perDatabase.put(database, replayDatabase(sqliteDatadir, database, pins.getValue(database)))
         }
+        // Seals stamp only after EVERY replay published (a kill before
+        // this point leaves the bare generation marker — an honest
+        // unprovable datadir, never a sealed half generation).
+        val migrationSealText = DesktopSqliteSeals.migrationSeal(identity, System.currentTimeMillis())
+        DesktopSqliteSealMarkers.atomicWriteMarker(
+            sqliteDatadir,
+            DesktopSqliteSeals.MIGRATION_MARKER_NAME,
+            migrationSealText,
+        )
+        writeGenerationMarker(sqliteDatadir, generationUuid, identity, migrationSealText)
+        // CLEAN WRITTEN LAST (the Android initialize order).
+        DesktopSqliteSealMarkers.atomicWriteMarker(
+            sqliteDatadir,
+            DesktopSqliteSeals.CLEAN_MARKER_NAME,
+            DesktopSqliteSeals.cleanSeal(System.currentTimeMillis()),
+        )
         return JSONObject().put("ok", true)
             .put("provider", DatabaseRuntimeContract.SQLITE_PROVIDER_ID)
             .put("generation", generationUuid)
+            .put("migrationSealSha256", FileDigests.sha256(migrationSealText))
             .put("databases", perDatabase)
     }
 
     /** One transcript: gunzip-verify-execute against a .partial database,
      * then atomically publish. Mirrors the Android replaySeedDatabase. */
     private fun replayDatabase(sqliteDatadir: File, database: String, pin: SeedPin): JSONObject {
-        val seed = File(seedDir, DatabaseSqliteControlPlane.seedAsset(database))
+        val seed = transcriptFor?.invoke(database)
+            ?: File(seedDir, DatabaseSqliteControlPlane.seedAsset(database))
         val live = DatabaseSqliteControlPlane.databaseFile(sqliteDatadir, database)
         val partial = partialFor(live)
         check(!live.exists()) { "DB-SEED: $database already exists" }
@@ -228,29 +261,25 @@ internal class DesktopSqliteSeeder(
         }
     }
 
-    private fun writeGenerationMarker(sqliteDatadir: File, generationUuid: String) {
-        val marker = File(sqliteDatadir, ".pocketrealm-generation.json")
-        val temp = File(sqliteDatadir, ".pocketrealm-generation.${ProcessHandle.current().pid()}.tmp")
-        FileOutputStream(temp).use { stream ->
-            stream.write(
-                JSONObject()
-                    .put("schema", 1)
-                    .put("generationUuid", generationUuid)
-                    .toString()
-                    .toByteArray(Charsets.UTF_8),
+    private fun writeGenerationMarker(
+        sqliteDatadir: File,
+        generationUuid: String,
+        identity: DesktopSqliteSeals.Identity? = null,
+        migrationSealText: String? = null,
+    ) {
+        val text = if (identity == null || migrationSealText == null) {
+            JSONObject()
+                .put("schema", 1)
+                .put("generationUuid", generationUuid)
+                .toString()
+        } else {
+            DesktopSqliteSeals.generationMarker(
+                generationUuid = generationUuid,
+                identity = identity,
+                migrationSealSha256 = FileDigests.sha256(migrationSealText),
             )
-            stream.fd.sync()
         }
-        try {
-            Files.move(temp.toPath(), marker.toPath(), StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE)
-        } catch (_: AtomicMoveNotSupportedException) {
-            Files.move(temp.toPath(), marker.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        } catch (move: java.io.IOException) {
-            // never strand a per-pid temp in the datadir on a failed move
-            temp.delete()
-            throw move
-        }
+        DesktopSqliteSealMarkers.atomicWriteMarker(sqliteDatadir, DesktopSqliteSeals.GENERATION_MARKER_NAME, text)
     }
 
     private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }

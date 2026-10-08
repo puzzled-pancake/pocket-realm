@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CPP = ROOT / "native" / "xserver-winlator" / "cpp"
@@ -82,6 +84,7 @@ def test_async_paths_own_decoded_graphs_and_cancel_with_device_leases():
     assert "ThreadPool_isCancellationRequested" in timeline
 
 
+@pytest.mark.skip(reason="D46 (owner ruling 2026-10-08): the authority-hardened vortek lane is NOT landed - the source-matched Winlator-2.1 baseline (tests/test_vortek_winlator_baseline.py) is the authoritative production contract, and these four pins contradict it on the component + CMake files. The hardened lane (helpers, hardened tree, component wiring, CMake cutover) re-lands as a future owner-gated wave; the pins stay recorded here, unweakened, until then")
 def test_java_control_plane_rejects_ambiguous_ownership_and_unknown_requests():
     source = _read(JAVA)
     assert "MAX_EXTRA_DATA_SIZE" in source
@@ -100,6 +103,7 @@ def test_native_context_requires_explicit_hardened_safe_lane():
     assert "if (!context->hardenedSafeLane) goto error" in source
 
 
+@pytest.mark.skip(reason="D46 (owner ruling 2026-10-08): the authority-hardened vortek lane is NOT landed - the source-matched Winlator-2.1 baseline (tests/test_vortek_winlator_baseline.py) is the authoritative production contract, and these four pins contradict it on the component + CMake files. The hardened lane (helpers, hardened tree, component wiring, CMake cutover) re-lands as a future owner-gated wave; the pins stay recorded here, unweakened, until then")
 def test_production_dispatch_opens_only_in_reviewed_bridge_target():
     request_header = _read(VORTEK / "include" / "request_handler.h")
     cmake = _read(CPP / "CMakeLists.txt")
@@ -108,6 +112,7 @@ def test_production_dispatch_opens_only_in_reviewed_bridge_target():
     assert "Production opens dispatch only here" in cmake
 
 
+@pytest.mark.skip(reason="D46 (owner ruling 2026-10-08): the authority-hardened vortek lane is NOT landed - the source-matched Winlator-2.1 baseline (tests/test_vortek_winlator_baseline.py) is the authoritative production contract, and these four pins contradict it on the component + CMake files. The hardened lane (helpers, hardened tree, component wiring, CMake cutover) re-lands as a future owner-gated wave; the pins stay recorded here, unweakened, until then")
 def test_window_authority_is_generation_instance_and_lifetime_bound():
     component = _read(JAVA)
     window = _read(WINDOW)
@@ -155,6 +160,7 @@ def test_window_authority_is_generation_instance_and_lifetime_bound():
     assert "VORTEK_HANDLE_DRAIN_INSTANCE" in destroy_instance
 
 
+@pytest.mark.skip(reason="D46 (owner ruling 2026-10-08): the authority-hardened vortek lane is NOT landed - the source-matched Winlator-2.1 baseline (tests/test_vortek_winlator_baseline.py) is the authoritative production contract, and these four pins contradict it on the component + CMake files. The hardened lane (helpers, hardened tree, component wiring, CMake cutover) re-lands as a future owner-gated wave; the pins stay recorded here, unweakened, until then")
 def test_window_operations_revalidate_and_swapchain_creation_is_transactional():
     component = _read(JAVA)
     gpu_image = _read(GPU_IMAGE)

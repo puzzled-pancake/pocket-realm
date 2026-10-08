@@ -8,17 +8,23 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import java.io.File
 import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.pocketrealm.R
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.storage.Settings
+import com.pocketrealm.storage.StorageRoots
 import com.pocketrealm.supervisor.AndroidRuntimeBackend
 import com.pocketrealm.supervisor.AtomicSupervisorJournal
 import com.pocketrealm.supervisor.ComponentLifecycle
 import com.pocketrealm.supervisor.ComponentOwner
 import com.pocketrealm.supervisor.DurableRuntimeSupervisor
+import com.pocketrealm.supervisor.FriendAccessController
+import com.pocketrealm.supervisor.FriendInviteStore
+import com.pocketrealm.supervisor.ProvisioningListener
 import com.pocketrealm.supervisor.IRuntimeSupervisorControl
 import com.pocketrealm.supervisor.RealmEndpoint
 import com.pocketrealm.supervisor.RuntimeComponent
@@ -26,6 +32,8 @@ import com.pocketrealm.supervisor.RuntimeOperation
 import com.pocketrealm.supervisor.RuntimeLaunchSpec
 import com.pocketrealm.supervisor.RuntimeMode
 import com.pocketrealm.supervisor.LanInterfacePolicy
+import com.pocketrealm.supervisor.InterfaceWatch
+import com.pocketrealm.supervisor.TunnelInterfacePolicy
 import com.pocketrealm.supervisor.OrphanSelfHealPolicy
 import com.pocketrealm.supervisor.RuntimePhase
 import com.pocketrealm.supervisor.RuntimeSnapshot
@@ -40,6 +48,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -137,6 +146,7 @@ class RealmService : Service() {
     private lateinit var supervisor: DurableRuntimeSupervisor
     private lateinit var operationWakeLock: PowerManager.WakeLock
     private var monitor: Job? = null
+    private lateinit var friendAccess: FriendAccessController
     @Volatile private var activeGeneration = false
     @Volatile private var foregroundActive = false
     private val operationCoordinator = ServiceOperationCoordinator()
@@ -151,6 +161,44 @@ class RealmService : Service() {
         com.pocketrealm.bots.BotCustomPresets.install(java.io.File(filesDir, "bots"))
         backend = AndroidRuntimeBackend(applicationContext)
         supervisor = DurableRuntimeSupervisor(backend, AtomicSupervisorJournal(applicationContext))
+        // Remote friend accounts (design-remote-accounts 6/11): the shared
+        // hub owns the invite store, the rate limiter, and the provisioning
+        // listener; the collector below keeps the listener a property of a
+        // hosting session on THIS platform too - bound only while a
+        // LAN_HOST start with friend access enabled is up, stopped with the
+        // realm, on every stop path (the collector watches the state).
+        friendAccess = FriendAccessController(
+            storeDirectory = File(StorageRoots(applicationContext).realmData, FRIEND_ACCESS_STORE_DIR),
+            backend = backend,
+            supervisor = supervisor,
+            logWarning = { AppLog.w(TAG, it) },
+            logInfo = { AppLog.i(TAG, it) },
+        )
+        scope.launch {
+            // The listener is a property of (hosting session × friend-access
+            // setting), not of supervisor state alone: combining BOTH flows
+            // means a mid-session toggle takes effect immediately — binding
+            // 3725 the moment the toggle turns ON during hosting, and
+            // UNbinding it the moment the toggle turns OFF (design-remote-
+            // accounts §6's exposure invariant, "with friend-access off it
+            // is never bound"). The desktop watcher's exact shape
+            // (DesktopAppModel friendAccessWatcher); a settings-only
+            // re-read that waits for the next unrelated state emission
+            // would leave the socket bound after the host revoked it.
+            combine(
+                supervisor.state,
+                Settings(applicationContext).flow,
+            ) { snapshot, settings -> snapshot to settings }.collectLatest { (snapshot, settings) ->
+                runCatching {
+                    friendAccess.onRuntimeChanged(
+                        phase = snapshot.phase,
+                        mode = snapshot.runtimeMode,
+                        friendAccessEnabled = settings.friendAccessEnabled,
+                        endpointAddress = snapshot.realmEndpoint.address,
+                    )
+                }
+            }
+        }
         operationWakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:runtime-operation")
             .apply { setReferenceCounted(false) }
@@ -179,10 +227,17 @@ class RealmService : Service() {
             }
             ACTION_HOST_LAN -> submitOperation("host-lan") {
                 runCatching {
+                    // Design-tunnel §4/§5: the optional ADVERTISED tunnel
+                    // address rides the same start — when set, the servers
+                    // bind the wildcard and the one realmlist row carries
+                    // this address. The typed grammar validates it here; a
+                    // malformed value refuses the start honestly.
                     RuntimeLaunchSpec.lanHost(
                         intent.getStringExtra(EXTRA_PROFILE_ID) ?: AndroidRuntimeBackend.INTEGRATED_PROFILE,
                         LanInterfacePolicy.selectForHosting().address,
                         includeClient = intent.getBooleanExtra(EXTRA_INCLUDE_CLIENT, false),
+                        advertised = intent.getStringExtra(EXTRA_ADVERTISED_ADDRESS)
+                            ?.trim()?.takeIf { it.isNotEmpty() },
                     )
                 }.fold(
                     onSuccess = { supervisor.start(it) },
@@ -249,6 +304,103 @@ class RealmService : Service() {
                     .put("accountId", result.accountId).put("gmLevel", result.gmLevel)
                     .put("detail", result.detail).toString()
             }
+        // F9: the observe-only presence read for the LAN screen's
+        // joined-mode players line (the desktop lanPlayersOnline twin);
+        // runBlocking on IO like every other suspend supervisor verb here.
+        override fun worldPresence(): String =
+            runBlocking(Dispatchers.IO) { supervisor.worldPresence().toString() }
+        // Remote friend accounts (design-remote-accounts): the same AIDL
+        // seam carries the new verbs.
+        override fun provisionFriendAccount(username: String, sHex: String, vHex: String): String =
+            runBlocking(Dispatchers.IO) {
+                val result = supervisor.provisionFriendAccount(username, sHex, vHex)
+                AppLog.i(TAG, "friend account code=${result.code} id=${result.accountId}")
+                JSONObject().put("ok", result.ok).put("code", result.code)
+                    .put("accountId", result.accountId).put("detail", result.detail).toString()
+            }
+        override fun banFriendAccount(username: String, duration: String, reason: String): String =
+            runBlocking(Dispatchers.IO) {
+                val result = supervisor.banFriendAccount(username, duration, reason)
+                JSONObject().put("ok", result.ok).put("detail", result.detail).toString()
+            }
+        override fun unbanFriendAccount(username: String): String = runBlocking(Dispatchers.IO) {
+            val result = supervisor.unbanFriendAccount(username)
+            JSONObject().put("ok", result.ok).put("detail", result.detail).toString()
+        }
+        override fun setFriendGmLevel(username: String, level: Int): String = runBlocking(Dispatchers.IO) {
+            val ok = runCatching { supervisor.setFriendGmLevel(username, level) }.getOrDefault(false)
+            JSONObject().put("ok", ok).toString()
+        }
+        override fun friendRoster(): String = runBlocking(Dispatchers.IO) {
+            val read = runCatching { friendAccess.roster() }.getOrElse {
+                return@runBlocking JSONObject().put("ok", false)
+                    .put("reason", it.javaClass.simpleName).toString()
+            }
+            val rows = org.json.JSONArray()
+            read.accounts.forEach { row ->
+                rows.put(JSONObject()
+                    .put("id", row.id).put("username", row.username).put("gmlevel", row.gmLevel)
+                    .put("failedLogins", row.failedLogins).put("banned", row.banned)
+                    .put("lastLogon", row.lastLogon).put("online", row.online))
+            }
+            JSONObject().put("ok", read.reason == null).put("reason", read.reason ?: "")
+                .put("accounts", rows).toString()
+        }
+        override fun friendCharacters(username: String): String = runBlocking(Dispatchers.IO) {
+            val read = runCatching { friendAccess.characters(username) }.getOrElse {
+                return@runBlocking JSONObject().put("ok", false)
+                    .put("reason", it.javaClass.simpleName).toString()
+            }
+            val rows = org.json.JSONArray()
+            read.characters.forEach { row ->
+                rows.put(JSONObject()
+                    .put("guid", row.guid).put("name", row.name)
+                    .put("race", row.race).put("class", row.klass).put("level", row.level))
+            }
+            JSONObject().put("ok", read.reason == null).put("reason", read.reason ?: "")
+                .put("characters", rows).toString()
+        }
+        override fun friendAccessState(): String {
+            friendAccess.refresh()
+            val invites = org.json.JSONArray()
+            friendAccess.store.rows().forEach { row ->
+                invites.put(JSONObject()
+                    .put("inviteId", row.inviteId).put("state", row.state.name)
+                    .put("note", row.note).put("username", row.username ?: "")
+                    .put("sourceIp", row.sourceIp ?: "").put("accountId", row.accountId ?: 0L)
+                    .put("createdAtMs", row.createdAtMs))
+            }
+            val listener = friendAccess.listenerState.value
+            val listenerJson = JSONObject().put("kind", listener.javaClass.simpleName)
+            if (listener is ProvisioningListener.ListenerState.Listening)
+                listenerJson.put("address", listener.address).put("port", listener.port)
+            if (listener is ProvisioningListener.ListenerState.Failed)
+                listenerJson.put("reason", listener.reason)
+            return JSONObject().put("ok", true)
+                .put("listener", listenerJson).put("invites", invites).toString()
+        }
+        override fun createFriendInvite(note: String): String {
+            val created = friendAccess.createInvite(note)
+            return if (created != null) JSONObject().put("ok", true)
+                .put("inviteId", created.first).put("token", created.second).toString()
+            else JSONObject().put("ok", false).put("error", "open-invite-cap").toString()
+        }
+        override fun revokeFriendInvite(inviteId: String): String {
+            friendAccess.revokeInvite(inviteId)
+            return JSONObject().put("ok", true).toString()
+        }
+        override fun rejectFriendRequest(inviteId: String): String {
+            friendAccess.rejectInvite(inviteId)
+            return JSONObject().put("ok", true).toString()
+        }
+        override fun approveFriendRequest(inviteId: String): String = runBlocking(Dispatchers.IO) {
+            val verdict = friendAccess.approveInvite(inviteId)
+            val row = friendAccess.store.rows().firstOrNull { it.inviteId == inviteId }
+            JSONObject().put("ok", row?.state == FriendInviteStore.State.PROVISIONED)
+                .put("verdict", verdict)
+                .put("state", row?.state?.name ?: "")
+                .put("accountId", row?.accountId ?: 0L).toString()
+        }
         override fun createBackup(name: String): String = maintenance("backup") {
             backend.createNamedBackup(name)
         }
@@ -473,27 +625,78 @@ class RealmService : Service() {
                         return@runReserved null
                     }
                     if (snapshot.runtimeMode == RuntimeMode.LAN_HOST) {
-                        val endpoint = snapshot.realmEndpoint
-                        if (LanInterfacePolicy.isCurrentPrivateInterface(endpoint)) {
-                            lanLossSessionId = null
-                            lanLossEndpoint = null
-                        } else {
-                            if (lanLossEndpoint != endpoint || lanLossSessionId != snapshot.sessionId) {
-                                lanLossSessionId = snapshot.sessionId
-                                lanLossEndpoint = endpoint
-                                lanLossSinceMs = SystemClock.elapsedRealtime()
-                                AppLog.w(TAG,
-                                    "LAN host interface $endpoint absent; loss grace window of " +
-                                        "${LAN_HOST_INTERFACE_LOSS_GRACE_MS / 1000}s starts")
-                            }
-                            val lostForMs = SystemClock.elapsedRealtime() - lanLossSinceMs
-                            if (lostForMs >= LAN_HOST_INTERFACE_LOSS_GRACE_MS) {
+                        // Mode-aware watch (design-tunnel §10, the shared
+                        // InterfaceWatch reconciliation): plain LAN hosting
+                        // watches the private LAN endpoint (D2 verbatim); a
+                        // tunnel-advertised session watches the TUNNEL
+                        // adapter — physical-LAN churn must never kill a
+                        // tunnel realm whose path never touched the LAN —
+                        // and a loopback advertisement (the cloudflared
+                        // recipe) has no interface to lose.
+                        when (val watch = InterfaceWatch.forSession(snapshot.advertisedAddress)) {
+                            InterfaceWatch.None -> {
                                 lanLossSessionId = null
                                 lanLossEndpoint = null
-                                AppLog.w(TAG,
-                                    "LAN host interface lost for ${lostForMs / 1000}s; " +
-                                        "generation will save and stop")
-                                return@runReserved supervisor.stop(StopMode.GRACEFUL)
+                            }
+                            InterfaceWatch.Lan -> {
+                                val endpoint = snapshot.realmEndpoint
+                                if (LanInterfacePolicy.isCurrentPrivateInterface(endpoint)) {
+                                    lanLossSessionId = null
+                                    lanLossEndpoint = null
+                                } else {
+                                    if (lanLossEndpoint != endpoint || lanLossSessionId != snapshot.sessionId) {
+                                        lanLossSessionId = snapshot.sessionId
+                                        lanLossEndpoint = endpoint
+                                        lanLossSinceMs = SystemClock.elapsedRealtime()
+                                        AppLog.w(TAG,
+                                            "LAN host interface $endpoint absent; loss grace window of " +
+                                                "${LAN_HOST_INTERFACE_LOSS_GRACE_MS / 1000}s starts")
+                                    }
+                                    val lostForMs = SystemClock.elapsedRealtime() - lanLossSinceMs
+                                    if (lostForMs >= LAN_HOST_INTERFACE_LOSS_GRACE_MS) {
+                                        lanLossSessionId = null
+                                        lanLossEndpoint = null
+                                        AppLog.w(TAG,
+                                            "LAN host interface lost for ${lostForMs / 1000}s; " +
+                                                "generation will save and stop")
+                                        // Design-lan D9: the stop carries its
+                                        // reason so the host UI says WHY (the
+                                        // desktop twin's stop reason, shared copy).
+                                        return@runReserved supervisor.stop(
+                                            StopMode.GRACEFUL,
+                                            reason = "LAN_HOST_INTERFACE_LOST",
+                                        )
+                                    }
+                                }
+                            }
+                            is InterfaceWatch.Tunnel -> {
+                                if (TunnelInterfacePolicy.isCurrentTunnelInterface(watch.advertised)) {
+                                    lanLossSessionId = null
+                                    lanLossEndpoint = null
+                                } else {
+                                    if (lanLossEndpoint != null || lanLossSessionId != snapshot.sessionId) {
+                                        lanLossSessionId = snapshot.sessionId
+                                        lanLossEndpoint = null
+                                        lanLossSinceMs = SystemClock.elapsedRealtime()
+                                        AppLog.w(TAG,
+                                            "Tunnel host address ${watch.advertised.value} absent; " +
+                                                "loss grace window of " +
+                                                "${LAN_HOST_INTERFACE_LOSS_GRACE_MS / 1000}s starts")
+                                    }
+                                    val lostForMs = SystemClock.elapsedRealtime() - lanLossSinceMs
+                                    if (lostForMs >= LAN_HOST_INTERFACE_LOSS_GRACE_MS) {
+                                        lanLossSessionId = null
+                                        lanLossEndpoint = null
+                                        AppLog.w(TAG,
+                                            "Tunnel host address lost for ${lostForMs / 1000}s; " +
+                                                "generation will save and stop " +
+                                                "(TUNNEL_HOST_INTERFACE_LOST)")
+                                        return@runReserved supervisor.stop(
+                                            StopMode.GRACEFUL,
+                                            reason = "TUNNEL_HOST_INTERFACE_LOST",
+                                        )
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -564,7 +767,7 @@ class RealmService : Service() {
             RuntimePhase.PAUSED -> "Companion conversation (world paused)"
             RuntimePhase.RUNNING, RuntimePhase.WORLD_READY, RuntimePhase.CLIENT_FAILED -> when (snapshot.runtimeMode) {
                 RuntimeMode.LOCAL -> "Local realm running"
-                RuntimeMode.LAN_HOST -> "LAN realm running (experimental)"
+                RuntimeMode.LAN_HOST -> "LAN realm running"
                 RuntimeMode.LAN_JOIN -> "LAN client running"
             }
             else -> "Pocket Realm: ${snapshot.phase.name.lowercase().replace('_', ' ')}"
@@ -597,6 +800,8 @@ class RealmService : Service() {
         // apply their safe owner-loss policy; the dirty journal drives recovery.
         monitor?.cancel()
         scope.cancel()
+        // The provisioning socket dies with the service (paragraph 6).
+        runCatching { friendAccess.close() }
         releaseOperationWakeLock()
         supervisor.close()
         AppLog.i(TAG, "supervisor destroyed with phase=${supervisor.state.value.phase}")
@@ -615,7 +820,9 @@ class RealmService : Service() {
         private const val EXTRA_PROFILE_ID = "com.pocketrealm.extra.PROFILE_ID"
         private const val EXTRA_INCLUDE_CLIENT = "com.pocketrealm.extra.INCLUDE_CLIENT"
         private const val EXTRA_LAN_ADDRESS = "com.pocketrealm.extra.LAN_ADDRESS"
+        private const val EXTRA_ADVERTISED_ADDRESS = "com.pocketrealm.extra.ADVERTISED_ADDRESS"
         private const val TAG = "RuntimeSupervisor"
+private const val FRIEND_ACCESS_STORE_DIR = "friend-access"
         private const val LAN_HOST_INTERFACE_LOSS_GRACE_MS = 10_000L
         private val MONITORED_PHASES = setOf(RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.PAUSED, RuntimePhase.CLIENT_FAILED)
 
@@ -650,19 +857,25 @@ class RealmService : Service() {
             context: Context,
             profileId: String = AndroidRuntimeBackend.INTEGRATED_PROFILE,
             includeClient: Boolean = false,
+            /** Design-tunnel §4/§5: the advertised tunnel address (typed
+             * parse at the service; null/blank = plain LAN hosting). */
+            advertised: String? = null,
         ) {
             require(profileId == AndroidRuntimeBackend.INTEGRATED_PROFILE ||
                 com.pocketrealm.bots.BotProfiles.find(profileId) != null) { "unsupported LAN host profile" }
             context.startForegroundService(
                 Intent(context, RealmService::class.java).setAction(ACTION_HOST_LAN)
                     .putExtra(EXTRA_PROFILE_ID, profileId)
-                    .putExtra(EXTRA_INCLUDE_CLIENT, includeClient),
+                    .putExtra(EXTRA_INCLUDE_CLIENT, includeClient)
+                    .apply { advertised?.takeIf { it.isNotBlank() }?.let { putExtra(EXTRA_ADVERTISED_ADDRESS, it) } },
             )
         }
 
         fun joinLan(context: Context, address: String) {
-            // Validate before an Intent is created; the service validates independently.
-            com.pocketrealm.supervisor.RealmEndpoint.parseLan(address)
+            // Validate before an Intent is created; the service validates
+            // independently. Endpoint model v2 (design-tunnel §4.4.3): the
+            // join grammar takes LAN or tunnel (CGNAT) addresses.
+            com.pocketrealm.supervisor.RealmEndpoint.parseJoinTarget(address)
             context.startForegroundService(
                 Intent(context, RealmService::class.java).setAction(ACTION_JOIN_LAN)
                     .putExtra(EXTRA_LAN_ADDRESS, address),

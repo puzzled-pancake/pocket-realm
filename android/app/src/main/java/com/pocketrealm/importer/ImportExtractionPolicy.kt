@@ -3,10 +3,19 @@ package com.pocketrealm.importer
 /**
  * Name policy for archive lanes. Runs over client-root-relative entry names
  * (the source already rebased the wrapper folder): every entry passes
- * [ImportPathPolicy.normalize], all entries — directories included — join one
+ * [ImportPathPolicy.normalizeEntry], all entries — directories included — join one
  * case-fold namespace (collisions and dir/file type conflicts reject), and
- * root entries outside the known vanilla client layout are excluded with a
- * reason instead of copied ("!1.8 Hack/", launcher scripts, dxvk/, …).
+ * root entries outside the known client layouts are excluded with a reason
+ * instead of copied ("!1.8 Hack/", launcher scripts, dxvk/, …).
+ *
+ * Per-flavor root layouts (census lanes item 17): every archive lane
+ * classifies BEFORE the flavor is resolved (the PE identity scan runs on the
+ * classified inventory; the RAR/Inno lanes verify post-extraction), so the
+ * admitted universe is the UNION of the declared layouts — the identity gate
+ * (VAL-03, version resource -> qualified flavor) selects the flavor, this
+ * policy only decides copy-vs-exclude. Each [RootLayout] row is derived from
+ * the measured staged client root for that flavor (census §0; the vanilla
+ * row is today's set, byte-for-byte) and lands add-only.
  *
  * Extraction-time byte caps stay in the copy loop; this class is pure naming
  * and layout policy. The folder lane does not use it.
@@ -14,7 +23,12 @@ package com.pocketrealm.importer
 class ImportExtractionPolicy(
     private val limits: ImportLimits = ImportLimits(),
     private val paths: ImportPathPolicy = ImportPathPolicy(limits),
+    rootLayouts: Collection<RootLayout> = RootLayout.DECLARED,
 ) {
+
+    /** Admitted root universe: the union of the declared per-flavor layouts. */
+    private val rootFiles: Set<String> = rootLayouts.flatMapTo(mutableSetOf()) { it.rootFiles }
+    private val rootDirectories: Set<String> = rootLayouts.flatMapTo(mutableSetOf()) { it.rootDirectories }
 
     sealed interface Decision {
         object Copy : Decision
@@ -44,7 +58,7 @@ class ImportExtractionPolicy(
         var totalBytes = 0L
         for (raw in entries.sortedBy { it.rawName }) {
             val rawKey = raw.rawKey
-            val normalized = normalizeEntry(raw.rawName)
+            val normalized = paths.normalizeEntry(raw.rawName)
             val key = paths.caseFoldKey(normalized)
             val previous = folded.putIfAbsent(key, normalized to raw.directory)
             if (previous != null) {
@@ -60,7 +74,7 @@ class ImportExtractionPolicy(
                 continue
             }
             if (raw.directory) {
-                if ('/' !in normalized && paths.caseFoldKey(normalized) !in ROOT_DIRECTORIES) {
+                if ('/' !in normalized && paths.caseFoldKey(normalized) !in rootDirectories) {
                     excludedRoots += normalized
                     excluded += Excluded(normalized, "non-client root directory")
                     continue
@@ -69,7 +83,7 @@ class ImportExtractionPolicy(
                 continue
             }
             if (raw.size < 0) throw ImportRejected("VAL-08: archive entry omitted size: $normalized")
-            if ('/' !in normalized && paths.caseFoldKey(normalized) !in ROOT_FILES) {
+            if ('/' !in normalized && paths.caseFoldKey(normalized) !in rootFiles) {
                 excluded += Excluded(normalized, "non-client root file")
                 continue
             }
@@ -89,29 +103,81 @@ class ImportExtractionPolicy(
         }
         return Classified(copy, excluded, fileCount, totalBytes)
     }
+}
 
-    /** Windows-illegal trailing dot/space survives NFKC and would evade the importer's root-executable exclusion. */
-    private fun normalizeEntry(rawName: String): String {
-        val normalized = paths.normalize(rawName)
-        normalized.split('/').forEach { component ->
-            if (component.length > 1 && (component.last() == '.' || component.last() == ' ')) {
-                throw ImportRejected("VAL-07: trailing dot or space in component: '$component'")
-            }
-        }
-        return normalized
-    }
-
+/**
+ * Per-flavor client-root layout (census lanes item 17), derived from the
+ * measured staged clients (census §0: `WoW_Classic_ENG_1.12.1`,
+ * `ExcaliburWoW Burning Crusade 2.4.3`, `World.of.Warcraft.3.3.5a.Truewow`).
+ * Every set is case-folded (`ImportPathPolicy.caseFoldKey` form); rows follow
+ * the vanilla row's canonical-superset style — the staged vanilla root does
+ * not literally carry `repair.exe`/`fonts`/`movies` either, but the row
+ * admits the era's install layout, NOT the runtime debris a staged copy
+ * accumulates (`cache/`, `logs/`, `wdb/` stay excluded-with-reason: the
+ * client recreates them on first run, so they are not client data).
+ *
+ * G3-10 add-only: [VANILLA] is the pre-item-17 allowlist byte-for-byte;
+ * later-era rows may only ADD entries to the admitted union.
+ */
+data class RootLayout(
+    val flavorId: String,
+    val rootFiles: Set<String>,
+    val rootDirectories: Set<String>,
+) {
     companion object {
-        /** Vanilla-layout root files (folded). Launcher/downloader exes stay
-         *  copy-eligible so the importer's own safe-mode skip journals them. */
-        private val ROOT_FILES = setOf(
-            "wow.exe", "wowerror.exe", "repair.exe", "launcher.exe", "backgrounddownloader.exe",
-            "realmlist.wtf", "dbghelp.dll", "divxdecoder.dll", "fmod.dll", "ijl15.dll",
-            "scan.dll", "unicows.dll",
+        /**
+         * The vanilla layout — today's allowlist, unchanged. Launcher/
+         * downloader exes stay copy-eligible so the importer's own safe-mode
+         * skip journals them.
+         */
+        val VANILLA: RootLayout = RootLayout(
+            flavorId = "vanilla",
+            rootFiles = setOf(
+                "wow.exe", "wowerror.exe", "repair.exe", "launcher.exe", "backgrounddownloader.exe",
+                "realmlist.wtf", "dbghelp.dll", "divxdecoder.dll", "fmod.dll", "ijl15.dll",
+                "scan.dll", "unicows.dll",
+            ),
+            rootDirectories = setOf(
+                "data", "wtf", "interface", "fonts", "screenshots", "documentation", "errors",
+                "movies", "music", "utilities",
+            ),
         )
-        private val ROOT_DIRECTORIES = setOf(
-            "data", "wtf", "interface", "fonts", "screenshots", "documentation", "errors",
-            "movies", "music", "utilities",
+
+        /**
+         * Measured staged TBC root (`ExcaliburWoW … 2.4.3`): `Wow.exe,
+         * WowError.exe, Repair.exe, Launcher.exe, realmlist.wtf,
+         * DivxDecoder.dll, ijl15.dll, Scan.dll, unicows.dll` over
+         * `Data/ Interface/ WTF/` — every entry already inside the vanilla
+         * layout, so the TBC row adds NOTHING to the admitted union. It is
+         * still declared (not aliased to [VANILLA]) so a future measured
+         * TBC-only root artifact lands here without touching either other
+         * row.
+         */
+        val TBC: RootLayout = RootLayout(
+            flavorId = "tbc",
+            rootFiles = VANILLA.rootFiles,
+            rootDirectories = VANILLA.rootDirectories,
         )
+
+        /**
+         * Measured staged WotLK root (`World.of.Warcraft.3.3.5a.Truewow`):
+         * the vanilla-style files PLUS the later-era root artifacts
+         * `Battle.net.dll`, `Blizzard Updater.exe`, `BNUpdate.exe`,
+         * `Microsoft.VC80.CRT.manifest` (+ its `msvcr80.dll` pair),
+         * `Patch.html` and `Patch.txt`. Directories measure inside the
+         * vanilla layout (`Data/ WTF/`; `Cache/`/`Logs/` are runtime debris),
+         * so only the file set grows.
+         */
+        val WOTLK: RootLayout = RootLayout(
+            flavorId = "wotlk",
+            rootFiles = VANILLA.rootFiles + setOf(
+                "battle.net.dll", "blizzard updater.exe", "bnupdate.exe",
+                "microsoft.vc80.crt.manifest", "msvcr80.dll", "patch.html", "patch.txt",
+            ),
+            rootDirectories = VANILLA.rootDirectories,
+        )
+
+        /** Every declared flavor's layout; the default policy admits the union. */
+        val DECLARED: List<RootLayout> = listOf(VANILLA, TBC, WOTLK)
     }
 }

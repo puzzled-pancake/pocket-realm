@@ -65,6 +65,22 @@ object AutoLoginCredentialProof {
         ) Disposition.ACCEPT else Disposition.INVALID_CREDENTIAL
     }
 
+    /**
+     * The credential a client launch may inject for a proof verdict. ACCEPT
+     * hands over the verified record; every other verdict hands over NOTHING
+     * while the stored record is KEPT on disk — a stale INVALID_CREDENTIAL
+     * verdict degrades the launch to the manual login screen (the
+     * DesktopAppModel.autoLoginIfEnabled disposition), so a stale saved
+     * account can never fail the client start on either platform.
+     */
+    fun credentialForLaunch(
+        disposition: Disposition,
+        verified: UserAccountStore.UserAccount?,
+    ): UserAccountStore.UserAccount? = when (disposition) {
+        Disposition.ACCEPT -> verified
+        Disposition.INVALID_CREDENTIAL, Disposition.AUTHORITY_UNAVAILABLE -> null
+    }
+
     fun accepts(
         expectedOwner: ComponentOwner,
         expectedAccountId: Long,

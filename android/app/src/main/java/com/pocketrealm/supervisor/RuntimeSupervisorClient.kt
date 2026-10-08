@@ -37,10 +37,37 @@ class RuntimeSupervisorClient(context: Context) {
         val bound = appContext.bindService(
             Intent(appContext, RealmService::class.java), connection, Context.BIND_AUTO_CREATE)
         check(bound) { "RuntimeSupervisor bind failed" }
+        // §6.4 failure emission (design realm-status-browser.md): the poll
+        // must never go SILENT on a dead lane. Binder death after a live
+        // connection, a status that never arrives within the startup grace,
+        // and a decode failure (an unknown phase enum from a newer
+        // supervisor — the valueOf throw this loop used to swallow) each
+        // emit an explicit SupervisorUnreachable within one poll interval,
+        // so a degraded upstream can never read as a clean idle.
         val poller = launch {
+            var connectedOnce = false
+            var startupGracePolls = STARTUP_GRACE_POLLS
             while (isActive) {
-                val state = runCatching { remote?.status()?.let(::decodeRealmState) }.getOrNull()
-                if (state != null) trySend(state)
+                val decode = runCatching {
+                    remote?.status()?.let(::decodeRealmState)
+                }
+                val state = decode.getOrNull()
+                if (state != null) {
+                    connectedOnce = true
+                    startupGracePolls = STARTUP_GRACE_POLLS
+                    trySend(state)
+                } else {
+                    val reason = unreachableReason(
+                        decodeFailed = decode.isFailure,
+                        remoteMissing = remote == null,
+                        connectedOnce = connectedOnce,
+                        startupGracePollsLeft = startupGracePolls,
+                    )
+                    startupGracePolls = (startupGracePolls - 1).coerceAtLeast(0)
+                    if (reason != null) {
+                        trySend(RealmState.SupervisorUnreachable(reason))
+                    }
+                }
                 delay(250)
             }
         }
@@ -50,10 +77,65 @@ class RuntimeSupervisorClient(context: Context) {
         }
     }
 
+    // Remote friend accounts (design-remote-accounts §5/§9/§11).
+    suspend fun provisionFriendAccount(username: String, sHex: String, vHex: String): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.provisionFriendAccount(username, sHex, vHex)) }
+    }
+
+    suspend fun banFriendAccount(username: String, duration: String, reason: String): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.banFriendAccount(username, duration, reason)) }
+    }
+
+    suspend fun unbanFriendAccount(username: String): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.unbanFriendAccount(username)) }
+    }
+
+    suspend fun setFriendGmLevel(username: String, level: Int): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.setFriendGmLevel(username, level)) }
+    }
+
+    suspend fun friendRoster(): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.friendRoster()) }
+    }
+
+    suspend fun friendCharacters(username: String): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.friendCharacters(username)) }
+    }
+
+    suspend fun friendAccessState(): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.friendAccessState()) }
+    }
+
+    suspend fun createFriendInvite(note: String): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.createFriendInvite(note)) }
+    }
+
+    suspend fun revokeFriendInvite(inviteId: String): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.revokeFriendInvite(inviteId)) }
+    }
+
+    suspend fun rejectFriendRequest(inviteId: String): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.rejectFriendRequest(inviteId)) }
+    }
+
+    suspend fun approveFriendRequest(inviteId: String): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.approveFriendRequest(inviteId)) }
+    }
+
     suspend fun createAccount(username: String, password: String, gmLevel: Int): JSONObject =
         withContext(Dispatchers.IO) {
             transact { remote -> JSONObject(remote.createAccount(username, password, gmLevel)) }
         }
+
+    /**
+     * F9 (census-backend-tools): the observe-only world presence sample for
+     * the LAN screen's joined-mode players line — the DesktopAppModel
+     * .lanPlayersOnline twin's transport leg. Null when the supervisor
+     * cannot be reached (a dead lane renders nothing, never a guess).
+     */
+    suspend fun worldPresence(): JSONObject? = withContext(Dispatchers.IO) {
+        runCatching { transact { remote -> JSONObject(remote.worldPresence()) } }.getOrNull()
+    }
 
     suspend fun relaunchClient(): JSONObject = withContext(Dispatchers.IO) {
         transact { remote -> JSONObject(remote.relaunchClient()) }
@@ -137,8 +219,12 @@ class RuntimeSupervisorClient(context: Context) {
                 ?.let(RuntimeFailureCopy::humanize)
             return when (phase) {
                 RuntimePhase.STOPPED, RuntimePhase.UNCONFIGURED -> {
-                    if (value.optBoolean("clean") && lastError == null) RealmState.Idle
-                    else RealmState.Failed(
+                    if (value.optBoolean("clean") && lastError == null) {
+                        RealmState.Idle(
+                            value.optString("stopReason").takeIf(String::isNotEmpty)
+                                ?.let(RuntimeFailureCopy::humanize),
+                        )
+                    }                    else RealmState.Failed(
                         lastError ?: "Previous runtime needs recovery before it can start.",
                         unverifiedOrphan = unverifiedOrphan,
                         dbOwnedByDeadSession = dbOwnedByDeadSession,
@@ -158,6 +244,7 @@ class RuntimeSupervisorClient(context: Context) {
                         value.optLong("updatedAtWallMs", System.currentTimeMillis()),
                         RuntimeMode.valueOf(value.optString("runtimeMode", RuntimeMode.LOCAL.name)),
                         value.optString("realmEndpoint", RealmEndpoint.LOOPBACK_ADDRESS),
+                        value.optString("advertisedAddress").takeIf { it.isNotEmpty() },
                         clientState = when (phase) {
                             RuntimePhase.WORLD_READY -> ClientLaunchState.NOT_STARTED
                             RuntimePhase.CLIENT_FAILED -> ClientLaunchState.FAILED
@@ -179,5 +266,43 @@ class RuntimeSupervisorClient(context: Context) {
                 )
             }
         }
+
+        /**
+         * The §6.4 emission decision (pure; pinned by
+         * SupervisorUnreachableEmissionTest): which dead-lane shape this
+         * poll tick is in, and whether it must emit the explicit
+         * SupervisorUnreachable state instead of silence.
+         *
+         *  - a DECODE failure (an unknown phase enum from a newer
+         *    supervisor — the valueOf throw the loop used to swallow)
+         *    emits immediately: the failure is deterministic, so silence
+         *    would last forever;
+         *  - binder death AFTER a live connection emits immediately (the
+         *    :supervisor process died mid-poll);
+         *  - a status that never arrives exhausts the startup grace (the
+         *    silence-before-first-bind fails LOUD too) and then emits;
+         *  - anything else (still within the grace) stays silent — the
+         *    pre-lane state, not a failure claim.
+         */
+        internal fun unreachableReason(
+            decodeFailed: Boolean,
+            remoteMissing: Boolean,
+            connectedOnce: Boolean,
+            startupGracePollsLeft: Int,
+        ): String? = when {
+            decodeFailed -> "supervisor status could not be decoded"
+            remoteMissing && connectedOnce -> "the supervisor process disconnected"
+            startupGracePollsLeft <= 0 -> "the supervisor never published its status"
+            else -> null
+        }
+
+        /**
+         * The §6.4 startup grace: a :supervisor that has not published its
+         * first status within this many polls (2 s at the 250 ms cadence)
+         * stops being "starting up" and becomes explicitly unreachable —
+         * the silence-before-first-bind must also fail LOUD, not wait
+         * forever. Every successful status resets the grace.
+         */
+        internal const val STARTUP_GRACE_POLLS = 8
     }
 }

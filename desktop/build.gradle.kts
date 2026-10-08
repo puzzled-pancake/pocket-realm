@@ -45,14 +45,54 @@ val androidDebugTreeRoot = rootProject.file("../" + sharedManifest["android_debu
 val sharedDebugPaths: List<String> = (sharedManifest["shared_debug"] as List<*>).map { it.toString() }
 
 // The native lanes' DLL output dirs (realm runtimes + the desktop SQLite
-// seam), for every JVM entry point that loads them by name.
+// seam), for every JVM entry point that loads them by name. The runtimes
+// are the MARIADB lane's build (the backend the desktop ships): that lane
+// builds in its own -mariadb-suffixed root (tools/build_win_realm_runtime.
+// py select_win_flavor), so a sqlite dev-lane rebuild can never swap the
+// DLLs under the JVM's library path.
 val nativeLibraryPath: String = listOf(
-    "../native/.build-win-x86_64/pocket-runtime-build",
+    "../native/.build-win-x86_64-mariadb/pocket-runtime-build",
     "../native/.build-win-x86_64/sqlite-seam-build",
 ).joinToString(File.pathSeparator) { rootProject.projectDir.resolve(it).normalize().toString() }
 
+// The mariadb relink made both staged realm runtime DLLs import
+// libmysql.dll (their PE import tables pin it in
+// schemas/realm-runtime-lockfile-mariadb-win.json), and Windows
+// dependent-DLL resolution IGNORES -Djava.library.path — the loader
+// searches PATH. Every JVM entry point below therefore also carries the
+// runtime dir on the child process PATH, so the documented bare
+// invocations boot without a manual PATH prepend; -Djava.library.path
+// stays for the by-name loadLibrary() lookups themselves.
+val nativeRuntimeDir: File =
+    rootProject.projectDir.resolve("../native/.build-win-x86_64-mariadb/pocket-runtime-build").normalize()
+
+fun nativeRuntimePathEnv(): Map<String, String> = mapOf(
+    "PATH" to nativeRuntimeDir.absolutePath + File.pathSeparator + (System.getenv("PATH") ?: ""),
+)
+
 kotlin {
     jvmToolchain(17)
+}
+
+// DESK-39 cross-lane note: okhttp 5.3.0 (the Android app's pin, shared by
+// addons/AddonOperationToken.kt) is built with Kotlin 2.2, whose module
+// metadata the pinned Kotlin 2.0.21 compiler refuses to read — the whole
+// desktop module fails to compile ("incompatible version of Kotlin ... 2.2.0,
+// expected 2.0.0"). Two scoped mitigations, keeping the artifact pin:
+//  1. hold the TRANSITIVE kotlin-stdlib at the compiler's own 2.0.21 (okhttp
+//     drags 2.2.21 in; a module must compile against its compiler's stdlib),
+//  2. skip the metadata version gate so the compiler ACCEPTS okhttp/okio's
+//     2.2-built descriptors (the surface the desktop compiles against —
+//     okhttp3.Call et al. — is stable plain classes/interfaces).
+// If a future dependency genuinely needs 2.2 semantics this is the first
+// thing to retire — by moving the desktop to a Kotlin that reads 2.2.
+configurations.named("compileClasspath") {
+    resolutionStrategy.force("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
+}
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        freeCompilerArgs.add("-Xskip-metadata-version-check")
+    }
 }
 
 // Shared android-tree sources join the compilation at the task level: a
@@ -66,6 +106,13 @@ tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin"
     source(sharedAndroidTestSources)
     // Synthetic fixtures compile into the test source set.
     source(fileTree(androidDebugTreeRoot) { include(sharedDebugPaths) })
+}
+
+// Shared android-tree test resources (the golden fixtures the shared tests
+// read via getResourceAsStream) join the desktop test source set, mirroring
+// how the shared test SOURCES above join its compilation.
+sourceSets.named("test") {
+    resources.srcDir(rootProject.file("../android/app/src/test/resources"))
 }
 
 detekt {
@@ -92,6 +139,16 @@ dependencies {
     // Android app's importer uses).
     implementation("org.tukaani:xz:1.10")
     implementation("org.apache.commons:commons-compress:1.28.0")
+    // DESK-35/64: the desktop RAR lane. The Android lane reads RAR4/RAR5
+    // through the libarchive JNI library (APK-only); the JVM twin reads them
+    // through junrar's pure-Java reader (unrar-license caveat documented in
+    // importer/RarArchiveSource.kt).
+    implementation("com.github.junrar:junrar:8.1.1")
+    // DESK-39: the shared addons/AddonOperationToken cancellation fence is
+    // okhttp-Call-typed (attach/detach); the desktop lane compiles it against
+    // the same artifact version the Android app pins. The GitHub install
+    // twin itself (DesktopAddonRepository) rides java.net.http.
+    implementation("com.squareup.okhttp3:okhttp:5.3.0")
     // Win32 auto-login (SendInput into the launched WoW.exe): the JVM has
     // no FFI at 17, and JNA keeps the credentials in-process (no helper
     // exe command line). JDK 22+ would allow the FFM API instead.
@@ -99,21 +156,131 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    // DESK-39: the shared addons/AddonOperationSafetyTest drives the
+    // cancellation fence against a stalled local HTTP server.
+    testImplementation("com.squareup.okhttp3:mockwebserver3:5.3.0")
 }
 
 application {
     mainClass = "com.pocketrealm.desktop.MainKt"
+    // Same native library path every server gate carries (DESK-lane parity):
+    // without it the app's plain `run` crashes on first WorldNative touch
+    // (UnsatisfiedLinkError: no pocket_world_runtime) and the save-exit
+    // drain shuts the session down.
+    applicationDefaultJvmArgs = listOf("-Djava.library.path=$nativeLibraryPath")
 }
 
+// `run` rides applicationDefaultJvmArgs, which cannot carry an
+// environment; the same libmysql.dll PATH contract as every lane below.
+tasks.named<JavaExec>("run") {
+    environment(nativeRuntimePathEnv())
+}
+
+
+// ---------------------------------------------------------------------------
+// DESK-115: lockfile-pin verification before the runtime ships.
+//
+// NativeRuntimeFreshness (shared-sources.json) is Android's staleness fence;
+// on desktop it was compiled but never used, so packageApp jpackaged
+// whatever three DLLs were staged and a stale-but-ABI-stable
+// pocket_world_runtime.dll shipped silently. These legs feed the
+// already-compiled shared evaluator with the win-lane lockfile
+// (schemas/realm-runtime-lockfile-mariadb-win.json — the MARIADB backend
+// the app's shipped default boots on), schemas/sources.json and
+// — for packageApp — the staging provenance plus freshly rehashed DLL bytes,
+// failing the build on a non-empty Verdict with its REMEDY copy. Skippable
+// ONLY via -PpocketSkipNativeFreshness=true, which skips loudly (the driver
+// refuses any other value as ambiguous).
+// ---------------------------------------------------------------------------
+
+val pocketSkipNativeFreshness: String =
+    (project.findProperty("pocketSkipNativeFreshness") as String?).orEmpty()
+
+fun nativeRuntimeFenceTask(name: String, staged: Boolean, laneLabel: String) =
+    tasks.register<JavaExec>(name) {
+        group = "verification"
+        description =
+            if (staged) {
+                "Rehash the staged realm-runtime DLLs against the win-lane lockfile " +
+                    "(fail the build on staleness)."
+            } else {
+                "Check the win-lane lockfile commits against schemas/sources.json " +
+                    "(pins-only staleness fence)."
+            }
+        classpath = sourceSets.named("main").get().runtimeClasspath
+        mainClass.set("com.pocketrealm.desktop.NativeRuntimeFenceKt")
+        // The fence reads files only, but keeps the same child-process PATH
+        // contract as every lane (the DLLs live beside what it hashes).
+        environment(nativeRuntimePathEnv())
+        args(
+            "--repo-root", rootProject.projectDir.resolve("..").normalize().absolutePath,
+            "--lane", laneLabel,
+            "--mode", if (staged) "staged" else "pins",
+            "--skip", pocketSkipNativeFreshness,
+        )
+    }
+
+val validateNativeRuntimePins = nativeRuntimeFenceTask(
+    "validateNativeRuntimePins",
+    staged = false,
+    laneLabel = "desktop pins-only (mariadb-win)",
+)
+
+// The packageApp leg: full staged-bytes verification over the exact four
+// DLLs the packaging step copies (the lockfile's artifact rows — the two
+// realm runtimes, the sqlite seam, and libmysql.dll, each with its own
+// size/sha256 pin) plus the pinned seed transcripts, so the fence and the
+// packaging can never disagree about what ships.
+val validateNativeRuntimeFreshness = nativeRuntimeFenceTask(
+    "validateNativeRuntimeFreshness",
+    staged = true,
+    laneLabel = "desktop packageApp (mariadb-win)",
+)
+
 tasks.named<Test>("test") {
+    // Round-2 R2-4-2/R3-1: forked test WORKER JVMs take java.io.tmpdir from
+    // the OS %TEMP% on C: (org.gradle.jvmargs only configures the daemon) -
+    // every @TempDir/JUnit scratch root (including SQLite datadir fixtures)
+    // must live under the E: toolchain root (plan section 1 hard rule 1).
+
     // The shared JNI shims loadLibrary() by name; the native lanes' DLL
     // output dirs must be searchable. Tests skip cleanly when absent —
     // unless -PrequireNatives demands them (the CI native lane), which
     // flips every DLL-guarded assumeTrue into a hard failure.
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    systemProperty("java.io.tmpdir", "E:/pocket_realm_toolchain/tmp")
+    // The same dependent-DLL (libmysql.dll) PATH contract as the lanes:
+    // the DLL-loading test legs would die on UnsatisfiedLinkError with
+    // -Djava.library.path alone.
+    environment(nativeRuntimePathEnv())
     if (project.hasProperty("requireNatives")) {
         systemProperty("pocketrealm.requireNatives", "true")
     }
+    // Isolation valve for parallel development lanes sharing this project
+    // dir: concurrent `test` invocations interleave on build/test-results
+    // (one lane's cleanup deletes another's open output.bin and the
+    // executors die on the broken stream). When -PtestResultsDir is passed,
+    // this run's results go there instead; default behavior is unchanged.
+    // NOTE: must resolve the -P gradle property, never project.findProperty:
+    // the java plugin registers a convention project property of the same
+    // name (a File — buildDir/test-results), so findProperty never returns
+    // null and the String cast throws ClassCastException at task creation.
+    providers.gradleProperty("testResultsDir").orNull?.let { resultsDir ->
+        binaryResultsDirectory.set(file("$resultsDir/binary"))
+        reports.junitXml.outputLocation.set(file(resultsDir))
+    }
+    // The world is one-lifetime-per-process (DESK-25): a second in-process
+    // start refuses with WRONG_STATE. The suite now boots the real world in
+    // TWO legs (the DESK-29 presence leg + the FriendAccountNativeOpsTest
+    // relay-op leg), so each test CLASS gets a fresh JVM - the one-lifetime
+    // budget is per class, never contended by class order.
+    forkEvery = 1
+    // DESK-115 test leg: the pins-only staleness fence rides every test run,
+    // so a lockfile that drifted from schemas/sources.json fails even where
+    // the untracked staging bytes do not exist (mirrors the Android
+    // validateNativeRuntimePins lane; the shared NativeRuntimeFreshnessTest
+    // in shared_tests pins evaluate() itself).
+    dependsOn(validateNativeRuntimePins)
 }
 
 
@@ -128,6 +295,57 @@ tasks.register<JavaExec>("supervisorStartGate") {
     classpath = sourceSets.named("main").get().runtimeClasspath
     mainClass.set("com.pocketrealm.desktop.SupervisorStartGateKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    environment(nativeRuntimePathEnv())
+}
+
+// GAP-2 (was DESKPROD-2) live lane: the restore -> proof -> ordinary-start
+// sequence the fix plan records as the restore pair's deeper exit
+// criterion. supervisorStartGate's ordinary cycle cannot also host it: the
+// proof's READY spends the process's one world lifetime (DESK-25), so this
+// sequence owns its own process. Run after supervisorStartGate.
+tasks.register<JavaExec>("supervisorRestoreGate") {
+    group = "bring-up"
+    description = "Restore a backup through the production bots-disabled proof; " +
+        "verify the spent-lifetime disclosure and the WRONG_STATE next-start refusal."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.SupervisorRestoreGateKt")
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    environment(nativeRuntimePathEnv())
+}
+
+// DESK-109/111 save-exit exercise gate: boots the stack through the
+// supervisor, registers the PRODUCTION save-exit shutdown hook, and exits
+// MID-SESSION (no window, no onCloseRequest) — then a second JVM reads the
+// durable state back and fails unless the hook's drain saved the world and
+// stopped cleanly (journal clean at STOPPED, clean world lifecycle record,
+// no WAL sidecars). Needs the staged natives, seeds, and prepared data;
+// missing inputs fail the gate loudly, never a fake pass.
+val saveExitGateBoot = tasks.register<JavaExec>("saveExitGateBoot") {
+    group = "bring-up"
+    description = "Boot via the supervisor, register the save-exit hook, exit mid-session."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.SaveExitGateKt")
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    environment(nativeRuntimePathEnv())
+    systemProperty("saveExitGate.phase", "boot")
+}
+
+val saveExitGateVerify = tasks.register<JavaExec>("saveExitGateVerify") {
+    group = "bring-up"
+    description = "Verify the mid-session exit drained the stack cleanly (journal + lifecycle + sidecars)."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.SaveExitGateKt")
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    environment(nativeRuntimePathEnv())
+    systemProperty("saveExitGate.phase", "verify")
+    mustRunAfter(saveExitGateBoot)
+}
+
+tasks.register("saveExitGate") {
+    group = "bring-up"
+    description =
+        "Exit mid-session and prove the save-exit shutdown hook drained the booted stack."
+    dependsOn(saveExitGateBoot, saveExitGateVerify)
 }
 
 // Bring-up: seed the four realm databases from the pinned
@@ -138,6 +356,7 @@ tasks.register<JavaExec>("seedRealmData") {
     classpath = sourceSets.named("main").get().runtimeClasspath
     mainClass.set("com.pocketrealm.desktop.SeedRealmDataKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    environment(nativeRuntimePathEnv())
     if (project.hasProperty("stagingRoot")) {
         args(project.property("stagingRoot"))
     }
@@ -151,6 +370,7 @@ tasks.register<JavaExec>("bootRealmd") {
     classpath = sourceSets.named("main").get().runtimeClasspath
     mainClass.set("com.pocketrealm.desktop.BootRealmdKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    environment(nativeRuntimePathEnv())
 }
 
 // Dev/probe lane: boot realmd and HOLD it up for external probes.
@@ -160,6 +380,7 @@ tasks.register<JavaExec>("realmdHold") {
     classpath = sourceSets.named("main").get().runtimeClasspath
     mainClass.set("com.pocketrealm.desktop.RealmdHoldKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    environment(nativeRuntimePathEnv())
 }
 
 // Gate: protocol-level SRP6 authentication against the live
@@ -170,6 +391,7 @@ tasks.register<JavaExec>("authGate") {
     classpath = sourceSets.named("main").get().runtimeClasspath
     mainClass.set("com.pocketrealm.desktop.AuthGateKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    environment(nativeRuntimePathEnv())
 }
 // Gate: full world boot against the prepared data (run
 // tools/win_prepare_data.py first), 8085 listener + clean save/stop.
@@ -179,6 +401,7 @@ tasks.register<JavaExec>("bootWorld") {
     classpath = sourceSets.named("main").get().runtimeClasspath
     mainClass.set("com.pocketrealm.desktop.BootWorldKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    environment(nativeRuntimePathEnv())
 }
 // Bring-up: boot the full stack + launch WoW.exe against it
 // (interactive; press Enter in the console to save + stop).
@@ -188,6 +411,7 @@ tasks.register<JavaExec>("launchClient") {
     classpath = sourceSets.named("main").get().runtimeClasspath
     mainClass.set("com.pocketrealm.desktop.LaunchClientKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    environment(nativeRuntimePathEnv())
     standardInput = System.`in`
     if (project.hasProperty("clientDir")) {
         jvmArgs("-DclientDir=${project.property("clientDir")}")
@@ -202,6 +426,7 @@ tasks.register<JavaExec>("whisperGate") {
     classpath = sourceSets.named("main").get().runtimeClasspath
     mainClass.set("com.pocketrealm.desktop.WhisperGateKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    environment(nativeRuntimePathEnv())
 }
 
 // Harness lane: the stdio JSON-line RP host (see RpHost.kt). One JSON op
@@ -214,6 +439,7 @@ tasks.register<JavaExec>("rpHost") {
     classpath = sourceSets.named("main").get().runtimeClasspath
     mainClass.set("com.pocketrealm.desktop.RpHostKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    environment(nativeRuntimePathEnv())
     standardInput = System.`in`
     if (project.hasProperty("clientDir")) {
         jvmArgs("-DclientDir=${project.property("clientDir")}")
@@ -233,8 +459,9 @@ tasks.register<JavaExec>("rpHost") {
 }
 
 // Packaging: jpackage app image carrying the native lanes
-// (realm DLLs + sqlite seam), the pinned seed transcripts, and the
-// build provenance. Inputs are machine-local build outputs — the task
+// (realm DLLs + sqlite seam + libmysql.dll + the mariadb-provider
+// closure), the pinned seed transcripts, and the build provenance.
+// Inputs are machine-local build outputs — the task
 // skips honestly (not fails) when the native lanes have not been built.
 
 // Fat jar: jpackage's single -- input classpath needs the whole app
@@ -266,10 +493,32 @@ tasks.register("packageApp") {
     group = "bring-up"
     description = "Build the jpackage app image with DLLs, seeds, and provenance."
     dependsOn(appJar)
+    // DESK-115: fail loudly before jpackage when the staged DLLs do not
+    // match the win-lane lockfile pins (or the lane provenance drifted).
+    // When the native lanes were never built here, the fence honest-skips
+    // and the missing-inputs check below still reports the gaps.
+    dependsOn(validateNativeRuntimeFreshness)
     doLast {
-        val runtimeDir = rootProject.projectDir.resolve("../native/.build-win-x86_64/pocket-runtime-build")
+        // The mariadb-win lane's OWN build root (-mariadb suffix, select_win_
+        // flavor): the desktop image ships this lane, and its root is
+        // disjoint from the sqlite dev lane's so neither rebuild can
+        // overwrite the other's staged bytes.
+        val runtimeDir = rootProject.projectDir.resolve("../native/.build-win-x86_64-mariadb/pocket-runtime-build")
         val seamDir = rootProject.projectDir.resolve("../native/.build-win-x86_64/sqlite-seam-build")
         val stagingRoot = rootProject.projectDir.resolve("../native/.build-o09-x86_64/realm-staging-sqlite")
+        // The mariadb-win lane's own staging (the lane the DESK-115 fence
+        // pins — NativeRuntimeFence.PROVENANCE_RELATIVE): the image's
+        // bundled provenance must describe the SHIPPED lane, not the sqlite
+        // sibling that only happens to share the seed transcripts.
+        val laneStagingRoot = rootProject.projectDir.resolve("../native/.build-o09-x86_64/realm-staging")
+        // The MARIADB default's provider lane (DESK-47/106): packageApp
+        // stages the verified provider closure under mariadb-provider/ (the
+        // engine resolves it from the app dir via java.library.path) and the
+        // committed lockfile FLAT beside the DLLs — an install has no
+        // schemas/ checkout to walk up to, so without the bundled pin the
+        // closure could only refuse with DB-LINK.
+        val providerRoot = rootProject.projectDir.resolve("../native/.build-win-x86_64/mariadb-provider")
+        val providerLockfile = rootProject.projectDir.resolve("../schemas/database-provider-lockfile-win.json")
         val jarFile = appJar.get().outputs.files.singleFile
         val seeds = listOf("classicrealmd", "classiccharacters", "classiclogs", "classicmangos")
             .map { stagingRoot.resolve("assets/seed/$it.sqlz") }
@@ -281,16 +530,32 @@ tasks.register("packageApp") {
             "llm/cacert.pem",
             "lore/lore_cards_v112.jsonl",
         ).map { rootProject.projectDir.resolve("../android/app/src/main/assets/$it").normalize() }
+        // DESK-10/54/83: the addon bundle (researched catalog + the
+        // project-owned android-port add-on tree) stages under addons/ in the
+        // image so DesktopAddonAssets resolves it from the jpackage $APPDIR
+        // at runtime.
+        val addonBundle = rootProject.projectDir.resolve("../android/app/src/main/assets/addons")
+        // The dependent DLLs the image must ALSO carry beside the exe (see
+        // the post-jpackage step below); resolved once, staged twice.
+        val vcRuntime = vcRuntimeDlls()
         val allInputs = listOf(
             jarFile,
             runtimeDir.resolve("pocket_realmd_runtime.dll"),
             runtimeDir.resolve("pocket_world_runtime.dll"),
+            // The MariaDB Connector/C client DLL the mariadb-backend
+            // runtimes import BY NAME — pe_imports elsewhere pin only the
+            // import NAME; this DLL's BYTES are pinned by its own artifact
+            // row in realm-runtime-lockfile-mariadb-win.json, so the fence
+            // rehashes all four shipped DLLs, never three.
+            runtimeDir.resolve("libmysql.dll"),
             seamDir.resolve("pocket_sqlite.dll"),
-            stagingRoot.resolve("BUILD_PROVENANCE.json"),
-        ) + seeds + llmAssets + vcRuntimeDlls()
+            laneStagingRoot.resolve("BUILD_PROVENANCE.json"),
+            providerLockfile,
+        ) + seeds + llmAssets + vcRuntime
         val missing = allInputs.filter { !it.isFile }
-        if (missing.isNotEmpty()) {
-            val listing = missing.joinToString(System.lineSeparator()) { "  $it" }
+        if (missing.isNotEmpty() || !addonBundle.isDirectory || !providerRoot.isDirectory) {
+            val listing = (missing + listOf(addonBundle, providerRoot).filterNot { it.isDirectory })
+                .joinToString(System.lineSeparator()) { "  $it" }
             logger.lifecycle("packageApp SKIPPED (missing inputs):$listing")
             return@doLast
         }
@@ -298,6 +563,31 @@ tasks.register("packageApp") {
         imageInput.deleteRecursively()
         imageInput.mkdirs()
         allInputs.forEach { it.copyTo(imageInput.resolve(it.name), overwrite = true) }
+        addonBundle.copyRecursively(imageInput.resolve("addons"), overwrite = true)
+        // DESK-28 embedded-LLM lane payload, an OPTIONAL group: the Windows
+        // llama-server sidecar binary + its GGUF dir, built into the native
+        // llm staging tree by tools/build_win_llama_server.py (the pinned
+        // schemas/sources.json llama-cpp-6d05498 source). The binary is
+        // resolved at runtime from the app dir (java.library.path = $APPDIR,
+        // DesktopLlmModelManager's packaged lane). Unlike the required
+        // DLLs/seeds an absent payload must NOT block the image: the
+        // on-device lane degrades to the manager's honest
+        // ERR_NO_SIDECAR_BINARY refusal instead.
+        val llamaStaging = rootProject.projectDir.resolve("../native/.build-win-x86_64/llama-staging")
+        val llamaServerBinary = llamaStaging.resolve("llama-server.exe")
+        val llamaGgufDir = llamaStaging.resolve("gguf")
+        if (llamaServerBinary.isFile) {
+            llamaServerBinary.copyTo(imageInput.resolve(llamaServerBinary.name), overwrite = true)
+            if (llamaGgufDir.isDirectory) {
+                llamaGgufDir.copyRecursively(imageInput.resolve("gguf"), overwrite = true)
+            }
+        } else {
+            logger.lifecycle(
+                "packageApp: embedded-LLM lane payload absent " +
+                    "(${llamaServerBinary.absolutePath}) — the on-device LLM lane stays off " +
+                    "in this image (build it: python tools/build_win_llama_server.py)",
+            )
+        }
         val outDir = layout.buildDirectory.dir("package").get().asFile
         val image = outDir.resolve("PocketRealm")
         // jpackage refuses an existing app-image destination; a stale
@@ -327,6 +617,59 @@ tasks.register("packageApp") {
             )
         }
         applyLongPathAwareManifest(image.resolve("PocketRealm.exe"))
+        val appDir = image.resolve("app")
+        // Dependent-DLL resolution gate: Windows resolves a loaded DLL's
+        // static imports through the EXE's directory (search position #1),
+        // the system dirs, then PATH — never -Djava.library.path and (probed
+        // on JDK 17, PATH clean) never the loaded DLL's own $APPDIR. The
+        // staged libmysql.dll and VC runtime DLLs therefore also go BESIDE
+        // PocketRealm.exe, or the packaged app's first realm/world start
+        // dies with UnsatisfiedLinkError exactly like the pre-fix dev lanes.
+        (listOf(runtimeDir.resolve("libmysql.dll")) + vcRuntime).forEach { dll ->
+            dll.copyTo(image.resolve(dll.name), overwrite = true)
+        }
+        // The MARIADB default's provider closure, staged whole exactly as
+        // the lane wrote it (bin/lib/plugin/share + bootstrap.sql/
+        // migration-manifest.json/migrations): the engine verifies it
+        // against the bundled lockfile above and launches mariadbd from it.
+        // Copied AFTER jpackage on purpose: jpackage recursively sweeps
+        // every .jar under --input onto the launcher cfg's app.classpath,
+        // which put the MariaDB distribution's incidental jars
+        // (share/mysql/JdbcInterface.jar, Mongo2.jar, Mongo3.jar — vetted
+        // by no lockfile) on the app classpath of every install.
+        providerRoot.copyRecursively(appDir.resolve("mariadb-provider"), overwrite = true)
+        // The sweep contract the provider move buys: exactly one
+        // app.classpath entry — the fat app jar, nothing swept in.
+        val classpathEntries = appDir.resolve("PocketRealm.cfg")
+            .readLines()
+            .filter { it.startsWith("app.classpath") }
+            .map { it.substringAfter('=').trim() }
+        if (classpathEntries.size != 1 || !classpathEntries.single().endsWith(jarFile.name)) {
+            throw GradleException(
+                "PocketRealm.cfg must name exactly one app.classpath (the main jar " +
+                    "${jarFile.name}); found: $classpathEntries — jpackage's input jar " +
+                    "sweep picked up jars that must never be on the app classpath",
+            )
+        }
+        // Boot the finished image once before shipping: the packaged-image
+        // smoke lane (Main.kt, -Dpocketrealm.nativeSmoke=1) loads every
+        // shipped DLL through the launcher's own cfg/java.library.path and
+        // exits 0/1 without opening a window. PATH is scrubbed to the
+        // Windows system dirs so the load can only resolve libmysql.dll and
+        // the VC runtime from the exe dir copies above — a DLL staged into
+        // $APPDIR but not beside the exe fails here, not in a user's install.
+        val systemRoot = System.getenv("SystemRoot") ?: "C:\\Windows"
+        exec {
+            environment(
+                "PATH" to listOf(
+                    "$systemRoot\\System32",
+                    systemRoot,
+                    "$systemRoot\\System32\\Wbem",
+                ).joinToString(File.pathSeparator),
+                "JAVA_TOOL_OPTIONS" to "-Dpocketrealm.nativeSmoke=1",
+            )
+            commandLine(image.resolve("PocketRealm.exe").absolutePath)
+        }
         logger.lifecycle("app image: $image")
     }
 }
@@ -355,12 +698,20 @@ fun vcRuntimeDlls(): List<File> {
         commandLine(vswhere.absolutePath, "-latest", "-products", "*", "-property", "installationPath")
     }.standardOutput.asText.get().trim().lineSequence().firstOrNull() ?: return emptyList()
     val redistRoot = File(install, "VC/Redist/MSVC")
+    // The CRT dir is picked BY NAME among its redist siblings: an x64 redist
+    // version also stages Microsoft.VC*.CXXAMP and Microsoft.VC*.OpenMP,
+    // and a plain "starts with Microsoft.VC" pick lands on OpenMP (sorted
+    // last), which carries none of the three imported DLLs — the pick then
+    // silently degenerates to an empty list and the image ships without
+    // any VC runtime, booting only where System32 already has the redist.
     val crt = redistRoot.listFiles()
         ?.sortedByDescending { it.name }
         ?.firstNotNullOfOrNull { version ->
             version.resolve("x64").listFiles()
                 ?.sortedByDescending { it.name }
-                ?.firstOrNull { dir -> dir.name.startsWith("Microsoft.VC") }
+                ?.firstOrNull { dir ->
+                    dir.name.startsWith("Microsoft.VC") && dir.name.endsWith(".CRT")
+                }
         } ?: return emptyList()
     return listOf("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")
         .map { crt.resolve(it) }
@@ -408,4 +759,9 @@ fun applyLongPathAwareManifest(exe: File) {
                 "the Microsoft Store alias stub, disable the alias or put a real python on PATH.",
         )
     }
+}
+
+tasks.withType<Test>().configureEach {
+    // Every forked test worker keeps its temp tree on E: (round-2 R2-4-2).
+    systemProperty("java.io.tmpdir", "E:/pocket_realm_toolchain/tmp")
 }

@@ -3,6 +3,7 @@ package com.pocketrealm.supervisor
 import android.content.Context
 import android.system.Os
 import android.system.OsConstants
+import com.pocketrealm.client.ClientFlavors
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -33,12 +34,14 @@ class UserAccountStore(context: Context) {
         password: String,
         accountId: Long,
         gmLevel: Int = 0,
+        flavor: String = ClientFlavors.VANILLA.flavorId,
     ): UserAccount = synchronized(lock) {
         require(isValidCredential(username)) { "invalid user-account username" }
         require(isValidCredential(password)) { "invalid user-account password" }
         require(accountId > 0) { "user-account id is invalid" }
         require(gmLevel in 0..3) { "user-account privilege is invalid" }
-        val account = UserAccount(username, password, accountId, gmLevel)
+        require(flavor in ClientFlavors.ALL.map { it.flavorId }) { "invalid user-account flavor" }
+        val account = UserAccount(username, password, accountId, gmLevel, flavor)
         writeLocked(account)
         account
     }
@@ -52,8 +55,19 @@ class UserAccountStore(context: Context) {
         }
     }
 
+    /**
+     * The user's explicit removal: the active record AND every forensic
+     * quarantine copy go — each `account.invalid.*.json` carries the full
+     * plaintext username+password record, so a removal that left them
+     * behind would keep the secret on disk after the user asked for it to
+     * be gone. (The quarantine copies exist for UNINTENTIONAL transitions
+     * — a corrupt load, a stale record — where triage needs the bytes; an
+     * intentional clear revokes that retention.)
+     */
     fun clear(): Unit = synchronized(lock) {
         if (recordFile.isFile) check(recordFile.delete()) { "stored user account could not be removed" }
+        directory.listFiles { file -> file.name.startsWith("account.invalid.") }
+            ?.forEach { file -> runCatching { file.delete() } }
         syncDirectoryLocked()
     }
 
@@ -61,31 +75,14 @@ class UserAccountStore(context: Context) {
 
     private fun readLocked(): UserAccount? {
         if (!recordFile.isFile) return null
-        val value = JSONObject(recordFile.readText(Charsets.UTF_8))
-        require(value.getInt("schema") == SCHEMA) { "unsupported user-account schema" }
-        val username = value.getString("username")
-        val password = value.getString("password")
-        require(isValidCredential(username)) { "invalid stored user-account username" }
-        require(isValidCredential(password)) { "invalid stored user-account password" }
-        val accountId = value.optLong("accountId", 0)
-        require(accountId > 0) { "invalid stored user-account id" }
-        val gmLevel = value.optInt("gmLevel", -1)
-        require(gmLevel in 0..3) { "invalid stored user-account privilege" }
-        return UserAccount(username, password, accountId, gmLevel)
+        return decodeRecord(JSONObject(recordFile.readText(Charsets.UTF_8)))
     }
 
     private fun writeLocked(account: UserAccount) {
         directory.mkdirs()
         Os.chmod(directory.absolutePath, OWNER_DIRECTORY_MODE)
         val temp = File(directory, ".user-account.${android.os.Process.myPid()}.tmp")
-        val encoded = JSONObject()
-            .put("schema", SCHEMA)
-            .put("username", account.username)
-            .put("password", account.password)
-            .put("accountId", account.accountId)
-            .put("gmLevel", account.gmLevel)
-            .toString()
-            .toByteArray(Charsets.UTF_8)
+        val encoded = encodeRecord(account)
         FileOutputStream(temp).use { stream ->
             stream.write(encoded)
             stream.fd.sync()
@@ -120,6 +117,7 @@ class UserAccountStore(context: Context) {
         val password: String,
         val accountId: Long,
         val gmLevel: Int = 0,
+        val flavor: String = ClientFlavors.VANILLA.flavorId,
     ) {
         override fun toString(): String =
             "UserAccount(username=<redacted>, password=<redacted>, accountId=$accountId, gmLevel=$gmLevel)"
@@ -127,6 +125,7 @@ class UserAccountStore(context: Context) {
 
     companion object {
         private const val SCHEMA = 2
+        private const val MAX_GM_LEVEL = 3
         private const val DIRECTORY = "user-account"
         private const val RECORD = "account.json"
         private val OWNER_FILE_MODE = OsConstants.S_IRUSR or OsConstants.S_IWUSR
@@ -135,5 +134,44 @@ class UserAccountStore(context: Context) {
         /** Realm account rule: length 1..16, ASCII alphanumeric. */
         fun isValidCredential(value: String): Boolean =
             value.length in 1..16 && value.all { it.isLetterOrDigit() && it.code < 128 }
+
+        /**
+         * Pure record decoder (the [readLocked] body) so the durable format is
+         * unit-testable on the JVM. G3-1: the flavor rides as an OPTIONAL
+         * field at the existing SCHEMA — records that predate the key decode
+         * as vanilla and are never quarantined for its absence; only an
+         * unknown flavor VALUE is rejected (which quarantines via
+         * [loadOrQuarantine], fail-closed against doctored records).
+         */
+        internal fun decodeRecord(value: JSONObject): UserAccount {
+            require(value.getInt("schema") == SCHEMA) { "unsupported user-account schema" }
+            val username = value.getString("username")
+            val password = value.getString("password")
+            require(isValidCredential(username)) { "invalid stored user-account username" }
+            require(isValidCredential(password)) { "invalid stored user-account password" }
+            val accountId = value.optLong("accountId", 0)
+            require(accountId > 0) { "invalid stored user-account id" }
+            val gmLevel = value.optInt("gmLevel", -1)
+            require(gmLevel in 0..MAX_GM_LEVEL) { "invalid stored user-account privilege" }
+            val flavor = value.optString("flavor", ClientFlavors.VANILLA.flavorId)
+            require(flavor in ClientFlavors.ALL.map { it.flavorId }) { "invalid stored user-account flavor" }
+            return UserAccount(username, password, accountId, gmLevel, flavor)
+        }
+
+        /**
+         * Pure record encoder (the [writeLocked] body). The flavor key is
+         * written ONLY when non-vanilla, so the bytes written for existing
+         * vanilla users are unchanged (G3-1 byte-stability).
+         */
+        internal fun encodeRecord(account: UserAccount): ByteArray {
+            val encoded = JSONObject()
+                .put("schema", SCHEMA)
+                .put("username", account.username)
+                .put("password", account.password)
+                .put("accountId", account.accountId)
+                .put("gmLevel", account.gmLevel)
+            if (account.flavor != ClientFlavors.VANILLA.flavorId) encoded.put("flavor", account.flavor)
+            return encoded.toString().toByteArray(Charsets.UTF_8)
+        }
     }
 }

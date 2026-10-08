@@ -28,14 +28,15 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools" / "rp_harness"))
+import common  # noqa: E402
 
-from desktop_host import DesktopHost, DesktopHostError  # noqa: E402
+from desktop_host import (DesktopHost, DesktopHostError,  # noqa: E402
+                          RPTEST_PASS, RPTEST_USER)
 
-WORLD_LOG = (Path(__file__).resolve().parents[2] / "build" / "rp-desktop" /
-             "world.log")
-if not WORLD_LOG.parent.exists():
-    WORLD_LOG = (Path(__import__("os").environ["LOCALAPPDATA"]) /
-                 "PocketRealm" / "runtime" / "server" / "logs" / "world.log")
+# the LIVE log, always: the build/rp-desktop snapshot a desktop_smoke run
+# leaves behind never grows, so slicing it misreads every probe as an
+# emitted-loss (desktop_soak.py:37 / desktop_play.py:27 read it live too)
+WORLD_LOG = common.product_data_root() / "runtime" / "server" / "logs" / "world.log"
 
 RE_FUNNEL = re.compile(
     r"BotLLM: toolfunnel bot=(\d+) speaker=\d+ stamp=\d+ tool=(\S+) stage=(\S+)")
@@ -102,8 +103,8 @@ def main(argv: list[str] | None = None) -> int:
             raise DesktopHostError(f"only {len(bots)} bots online")
         host.reset("")
 
-        login = host.send_raw({"op": "proto-login", "user": "RPTEST", "pass": "rptest"})
-        host.send_raw({"op": "proto-world", "user": "RPTEST"})
+        login = host.send_raw({"op": "proto-login", "user": RPTEST_USER, "pass": RPTEST_PASS})
+        host.send_raw({"op": "proto-world", "user": RPTEST_USER})
         chars = host.send_raw({"op": "proto-chars"}).get("chars") or []
         davos = next((c for c in chars if c.get("name") == "Davos"), None)
         if davos is None:

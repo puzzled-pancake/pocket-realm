@@ -9,14 +9,30 @@ The large card at the top shows the current state.
 | State | What it means |
 | --- | --- |
 | Ready to start | The local realm is stopped and its saved data is available. |
+| Hosting stopped | The realm stopped with a reason (for example the network interface went away); the card explains what happened. |
 | Starting | Pocket Realm is preparing the database, world, and other services. |
 | Realm online | The local world is ready. The account and game can be used. |
+| Realm online; game needs retry | The server side is up, but the game client did not start; read the message and retry the game. |
+| LAN realm online | The world is up and hosting for LAN/tunnel players; the card shows the hosting address and, when a tunnel is active, the advertised tunnel address. |
+| LAN client online | This device runs a client-only session against another host. |
 | Saving | The app is waiting for important writes to finish. |
 | Stopping | The game and local services are closing in order. |
 | Recovering | The app found an interrupted earlier session and is checking it. |
 | Needs attention | Something failed and the message explains the next useful action. |
+| Supervisor unreachable | The status could not be read. The realm is NOT reported offline — the message names the reason and Start reconnects the supervisor. |
 
 The card also shows the selected bot profile and its starting and target population.
+
+## Game flavor
+
+A **Game flavor** switcher card sits with the setup cards. Each chip selects
+the game version this lane plays. All registered flavors render as chips;
+an unqualified flavor is visible but unselectable (Vanilla 1.12.1 is
+selectable today; The Burning Crusade and Wrath of the Lich King stay
+unselectable until their clients are qualified).
+Switching the flavor re-targets imports, prepared world data, and bot
+populations on that lane.
+Unqualified flavors stay off until their client is qualified.
 
 ## Main buttons
 

@@ -1,0 +1,21 @@
+{
+ "schema": 1,
+ "target": "llama-server",
+ "abi": "x86_64",
+ "os": "windows",
+ "source": {
+  "id": "llama-cpp-6d05498",
+  "commit": "6d05498314db1b57f81c271080018aa2d0b89be9",
+  "tarball_sha256": "cb34e407ee7a6dd7c2fe75530e60089647da74673a70097b0389506c1cf95167"
+ },
+ "build": {
+  "script": "tools/build_win_llama_server.py",
+  "contract": "CPU-only (no CUDA/Vulkan/HIP/SYCL/OpenMP), static, LLAMA_CURL off"
+ },
+ "artifact": {
+  "name": "llama-server.exe",
+  "path": "native/.build-win-x86_64/llama-staging/llama-server.exe",
+  "bytes": 29898240,
+  "sha256": "1fd8b41bb5ee55a89b9b25db4c033b84f48cc4b59f57697eadf398cd11580ec7"
+ }
+}

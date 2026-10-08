@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "abi": "x86_64",
+  "min_api": 26,
+  "elf_max_page_size": "0x4000",
+  "cmangos_commit": "ffbf97675dc31f845587778f5bb993b232f1b6a2",
+  "purpose": "Finite on-device DBC/map/vmap/mmap preparation",
+  "source_patches": [
+    {
+      "path": "native/patches/o11-cmangos-safe-mpq-listfile.patch",
+      "sha256": "f0103d0aa7426bbfd9237225657e25eb5c3446baefd98cbebb05a72ddefe27d0"
+    },
+    {
+      "path": "native/o11-patches/o11-cmangos-tbc-icu-apple-guard.patch",
+      "sha256": "b50e38fc8ed6f6a88382b6bbaf03ab596be96a8d31deebd256649a8c85fe37d9"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "native/.build-o11-x86_64-tbc/extractor-staging/jniLibs/x86_64/libpocket_ad.so",
+      "size": 182712,
+      "sha256": "3eee89ff34f91f56b2eeb62f3f8dcef207816af80943490c4b5e5306d58c20f2",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o11-x86_64-tbc/extractor-staging/jniLibs/x86_64/libpocket_vmap_extractor.so",
+      "size": 479776,
+      "sha256": "6cdd43cf77ee78bacf03a94596c6cabb36ff99525d2509dd89bf0d0b8895fc91",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o11-x86_64-tbc/extractor-staging/jniLibs/x86_64/libpocket_vmap_assembler.so",
+      "size": 359336,
+      "sha256": "e2ead3f6bcfcd6cf39f21fec08c516e8ddd082b0b176b1c89640dcc4d23d7463",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o11-x86_64-tbc/extractor-staging/jniLibs/x86_64/libpocket_movemapgen.so",
+      "size": 1971728,
+      "sha256": "df67ae245a37ce15289f88be3fade7b0b399c27f847898f4e1e7327e430c3f35",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    }
+  ]
+}

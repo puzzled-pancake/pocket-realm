@@ -255,6 +255,28 @@ class SettingsUpdateWriteSetTest {
     }
 
     @Test
+    fun flavorSelectionRoundTripsVerbatimUnderTheReviewedKeyName() {
+        // The Home switcher's pick must persist VERBATIM ("" = no pick): the
+        // :supervisor realmlist projection resolves it through the fail-loud
+        // ActiveFlavor machine at use, so a stale value refuses the start
+        // instead of being normalized into a silent lane downgrade here.
+        val key = stringPreferencesKey("selected_flavor_id")
+        val picked = mutablePreferencesOf()
+        picked.writeSnapshotWrites(Settings.Snapshot(selectedFlavorId = "vanilla"), display)
+        assertEquals("vanilla", picked[key])
+        assertEquals("vanilla", Settings.Snapshot(selectedFlavorId = "vanilla").selectedFlavorOrNull())
+        // No pick is the empty string (resolution falls to the machine's
+        // sole-qualified default), and a stale pick stays un-normalized.
+        val none = mutablePreferencesOf()
+        none.writeSnapshotWrites(Settings.Snapshot(), display)
+        assertEquals("", none[key])
+        assertNull(Settings.Snapshot().selectedFlavorOrNull())
+        val stale = mutablePreferencesOf()
+        stale.writeSnapshotWrites(Settings.Snapshot(selectedFlavorId = "tbc"), display)
+        assertEquals("tbc", stale[key])
+    }
+
+    @Test
     fun writeSetCoversExactlyTheReviewedPersistedKeys() {
         val prefs = mutablePreferencesOf()
         prefs.writeSnapshotWrites(Settings.Snapshot(llmEnabled = true), display)
@@ -286,7 +308,10 @@ class SettingsUpdateWriteSetTest {
                 "game_settings_queue", "game_settings_queue_schema",
                 "audio_mode", "nearby_interact_trigger_guard_ms",
                 "world_debug_logs",
-                "runtime_mode", "allow_lan_players",
+                "runtime_mode", "allow_lan_players", "friend_access_enabled",
+                "tunnel_advertised_address",
+                "timeframe_stage",
+                "selected_flavor_id",
                 "llm_enabled", "llm_compute_mode", "llm_cores_mask",
                 "llm_threads", "llm_offload_layers",
                 "llm_external_mode", "llm_external_url", "llm_external_api_key",

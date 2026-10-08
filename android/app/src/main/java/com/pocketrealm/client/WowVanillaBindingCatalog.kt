@@ -1,7 +1,13 @@
 package com.pocketrealm.client
 
 /**
- * The sections exposed by the stock WoW 1.12.1 key-binding screen.
+ * The sections exposed by the stock WoW key-binding screens, pinned per flavor.
+ *
+ * Members through INTERNAL_POINTER cover the stock WoW 1.12.1 screen (the
+ * vanilla catalog's grouping). TOTEM_BAR and VEHICLE_CONTROLS exist only in
+ * the 2.4.3+/3.3.5 catalogs (WowTbcBindingCatalog/WowWotlkBindingCatalog,
+ * captured from the staged clients' own Bindings.xml headers
+ * MULTICASTFUNCTIONS and VEHICLE); the vanilla catalog never emits them.
  *
  * Action bars are intentionally separate: a controller editor can present a compact main-bar
  * list without hiding the self-cast, stance, bonus, or four multi-bar namespaces.
@@ -22,6 +28,8 @@ enum class WowBindingCategory(val displayName: String) {
     MULTI_ACTION_BARS("Additional action bars"),
     RAID_MARKERS("Raid markers"),
     INTERNAL_POINTER("Internal pointer actions"),
+    TOTEM_BAR("Shaman totem bar"),
+    VEHICLE_CONTROLS("Vehicle controls"),
 }
 
 /** How the original FrameXML binding consumes an assigned input. */

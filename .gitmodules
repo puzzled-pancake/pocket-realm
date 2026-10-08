@@ -10,3 +10,27 @@
 	path = native/playerbots
 	url = https://github.com/puzzled-pancake/playerbots.git
 	branch = pocket-realm
+[submodule "native/cmangos-tbc"]
+	path = native/cmangos-tbc
+	url = https://github.com/puzzled-pancake/mangos-tbc.git
+	branch = pocket-realm
+[submodule "native/playerbots-tbc"]
+	path = native/playerbots-tbc
+	url = https://github.com/puzzled-pancake/playerbots.git
+	branch = pocket-realm
+[submodule "native/cmangos-wotlk"]
+	url = https://github.com/puzzled-pancake/mangos-wotlk.git
+	path = native/cmangos-wotlk
+	branch = pocket-realm
+[submodule "native/playerbots-wotlk"]
+	url = https://github.com/puzzled-pancake/playerbots.git
+	path = native/playerbots-wotlk
+	branch = pocket-realm
+[submodule "native/classic-db-tbc"]
+	path = native/classic-db-tbc
+	url = https://github.com/cmangos/tbc-db.git
+	branch = master
+[submodule "native/classic-db-wotlk"]
+	path = native/classic-db-wotlk
+	url = https://github.com/cmangos/wotlk-db.git
+	branch = master

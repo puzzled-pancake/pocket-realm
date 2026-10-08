@@ -17,7 +17,7 @@ class DatabaseSnapshotStoreTest {
                 writeText("character-sentinel")
             }
             val synced = mutableListOf<String>()
-            val store = DatabaseSnapshotStore(root.resolve("snapshots")) { synced += it.name }
+            val store = DatabaseSnapshotStore(root.resolve("snapshots"), syncDirectory = { synced += it.name })
             val snapshot = store.create(source, "manual-one", databaseStopped = true,
                 compatibility = JSONObject().put("database", "test-db-v1"))
 
@@ -41,7 +41,7 @@ class DatabaseSnapshotStoreTest {
         try {
             val source = root.resolve("source").apply { mkdirs() }
             source.resolve("ibdata1").writeText("canonical")
-            val store = DatabaseSnapshotStore(root.resolve("snapshots")) { }
+            val store = DatabaseSnapshotStore(root.resolve("snapshots"), syncDirectory = { })
             val snapshot = store.create(source, "manual-corrupt", databaseStopped = true)
             snapshot.root.resolve("data/ibdata1").writeText("tampered")
 
@@ -63,7 +63,7 @@ class DatabaseSnapshotStoreTest {
             snapshots.resolve(".manual-partial.deadbeef.partial").apply {
                 mkdirs(); resolve("manifest.json").writeText("{}")
             }
-            val store = DatabaseSnapshotStore(snapshots) { }
+            val store = DatabaseSnapshotStore(snapshots, syncDirectory = { })
             assertTrue(store.list().isEmpty())
 
             snapshots.resolve("manual-wrong").apply {

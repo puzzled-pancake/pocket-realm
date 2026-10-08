@@ -1,0 +1,11 @@
+{
+  "generator": "tools/generate_timeframe_era.py era",
+  "header": "native/patches/playerbots/PlayerbotLlmEraStages.generated.h",
+  "header_sha256": "42009a58cfe85980c5cd24db240f5a4c6e89ae028eb14f84748d5b591c1ea1cb",
+  "schema": 1,
+  "source_manifests_sha256": {
+    "tbc.json": "6fe7c230ca233d5784b77e0ce4345ac934d23965b93aef90c3eca8f3fcf762d7",
+    "vanilla.json": "e27f32f909b89be44205decb2d7ea4be93d0407b1f7e09eff5476f9e92789e2d",
+    "wotlk.json": "a960f7e2dcefed16993df3db018a8bd85e61a856ee4d44e2ce94abae828be654"
+  }
+}

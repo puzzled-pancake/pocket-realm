@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -128,7 +129,14 @@ fun BotsScreen(model: DesktopAppModel) {
                                 // legacy-migration fallback, not something this
                                 // path writes - the preset's own target governs).
                                 model.updateSettings {
-                                    it.copy(botSavedPresetId = created.id, botProfileId = "")
+                                    it.copy(
+                                        botSavedPresetId = created.id,
+                                        botProfileId = "",
+                                        // DESK-118/124: a preset application clears
+                                        // the launcher-level advanced override
+                                        // (the Android apply() parity).
+                                        botAdvancedEnabled = false,
+                                    )
                                 }
                                 selectSaved(created.id)
                             }.onFailure { failure ->
@@ -143,6 +151,11 @@ fun BotsScreen(model: DesktopAppModel) {
                             botProfileId = profile.id,
                             botPopulationTarget = profile.selectedTarget,
                             botSavedPresetId = null,
+                            // DESK-118/124: applying a built-in clears the
+                            // advanced override and resets its values to the
+                            // profile's shape (the Android apply() parity).
+                            botAdvancedEnabled = false,
+                            botAdvanced = BotAdvancedSettings.fromProfile(profile),
                         )
                     }
                 }
@@ -155,7 +168,11 @@ fun BotsScreen(model: DesktopAppModel) {
                         runCatching { model.presets.save(current.presetId, base()) }
                             .onSuccess {
                                 model.updateSettings {
-                                    it.copy(botSavedPresetId = current.presetId, botProfileId = "")
+                                    it.copy(
+                                        botSavedPresetId = current.presetId,
+                                        botProfileId = "",
+                                        botAdvancedEnabled = false,
+                                    )
                                 }
                             }
                             .onFailure { failure ->
@@ -164,7 +181,11 @@ fun BotsScreen(model: DesktopAppModel) {
                     }
                 } else {
                     model.updateSettings {
-                        it.copy(botSavedPresetId = current.presetId, botProfileId = "")
+                        it.copy(
+                            botSavedPresetId = current.presetId,
+                            botProfileId = "",
+                            botAdvancedEnabled = false,
+                        )
                     }
                 }
             }
@@ -174,7 +195,13 @@ fun BotsScreen(model: DesktopAppModel) {
                         runCatching {
                             val created = model.presets.create(name, base = null)
                             working?.let { model.presets.save(created.id, it) }
-                            model.updateSettings { it.copy(botSavedPresetId = created.id, botProfileId = "") }
+                            model.updateSettings {
+                                it.copy(
+                                    botSavedPresetId = created.id,
+                                    botProfileId = "",
+                                    botAdvancedEnabled = false,
+                                )
+                            }
                             selectSaved(created.id)
                         }.onFailure { failure ->
                             editorError = "${failure.javaClass.simpleName}: ${failure.message}"
@@ -185,7 +212,24 @@ fun BotsScreen(model: DesktopAppModel) {
         }
     }
 
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    // DESK-116/123: the live-apply action — the settings' resolved selection
+    // applied to the RUNNING world through the admission-generation handshake.
+    val botsSelected = settings.botProfileId.isNotEmpty() || settings.botSavedPresetId != null
+    var applyNowStatus by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var busyApplying by remember { mutableStateOf(false) }
+
+    Column(
+        // DESK-8/43/99/118/124: the verdict + advanced-tuning cards live
+        // UNDER the editor row, so the whole screen scrolls and the editor
+        // row keeps a bounded height (the fillMaxHeight pairing inside it
+        // needs a bounded row to size against).
+        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(480.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         PresetRail(
             modifier = Modifier.width(300.dp).fillMaxHeight(),
             presets = presets,
@@ -292,12 +336,39 @@ fun BotsScreen(model: DesktopAppModel) {
                             }
                         },
                     ) { Text(if (target is EditorTarget.Saved) "Save" else "Save As") }
+                    OutlinedButton(
+                        // DESK-116/123: "Apply now" — the resolved selection
+                        // rides the admission-generation handshake into the
+                        // RUNNING world (no restart), next to the next-start
+                        // Apply path.
+                        enabled = running && botsSelected && !busyApplying,
+                        onClick = {
+                            busyApplying = true
+                            scope.launch {
+                                val result = model.applyBotProfile()
+                                applyNowStatus = result.ok to result.detail
+                                busyApplying = false
+                            }
+                        },
+                    ) { Text(if (busyApplying) "Applying…" else "Apply now (running world)") }
                     Button(enabled = target != null, onClick = ::apply) {
                         Text(if (dirty() && target is EditorTarget.Saved) "Save & apply" else "Apply")
                     }
                 }
             }
         }
+    }
+    // DESK-8/23/43/99: the live adaptive-admission verdict under the editor.
+    val admission by model.botAdmission.collectAsState()
+    BotAdmissionCard(admission, running)
+    // DESK-118/124: the launcher-level advanced tuning override.
+    AdvancedTuningCard(
+        enabled = settings.botAdvancedEnabled,
+        advanced = settings.botAdvanced,
+        presetApplied = settings.botSavedPresetId != null,
+        onEnabled = { value -> model.updateSettings { it.copy(botAdvancedEnabled = value) } },
+        onAdvanced = { value -> model.updateSettings { it.copy(botAdvanced = value) } },
+    )
     }
 
     nameDialog?.let { (title, onConfirm) ->
@@ -367,6 +438,16 @@ fun BotsScreen(model: DesktopAppModel) {
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = { editorError = null }) { Text("OK") }
+            },
+        )
+    }
+    applyNowStatus?.let { (ok, message) ->
+        AlertDialog(
+            onDismissRequest = { applyNowStatus = null },
+            title = { Text(if (ok) "Applied to the running world" else "Apply refused") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { applyNowStatus = null }) { Text("OK") }
             },
         )
     }

@@ -19,20 +19,24 @@ import json
 import re
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
 
-from rp_harness.desktop_host import DesktopHost, DesktopHostError  # noqa: E402
+import common  # noqa: E402
+
+from rp_harness.desktop_host import (DesktopHost, DesktopHostError,  # noqa: E402
+                                     RPTEST_PASS, RPTEST_USER)
 from rp_harness.protocol import make_sentinel  # noqa: E402
 from rp_harness.run_suite import check_a8_log  # noqa: E402
 
 WORLD_LOG = (Path(__file__).resolve().parents[2] / "build" / "rp-desktop" / "world.log")
-LOCAL_LOG = Path(__import__("os").environ.get("LOCALAPPDATA", "")) / "PocketRealm" / "runtime" / "server" / "logs" / "world.log"
+import common  # noqa: E402  (repo tools/ on sys.path above)
 
-RPTEST_USER = "rptest"
-RPTEST_PASS = "rptestpass"
+LOCAL_LOG = common.product_data_root() / "runtime" / "server" / "logs" / "world.log"
+
 BOTS_WAIT_S = 900.0
 REPLY_WINDOW_S = 180.0
 
@@ -73,8 +77,23 @@ def wait_for_bots(host: DesktopHost, minimum: int, timeout_s: float) -> int:
     return best
 
 
+def row_stamp(row: str) -> float | None:
+    """A world-log row's `YYYY-MM-DD HH:MM:SS ` prefix as unix seconds
+    (local time - the server's outTimestamp stamps with localtime), or
+    None when the row carries no parseable prefix."""
+    try:
+        return datetime.strptime(row[:19], "%Y-%m-%d %H:%M:%S").timestamp()
+    except ValueError:
+        return None
+
+
 def poll_reply_lines(log: Path, bot_guid: int, since_ts: float) -> list[str]:
-    """The BotLLM: line rows for one bot, from log rows written after since."""
+    """The BotLLM: line rows for one bot, from log rows written after since.
+
+    The live log is append-only across runs (it survives the smoke), so
+    this stamp filter is what keeps a PREVIOUS run's reply rows for the
+    same bot guid from satisfying this run; a row that cannot be dated
+    is dropped for the same reason - never credited to the run."""
     found: list[str] = []
     for row in log_lines(log):
         match = RE_LINE.search(row)
@@ -82,7 +101,9 @@ def poll_reply_lines(log: Path, bot_guid: int, since_ts: float) -> list[str]:
             continue
         if int(match.group(2)) != bot_guid:
             continue
-        stamp = row.split(" ", 1)[0]
+        stamp = row_stamp(row)
+        if stamp is None or stamp < since_ts:
+            continue
         found.append(match.group(4))
     return found
 
@@ -121,6 +142,10 @@ def run(host: DesktopHost, minimum_bots: int) -> dict:
     sentinel = make_sentinel()
     text = (f"Hail {receiver}, this is RPTEST {sentinel} - "
             f"tell me of your travels, friend.")
+    # The reply scan floors on the whisper's wall clock: the persistent
+    # log carries every earlier run's rows. One second of grace because
+    # the server's row stamps truncate to whole seconds.
+    sent_at = time.time() - 1.0
     chat = host.chat(sender, "whisper", receiver, text)
     step("whisper", bool(chat.get("ok")) and bool(chat.get("injected")),
          json.dumps(chat), sentinel=sentinel)
@@ -142,7 +167,7 @@ def run(host: DesktopHost, minimum_bots: int) -> dict:
         time.sleep(10.0)
         snapshot_log(log)
         if receiver_guid:
-            lines = poll_reply_lines(log, receiver_guid, 0)
+            lines = poll_reply_lines(log, receiver_guid, sent_at)
         after = host.memory(sender)
         facts_after, rels_after = memory_counts(after)
         if lines:

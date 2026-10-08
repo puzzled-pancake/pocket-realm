@@ -193,7 +193,7 @@ def test_scheduler_discipline():
     # the interruption deferral requeues instead of dropping
     assert "entry.notBefore = now + 10;  // the player holds the channel" in source
     # ambient lines join the shared channel histories
-    assert "PlayerbotLlmMemory::AppendTurn(entry.speakerGuid, channelKey, true," in source
+    assert "PlayerbotLlmMemory::AppendTurn(entry.speakerGuid, channelKey,\n        speaker->GetName(), entry.text);" in source
     # one batch in flight at a time (serialized device + composer load),
     # and a spawn failure or a worker-body throw must not strand the
     # flag nor kill the world
@@ -201,6 +201,15 @@ def test_scheduler_discipline():
     assert source.count("BatchInFlight().load()") >= 2
     assert "std::thread(RunDeviceBatch, job).detach();" in source
     assert source.count("catch (...)") == 6  # 3 spawns + 3 worker bodies (device, composer, saga)
+    # every one of those 6 catch-all arms is backed by a std::exception
+    # arm and LOGS (a worker-body throw or a spawn failure must never die
+    # silently - the sibling llama worker logs the same failure class)
+    assert source.count("catch (std::exception const& e)") == 6
+    for lane in ("device", "composer", "saga"):
+        assert (f'sLog.outError("BotLLM: {lane} worker failed: %s", e.what());' in source)
+        assert (f'sLog.outError("BotLLM: {lane} worker failed (unknown exception)");' in source)
+        assert (f'sLog.outError("BotLLM: {lane} worker spawn failed: %s", e.what());' in source)
+        assert (f'sLog.outError("BotLLM: {lane} worker spawn failed (unknown exception)");' in source)
     # the drain cap (a deep queue never machine-guns the channel) and the
     # head-of-line scan (a deferred murmur head cannot block a due global)
     assert "for (auto itr = s.queue.begin(); itr != s.queue.end() && taken < 2;)" in source
@@ -421,3 +430,27 @@ def test_plan_v5_slice6_dyads_drama_roundtable_dossier():
     assert "DramaPairTable" in banter
     for kind in ("kDramaReunion", "kDramaRivalry", "kDramaDebt"):
         assert kind in banter
+
+
+def test_roundtable_row_player_line_scrubbed_at_record_site():
+    """The roundtable path obeys the scrub law (PlayerbotLlmMemory.h: a
+    forged marker/[BRIDGE AI] line must never render as bridge-authored
+    text on ANY path): a real player's party line is neutered where it is
+    recorded, so the composer fuel built in TakeRoundtableRow and rendered
+    by ComposerUserPrompt can never carry player-typed <<tool>> markers or
+    prompt furniture - the same street-lane chain as RunStreetReaction."""
+    src = CHATTER_CPP.read_text(encoding="utf-8")
+    note = src.split("void PlayerbotLlmChatter::NotePartyLine")[1].split("}\n")[0]
+    assert "pocketllm::NeuterMarkersCopy(" in note, \
+        "the marker neuter rides the record site"
+    assert "PlayerbotLlmMemory::ScrubControlTokens(line)" in note, \
+        "control-token furniture dies before storage"
+    assert note.index("ScrubControlTokens") < note.index("safe.empty()"), \
+        "the 160-byte bound applies to the SCRUBBED line, not the raw one"
+    assert "partyLineAt[playerGuid] = std::make_pair(time(nullptr), safe)" in note, \
+        "only the scrubbed copy is stored"
+    # and the row fuel is exactly that stored copy - no second raw read
+    roundtable = src.split("bool TakeRoundtableRow")[1].split("void PlayerbotLlmChatter::Tick")[0]
+    assert 'just said: \\"' in roundtable, "the row still quotes the (stored) line"
+    assert "NeuterMarkersCopy" not in roundtable and "ScrubControlTokens" not in roundtable, \
+        "the record site is the single scrub point for the roundtable lane"

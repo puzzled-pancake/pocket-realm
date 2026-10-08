@@ -379,8 +379,18 @@ void HydrateHistoryIfNeeded(RollingHistory& history, uint32 bot,
     } while (result->NextRow());
     // fetched newest-first: prepend oldest-first ahead of whatever the
     // process already holds (nothing, by construction - hydration runs
-    // on first touch)
-    for (auto itr = loaded.rbegin(); itr != loaded.rend(); ++itr)
+    // on first touch). push_front walks `loaded` from its head (the
+    // NEWEST row) to its tail (the OLDEST): each push_front lands the
+    // row ahead of the previous one, so the deque ends oldest-first -
+    // turns.back() is the newest row, the same end AppendTurn's
+    // push_back writes and every reader's turns[n-1] expects. The old
+    // rbegin/rend walk visited oldest-first and REVERSED the deque
+    // (newest at the front): every hydrated prompt rendered the
+    // transcript back-to-front and OPENED on the bot's last reply -
+    // exactly the leading-assistant head the strict chat templates
+    // 400 ("Conversation roles must alternate", the external lane's
+    // LVF-bots-llm-010 signature).
+    for (auto itr = loaded.begin(); itr != loaded.end(); ++itr)
         turns.push_front(*itr);
     history.lastSeq[key] = maxSeq;
 }
@@ -735,10 +745,9 @@ std::string PlayerbotLlmMemory::GetOrCreateBackstory(Player* bot)
     return text;
 }
 
-void PlayerbotLlmMemory::AppendTurn(uint32 bot, uint32 playerOrChannel, bool sharedChannel,
+void PlayerbotLlmMemory::AppendTurn(uint32 bot, uint32 playerOrChannel,
     std::string const& speaker, std::string const& line)
 {
-    (void)sharedChannel;
     // injection choke point: every history writer funnels through here, so
     // player-carried tool markers AND prompt furniture die before the text
     // can ever reach a later prompt (the model must not be able to echo
@@ -751,10 +760,8 @@ void PlayerbotLlmMemory::AppendTurn(uint32 bot, uint32 playerOrChannel, bool sha
             StripAstral(line)).c_str()));
 }
 
-std::string PlayerbotLlmMemory::BuildPromptContext(Player* bot, Player* player, int chatChannelSource,
-    std::string const& chanName)
+std::string PlayerbotLlmMemory::BuildPromptContext(Player* bot, Player* player, int chatChannelSource)
 {
-    (void)chanName;
     std::ostringstream out;
 
     // segment 1: the backstory anchor, byte-identical every turn
@@ -1061,9 +1068,13 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     // The bot's current weather rides the system prompt alongside
     // the pack seasoning (same instruction span, never a new segment).
     // LLMMoodSeasoning (default on) is the kill switch.
+    // Design-timeframe §5: the stage-era instruction line rides the SAME
+    // span via EraSeasoningFor - empty at the default stage (the trained
+    // wording stays byte-identical), one patch-naming line for a non-final
+    // stage; the player's editable prompt pack is untouched.
     std::string const sysm = pocketllm::SysmForCard(persona, promptPlayer, tier,
         AbsenceLineFor(player->GetName(), absenceBucket), facts,
-        LoadPackSeasoning(),
+        pocketllm::EraSeasoningFor(LoadPackSeasoning()),
         sPlayerbotAIConfig.llmMoodSeasoning ? MoodLineFor(botGuid) : std::string());
 
     // The bridge owns the turn. Event reactions render through the
@@ -1616,9 +1627,8 @@ std::string PlayerbotLlmMemory::GetGossipSlice(uint32 bot)
     return slice;
 }
 
-void PlayerbotLlmMemory::NoteVerifiedEvent(uint32 bot, uint32 eventId)
+void PlayerbotLlmMemory::NoteVerifiedEvent(uint32 bot)
 {
-    (void)eventId;
     std::lock_guard<std::mutex> lock(StateMutex());
     VerifiedEvents()[bot] = time(nullptr);
 }
@@ -1661,7 +1671,7 @@ void QueueForPartyBots(Player* player, std::string const& text, int32 points,
         // milestones grow the deterministic relationship accumulator
         PlayerbotLlmMemory::AddRelationshipPoints(member, player, points);
         // and open the verified-event window that gates share_gossip
-        PlayerbotLlmMemory::NoteVerifiedEvent(member->GetGUIDLow(), 0);
+        PlayerbotLlmMemory::NoteVerifiedEvent(member->GetGUIDLow());
 
         PlayerbotLlmMemory::EventReaction reaction;
         reaction.playerGuid = player->GetGUIDLow();
@@ -1821,7 +1831,7 @@ void PlayerbotLlmMemory::OnDuelComplete(Player* participant, Player* opponent,
 
     // the verified-event window opens for the dueled bot: a later news
     // beat may voice it as gossip
-    NoteVerifiedEvent(bot->GetGUIDLow(), 0);
+    NoteVerifiedEvent(bot->GetGUIDLow());
     // a loss or a cheap player-flee sours the weather (the grudge mood
     // shows at the edges of the next replies; the bucket rotation keeps
     // it from sticking). The flee class ALSO licenses a -1 sentiment
@@ -2511,59 +2521,75 @@ struct StreetJob
 
 void RunStreetReaction(StreetJob job)
 {
-    // the generation leg: the heard text through the compose-site scrub
-    // chain (player words die here - the street body carries none), the
-    // street request via BuildChatRequestBody, then E0's kStreetShort
-    // pool as the failure fallback (a dead endpoint still answers the
-    // crowd). Delivery rides the authored SAY EventReaction
-    // (world-thread drain, 2-5 s stagger) - never the chatter queue,
-    // and never an A2 arm.
-    std::string const heard = pocketllm::NeuterMarkersCopy(
-        PlayerbotLlmMemory::ScrubControlTokens(job.heard).c_str());
-    std::string line;
-    if (!heard.empty())
+    // the detached-worker law (the Chatter batches, the llama worker,
+    // the recap worker): a throw escaping this function std::terminates
+    // the process - the string-building leg is exactly the bad_alloc
+    // class the Chatter comment names - so catch, name, and answer
+    // with silence
+    try
     {
-        std::string const body = pocketllm::BuildChatRequestBody(
-            sPlayerbotAIConfig.llmChatterComposerModel,
-            pocketllm::StreetSystemMessage(job.botName, job.race, job.cls, job.zone),
-            std::vector<pocketllm::HistoryTurn>(),
-            pocketllm::StreetNote(job.speakerName, heard),
-            [&]
-            {
-                pocketllm::RequestSampling s;
-                s.temperature = 0.9f;
-                s.topP = 0.95f;
-                s.maxTokens = 80;
-                s.providerSafe = true;  // cloud endpoints reject unknown keys
-                return s;
-            }(),
-            true);
-        std::string const http = PlayerbotLLMInterface::PostChatHttp(
-            body, sPlayerbotAIConfig.llmGenerationTimeout, nullptr, nullptr);
-        pocketllm::CompletionEnvelope envelope =
-            pocketllm::ParseCompletionEnvelope(http);
-        if (envelope.parsed && pocketllm::ContentUsable(envelope))
-            line = pocketllm::FirstStreetLine(envelope.content);
-    }
-    if (line.empty())
-        line = PlayerbotLlmPersona::StreetShortLine(job.botGuid);
-    if (line.empty())
-        return; // even the pool draw failed: silence (SelectLine {0} safety)
+        // the generation leg: the heard text through the compose-site scrub
+        // chain (player words die here - the street body carries none), the
+        // street request via BuildChatRequestBody, then E0's kStreetShort
+        // pool as the failure fallback (a dead endpoint still answers the
+        // crowd). Delivery rides the authored SAY EventReaction
+        // (world-thread drain, 2-5 s stagger) - never the chatter queue,
+        // and never an A2 arm.
+        std::string const heard = pocketllm::NeuterMarkersCopy(
+            PlayerbotLlmMemory::ScrubControlTokens(job.heard).c_str());
+        std::string line;
+        if (!heard.empty())
+        {
+            std::string const body = pocketllm::BuildChatRequestBody(
+                sPlayerbotAIConfig.llmChatterComposerModel,
+                pocketllm::StreetSystemMessage(job.botName, job.race, job.cls, job.zone),
+                std::vector<pocketllm::HistoryTurn>(),
+                pocketllm::StreetNote(job.speakerName, heard),
+                [&]
+                {
+                    pocketllm::RequestSampling s;
+                    s.temperature = 0.9f;
+                    s.topP = 0.95f;
+                    s.maxTokens = 80;
+                    s.providerSafe = true;  // cloud endpoints reject unknown keys
+                    return s;
+                }(),
+                true);
+            std::string const http = PlayerbotLLMInterface::PostChatHttp(
+                body, sPlayerbotAIConfig.llmGenerationTimeout, nullptr, nullptr);
+            pocketllm::CompletionEnvelope envelope =
+                pocketllm::ParseCompletionEnvelope(http);
+            if (envelope.parsed && pocketllm::ContentUsable(envelope))
+                line = pocketllm::FirstStreetLine(envelope.content);
+        }
+        if (line.empty())
+            line = PlayerbotLlmPersona::StreetShortLine(job.botGuid);
+        if (line.empty())
+            return; // even the pool draw failed: silence (SelectLine {0} safety)
 
-    PlayerbotLlmMemory::EventReaction reaction;
-    reaction.authored = true;
-    reaction.msgtype = CHAT_MSG_SAY;
-    reaction.text = line;
-    reaction.playerGuid = job.speakerGuid;
-    // steady-derived stagger (2-5 s): urand is world-thread only
-    reaction.notBefore = time(nullptr) + CROWD_DELAY_MIN +
-        (SteadyNowMs() % (CROWD_DELAY_MAX - CROWD_DELAY_MIN + 1));
-    std::lock_guard<std::mutex> lock(StateMutex());
-    std::deque<PlayerbotLlmMemory::EventReaction>& queue =
-        EventReactions()[job.botGuid];
-    queue.push_back(reaction);
-    while (queue.size() > 2)
-        queue.pop_front();
+        PlayerbotLlmMemory::EventReaction reaction;
+        reaction.authored = true;
+        reaction.msgtype = CHAT_MSG_SAY;
+        reaction.text = line;
+        reaction.playerGuid = job.speakerGuid;
+        // steady-derived stagger (2-5 s): urand is world-thread only
+        reaction.notBefore = time(nullptr) + CROWD_DELAY_MIN +
+            (SteadyNowMs() % (CROWD_DELAY_MAX - CROWD_DELAY_MIN + 1));
+        std::lock_guard<std::mutex> lock(StateMutex());
+        std::deque<PlayerbotLlmMemory::EventReaction>& queue =
+            EventReactions()[job.botGuid];
+        queue.push_back(reaction);
+        while (queue.size() > 2)
+            queue.pop_front();
+    }
+    catch (std::exception const& e)
+    {
+        sLog.outError("BotLLM: street worker failed: %s", e.what());
+    }
+    catch (...)
+    {
+        sLog.outError("BotLLM: street worker failed (unknown exception)");
+    }
 }
 } // namespace
 
@@ -2732,8 +2758,23 @@ bool PlayerbotLlmMemory::QueueStreetReaction(Player* bot, Player* speaker,
     job.speakerName = speaker->GetName();
     job.heard = heard;
     // the emote is dropped (not deferred) for this event: the caller
-    // only queues the emote when this returns false
-    std::thread(RunStreetReaction, job).detach();
+    // only queues the emote when this returns false. std::thread
+    // throws std::system_error on resource exhaustion - this spawn
+    // runs on the chat-handling thread, where an uncaught throw
+    // terminates the process (the Chatter dispatch law) - so log and
+    // fall through: this street say is lost and the emote stays dropped
+    try
+    {
+        std::thread(RunStreetReaction, job).detach();
+    }
+    catch (std::exception const& e)
+    {
+        sLog.outError("BotLLM: street worker spawn failed: %s", e.what());
+    }
+    catch (...)
+    {
+        sLog.outError("BotLLM: street worker spawn failed (unknown exception)");
+    }
     return true;
 }
 
@@ -2850,7 +2891,7 @@ bool PlayerbotLlmMemory::AwardChatTurnByGuid(uint32 botGuid, uint32 playerGuid)
     return AwardChatTurn(bot, player);
 }
 
-void PlayerbotLlmMemory::OnQuestRewarded(Player* player, uint32 questId,
+void PlayerbotLlmMemory::OnQuestRewarded(Player* player,
     std::string const& questTitle, bool repeatable)
 {
     // the CORE_REWARDQUEST anchor's single leg: grouped bots award the
@@ -2882,7 +2923,6 @@ void PlayerbotLlmMemory::OnQuestRewarded(Player* player, uint32 questId,
             AddRelationshipPoints(member, player,
                 sPlayerbotAIConfig.llmTurnAwardWeighting ? (int32)deed : 1);
     }
-    (void)questId;
 }
 
 void PlayerbotLlmMemory::NotePartyDigestLine(uint32 masterGuid, std::string const& line)
@@ -3025,7 +3065,7 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
                 }
                 bot->Say(line, LANG_UNIVERSAL);
                 AppendTurn(bot->GetGUIDLow(),
-                    0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY), true,
+                    0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY),
                     bot->GetName(), line);
                 return; // one voice per scan
             }
@@ -3101,7 +3141,7 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
             return; // the zero-spam cap outranks every class
         bot->Say(line, LANG_UNIVERSAL);
         AppendTurn(bot->GetGUIDLow(),
-            0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY), true,
+            0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY),
             bot->GetName(), line);
         // A18: a player walking up on two bots may catch them mid-talk -
         // a rare authored exchange, staggered so it reads as two voices.
@@ -3232,7 +3272,7 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
             (uint32)time(nullptr), usedFactId);
         bot->Say(line, LANG_UNIVERSAL);
         AppendTurn(bot->GetGUIDLow(),
-            0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY), true,
+            0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY),
             bot->GetName(), line);
         return; // one initiative per scan at most
     }
@@ -3285,7 +3325,7 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
             }
             bot->Say(question, LANG_UNIVERSAL);
             AppendTurn(bot->GetGUIDLow(),
-                0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY), true,
+                0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY),
                 bot->GetName(), question);
             return; // one initiative per scan at most
         }
@@ -3410,7 +3450,7 @@ void PlayerbotLlmMemory::OnPlayerGroupKill(Player* tapper, Unit* victim)
     // the quip joins the shared party rolling history so later prompts see
     // the bot actually said it (mutex-guarded; world thread here)
     AppendTurn(chosen->GetGUIDLow(),
-        0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_PARTY), true,
+        0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_PARTY),
         chosen->GetName(), line);
 
     EventReaction reaction;

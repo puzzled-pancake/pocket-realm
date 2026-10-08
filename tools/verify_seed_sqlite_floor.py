@@ -25,6 +25,18 @@ What is verified, WITHOUT touching any device:
      pinned old sqlite3 shells (.bail on, exit 0, empty stderr). A parse
      or execute error at ANY version gate fails the preflight.
 
+Each transcript is replayed inside ONE explicit transaction
+(`.bail on` / `BEGIN;` / `.read transcript` / `COMMIT;`) - the same
+transaction shape the device replay itself uses
+(DatabaseEngine.replaySeedDatabase wraps the whole transcript in
+beginTransaction..endTransaction). Autocommit-per-statement replay of
+the 1.1M-statement classiccharacters transcript cannot finish on either
+pinned shell in any tested bound (LVF-server-db-016: >1800s tool cap,
+>2700s uncapped diagnostic, CPU-verified working); the explicit
+transaction is what makes the bound honest, not a semantic shortcut.
+The wrapper contract - transcripts carry no transaction control of
+their own - is enforced fail-loud by assert_no_transaction_control.
+
 The shells are the official precompiled win32 tools from sqlite.org's
 immutable year archives, fetched once into build/seed-floor-shells/ and
 identified by version banner afterwards (never executed unverified from
@@ -42,9 +54,11 @@ import gzip
 import hashlib
 import json
 import platform
+import re
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -60,6 +74,12 @@ SHELL_URLS = {
              "3.32.1"),
 }
 DEFAULT_FLOORS = ("3.18", "3.32")
+# Per-replay bound. Honest since the transactional replay (see replay):
+# measured 2026-10-04 on the reference host with the pinned shells,
+# worst replay was 31.5s (classicmangos@3.32) / 5.5s
+# (classiccharacters@3.32) vs >1800s+2700s unfinished autocommit.
+# Configurable via --timeout for slower hosts; a hit is a hard fail.
+DEFAULT_TIMEOUT = 1800
 
 BASELINE = ROOT / "schemas" / "sqlite-seed-baseline.json"
 LOCKFILES = {
@@ -173,7 +193,8 @@ def apk_seed_assets(apk: Path) -> dict[str, bytes]:
     return found
 
 
-def verify_apk(apk: Path, floors: tuple[str, ...]) -> dict:
+def verify_apk(apk: Path, floors: tuple[str, ...],
+               timeout: int = DEFAULT_TIMEOUT) -> dict:
     print(f"\n=== {apk.name} ===")
     statics = apk_statics(apk)
     abi = None
@@ -202,33 +223,75 @@ def verify_apk(apk: Path, floors: tuple[str, ...]) -> dict:
         print(line + f" ({len(raw)} bytes)")
         if not ok_base:
             raise RuntimeError(f"{db}: APK seed diverges from baseline")
-    replay(seeds, floors)
-    return {"apk": str(apk), "statics": statics, "databases": sorted(seeds)}
+    durations = replay(seeds, floors, timeout)
+    return {"apk": str(apk), "statics": statics, "databases": sorted(seeds),
+            "replay_seconds": durations, "replay_bound_seconds": timeout}
 
 
-def replay(seeds: dict[str, bytes], floors: tuple[str, ...]) -> None:
+# Transaction-control statements at statement start would collide with
+# the wrapper (BEGIN inside our BEGIN fails "cannot start a transaction
+# within a transaction" on the pinned shells, silently breaking the
+# batching) or prematurely commit it. Line-start BEGIN/COMMIT/ROLLBACK
+# cannot occur inside trigger bodies (SQLite forbids them there), so a
+# hit is genuine transaction control - fail loud, never wrap silently.
+_TXN_CONTROL = re.compile(rb"(?im)^[ \t\r]*(BEGIN|COMMIT|ROLLBACK)\b")
+
+
+def assert_no_transaction_control(db: str, raw: bytes) -> None:
+    hit = _TXN_CONTROL.search(raw)
+    if hit:
+        line = raw.count(b"\n", 0, hit.start()) + 1
+        raise RuntimeError(
+            f"{db}: transcript carries its own transaction control "
+            f"(line {line}: {hit.group(0).strip()!r}) - the "
+            f"transactional floor-replay wrapper contract is violated; "
+            f"refusing to replay (LVF-server-db-016)")
+
+
+def replay_shell_args(sql: Path) -> list[str]:
+    """Shell argv tail for one transactional floor replay (after the
+    exe and the db filename): bail on any error, open ONE explicit
+    transaction around the whole transcript, commit at the end.
+    Dot-command args eat backslashes (the win32 shell's escape
+    handling) - .read needs forward slashes."""
+    return [".bail on", "BEGIN;", f".read {sql.resolve().as_posix()}",
+            "COMMIT;"]
+
+
+def replay(seeds: dict[str, bytes], floors: tuple[str, ...],
+           timeout: int = DEFAULT_TIMEOUT) -> dict[str, float]:
+    durations: dict[str, float] = {}
     with tempfile.TemporaryDirectory() as tmp:
         for version in floors:
             exe = shell_for(version)
             for db, raw in sorted(seeds.items()):
+                assert_no_transaction_control(db, raw)
                 sql = Path(tmp) / f"{db}.sql"
                 sql.write_bytes(raw)
                 dbf = Path(tmp) / f"floor-{version}-{db}.db"
                 dbf.unlink(missing_ok=True)
-                # dot-command args eat backslashes (the win32 shell's
-                # escape handling) - .read needs forward slashes
-                proc = subprocess.run(
-                    [str(exe), str(dbf), ".bail on",
-                     f".read {sql.resolve().as_posix()}"],
-                    capture_output=True, text=True, timeout=1800)
+                started = time.monotonic()
+                try:
+                    proc = subprocess.run(
+                        [str(exe), str(dbf)] + replay_shell_args(sql),
+                        capture_output=True, text=True, timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    raise RuntimeError(
+                        f"floor {version} {db} replay exceeded the "
+                        f"{timeout}s bound - increase --timeout only "
+                        f"with a measured reason (LVF-server-db-016)")
+                elapsed = time.monotonic() - started
                 stderr = proc.stderr.strip()
                 if proc.returncode != 0 or stderr:
                     raise RuntimeError(
                         f"floor {version} REJECTED {db} "
                         f"(exit {proc.returncode}): {stderr[:300]}")
                 print(f"replay {version} {db}: OK "
-                      f"({dbf.stat().st_size // 1024} KiB db)")
+                      f"({dbf.stat().st_size // 1024} KiB db, "
+                      f"{elapsed:.2f}s, bound {timeout}s)")
+                durations[f"{version}/{db}"] = round(elapsed, 2)
                 dbf.unlink(missing_ok=True)
+    return durations
 
 
 def main() -> int:
@@ -239,6 +302,11 @@ def main() -> int:
     parser.add_argument("--floors", default=",".join(DEFAULT_FLOORS),
                         help=f"sqlite floor versions to replay against "
                              f"(default {DEFAULT_FLOORS})")
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
+                        help=f"per-replay bound in seconds "
+                             f"(default {DEFAULT_TIMEOUT}); a hit is a "
+                             f"hard fail - raise it only with a "
+                             f"measured reason")
     args = parser.parse_args()
     if not args.apk and not args.apks:
         parser.error("need --apk or --apks")
@@ -249,7 +317,9 @@ def main() -> int:
     else:
         base = Path(args.apks)
         targets = [base / "server-b.apk"]
-    summary = [verify_apk(t, floors) for t in targets]
+    print(f"seed-floor replay bound: {args.timeout}s per transcript per "
+          f"shell (transactional replay; --timeout to adjust)")
+    summary = [verify_apk(t, floors, args.timeout) for t in targets]
     print("\nPREFLIGHT PASS: seed floor verified host-side; the APK is "
           "cleared for device staging")
     (ROOT / "build" / "seed-floor-verify" / "preflight-last.json").parent \

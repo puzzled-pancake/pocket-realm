@@ -990,7 +990,7 @@ bool PlayerbotLlmPersona::MaybeAmbientLine(Player* bot)
     else
         bot->Say(line, LANG_UNIVERSAL);
     PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(),
-        0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_PARTY), true,
+        0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_PARTY),
         bot->GetName(), line);
     return true;
 }

@@ -3,7 +3,8 @@ import os
 import sqlite3
 from pathlib import Path
 
-root = Path(os.environ["LOCALAPPDATA"]) / "PocketRealm" / "database" / "sqlite-datadir"
+import common as _common  # local sibling import
+root = _common.product_data_root() / "database" / "sqlite-datadir"
 
 # remove any prior row plus its side tables
 conn = sqlite3.connect(str(root / "classiccharacters.sqlite3"))
@@ -20,8 +21,8 @@ if row:
         if tbl in tables:
             try:
                 conn.execute(f"DELETE FROM {tbl} WHERE guid = ?", (guid,))
-            except Exception:
-                pass
+            except sqlite3.Error as exc:
+                print(tbl, "skip:", exc)
     conn.commit()
     print("old Davos removed")
 

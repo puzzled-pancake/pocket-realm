@@ -19,7 +19,7 @@ import kotlin.system.exitProcess
  * live WAL sidecars).
  *
  * Run from desktop/:
- *   gradlew launchClient -PclientDir="C:\Vanilla wow 1.12.1"
+ *   gradlew launchClient -PclientDir="E:\Wow clients\WoW_Classic_ENG_1.12.1"
  */
 @Suppress("TooGenericExceptionCaught") // bring-up entry: failures exit honestly
 fun main() {
@@ -138,7 +138,7 @@ private fun drainStack(
     return legs
 }
 
-private const val DEFAULT_CLIENT_DIR = "C:/Vanilla wow 1.12.1"
+private const val DEFAULT_CLIENT_DIR = "E:/Wow clients/WoW_Classic_ENG_1.12.1"
 private const val EXIT_CLIENT = 2
 private const val EXIT_PREFLIGHT = 3
 private const val EXIT_WORLD = 4

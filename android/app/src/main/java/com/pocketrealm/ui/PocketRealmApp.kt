@@ -102,7 +102,7 @@ fun PocketRealmApp() {
     val supervisorClient = remember(context) { RuntimeSupervisorClient(context) }
     val realmState by remember(supervisorClient) {
         supervisorClient.observeRealmState()
-    }.collectAsState(initial = RealmState.Idle)
+    }.collectAsState(initial = RealmState.Idle())
 
     // First-run tutorial gate. Null until DataStore's first emission and
     // until the managed-client pointer probe resolves: deciding on the
@@ -113,7 +113,10 @@ fun PocketRealmApp() {
     val hasImportedClient by produceState<Boolean?>(initialValue = null, context) {
         value = withContext(Dispatchers.IO) {
             managedClientImported(
-                pointerFileExists = File(context.noBackupFilesDir, "client/active.json").isFile,
+                // G3-5: the vanilla pointer namespace plus the pre-flavor
+                // un-namespaced name (adopted on the stores' first read).
+                pointerFileExists = File(context.noBackupFilesDir, "client/active.json").isFile ||
+                    File(context.noBackupFilesDir, "client/active-vanilla.json").isFile,
                 legacyDirExists = File(context.noBackupFilesDir, "client/active").isDirectory,
             )
         }
@@ -398,6 +401,8 @@ internal fun realmStatusBadge(state: RealmState): String = when (state) {
     is RealmState.Stopping -> "Stopping…"
     is RealmState.Recovering -> "Recovering…"
     is RealmState.Failed -> "Needs attention"
+    // §6.4: the unreachable lane never reads as a clean stop.
+    is RealmState.SupervisorUnreachable -> "Supervisor unreachable"
 }
 
 /**

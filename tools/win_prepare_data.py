@@ -2,16 +2,21 @@
 """Windows data-preparation bring-up: client -> prepared world data.
 
 Runs the four Windows extractors (built by tools/build_win_realm_runtime.py
---extractors) against a genuine 1.12.1 client, then assembles the
+--flavor <id> --extractors) against a genuine client of the requested
+flavor (vanilla 1.12.1 / tbc 2.4.3 / wotlk 3.3.5a), then assembles the
 PreparedDataStore contract the world server boots from:
 
   <datadir>/generations/<uuid>/{dbc,maps,vmaps,mmaps} + data-manifest.json
-  <datadir>/active.json   (schema 1, NORMAL, generation uuid, manifest sha)
+  <datadir>/active-<flavorId>.json   (canonical per-flavor pointer, DESK-128)
+  <datadir>/active.json              (legacy un-namespaced mirror — kept for
+                                      one transition release so a shared
+                                      PreparedDataStore without the flavor
+                                      namespace keeps resolving)
 
 Resumability is VALIDATION-based, not existence-based: a step is skipped
 only when its output passes this tool's completeness validation. An
-interrupted vmap assembly or MoveMapGen run leaves partial output behind
-that fails validation and is wiped and regenerated. MoveMapGen exits 0
+interrupted ad, vmap assembly, or MoveMapGen run leaves partial output
+behind that fails validation and is wiped and regenerated. MoveMapGen exits 0
 even when individual per-map builds fail, so its stdout is scanned for
 per-map failures and every extracted map must be covered by at least one
 mmtile before the step counts as complete.
@@ -22,7 +27,7 @@ workspace as soon as they land, the client's entry set is snapshotted
 before/after every extractor run, and a failure path removes whatever
 the extractor created before exiting non-zero.
 
-Usage: python tools/win_prepare_data.py [--client <dir>] [--workspace <dir>]
+Usage: python tools/win_prepare_data.py [--client <dir>] [--flavor vanilla|tbc|wotlk]
 """
 
 from __future__ import annotations
@@ -39,22 +44,131 @@ import time
 import uuid
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import common  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
-EXTRACTORS = ROOT / "native/.build-win-x86_64/bin/x64_Release/Extractors"
-DEFAULT_CLIENT = Path("C:/Vanilla wow 1.12.1")
-WORKSPACE = ROOT / "native/.build-win-x86_64/data-prep"
-DATADIR = Path(os.environ["LOCALAPPDATA"]) / "PocketRealm/content/o11-server"
+# Per-flavor win build roots (the naming schema of record is
+# tools/flavor_layout.py; these mirror select_win_flavor in
+# tools/build_win_realm_runtime.py): vanilla keeps the historical
+# unsuffixed root, tbc/wotlk carry the -{flavor} suffix. select_flavor()
+# rebinds EXTRACTORS/WORKSPACE/MIN_COUNTS to the active flavor's lane; the
+# module-level literals below are the vanilla defaults so direct importers
+# (tests, publish-only callers) keep the historical behavior.
+WIN_BUILD_ROOTS = {
+    "vanilla": ROOT / "native/.build-win-x86_64",
+    "tbc": ROOT / "native/.build-win-x86_64-tbc",
+    "wotlk": ROOT / "native/.build-win-x86_64-wotlk",
+}
+# The ACTIVE flavor's identity (id + lane paths); "vanilla" until
+# select_flavor() rebinds it — never a second mutable default.
+FLAVOR = "vanilla"
+EXTRACTORS = WIN_BUILD_ROOTS["vanilla"] / "bin/x64_Release/Extractors"
+DEFAULT_CLIENT = Path("E:/Wow clients/WoW_Classic_ENG_1.12.1")
+WORKSPACE = WIN_BUILD_ROOTS["vanilla"] / "data-prep"
+# Resolved in main() AFTER the os.name check: reading LOCALAPPDATA at
+# import time raised KeyError on any host without it, making main()'s
+# windows-only guard unreachable. None until main() assigns it (callers
+# driving publish() directly assign it themselves).
+DATADIR: Path | None = None
 
 STEP_TIMEOUT_S = 4 * 60 * 60
 
 # ad.exe -e mask: MAP(1) | DBC(2). Camera(4) is deliberately excluded so
-# the extractor never creates <client>/Cameras at all.
+# the extractor never creates <client>/Cameras at all. The mask semantics
+# are identical across the three flavors' contrib/extractor ad.exe.
 AD_EXTRACT_MASK = "3"
 
-# PreparedDataStore schema-1 publication minimums; validated BEFORE the
-# active.json pointer is touched so a partial generation can never become
-# the boot source.
-MIN_COUNTS = {"dbc": 100, "maps": 100, "vmapTrees": 1, "mmapMaps": 1, "mmapTiles": 1}
+# PreparedDataStore schema-1 publication minimums PER FLAVOR; validated
+# BEFORE the active pointer files are touched so a partial generation can
+# never become the boot source. MIN_COUNTS is the ACTIVE flavor's row
+# (rebound by select_flavor) — validate_ad/validate_counts/publish all
+# read it, so a tbc run is gated by tbc's floors, never vanilla's.
+# vanilla's floors are the historical round numbers below its measured
+# first generation (dbc=158, maps=2429, vmapTrees=43, mmapMaps=43,
+# mmapTiles=1966 — 2026-10). tbc was re-derived the same way from its own
+# first generation (2026-10-08, below). wotlk is NOT measured yet: its prep
+# was cut off mid-mmap (no published generation), so its row is the
+# permissive placeholder — W2 owns the re-derive from wotlk's own first
+# generation. Floors are never copied across flavors as if measured — a
+# floor above a flavor's real yield would brick its lane, and a vanilla
+# floor on a tbc run would let a truncated TBC extraction publish.
+# tbc measured (generation 84002584, staged 2.4.3.8606 enUS client):
+# dbc=185, maps=3586, vmapTrees=72, mmapMaps=72, mmapTiles=2748.
+# wotlk PLACEHOLDER pending W2 re-derive (no measured wotlk generation
+# exists; the row mirrors vanilla's permissive floors deliberately and
+# must be replaced by wotlk's own measured round numbers in W2).
+FLAVOR_MIN_COUNTS = {
+    "vanilla": {"dbc": 100, "maps": 100, "vmapTrees": 1, "mmapMaps": 1, "mmapTiles": 1},
+    "tbc": {"dbc": 150, "maps": 3500, "vmapTrees": 60, "mmapMaps": 60, "mmapTiles": 2500},
+    "wotlk": {"dbc": 100, "maps": 100, "vmapTrees": 1, "mmapMaps": 1, "mmapTiles": 1},
+}
+MIN_COUNTS = dict(FLAVOR_MIN_COUNTS["vanilla"])
+
+# Per-flavor pointer namespace + manifest identity (DESK-128): the
+# canonical pointer is active-<flavorId>.json and the manifest carries the
+# flavor alias key that the shared PreparedDataStore's
+# validateDataManifestEnvelope resolves through cmangosFamily/clientBuild
+# (ClientFlavor: flavorId slug, build, serverFamily — families
+# classic/tbc/wotlk, android/app/.../client/ClientFlavor.kt). A flavor's
+# entry here is the contract that its whole lane exists: per-flavor
+# extractors (build_win_realm_runtime.py --flavor <id> --extractors at the
+# same WIN_BUILD_ROOTS root), a client shape (CLIENT_SHAPE below), and its
+# own publication floors (FLAVOR_MIN_COUNTS). An identity without its
+# extractor lane would publish an unbootable generation — refusing unknown
+# flavors in main() stays the loud gate.
+FLAVOR_ID = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
+FLAVOR_IDENTITIES = {
+    "vanilla": {"clientBuild": 5875, "cmangosFamily": "classic"},
+    "tbc": {"clientBuild": 8606, "cmangosFamily": "tbc"},
+    "wotlk": {"clientBuild": 12340, "cmangosFamily": "wotlk"},
+}
+
+# The client-shape contract per flavor (the check extract() refuses on):
+# the root executable plus the Data/ entries that identify a genuine
+# client of that flavor. Vanilla 1.12.1 ships its base content as
+# Data/base.MPQ; TBC/WotLK split the base content across
+# common*/expansion*/patch* archives and carry a locale subfolder
+# (Data/<locale>/locale-*.MPQ). LOCALE_ENTRY matches any known locale
+# directory — the staged genuine clients are enUS, but a deDE client is
+# equally genuine (the extractors read the locale archives by scanning
+# Data/, not by hard-coding enUS). The shapes must be MUTUALLY EXCLUSIVE:
+# wotlk's archive set is a strict superset of tbc's (it only adds
+# lichking.MPQ), so required-entries alone would wave a wotlk client
+# through the tbc lane and extract wrath-era bytes into a tbc generation.
+# The forbidden markers pin the boundary: vanilla refuses common.MPQ,
+# tbc refuses lichking.MPQ, wotlk requires it.
+LOCALE_ENTRY = "<locale>"
+CLIENT_LOCALES = ("enUS", "enGB", "koKR", "frFR", "deDE",
+                  "zhCN", "zhTW", "esES", "esMX", "ruRU")
+CLIENT_SHAPE = {
+    "vanilla": {"exe": "WoW.exe", "data_entries": ("base.MPQ",),
+                "forbidden": ("common.MPQ", "lichking.MPQ")},
+    "tbc": {"exe": "WoW.exe", "data_entries": ("common.MPQ", "expansion.MPQ", LOCALE_ENTRY),
+            "forbidden": ("base.MPQ", "lichking.MPQ")},
+    "wotlk": {"exe": "WoW.exe",
+              "data_entries": ("common.MPQ", "expansion.MPQ", "lichking.MPQ", LOCALE_ENTRY),
+              "forbidden": ("base.MPQ",)},
+}
+
+
+def select_flavor(flavor_id: str) -> None:
+    """Bind the module's per-flavor lane paths to a flavor: extractor home,
+    staging workspace, and publication floors all live under the flavor's
+    WIN_BUILD_ROOTS root. The workspace MUST be flavor-scoped, not shared:
+    the resume skip is validation-based, so a tbc run against vanilla's
+    complete workspace would skip every extractor and publish vanilla
+    bytes under a tbc manifest — the same cross-flavor contamination
+    DESK-128's per-flavor pointers exist to prevent."""
+    global FLAVOR, EXTRACTORS, WORKSPACE, MIN_COUNTS
+    if flavor_id not in FLAVOR_IDENTITIES:
+        raise StepFailure(
+            f"flavor {flavor_id!r} has no qualified manifest identity "
+            f"(qualified: {', '.join(sorted(FLAVOR_IDENTITIES))})")
+    FLAVOR = flavor_id
+    EXTRACTORS = WIN_BUILD_ROOTS[flavor_id] / "bin/x64_Release/Extractors"
+    WORKSPACE = WIN_BUILD_ROOTS[flavor_id] / "data-prep"
+    MIN_COUNTS = dict(FLAVOR_MIN_COUNTS[flavor_id])
 
 # mmtile names are packed digits: %03d map + %02d x + %02d y. A name that
 # does not match (e.g. a future go%04u gameobject tile) must fail loudly
@@ -143,6 +257,19 @@ def maps_ids(workspace: Path) -> set[str]:
     return {path.name[:3] for path in (workspace / "maps").glob("*.map")}
 
 
+def validate_ad(workspace: Path) -> list[str]:
+    """The ad step is skippable only when its staged outputs already meet
+    the publication minimums publish enforces — an interrupted ad.exe run
+    leaves partial dirs behind that must be wiped and re-extracted, never
+    skipped on mere existence."""
+    problems = []
+    for kind, pattern in (("dbc", "*.dbc"), ("maps", "*.map")):
+        count = len(list((workspace / kind).glob(pattern)))
+        if count < MIN_COUNTS[kind]:
+            problems.append(f"{kind}={count} < {MIN_COUNTS[kind]}")
+    return problems
+
+
 def validate_vmaps(workspace: Path) -> list[str]:
     problems = []
     vmtrees = list((workspace / "vmaps").glob("*.vmtree"))
@@ -181,20 +308,87 @@ def wipe(workspace: Path, kind: str) -> None:
         print(f"[resume] wiping incomplete {target}", flush=True)
 
 
+def registered_exe_identity(flavor: str) -> tuple[int | None, str | None]:
+    """The flavor's S5.1-registered exe (size, sha256) from
+    schemas/flavor.json — the module-level indirection tests override to
+    match fixture bytes (the gate's hashing path still runs)."""
+    manifest = json.loads((ROOT / "schemas" / "flavor.json").read_text(encoding="utf-8"))
+    block = next(f for f in manifest["flavors"] if f["id"] == flavor)
+    return (
+        (block.get("client_binary") or {}).get("known_exe_size_bytes"),
+        (block.get("wine") or {}).get("known_exe_sha256"),
+    )
+
+
+def assert_client_shape(client: Path, flavor: str) -> None:
+    """Refuse a client root that is not a genuine <flavor> client BEFORE any
+    extractor runs (a wrong-flavor client would extract garbage or fail
+    deep inside libmpq). Per-flavor contract: CLIENT_SHAPE carries the
+    root exe plus the Data/ entries that identify the flavor; LOCALE_ENTRY
+    matches any known locale directory; the forbidden markers keep the
+    flavors mutually exclusive (wotlk's archive set otherwise satisfies
+    tbc's required entries)."""
+    shape = CLIENT_SHAPE[flavor]
+    problems: list[str] = []
+    if not (client / shape["exe"]).is_file():
+        problems.append(f"{shape['exe']} missing")
+    for entry in shape["data_entries"]:
+        if entry == LOCALE_ENTRY:
+            locales = [d for d in CLIENT_LOCALES if (client / "Data" / d).is_dir()]
+            if not locales:
+                problems.append(
+                    "no locale folder under Data/ (expected one of: "
+                    + ", ".join(CLIENT_LOCALES) + ")")
+        elif not (client / "Data" / entry).exists():
+            problems.append(f"Data/{entry} missing")
+    for entry in shape["forbidden"]:
+        if (client / "Data" / entry).exists():
+            problems.append(
+                f"Data/{entry} present (belongs to a LATER expansion's client)")
+    if problems:
+        raise StepFailure(
+            f"{client} does not look like a {flavor} client root: " + "; ".join(problems))
+    # Round-6 R6-R2-1: the shape check is NAME-presence only — a doctored
+    # set (wrong-era archives renamed into this flavor's layout) sails
+    # through and publish stamps an identity never verified against the
+    # bytes. The exe IS the identity: sha256 + size against the flavor's
+    # S5.1-registered pins in schemas/flavor.json (the same pins the
+    # Kotlin import lane's VAL-03 gate enforces).
+    exe = client / shape["exe"]
+    expected_size, expected_sha = registered_exe_identity(flavor)
+    if expected_size is not None:
+        actual_size = exe.stat().st_size
+        if actual_size != expected_size:
+            raise StepFailure(
+                f"{client} exe identity mismatch: {shape['exe']} is "
+                f"{actual_size} bytes, the registered {flavor} client is "
+                f"{expected_size} — the client set does not match the "
+                f"{flavor} lane's registered identity")
+    if expected_sha:
+        import hashlib
+        digest = hashlib.sha256(exe.read_bytes()).hexdigest()
+        if digest != expected_sha:
+            raise StepFailure(
+                f"{client} exe identity mismatch: {shape['exe']} sha256 "
+                f"{digest[:12]} != the registered {flavor} client "
+                f"{expected_sha[:12]} — the client set does not match the "
+                f"{flavor} lane's registered identity (a doctored or "
+                "wrong-flavor set renamed into this layout)")
+
+
 def extract(client: Path) -> None:
     for name in ("ad.exe", "vmap_extractor.exe", "vmap_assembler.exe", "MoveMapGen.exe"):
         if not (EXTRACTORS / name).is_file():
             raise StepFailure(f"extractor missing: {EXTRACTORS / name} "
-                              "(run tools/build_win_realm_runtime.py --extractors)")
-    if not (client / "WoW.exe").is_file() or not (client / "Data" / "base.MPQ").is_file():
-        raise StepFailure(f"{client} does not look like a 1.12.1 client root")
+                              "(run tools/build_win_realm_runtime.py "
+                              f"--flavor {FLAVOR} --extractors)")
+    assert_client_shape(client, FLAVOR)
     assert_extractor_dirs_absent(client)
 
     # ---- ad: dbc + maps (never Cameras; -e 3) ----
-    if (WORKSPACE / "dbc").is_dir() and any((WORKSPACE / "dbc").glob("*.dbc")) \
-            and (WORKSPACE / "maps").is_dir() and any((WORKSPACE / "maps").glob("*.map")):
-        print("[ad] outputs already staged; skipping")
-    else:
+    if validate_ad(WORKSPACE):
+        wipe(WORKSPACE, "dbc")
+        wipe(WORKSPACE, "maps")
         before = client_entries(client)
         try:
             run("ad", client, [str(EXTRACTORS / "ad.exe"), "-e", AD_EXTRACT_MASK])
@@ -207,6 +401,11 @@ def extract(client: Path) -> None:
         if leftover:
             clean_client_side_outputs(client, before)
             raise StepFailure(f"ad created unexpected client entries: {sorted(leftover)}")
+        problems = validate_ad(WORKSPACE)
+        if problems:
+            raise StepFailure("ad extraction incomplete: " + "; ".join(problems))
+    else:
+        print("[ad] outputs already staged and complete; skipping")
 
     # ---- vmaps: extractor -> buildings, assembler -> vmaps ----
     if validate_vmaps(WORKSPACE):
@@ -267,7 +466,47 @@ def validate_counts(counts: dict) -> None:
         raise StepFailure("prepared data below publication minimums: " + "; ".join(problems))
 
 
-def publish() -> None:
+def write_pointer(pointer: Path, text: str) -> None:
+    """Atomic pointer flip: a crash mid-write must never destroy the last
+    good pointer. os.replace over the tmp is atomic on NTFS."""
+    pointer_tmp = pointer.with_name(pointer.name + ".tmp")
+    pointer_tmp.write_text(text, encoding="utf-8")
+    os.replace(pointer_tmp, pointer)
+
+
+def verify_publication(flavor: str, generation: str, manifest_sha: str) -> None:
+    """The pre-flip self-check (DESK-128): the staged manifest is read back
+    from disk and must carry the exact published contract — flavor alias,
+    manifest sha — BEFORE any pointer moves, so a failed self-check can
+    never poison a pointer that previously named a good generation."""
+    manifest_path = DATADIR / "generations" / generation / "data-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("flavor") != flavor:
+        raise StepFailure(f"manifest flavor alias is {manifest.get('flavor')!r}, expected {flavor!r}")
+    if manifest["clientBuild"] != FLAVOR_IDENTITIES[flavor]["clientBuild"] or \
+            manifest["cmangosFamily"] != FLAVOR_IDENTITIES[flavor]["cmangosFamily"]:
+        raise StepFailure(f"manifest identity does not match the {flavor} flavor identity")
+    if sha256_of(manifest_path) != manifest_sha:
+        raise StepFailure("staged manifest sha256 does not match the digest to publish")
+
+
+def verify_pointers(flavor: str, generation: str, manifest_sha: str) -> None:
+    """Post-flip round-trip check: both written pointers must read back
+    exactly the published contract (a disk that cannot reproduce an
+    os.replace must fail the publication, never become the boot source)."""
+    expected = {"schema": 1, "mode": "NORMAL", "generation": generation,
+                "manifestSha256": manifest_sha}
+    canonical = DATADIR / f"active-{flavor}.json"
+    legacy = DATADIR / "active.json"
+    for pointer in (canonical, legacy):
+        observed = json.loads(pointer.read_text(encoding="utf-8"))
+        if observed != expected:
+            raise StepFailure(f"pointer self-check failed for {pointer.name}: "
+                              f"{json.dumps(observed)} != {json.dumps(expected)}")
+
+
+def publish(flavor: str) -> None:
+    identity = FLAVOR_IDENTITIES[flavor]
     generation = str(uuid.uuid4())
     gen_dir = DATADIR / "generations" / generation
 
@@ -315,8 +554,9 @@ def publish() -> None:
             "schema": 1,
             "complete": True,
             "mode": "NORMAL",
-            "clientBuild": 5875,
-            "cmangosFamily": "classic",
+            "flavor": flavor,
+            "clientBuild": identity["clientBuild"],
+            "cmangosFamily": identity["cmangosFamily"],
             "counts": counts,
             "files": files,
         }
@@ -324,36 +564,64 @@ def publish() -> None:
         manifest_path.write_text(json.dumps(manifest, indent=1), encoding="utf-8")
         manifest_sha = sha256_of(manifest_path)
 
-        # Atomic pointer flip: a crash mid-write must never destroy the
-        # last good pointer (there is exactly one and it names the boot
-        # source). os.replace over the tmp is atomic on NTFS.
+        # Per-flavor pointer namespace (DESK-128): the canonical
+        # active-<flavorId>.json plus the un-namespaced active.json mirror
+        # (kept for one transition release so existing consumers and shared
+        # PreparedDataStore builds without the flavor namespace keep
+        # resolving). Both name the same generation; two flavors' lanes
+        # coexist because each flavor owns its own canonical pointer.
         active = {"schema": 1, "mode": "NORMAL", "generation": generation,
                   "manifestSha256": manifest_sha}
+        active_text = json.dumps(active)
+        # Self-check BEFORE the flips (see verify_publication): a failure
+        # here leaves both pointers naming the previous good generation.
+        verify_publication(flavor, generation, manifest_sha)
         DATADIR.mkdir(parents=True, exist_ok=True)
-        pointer = DATADIR / "active.json"
-        pointer_tmp = DATADIR / "active.json.tmp"
-        pointer_tmp.write_text(json.dumps(active), encoding="utf-8")
-        os.replace(pointer_tmp, pointer)
+        write_pointer(DATADIR / f"active-{flavor}.json", active_text)
+        write_pointer(DATADIR / "active.json", active_text)
+        verify_pointers(flavor, generation, manifest_sha)
     except BaseException:
-        # A failed publication leaves no new generation behind.
+        # A failed publication leaves no new generation behind. A pointer
+        # that names the condemned generation is removed (fail-closed —
+        # "not ready" beats a dead pointer); failures before the flips
+        # leave both pointers naming the previous good generation.
         shutil.rmtree(gen_dir, ignore_errors=True)
+        for pointer in (DATADIR / f"active-{flavor}.json", DATADIR / "active.json"):
+            try:
+                if json.loads(pointer.read_text(encoding="utf-8")).get("generation") == generation:
+                    pointer.unlink()
+            except (OSError, ValueError):
+                pass
         raise
 
     prune_stale_generations(generation)
-    print(f"published generation {generation}: {len(files)} files, counts={counts}")
-    print(f"active pointer -> {DATADIR / 'active.json'}")
+    print(f"published generation {generation} (flavor {flavor}): "
+          f"{len(files)} files, counts={counts}")
+    print(f"canonical pointer -> {DATADIR / ('active-' + flavor + '.json')}")
+    print(f"legacy mirror -> {DATADIR / 'active.json'}")
 
 
 def prune_stale_generations(active: str, keep: int = 2) -> None:
-    """Keep the active generation plus the newest `keep` others; a failed
-    run otherwise leaks a full generation per attempt."""
+    """Keep every flavor's pointer-named generation plus the newest `keep`
+    others; a failed run otherwise leaks a full generation per attempt.
+    Every active-*.json pointer protects its generation: pruning another
+    flavor's boot source would silently destroy its lane (the exact
+    one-shared-pointer failure DESK-128 removes)."""
     generations = DATADIR / "generations"
     if not generations.is_dir():
         return
+    protected = {active}
+    for pointer in generations.parent.glob("active*.json"):
+        try:
+            named = json.loads(pointer.read_text(encoding="utf-8")).get("generation")
+        except (OSError, ValueError):
+            continue
+        if isinstance(named, str):
+            protected.add(named)
     def modified(path: Path) -> float:
         return path.stat().st_mtime
     stale = sorted((path for path in generations.iterdir() if path.is_dir()
-                    and path.name != active),
+                    and path.name not in protected),
                    key=modified, reverse=True)[keep:]
     for path in stale:
         shutil.rmtree(path, ignore_errors=True)
@@ -361,21 +629,49 @@ def prune_stale_generations(active: str, keep: int = 2) -> None:
 
 
 def main() -> int:
+    global DATADIR
     if os.name != "nt":
         print("windows-only lane", file=sys.stderr)
         return 2
+    # Round-5 R5-1 (D50): resolve through the shared override-aware
+    # resolver - the app reads the SAME root DesktopStorageRoots resolves
+    # (POCKET_REALM_DATA_ROOT wins; product_data_root raises when neither
+    # is set, which main() reports as the honest PREPARE FAILED).
+    try:
+        DATADIR = common.product_data_root() / "content" / "o11-server"
+    except RuntimeError as failure:
+        print(f"PREPARE FAILED: {failure}", file=sys.stderr)
+        return 2
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--client", type=Path, default=DEFAULT_CLIENT)
+    parser.add_argument("--flavor", default="vanilla",
+                        help="the flavor lane to publish (canonical pointer "
+                             "active-<flavor>.json + manifest flavor alias); "
+                             "default vanilla")
     parser.add_argument("--publish-only", action="store_true",
                         help="assemble the PreparedDataStore layout from an "
                              "already-complete workspace, skipping extraction")
     args = parser.parse_args()
 
+    flavor = args.flavor
+    if not FLAVOR_ID.match(flavor):
+        print(f"PREPARE FAILED: --flavor must match {FLAVOR_ID.pattern}, got {flavor!r}",
+              file=sys.stderr)
+        return 2
+    if flavor not in FLAVOR_IDENTITIES:
+        print(f"PREPARE FAILED: flavor {flavor!r} has no qualified manifest identity "
+              f"(qualified: {', '.join(sorted(FLAVOR_IDENTITIES))})", file=sys.stderr)
+        return 2
+    # Bind the flavor's lane paths (extractor home, workspace, floors)
+    # BEFORE any extraction: the workspace is flavor-scoped so one flavor's
+    # complete outputs can never satisfy another flavor's resume skip.
+    select_flavor(flavor)
+
     WORKSPACE.mkdir(parents=True, exist_ok=True)
     try:
         if not args.publish_only:
             extract(args.client)
-        publish()
+        publish(flavor)
     except StepFailure as failure:
         print(f"PREPARE FAILED: {failure}", file=sys.stderr)
         return 3

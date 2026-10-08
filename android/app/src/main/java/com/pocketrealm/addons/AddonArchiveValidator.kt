@@ -1,5 +1,6 @@
 package com.pocketrealm.addons
 
+import com.pocketrealm.client.ClientFlavors
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipFile
 import java.io.File
@@ -15,12 +16,31 @@ internal class AddonArchiveValidator {
         val maxArchiveBytes: Long = MAX_ARCHIVE_BYTES,
         val maxExpandedBytes: Long = MAX_EXPANDED_BYTES,
         val maxEntries: Int = MAX_ENTRIES,
-        val acceptedInterfaces: Set<Int> = setOf(11200),
+        /**
+         * DESK-54 flavor seam: the accepted `## Interface:` numbers default to
+         * the ACTIVE flavor's [ClientFlavor.addonInterfaces] (the Home flavor
+         * switcher's lane, via the [ActiveFlavor] machine) — never a
+         * hard-coded 11200 here, so switching or qualifying a flavor is a
+         * data change in [ClientFlavors] instead of a silent accept/reject
+         * skew in this validator. The research-pinned policies below
+         * ([VOICEOVER_PLAYER], [VOICEOVER_DATA]) keep their explicit
+         * vanilla-line sets on purpose: those projects are vanilla research
+         * pins, not active-lane followers.
+         */
+        val acceptedInterfaces: Set<Int> = com.pocketrealm.client.ActiveFlavor
+            .resolve("add-on validation resolves the qualified lane")
+            .addonInterfaces,
         val expectedFolders: Set<String>? = null,
         val requiredTocFields: Map<String, String> = emptyMap(),
         val preferredRootToc: String? = null,
     ) {
         companion object {
+            /**
+             * The validator's default policy. Its accepted set is the ACTIVE
+             * lane's (vanilla today, since [ActiveFlavor] resolves the sole
+             * qualified lane); the name pins the default, not a frozen
+             * registry read — per-call lanes construct [Policy] fresh.
+             */
             val VANILLA = Policy()
             val VOICEOVER_PLAYER = Policy(
                 expectedFolders = setOf("AI_VoiceOver"),
@@ -29,20 +49,31 @@ internal class AddonArchiveValidator {
             val VOICEOVER_DATA = Policy(
                 maxArchiveBytes = VOICEOVER_DATA_MAX_ARCHIVE_BYTES,
                 maxExpandedBytes = VOICEOVER_DATA_MAX_EXPANDED_BYTES,
-                acceptedInterfaces = setOf(11200, 100000),
+                acceptedInterfaces = ClientFlavors.VANILLA.addonInterfaces +
+                    VOICEOVER_DATA_MODULE_INTERFACE,
                 expectedFolders = setOf("AI_VoiceOverData_Vanilla"),
                 requiredTocFields = mapOf(
                     "OptionalDeps" to "AI_VoiceOver_112, AI_VoiceOver",
                     "X-VoiceOver-DataModule-Version" to "1",
                 ),
             )
+
+            /**
+             * The VoiceOver data module's own `## Interface: 100000` marker —
+             * the project's data-module convention, not a client API level,
+             * so it rides beside the flavor's accepted set instead of inside
+             * [ClientFlavors].
+             */
+            const val VOICEOVER_DATA_MODULE_INTERFACE = 100000
         }
     }
 
     fun validate(
         archive: File,
         @Suppress("UNUSED_PARAMETER") repositoryName: String,
-        policy: Policy = Policy.VANILLA,
+        // A FRESH default (never the frozen companion val): the accepted
+        // `## Interface:` set is the ACTIVE flavor's, read at install time.
+        policy: Policy = Policy(),
         checkpoint: () -> Unit = {},
     ): Validated {
         checkpoint()

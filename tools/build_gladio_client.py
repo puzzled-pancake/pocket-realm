@@ -12,11 +12,10 @@ client to the server's bounded transient-attribute protocol, preserve BGRA
 buffer offsets, and advertise only the qualified OpenGL compatibility profile.
 Every replacement is signature-locked so an upstream change fails closed.
 
-The default remains the qualified x86_64 lane.  ``--abi arm64-v8a`` uses an
-explicit GNU/Linux cross toolchain (not the Android NDK) because Box64 loads
-the AArch64 client in Winlator's glibc namespace.  The resulting library is
-staged as a closed experimental renderer payload. At runtime it is copied into
-the selected prefix generation; the shared Winlator rootfs is not modified.
+The x86_64 validation lane is the ONLY lane: Gladio remains reproducible
+solely for the historical x86 validation lane (the RP6/ARM product path is
+Box64 + DXVK and never builds or packages a libGL client).  The retired
+AArch64 cross lane is gone entirely - no target selection, no ARM staging.
 """
 from __future__ import annotations
 
@@ -47,13 +46,10 @@ BUILD_ROOT = ROOT / "native" / ".build-x86_64" / "gladio-client"
 SOURCE_TREE = BUILD_ROOT / "source"
 OUTPUT = BUILD_ROOT / "libGL.so.1"
 PROVENANCE = BUILD_ROOT / "BUILD_PROVENANCE.json"
-STAGED_OUTPUT: Path | None = None
 BUILDER_IMAGE = (
     "ghcr.io/termux/package-builder-cgct@"
     "sha256:69ffa5cfe02ca569e7d03d1c99e3c9a0f79390ad6bf11a3629d048c29c6ccb61"
 )
-TARGET_ABI = "x86_64"
-TARGET_BUILD_SUFFIX = "x86_64"
 TARGET_MACHINE = 62  # EM_X86_64
 TARGET_COMPILER = "gcc"
 TARGET_LOADER = "ld-linux-x86-64.so.2"
@@ -61,93 +57,6 @@ TARGET_EXPECTED_SHA256 = "7b60dafa5e071e11187c0936840201920e141160f0897609ce530c
 # Client corrections from the external Gladio/WoW research pass
 # (carried by gladio-phase2-gl_calls.patch):
 # spec-exact integer color/normal/secondary-color normalization
-# ((2c+1)/(2^b-1) signed, c/(2^b-1) unsigned), client-active-texture fixes for
-# glMultiTexCoordPointerEXT and the (previously stubbed) indexed client-state
-# enables, clamped glGetProgramInfoLog/glGetShaderInfoLog replies, and
-# glAreTexturesResident output population.  Applied to the ARM64 lane only;
-# the x86_64 validation lane keeps its byte-pinned output.
-PHASE2_PATCH = ROOT / "tools" / "patches" / "gladio-phase2-gl_calls.patch"
-PHASE2_GL_CALLS_SHA256 = "7e1f99d3f1ed98086cd679aba216e8694e197b9502a29d9af894111d276c5a19"
-# WoW 1.12.1 on-device findings: glTexGenfv (water/terrain texcoord
-# generation) and glLightModelfv (ambient scene light) were stubbed on both
-# ends of the bridge, spamming stderr every frame until the tracked output
-# pipe back-pressured and froze the game's render thread. Forward the vector
-# variants with plane-aware payload counts and log remaining unimplemented
-# calls at most once per name.
-PHASE3_PATCH = ROOT / "tools" / "patches" / "gladio-wow-texgen-gl_calls.patch"
-PHASE3_GL_CALLS_SHA256 = "614693d16ae2cc20c5d78c6ed4073172124b3d05580ac934d1ac9c93266296f9"
-# Production transport corrections from the external engineering pass
-# (carried by gladio-phase4-transport.patch, validated against the exact
-# deployed v5 sources):
-# atomic three-part client publication (header/payload/trailing bytes) via
-# RingBuffer_writeParts so a request is never partially visible, client ring
-# hardening (RingBuffer_create now stores the sharedData mapping, power-of-two
-# capacity and reply-length validation, peer-socket death detection, first
-# send failure reporting, unaligned wire-header loads fixed), uint32 wrap-safe
-# head/tail commits, glDisableVertexAttribArray-style mirroring for
-# glEnableVertexAttribArray, and all-or-nothing texture/immediate-mode writes.
-# No request code or payload layout changes.  Applied last against the fully
-# mutated tree; every touched file is sha-locked to the pinned content.
-PHASE4_PATCH = ROOT / "tools" / "patches" / "gladio-phase4-transport.patch"
-PHASE4_FILE_SHA256 = {
-    "include/gladio.h":
-        "e4f63db1b52850950b9a0a1bc0862c1059a84aee94397a0170aa860fb49ad729",
-    "include/ring_buffer.h":
-        "49e298c6d638e1be4db913d452e95bb6b6a61f1b42b447bc1f18b11dc661a40b",
-    "src/ring_buffer.c":
-        "89c01bce630ff67c9a1663ac74fc6bd704b89f162c5367a96f7740d43ada5646",
-    "src/gl_calls.c":
-        "0524588dd61c28cdae80859f49769e11e5b848ecd7cf1bb9fba3ea5edffe4935",
-    "src/main.c":
-        "9088a6fb743687092cdf536994c63415a5c8dec5ef8fde4cd1bc35269150e706",
-}
-ARM_CROSS_PACKAGES = (
-    "gcc-aarch64-linux-gnu=4:15.2.0-5ubuntu1",
-    "libc6-dev-arm64-cross=2.43-2ubuntu2cross1",
-    "libx11-dev:arm64=2:1.8.13-1",
-)
-WINLATOR_ROOTFS = (
-    ROOT / "native" / ".providers-extracted" / "winlator-app-ca3d735" /
-    "app" / "src" / "main" / "assets" / "rootfs.tzst"
-)
-def select_target(abi: str) -> None:
-    global BUILD_ROOT, SOURCE_TREE, OUTPUT, PROVENANCE, STAGED_OUTPUT
-    global TARGET_ABI, TARGET_BUILD_SUFFIX, TARGET_MACHINE
-    global TARGET_COMPILER, TARGET_LOADER, TARGET_EXPECTED_SHA256
-
-    if abi == "x86_64":
-        suffix = "x86_64"
-        machine = 62
-        compiler = "gcc"
-        loader = "ld-linux-x86-64.so.2"
-        expected_sha256 = "7b60dafa5e071e11187c0936840201920e141160f0897609ce530cb6f69b60b6"
-    elif abi == "arm64-v8a":
-        suffix = "arm64"
-        machine = 183
-        compiler = "aarch64-linux-gnu-gcc"
-        loader = "ld-linux-aarch64.so.1"
-        expected_sha256 = "c02fb7275463bebcc3aa3fcf3e8e6de668bd2e6f39bda57052d3352801636d08"
-    else:
-        raise ValueError(f"unsupported Gladio target ABI: {abi}")
-
-    TARGET_ABI = abi
-    TARGET_BUILD_SUFFIX = suffix
-    TARGET_MACHINE = machine
-    TARGET_COMPILER = compiler
-    TARGET_LOADER = loader
-    TARGET_EXPECTED_SHA256 = expected_sha256
-    BUILD_ROOT = ROOT / "native" / f".build-{suffix}" / "gladio-client"
-    SOURCE_TREE = BUILD_ROOT / "source"
-    OUTPUT = BUILD_ROOT / "libGL.so.1"
-    PROVENANCE = BUILD_ROOT / "BUILD_PROVENANCE.json"
-    STAGED_OUTPUT = (
-        ROOT / "native" / ".build-arm64" / "wine-staging" / "assets" /
-        "arm-translated" / "renderer-packages" /
-        "box64-gladio-eaa2a8d" / "libGL.so.1"
-        if abi == "arm64-v8a" else None
-    )
-
-
 sha256 = common.sha256_file
 def docker_path(path: Path) -> str:
     value = str(path.resolve()).replace("\\", "/")
@@ -268,8 +177,6 @@ def prepare_source() -> None:
 """
     if text.count(old) != 1:
         raise RuntimeError("pinned Gladio client-state initialization anchor missing")
-    if TARGET_ABI != "x86_64":
-        client_state.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
 
     texture_utils = SOURCE_TREE / "include" / "texture_utils.h"
     text = texture_utils.read_text(encoding="utf-8")
@@ -305,8 +212,6 @@ static inline int computeTexImageDataSpan(
     return span > INT32_MAX ? 0 : (int)span;
 }
 '''
-    if TARGET_ABI != "x86_64":
-        texture_utils.write_text(text.replace(anchor, helper + anchor), encoding="utf-8", newline="\n")
 
     text = header.read_text(encoding="utf-8")
     old = """        int dataSize = compressedSize; \\
@@ -334,8 +239,6 @@ static inline int computeTexImageDataSpan(
 """
     if text.count(old) != 1:
         raise RuntimeError("pinned Gladio texture transport-size anchor missing")
-    if TARGET_ABI != "x86_64":
-        header.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
 
     # Android normally means the GLES server in upstream Gladio.  ARM64EC
     # Wine, however, is itself a native Bionic process and needs the client
@@ -503,8 +406,6 @@ static inline int computeTexImageDataSpan(
 """
     if text.count(old) != 1:
         raise RuntimeError("pinned Gladio pixel-store tracking anchor missing")
-    if TARGET_ABI != "x86_64":
-        text = text.replace(old, new)
     old = """            clientState->vao->attribs[index].pointer = arrayBuffer ? arrayBuffer->mappedData : pointer;
             GLVertexArrayObject_setAttribState(clientState, index, VERTEX_ATTRIB_ENABLED, false);
 """
@@ -517,31 +418,6 @@ static inline int computeTexImageDataSpan(
         raise RuntimeError("pinned Gladio BGRA pointer anchor missing or ambiguous")
     calls.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
 
-    # Research corrections (see PHASE2_PATCH): applied after the
-    # pixel-store/BGRA edits above so the unified diff context matches the
-    # generated tree exactly; fail closed on any drift from the expected
-    # post-patch content.
-    if TARGET_ABI != "x86_64":
-        subprocess.run(
-            ["git", "apply", str(PHASE2_PATCH)],
-            cwd=SOURCE_TREE, check=True,
-        )
-        patched_sha256 = sha256(calls)
-        if patched_sha256 != PHASE2_GL_CALLS_SHA256:
-            raise RuntimeError(
-                "Gladio gl_calls.c drift (phase2 patch): "
-                f"{patched_sha256} != {PHASE2_GL_CALLS_SHA256}"
-            )
-        subprocess.run(
-            ["git", "apply", str(PHASE3_PATCH)],
-            cwd=SOURCE_TREE, check=True,
-        )
-        patched_sha256 = sha256(calls)
-        if patched_sha256 != PHASE3_GL_CALLS_SHA256:
-            raise RuntimeError(
-                "Gladio gl_calls.c drift (phase3 patch): "
-                f"{patched_sha256} != {PHASE3_GL_CALLS_SHA256}"
-            )
 
     # The upstream draw protocol infers the transient attribute order from two
     # independently-maintained VAO state machines. WineD3D can legitimately
@@ -656,24 +532,8 @@ void writeUnboundVertexArrays(GLint first, GLsizei count, const void* indices,
 """
     source.write_text(text[:start] + new + text[end:], encoding="utf-8", newline="\n")
 
-    # Production transport corrections (see PHASE4_PATCH): applied
-    # after every anchored text edit above so the unified diff context matches
-    # the generated tree exactly; fail closed on drift in any touched file.
-    if TARGET_ABI != "x86_64":
-        subprocess.run(
-            ["git", "apply", "--whitespace=nowarn", str(PHASE4_PATCH)],
-            cwd=SOURCE_TREE, check=True,
-        )
-        for rel, expected in PHASE4_FILE_SHA256.items():
-            got = sha256(SOURCE_TREE / rel)
-            if got != expected:
-                raise RuntimeError(
-                    f"Gladio drift in {rel} (phase4 transport patch): {got} != {expected}"
-                )
-
-
 def build() -> None:
-    container_build_root = f"/work/native/.build-{TARGET_BUILD_SUFFIX}/gladio-client"
+    container_build_root = "/work/native/.build-x86_64/gladio-client"
     sources = " ".join(
         f"{container_build_root}/source/src/{name}"
         for name in (
@@ -685,17 +545,6 @@ def build() -> None:
         f"export SOURCE_DATE_EPOCH={SOURCE_DATE_EPOCH}",
         "cd /work",
     ]
-    if TARGET_ABI == "arm64-v8a":
-        # These versions are resolved inside the immutable CGCT image.  The
-        # foreign-architecture libX11 development package supplies the
-        # AArch64 link interface; verification below rejects output requiring
-        # a glibc newer than Winlator's pinned 2.39 runtime.
-        commands.extend([
-            "dpkg --add-architecture arm64",
-            "apt-get update -qq",
-            "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "
-            + " ".join(ARM_CROSS_PACKAGES),
-        ])
     commands.extend([
         (
             f"{TARGET_COMPILER} -std=gnu2x -O2 -fPIC -fvisibility=default "
@@ -708,12 +557,6 @@ def build() -> None:
         ),
         f"{TARGET_COMPILER} --version | head -1 > {container_build_root}/BUILD_TOOLCHAIN.txt",
     ])
-    if TARGET_ABI == "arm64-v8a":
-        commands.append(
-            "dpkg-query -W -f='${Package}=${Version}\\n' "
-            "gcc-aarch64-linux-gnu libc6-dev-arm64-cross libx11-dev:arm64 "
-            f">> {container_build_root}/BUILD_TOOLCHAIN.txt"
-        )
     command = " && ".join(commands)
     subprocess.run([
         "docker", "run", "--rm", "--user", "0",
@@ -728,7 +571,7 @@ def verify() -> dict[str, object]:
     from stage_wine_runtime import validate_elf_page_compatibility
     output_bytes = OUTPUT.read_bytes()
     validate_elf_page_compatibility(
-        output_bytes, f"Gladio {TARGET_ABI} libGL.so.1"
+        output_bytes, "Gladio x86_64 libGL.so.1"
     )
     if len(output_bytes) < 20 or output_bytes[:4] != b"\x7fELF":
         raise RuntimeError(f"Gladio output is not ELF: {OUTPUT}")
@@ -737,16 +580,16 @@ def verify() -> dict[str, object]:
     machine = int.from_bytes(output_bytes[18:20], "little")
     if machine != TARGET_MACHINE:
         raise RuntimeError(
-            f"Gladio ELF e_machine={machine}, expected {TARGET_MACHINE} for {TARGET_ABI}"
+            f"Gladio ELF e_machine={machine}, expected {TARGET_MACHINE} for x86_64"
         )
     output_sha256 = hashlib.sha256(output_bytes).hexdigest()
     if TARGET_EXPECTED_SHA256 and output_sha256 != TARGET_EXPECTED_SHA256:
         raise RuntimeError(
-            f"Gladio {TARGET_ABI} output drift: {output_sha256} != "
+            f"Gladio x86_64 output drift: {output_sha256} != "
             f"{TARGET_EXPECTED_SHA256}"
         )
 
-    container_output = f"/work/native/.build-{TARGET_BUILD_SUFFIX}/gladio-client/libGL.so.1"
+    container_output = "/work/native/.build-x86_64/gladio-client/libGL.so.1"
     readelf = subprocess.check_output(
         ["docker", "run", "--rm", "--user", "0",
          "-v", f"{docker_path(ROOT)}:/work", BUILDER_IMAGE,
@@ -770,50 +613,9 @@ def verify() -> dict[str, object]:
     if missing:
         raise RuntimeError(f"missing Gladio client dependencies: {missing}")
 
-    glibc_versions: list[str] = []
-    if TARGET_ABI == "arm64-v8a":
-        version_info = subprocess.check_output(
-            ["docker", "run", "--rm", "--user", "0",
-             "-v", f"{docker_path(ROOT)}:/work", BUILDER_IMAGE,
-             "readelf", "--version-info", container_output],
-            text=True,
-        )
-        glibc_versions = sorted(
-            set(re.findall(r"GLIBC_([0-9]+(?:\.[0-9]+)+)", version_info)),
-            key=lambda value: tuple(int(part) for part in value.split(".")),
-        )
-        too_new = [
-            version for version in glibc_versions
-            if tuple(int(part) for part in version.split(".")) > (2, 39)
-        ]
-        if too_new:
-            raise RuntimeError(
-                "AArch64 Gladio client exceeds Winlator glibc 2.39: "
-                + ", ".join(too_new)
-            )
-
-        if not WINLATOR_ROOTFS.is_file():
-            raise FileNotFoundError(
-                f"pinned Winlator rootfs is unavailable: {WINLATOR_ROOTFS}"
-            )
-        rootfs_entries = set(subprocess.check_output(
-            ["tar", "-tf", str(WINLATOR_ROOTFS)], text=True,
-        ).splitlines())
-        runtime_members = {
-            "./usr/lib/ld-linux-aarch64.so.1",
-            "./usr/lib/libX11.so.6",
-            "./usr/lib/libc.so.6",
-        }
-        absent_members = sorted(runtime_members - rootfs_entries)
-        if absent_members:
-            raise RuntimeError(
-                "Winlator AArch64 runtime closure is incomplete: "
-                + ", ".join(absent_members)
-            )
-
     provenance: dict[str, object] = {
         "schema": 1,
-        "declared_abi": TARGET_ABI,
+        "declared_abi": "x86_64",
         "elf_machine": machine,
         "source_url": SOURCE_URL,
         "source_commit": SOURCE_COMMIT,
@@ -840,69 +642,16 @@ def verify() -> dict[str, object]:
             encoding="utf-8"
         ).splitlines(),
     }
-    if TARGET_ABI != "x86_64":
-        provenance["adaptations"].append(
-            "Preserve all size-affecting desktop GL_UNPACK state and transmit "
-            "the exact client-memory span for uncompressed texture uploads; "
-            "compressed payload sizes remain explicit and pixel-store independent."
-        )
-        provenance["adaptations"].append(
-            "WoW 1.12.1 research corrections (phase2 patch): OpenGL 2.1 table 2.9 "
-            "signed/unsigned integer color/normal/secondary-color "
-            "normalization, client-active-texture unit selection for "
-            "glMultiTexCoordPointerEXT and indexed client-state enables, "
-            "clamped program/shader info-log replies, populated "
-            "glAreTexturesResident output."
-        )
-        provenance["adaptations"].append(
-            "WoW texgen/light-model vectors: forward glTexGen{d,f,i}v and "
-            "glLightModel{f,i}v with plane/ambient-aware payload counts "
-            "(previously stubbed on both ends, corrupting water and ambient "
-            "light), and log remaining unimplemented calls once per name so "
-            "per-frame stderr spam cannot back-pressure the tracked output "
-            "pipe into a render-thread freeze."
-        )
-    if TARGET_ABI == "arm64-v8a":
-        provenance["glibc_versions"] = [f"GLIBC_{value}" for value in glibc_versions]
-        provenance["runtime_compatibility"] = {
-            "rootfs": str(WINLATOR_ROOTFS.relative_to(ROOT)).replace("\\", "/"),
-            "rootfs_sha256": sha256(WINLATOR_ROOTFS),
-            "maximum_glibc": "2.39",
-            "runtime_destination": "generation-local/graphics/libGL.so.1",
-        }
     return provenance
-
-
-def stage_arm_client(provenance: dict[str, object]) -> None:
-    if STAGED_OUTPUT is None:
-        return
-    STAGED_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    temporary = STAGED_OUTPUT.with_name(f".{STAGED_OUTPUT.name}.tmp")
-    shutil.copyfile(OUTPUT, temporary)
-    os.replace(temporary, STAGED_OUTPUT)
-    if sha256(STAGED_OUTPUT) != sha256(OUTPUT):
-        raise RuntimeError("staged AArch64 Gladio client does not match build output")
-    provenance["staging"] = {
-        "path": str(STAGED_OUTPUT.relative_to(ROOT)).replace("\\", "/"),
-        "size": STAGED_OUTPUT.stat().st_size,
-        "sha256": sha256(STAGED_OUTPUT),
-        "runtime_destination": "generation-local/graphics/libGL.so.1",
-    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--abi", choices=("x86_64", "arm64-v8a"), default="x86_64",
-        help="target client ABI (default: existing x86_64 lane)",
-    )
     args = parser.parse_args()
-    select_target(args.abi)
     acquire_source()
     prepare_source()
     build()
     provenance = verify()
-    stage_arm_client(provenance)
     PROVENANCE.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(provenance, indent=2))
     return 0

@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "complete": true,
+  "clientId": "wow-1.12.1-5875",
+  "identity": {
+    "size": 4096,
+    "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "optionalMagic": 267,
+    "build": 5875,
+    "machine": 332,
+    "version": "1.12.1.5875"
+  },
+  "executable": "WoW.exe",
+  "directLaunch": true,
+  "sourceRuntimeDependency": false,
+  "sourceFingerprint": "zip-sha256:4444444444444444444444444444444444444444444444444444444444",
+  "managedRoot": "no_backup/client/generations/123e4567-e89b-12d3-a456-426614174000",
+  "safeMode": {
+    "renderer": "wined3d",
+    "resolution": "1280x720",
+    "fpsCap": 30,
+    "audio": "off",
+    "realmEndpoint": "127.0.0.1",
+    "addons": "preserved-disabled-until-reviewed"
+  },
+  "appOwnedFiles": [
+    "realmlist.wtf",
+    "WTF/Config.wtf"
+  ],
+  "journal": {
+    "schema": 4,
+    "verified": 2,
+    "skipped": 1,
+    "maxAttempt": 1
+  },
+  "files": [
+    {
+      "path": "Data/base.MPQ",
+      "size": 1024,
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "path": "WoW.exe",
+      "size": 4096,
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  ],
+  "durationMs": 42000,
+  "publishedAtMs": 1759200000000
+}

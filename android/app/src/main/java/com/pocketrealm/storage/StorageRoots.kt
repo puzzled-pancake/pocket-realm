@@ -1,7 +1,6 @@
 package com.pocketrealm.storage
 
 import android.content.Context
-import com.pocketrealm.realm.RealmSupervisor
 import java.io.File
 
 /**

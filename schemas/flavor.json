@@ -2,6 +2,10 @@
   "schema": 2,
   "reference_document": "docs/TBC-WOTLK-MULTI-FLAVOR-PORT-PLAN.md",
   "description": "The multi-flavor product manifest: the contract the build, manifest merger, and release-acceptance checks enforce. Legacy top-level fields below describe the product-wide device/permission policy; the authoritative per-flavor data lives in the flavors array. Only flavors with qualified=true may be imported or launched.",
+  "auth": {
+    "smsg_auth_challenge_opcode": "0x1EC",
+    "note": "Correction C3 (register \u00a70): SMSG_AUTH_CHALLENGE = 0x1EC in all three branches - ONE shared constant, never per-flavor. Kotlin: ClientFlavors.AUTH_CHALLENGE_OPCODE. The desktop harness asserts it and fails loud on any other value. SRP6 frame layouts around it are per-branch facts: see each flavor's auth_frame descriptor (verified at S8, port plan S8 item 2)."
+  },
   "flavors": [
     {
       "id": "vanilla",
@@ -27,12 +31,38 @@
       },
       "bots": {
         "upstream": "https://github.com/puzzled-pancake/playerbots.git",
+        "branch": "pocket-realm",
         "commit": "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d",
-        "status": "pinned"
+        "status": "pinned",
+        "note": "Correction C4 (register \u00a70): one multi-expansion pin serves all flavors (MANGOSBOT_ZERO/ONE/TWO, macro-switched); decision D34."
       },
       "extractors": {
         "source": "server_core contrib (ad, vmap_extractor, vmap_assembler, MoveMapGen)",
         "patch": "native/patches/o11-cmangos-safe-mpq-listfile.patch"
+      },
+      "realmd": {
+        "column": "realmbuilds",
+        "accepted_builds": "5875 6005 6141",
+        "note": "Correction C1: cmangos realmlist.realmbuilds varchar(64) (never gamebuild - that is TrinityCore's schema). Accepted-build set the flavor's realmd advertises: the pinned seeds ship the column EMPTY on every lane (the cmangos dump row, hash-bound in schemas/database-migrations.json), and the owner-gated realm-endpoint projection writes this set at database start, before realmd serves a logon."
+      },
+      "auth_frame": {
+        "proof_response_bytes": 26,
+        "note": "Vanilla 1.12.1 proof-response frame verified by the desktop AuthGate fixture: cmd(1) + error(1) + M2(20) + LoginFlags(4) = 26 bytes. Per-branch SRP6 frame verification is port plan S8 (P2-7 item 4)."
+      },
+      "wtf": {
+        "layout": "account-level",
+        "character_cache_files": [],
+        "note": "Correction C8: vanilla writes account-level WTF only; the per-realm/per-character SavedVariables and the char-level cache set are later-era."
+      },
+      "client_binary": {
+        "known_exe_md5": null,
+        "known_exe_size_bytes": 4775986,
+        "large_address_aware": false,
+        "note": "Size pinned by tools/install_client_windows.ps1 EXPECTED_EXE_BYTES (1.12.1.5875). large_address_aware=false is why the vanilla-tweaks LAA patch exists (ClientTweaks). MD5 cross-check value recorded at S5."
+      },
+      "conf_matrix": {
+        "excluded_keys": [],
+        "note": "Classic has no VoiceChat surface (register C9). See the wotlk flavor for the exclusion pattern."
       },
       "databases": {
         "realmd": "classicrealmd",
@@ -80,26 +110,30 @@
       "client_id": "wow-2.4.3-8606",
       "build": 8606,
       "version_resource": "2.4.3.8606",
-      "client_version": "2.4.3 build 8606 (user-supplied; qualification pending, port plan stage S5)",
-      "supported_client_builds": [],
-      "supported_client_builds_note": "Empty until the genuine 2.4.3.8606 client is hash-qualified in port plan S5. Import must reject while qualified=false.",
+      "client_version": "2.4.3 build 8606 (user-supplied; S5.1 identity registered, qualification pending)",
+      "supported_client_builds": [8606],
+      "supported_client_builds_note": "S5.1 hash registration (lanes item 13), measured on the staged genuine 2.4.3.8606 enUS client: SHA-256 8f8d7f4cf3909e61fd34b09df9c9b56c21aec76a9ad1883353f1fa5d9b8411e2 (wine.known_exe_sha256), MD5 cross-check 57c5c03097103e15f9abe2803aebdc3c (client_binary.known_exe_md5, equals the anzz1 pristine prefix, register C6), 8,272,528 bytes, PE version tuple (2,4,3,8606). Import still rejects while qualified=false; the flip is owner-decision (lanes item 21).",
       "server_core": {
         "upstream": "https://github.com/cmangos/mangos-tbc.git",
-        "fork": null,
+        "fork": "https://github.com/puzzled-pancake/mangos-tbc.git",
         "branch": "pocket-realm",
-        "commit": null,
-        "status": "unresolved",
+        "commit": "ffbf97675dc31f845587778f5bb993b232f1b6a2",
+        "status": "pinned",
         "role": "TBC 2.4.3 game server core (mangosd + realmd)"
       },
       "db_content": {
         "upstream": "https://github.com/cmangos/tbc-db.git",
-        "commit": null,
-        "status": "unresolved"
+        "commit": "866723612d93791e442fb1b18d642118fa682edd",
+        "status": "registered",
+        "seed": "Full_DB/TBCDB_1.11.0_Vengeance_One_A_Cmangos_Story.sql.gz",
+        "note": "S4 item 1 pin reconciled into the flavor manifest (lanes item 1): upstream cmangos/tbc-db master head 8667236 (2026-10-05), carried by sources.json cmangos-db-tbc; the checkout native/classic-db-tbc sits at the pin."
       },
       "bots": {
-        "upstream": null,
-        "commit": null,
-        "status": "unresolved"
+        "upstream": "https://github.com/puzzled-pancake/playerbots.git",
+        "branch": "pocket-realm",
+        "commit": "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d",
+        "status": "pinned",
+        "note": "Correction C4 (register \u00a70): upstream cmangos/playerbots master is multi-expansion (MANGOSBOT_ONE selects the TBC bot API; per-expansion conf dists aiplayerbot.conf.dist.in.tbc verified) - one pin serves all flavors; decision D34. Checkout/register half: wave-0 fork registration."
       },
       "extractors": {
         "source": "server_core contrib (ad, vmap_extractor, vmap_assembler, MoveMapGen)",
@@ -110,6 +144,30 @@
         "world": "tbcmangos",
         "characters": "tbccharacters",
         "logs": "tbclogs"
+      },
+      "realmd": {
+        "column": "realmbuilds",
+        "accepted_builds": "8606",
+        "note": "Correction C1: same realmbuilds varchar(64) column as classic; the numeric gamebuild named in earlier plan revisions is TrinityCore's schema."
+      },
+      "auth_frame": {
+        "proof_response_bytes": 32,
+        "note": "0x1EC opcode is shared (top-level auth block, C3). S8 frame verification (lanes item 14): sAuthLogonProof_S at native/cmangos-tbc/src/realmd/AuthSocket.cpp:135-143 is cmd(1) + error(1) + M2(20) + accountFlags(4) + surveyId(4) + unkFlags(2) = 32 bytes, and the case-8606 send path writes exactly that struct (vanilla's 26-byte BUILD_6005 form is the pre-TBC 5875 branch)."
+      },
+      "wtf": {
+        "layout": "3-level",
+        "character_cache_files": [],
+        "note": "Correction C8: TBC already writes per-realm/per-character SavedVariables (3-level). The char-level cache-file set (config-cache.wtf, bindings-cache.wtf, macros-cache.txt, layout-local.txt, chat-cache.txt) is WotLK-era and absent here."
+      },
+      "client_binary": {
+        "known_exe_md5": "57c5c03097103e15f9abe2803aebdc3c",
+        "known_exe_size_bytes": 8272528,
+        "large_address_aware": false,
+        "note": "S5.1 registration (lanes item 13) measured on the staged hash-verified 2.4.3.8606 client: 8,272,528 bytes, MD5 57c5c03097103e15f9abe2803aebdc3c (the anzz1 pristine prefix, register C6), SHA-256 8f8d7f4cf3909e61fd34b09df9c9b56c21aec76a9ad1883353f1fa5d9b8411e2 in wine.known_exe_sha256. large_address_aware=false measured from the PE characteristics word (0x0103, no 0x0020 LAA bit) - resolves register C7's open TBC question. The registration records identity only; import still rejects while qualified=false."
+      },
+      "conf_matrix": {
+        "excluded_keys": [],
+        "note": "No VoiceChat exclusion verified for the 8606 branch; record here at S2 matrix generation if the branch ships the stub (register C9 names wotlk only)."
       },
       "addon_interfaces": [20400],
       "bot_policy": {
@@ -123,11 +181,16 @@
         "prefix_segment": "wow8606",
         "graphics_routes": ["dxvk"],
         "vanilla_tweaks": false,
-        "known_exe_sha256": null
+        "known_exe_sha256": "8f8d7f4cf3909e61fd34b09df9c9b56c21aec76a9ad1883353f1fa5d9b8411e2"
       },
       "mpq_set": {
-        "required": [],
-        "note": "Derived from the genuine qualified client in port plan S5; empty until then."
+        "required": [
+          "common.mpq", "expansion.mpq", "patch.mpq", "patch-2.mpq",
+          "enus/locale-enus.mpq", "enus/speech-enus.mpq",
+          "enus/expansion-locale-enus.mpq", "enus/expansion-speech-enus.mpq",
+          "enus/patch-enus.mpq", "enus/patch-enus-2.mpq"
+        ],
+        "note": "S5.1 exact set (lanes item 13) enumerated from the staged genuine 2.4.3.8606 enUS client (correction C2 shape): Data\\ root common/expansion/patch/patch-2 plus the Data\\enUS\\ locale/speech set. Entries are lowercase paths relative to Data\\ with forward slashes (vanilla's flat entries are the same convention without the segment). Tolerated auxiliaries observed on the staged client: enus/base-enus.mpq, enus/backup-enus.mpq. Exact-set semantics (H2-2/H2-9): an unknown patch-*.mpq is VAL-04 naming the file - enforced when the flavor qualifies; the scanners' Data\\<locale> traversal is S5 item 5 (lanes item 17)."
       },
       "llm": {
         "lore_cards": null,
@@ -141,26 +204,30 @@
       "client_id": "wow-3.3.5a-12340",
       "build": 12340,
       "version_resource": "3.3.5.12340",
-      "client_version": "3.3.5a build 12340 (user-supplied; qualification pending, port plan stage S5)",
-      "supported_client_builds": [],
-      "supported_client_builds_note": "Empty until the genuine 3.3.5a.12340 client is hash-qualified in port plan S5. Import must reject while qualified=false.",
+      "client_version": "3.3.5a build 12340 (user-supplied; S5.1 identity registered, qualification pending)",
+      "supported_client_builds": [12340],
+      "supported_client_builds_note": "S5.1 hash registration (lanes item 13), measured on the staged genuine 3.3.5a.12340 enUS client: SHA-256 aa63a5750d60ef16746c686b3d5e26876d98953eab08b1c026cd0faf78e88cb8 (wine.known_exe_sha256), MD5 cross-check 45892bdedd0ad70aed4ccd22d9fb5984 (client_binary.known_exe_md5, equals the anzz1 pristine prefix, register C6), 7,704,216 bytes, PE version tuple (3,3,5,12340). Import still rejects while qualified=false; the flip is owner-decision (lanes item 21).",
       "server_core": {
         "upstream": "https://github.com/cmangos/mangos-wotlk.git",
-        "fork": null,
+        "fork": "https://github.com/puzzled-pancake/mangos-wotlk.git",
         "branch": "pocket-realm",
-        "commit": null,
-        "status": "unresolved",
+        "commit": "c3a8d86fe4e61c3373eff424eb12cd7e7e8282b5",
+        "status": "registered",
         "role": "WotLK 3.3.5 game server core (mangosd + realmd)"
       },
       "db_content": {
         "upstream": "https://github.com/cmangos/wotlk-db.git",
-        "commit": null,
-        "status": "unresolved"
+        "commit": "a69b5554e7bae06f02a384126cb1e7bcd8d1a1f0",
+        "status": "registered",
+        "seed": "Full_DB/WoTLKDB_1_9_14092.sql.gz",
+        "note": "S4 item 1 pin reconciled into the flavor manifest (lanes item 1): upstream cmangos/wotlk-db master head a69b5554 (2026-09-28), carried by sources.json cmangos-db-wotlk; the checkout native/classic-db-wotlk sits at the pin."
       },
       "bots": {
-        "upstream": null,
-        "commit": null,
-        "status": "unresolved"
+        "upstream": "https://github.com/puzzled-pancake/playerbots.git",
+        "branch": "pocket-realm",
+        "commit": "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d",
+        "status": "pinned",
+        "note": "Correction C4 (register \u00a70): upstream cmangos/playerbots master is multi-expansion (MANGOSBOT_TWO selects the WotLK bot API; per-expansion conf dists aiplayerbot.conf.dist.in.wotlk verified) - one pin serves all flavors; decision D34. Checkout/register half: wave-0 fork registration."
       },
       "extractors": {
         "source": "server_core contrib (ad, vmap_extractor, vmap_assembler, MoveMapGen)",
@@ -171,6 +238,43 @@
         "world": "wotlkmangos",
         "characters": "wotlkcharacters",
         "logs": "wotlklogs"
+      },
+      "realmd": {
+        "column": "realmbuilds",
+        "accepted_builds": "12340",
+        "note": "Correction C1: same realmbuilds varchar(64) column as classic; the numeric gamebuild named in earlier plan revisions is TrinityCore's schema."
+      },
+      "auth_frame": {
+        "proof_response_bytes": 32,
+        "note": "0x1EC opcode is shared (top-level auth block, C3). S8 frame verification (lanes item 14): sAuthLogonProof_S at native/cmangos-wotlk/src/realmd/AuthSocket.cpp:135-143 is cmd(1) + error(1) + M2(20) + accountFlags(4) + surveyId(4) + unkFlags(2) = 32 bytes, and the case-12340 send path writes exactly that struct (vanilla's 26-byte BUILD_6005 form is the pre-TBC 5875 branch)."
+      },
+      "wtf": {
+        "layout": "3-level",
+        "character_cache_files": [
+          "config-cache.wtf",
+          "bindings-cache.wtf",
+          "macros-cache.txt",
+          "layout-local.txt",
+          "chat-cache.txt"
+        ],
+        "note": "Correction C8: 3-level SavedVariables like TBC; genuinely WotLK-only is this char-level cache-file set (W1-4's config-cache.wtf read path scopes to exactly these files)."
+      },
+      "client_binary": {
+        "known_exe_md5": "45892bdedd0ad70aed4ccd22d9fb5984",
+        "known_exe_size_bytes": 7704216,
+        "large_address_aware": false,
+        "note": "S5.1 registration (lanes item 13) measured on the staged hash-verified 3.3.5a.12340 client: 7,704,216 bytes, MD5 45892bdedd0ad70aed4ccd22d9fb5984 (the anzz1 pristine prefix, register C6), SHA-256 aa63a5750d60ef16746c686b3d5e26876d98953eab08b1c026cd0faf78e88cb8 in wine.known_exe_sha256. large_address_aware=false confirmed from the PE characteristics word (0x0103, no 0x0020 LAA bit) - register C7's 2 GB VA fact now binary-measured; the earlier 'size \u2248 12.6 MB' plan estimate was wrong for the staged client (7,704,216 B, still far under SafClientScanner.MAX_EXE_BYTES = 32 MiB). The registration records identity only; import still rejects while qualified=false."
+      },
+      "conf_matrix": {
+        "excluded_keys": [
+          {
+            "key_family": "VoiceChat",
+            "reason": "mangos-wotlk VoiceChat is a 46-line inert stub: it swallows the opcode and exposes zero conf keys (classic has none). H1-17's 'VoiceChat conf keys' claim is retracted - ship as-is + docs note (register \u00a70 C9).",
+            "register_ref": "FEATURE-PARITY-GAPS.md \u00a70 C9",
+            "enforced_by": "tools/generate_conf_matrix.py (never emits; staging consumers must not expect VoiceChat* keys)"
+          }
+        ],
+        "note": "F2-8 self-documenting-exclusion pattern: this section documents what the conf matrix deliberately does not require."
       },
       "addon_interfaces": [30300],
       "bot_policy": {
@@ -184,11 +288,18 @@
         "prefix_segment": "wow12340",
         "graphics_routes": ["dxvk"],
         "vanilla_tweaks": false,
-        "known_exe_sha256": null
+        "known_exe_sha256": "aa63a5750d60ef16746c686b3d5e26876d98953eab08b1c026cd0faf78e88cb8"
       },
       "mpq_set": {
-        "required": [],
-        "note": "Derived from the genuine qualified client in port plan S5; empty until then."
+        "required": [
+          "common.mpq", "common-2.mpq", "expansion.mpq", "lichking.mpq",
+          "patch.mpq", "patch-2.mpq", "patch-3.mpq",
+          "enus/locale-enus.mpq", "enus/speech-enus.mpq",
+          "enus/expansion-locale-enus.mpq", "enus/expansion-speech-enus.mpq",
+          "enus/lichking-locale-enus.mpq", "enus/lichking-speech-enus.mpq",
+          "enus/patch-enus.mpq", "enus/patch-enus-2.mpq", "enus/patch-enus-3.mpq"
+        ],
+        "note": "S5.1 exact set (lanes item 13) enumerated from the staged genuine 3.3.5a.12340 enUS client (correction C2 shape): Data\\ root common, common-2, expansion, lichking, patch, patch-2, patch-3 (NO patch-4) plus the Data\\enUS\\ locale/speech set incl. the lichking pair. Entries are lowercase paths relative to Data\\ with forward slashes. Tolerated auxiliaries observed on the staged client: enus/base-enus.mpq, enus/backup-enus.mpq. Exact-set semantics (H2-2/H2-9): an unknown patch-4.mpq is VAL-04 naming the file - enforced when the flavor qualifies; the scanners' Data\\<locale> traversal is S5 item 5 (lanes item 17)."
       },
       "llm": {
         "lore_cards": null,

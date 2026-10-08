@@ -28,9 +28,21 @@ ABI selection (default arm64-v8a, the product target):
     python3 scripts/build_native.py --abi arm64-v8a list
     python3 scripts/build_native.py --abi x86_64 all     # emulator test target
 
-The arm64-v8a target is the product ABI. x86_64 is an
-emulator-only target so the same native realm can be *executed* (not just
-objdump'd) during development; it is never shipped.
+Flavor selection (default vanilla; port plan S1 item 3):
+
+    python3 scripts/build_native.py --flavor vanilla cmangos
+    python3 scripts/build_native.py --flavor tbc --dry-run cmangos
+
+`--flavor` resolves the submodule source dirs, the cmake build dir, and the
+playerbots mirror through tools/flavor_layout.py, and verifies the flavor's
+pins from schemas/flavor.json BEFORE configure: an unregistered pin (fork not
+registered yet) or a wrong-pin checkout fails loud with an actionable message
+(the two S1 negative-test failure classes; nothing compiles on a bad pin).
+`--flavor vanilla` resolves every path to its pre-parameterization literal and
+skips no step — the byte-identical regression proof.
+
+`--dry-run` prints each stage's exact command lines without executing them
+(the pin check still runs, so a dry-run is a resolution + provenance proof).
 """
 from __future__ import annotations
 
@@ -47,6 +59,7 @@ NATIVE = ROOT / "native"
 DEPS_SRC = NATIVE / ".deps" / "src"
 sys.path.insert(0, str(ROOT / "tools"))
 import common  # noqa: E402
+import flavor_layout  # noqa: E402
 
 # MSYS2 location is environment-driven (MSYS2_ROOT -> conventional installs);
 # no developer-specific drive defaults.
@@ -70,8 +83,13 @@ if NDK is None or not NDK.is_dir():
     sys.exit(2)
 # The playerbots source lives in its own submodule; CMaNGOS's FetchContent
 # expects it pre-populated at src/modules/PlayerBots (SOURCE_DIR form).
+# Flavor-resolved in main() from --flavor (default vanilla = these literals).
 PLAYERBOTS_SUBMODULE = NATIVE / "playerbots"
 PLAYERBOTS_IN_TREE = NATIVE / "cmangos" / "src" / "modules" / "PlayerBots"
+# Selected in main() from --flavor (default vanilla). The cmangos stage's
+# source dir and build dir resolve through it.
+FLAVOR: flavor_layout.FlavorLayout = flavor_layout.resolve("vanilla")
+DRY_RUN = False
 # An NDK junction with a simple name avoids Windows 8.3 short-name path issues
 # in OpenSSL's toolchain detection. Created if missing.
 NDK_LINK = SDK / "ndk-link"
@@ -115,7 +133,9 @@ def prefix_dir(arch: Arch) -> Path:
 
 
 def build_dir(arch: Arch) -> Path:
-    return NATIVE / f".build-{arch.triple}"
+    # Flavor-resolved: vanilla keeps the literal native/.build-<triple>;
+    # tbc/wotlk append -tbc/-wotlk so lanes never share a cmake cache.
+    return ROOT / FLAVOR.build_native_dir(arch.triple)
 
 CMAKE_DIR = SDK / "cmake"
 _CMAKE_VERSIONS = sorted([p.name for p in CMAKE_DIR.iterdir() if p.is_dir()], reverse=True)
@@ -134,6 +154,8 @@ BUILD_RUNTIME_TESTS = False # set by --runtime-tests; builds pocket_lifecycle_te
 
 def run(cmd: list[str], cwd: Path | None = None, env: dict | None = None) -> int:
     print(f"\n$ {' '.join(str(c) for c in cmd)}")
+    if DRY_RUN:
+        return 0
     return subprocess.call(cmd, cwd=str(cwd) if cwd else None, env=env)
 
 
@@ -196,6 +218,9 @@ def run_msys(script: str) -> int:
         "MSYSTEM": "MSYS",
     }
     full = f'export PATH="{tc_bin}:/usr/bin:$PATH"\n{script}'
+    if DRY_RUN:
+        print(f"[dry-run] would run MSYS2 script:\n{script}")
+        return 0
     return subprocess.call([str(MSYS_BASH), "-c", full], env=env)
 
 
@@ -370,12 +395,23 @@ def sqlite() -> int:
 
 
 def cmangos() -> int:
+    # Provenance first: the flavor's pins must be registered and match their
+    # checkouts BEFORE anything configures (the S1 fail-loud contract — an
+    # unregistered pin or a wrong-pin checkout aborts here, actionable, and
+    # nothing compiles). Runs in --dry-run too: a dry-run is a resolution +
+    # provenance proof, not a bypass.
+    pins = flavor_layout.require_flavor_pins(FLAVOR.flavor_id)
+    print(f"pins: {FLAVOR.flavor_id} " +
+          ", ".join(f"{group}={commit[:12]}" for group, commit in pins.items()))
     # The playerbots source must be in-tree before configure so CMaNGOS's
     # FetchContent (SOURCE_DIR form) finds it. This makes the playerbots build
     # reproducible from a clean checkout rather than relying on a manual copy.
-    ensure_playerbots()
+    if DRY_RUN:
+        print(f"[dry-run] would populate {PLAYERBOTS_IN_TREE} from {PLAYERBOTS_SUBMODULE}")
+    else:
+        ensure_playerbots()
     build = build_dir(ARCH)
-    src = NATIVE / "cmangos"
+    src = ROOT / FLAVOR.core_submodule
     prefix = prefix_dir(ARCH)
     cmd = [str(CMAKE_BIN), "-S", str(src), "-B", str(build),
            f"-DCMAKE_TOOLCHAIN_FILE={TOOLCHAIN_FILE}",
@@ -412,11 +448,18 @@ def cmangos() -> int:
 
 
 def main() -> int:
-    global ARCH, BUILD_RUNTIME, BUILD_RUNTIME_TESTS
+    global ARCH, BUILD_RUNTIME, BUILD_RUNTIME_TESTS, FLAVOR, DRY_RUN
+    global PLAYERBOTS_SUBMODULE, PLAYERBOTS_IN_TREE
     ap = argparse.ArgumentParser()
     ap.add_argument("--abi", default="arm64-v8a", choices=list(ARCHES),
                     help="target ABI (default arm64-v8a, the product target; "
                          "x86_64 is an emulator-only test target)")
+    ap.add_argument("--flavor", default="vanilla", choices=list(flavor_layout.FLAVOR_IDS),
+                    help="game flavor to build (default vanilla; tbc/wotlk require "
+                         "their forks/pins registered — fail loud otherwise)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print each stage's exact commands without executing them "
+                         "(the flavor pin check still runs)")
     ap.add_argument("--runtime", action="store_true",
                     help="also build libpocketrealm.so (embeddable facade)")
     ap.add_argument("--runtime-tests", action="store_true",
@@ -425,6 +468,12 @@ def main() -> int:
                     help="stage(s) to run (default all); pass e.g. 'boost sqlite cmangos'")
     args = ap.parse_args()
     ARCH = ARCHES[args.abi]
+    FLAVOR = flavor_layout.resolve(args.flavor)
+    DRY_RUN = args.dry_run
+    # Flavor-resolved playerbots mirror pair (vanilla = the pre-parameterization
+    # literals).
+    PLAYERBOTS_SUBMODULE = ROOT / FLAVOR.bots_submodule
+    PLAYERBOTS_IN_TREE = ROOT / FLAVOR.core_submodule / "src" / "modules" / "PlayerBots"
     BUILD_RUNTIME = args.runtime or args.runtime_tests
     BUILD_RUNTIME_TESTS = args.runtime_tests
     prefix = prefix_dir(ARCH)
@@ -432,6 +481,7 @@ def main() -> int:
     # Normalize the requested stages: resolve 'all'/'list', reject unknowns.
     if "list" in args.stages:
         print("Stages:", ", ".join(STAGES))
+        print(f"Flavor: {FLAVOR.flavor_id}{' (dry run)' if DRY_RUN else ''}")
         print(f"ABI: {ARCH.abi} (triple {ARCH.triple})")
         print(f"NDK: {NDK}")
         print(f"NDK link: {NDK_LINK}")
@@ -445,23 +495,35 @@ def main() -> int:
         ap.error(f"unrecognized stage(s): {' '.join(bad)}")
     stages = STAGES if "all" in args.stages else args.stages
 
-    ensure_ndk_link()
-    prefix.mkdir(parents=True, exist_ok=True)
+    if DRY_RUN:
+        # A dry-run mutates nothing: no junction, no prefix, no mirror — it
+        # prints the exact commands the real run would issue (after the same
+        # pin verification the real run performs).
+        print(f"[dry-run] would create NDK junction {NDK_LINK} -> {NDK}")
+        print(f"[dry-run] would create prefix {prefix}")
+    else:
+        ensure_ndk_link()
+        prefix.mkdir(parents=True, exist_ok=True)
     # Stages openssl/boost run inside MSYS2; fail early with a clear message
     # rather than a cryptic missing-bash error deep in the build.
     needs_msys = any(s in ("openssl", "boost") for s in stages)
-    if needs_msys and not MSYS_BASH.is_file():
+    if needs_msys and not DRY_RUN and not MSYS_BASH.is_file():
         print(f"ERROR: MSYS2 bash not found at {MSYS_BASH}. Install MSYS2 and "
               f"set MSYS2_ROOT (or MSYS_HOME), then `pacman -S --noconfirm "
               f"make gcc`.", file=sys.stderr)
         return 2
-    print(f"ABI: {ARCH.abi}\nNDK: {NDK}\nNDK link: {NDK_LINK}\n"
+    print(f"Flavor: {FLAVOR.flavor_id}\nABI: {ARCH.abi}\nNDK: {NDK}\nNDK link: {NDK_LINK}\n"
           f"MSYS2: {MSYS2}\nPrefix: {prefix}")
 
     for s in stages:
         fn = {"openssl": openssl, "boost": boost, "sqlite": sqlite, "cmangos": cmangos}[s]
         print(f"\n===== STAGE {s} =====")
-        if fn() != 0:
+        try:
+            failed = fn() != 0
+        except flavor_layout.FlavorPinError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        if failed:
             print(f"\nFAILED at stage {s}", file=sys.stderr)
             return 1
     print("\nALL STAGES OK")

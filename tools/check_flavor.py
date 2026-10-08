@@ -17,17 +17,40 @@ release-acceptance gates rely on:
 - a qualified flavor has every pin the runtime needs (server core and DB
   commits, four database names, addon interfaces, storage budgets, MPQ set,
   wine prefix segment);
-- a qualified flavor's server_core/db_content/bots commit pins are bound to
-  the sibling `schemas/sources.json` manifest (the flavor pin and the source
-  pin must be the same commit, mapped by upstream URL with an explicit
-  fallback table — a drifted pin is a provenance lie);
+- every flavor's server_core/db_content/bots commit pins are bound to the
+  sibling `schemas/sources.json` manifest (the flavor pin and the source pin
+  must be the same commit, mapped by upstream URL with an explicit
+  per-flavor fallback table — a drifted pin is a provenance lie). Since
+  correction C4 resolved the tbc/wotlk bots pins while those flavors stay
+  unqualified, the binding applies to any group that carries a commit, not
+  only to qualified flavors;
+- correction C1: the realmd block names the `realmbuilds` varchar(64)
+  column and the flavor's accepted build set (its own build included), and
+  no `gamebuild` key may exist anywhere in the manifest (that column is
+  TrinityCore's schema — a leak-sweep candidate enforced here by name);
+- correction C3: the shared auth-challenge opcode is the single 0x1EC
+  constant (top-level `auth` block; never per-flavor), and per-flavor
+  `auth_frame` descriptors carry only verified frame facts;
+- correction C6/C7: the `client_binary` block carries null-or-valid
+  provenance fields (md5 hex, positive size, LAA boolean), and
+  `wine.known_exe_sha256` is null-or-64-hex;
+- correction C8: the `wtf` block names the layout; only wotlk may list the
+  WotLK-era char-level cache files;
+- correction C9: every `conf_matrix.excluded_keys` entry is a
+  self-documenting exclusion (family + reason + register ref + enforcer);
 - a qualified flavor's `extractors.patch` names a file that exists in the
   repository (the build applies it by that path);
 - wine.graphics_routes values are renderer route names the runtime knows, and
   a qualified non-vanilla flavor is dxvk-only (decision D3);
-- an unqualified flavor must not advertise client hashes or storage budgets
-  (import rejects on the qualified flag; advertising data it cannot honor
-  would make the gate lie).
+- an unqualified flavor keeps `storage` null until its budgets are measured,
+  and its S5.1 identity registration (lanes item 13: `client_binary` md5/size,
+  `wine.known_exe_sha256`, `supported_client_builds`, `mpq_set.required`) is
+  either entirely absent or entirely present and consistent — a PARTIAL
+  registration (hashes without the build list, a build list without hashes,
+  or a build list naming anything but the flavor's own build) is exactly the
+  half-truth the pre-S5.1 all-null rule existed to prevent, and fails loud.
+  Import still rejects on the qualified flag alone; the registration records
+  measured identity, never permission.
 
 Usage:
     python tools/check_flavor.py [--manifest PATH]
@@ -52,21 +75,68 @@ ALLOWED_GRAPHICS_ROUTES = frozenset({"dxvk", "opengl", "virgl"})
 # D3: the GL/VirGL lanes are vanilla-qualified only; every other flavor ships
 # DXVK until a parity stage proves otherwise.
 VANILLA_ONLY_GRAPHICS_ROUTES = ("opengl", "virgl")
+# Correction C1: the numeric gamebuild column is TrinityCore's schema and must
+# never appear in this manifest, under any group (leak-sweep candidate
+# enforced here by key name).
+FORBIDDEN_MANIFEST_KEYS = ("gamebuild",)
+# Correction C3: the auth-challenge opcode is ONE shared constant across the
+# three branches (register §0). Pinned so nobody reintroduces a per-flavor
+# opcode "parameterization".
+SHARED_AUTH_CHALLENGE_OPCODE = "0x1EC"
+# Correction C8: the char-level cache-file set is WotLK-era; only the wotlk
+# flavor may carry it in its wtf descriptor.
+WOTLK_ONLY_WTF_CACHE_FILES = True
+WTF_LAYOUTS = ("account-level", "3-level")
 # Flavor commit groups bind to the sibling sources.json. Resolution matches the
-# flavor group's upstream URL against a source's upstream_url first and falls
-# back to this explicit id table (covers fork URLs like the playerbots mirror).
+# flavor group's upstream URL against a source's upstream_url first, then falls
+# back to the flavor's per-flavor source ids and finally the legacy vanilla ids
+# (covers fork URLs like the playerbots mirror; the tbc/wotlk per-flavor ids
+# landed with the S1 per-flavor sources.json entries).
 FALLBACK_SOURCE_IDS = {
-    "server_core": "cmangos-core",
-    "db_content": "cmangos-db",
-    "bots": "playerbots",
+    "vanilla": {
+        "server_core": ["cmangos-core"],
+        "db_content": ["cmangos-db"],
+        "bots": ["playerbots"],
+    },
+    "tbc": {
+        "server_core": ["cmangos-core-tbc", "cmangos-core"],
+        "db_content": ["cmangos-db-tbc", "cmangos-db"],
+        "bots": ["playerbots-tbc", "playerbots"],
+    },
+    "wotlk": {
+        "server_core": ["cmangos-core-wotlk", "cmangos-core"],
+        "db_content": ["cmangos-db-wotlk", "cmangos-db"],
+        "bots": ["playerbots-wotlk", "playerbots"],
+    },
 }
+
+
+# Round-3 R3-3/R3-5: the registered flavor identity table (build -> owning
+# flavor id) is derived per validate() call and PRE-REGISTERED before any
+# per-flavor check runs (round-4 R2-2: populating it inside the consuming
+# loop made the C1 foreign-build rejection order-dependent — the FIRST
+# flavor never saw the later flavors' builds — and the module global leaked
+# registrations across calls, making the gate non-deterministic in-process).
 
 
 def _err(errors: list[str], message: str) -> None:
     errors.append(message)
 
 
-def _check_flavor(flavor: dict, index: int, errors: list[str]) -> None:
+def _has_key(node: object, key: str) -> bool:
+    """True if any dict reachable in the (flavor) subtree carries `key` —
+    used to enforce the C1 'no gamebuild field anywhere' ban."""
+    if isinstance(node, dict):
+        if key in node:
+            return True
+        return any(_has_key(value, key) for value in node.values())
+    if isinstance(node, list):
+        return any(_has_key(item, key) for item in node)
+    return False
+
+
+def _check_flavor(flavor: dict, index: int, errors: list[str],
+                  registered_builds: dict[int, str]) -> None:
     where = f"flavors[{index}]"
     fid = flavor.get("id")
     if not isinstance(fid, str) or not SLUG_RE.match(fid):
@@ -76,6 +146,38 @@ def _check_flavor(flavor: dict, index: int, errors: list[str]) -> None:
     client_id = flavor.get("client_id")
     if not isinstance(client_id, str) or not CLIENT_ID_RE.match(client_id):
         _err(errors, f"{where}.client_id must look like 'wow-1.12.1-5875', got {client_id!r}")
+    # Round-5 R5-R2-1: the clientId is the LOAD-BEARING managed identity
+    # (stamped into every client-manifest.json), so it must be CONSISTENT
+    # with the flavor's own build and version resource - the shape regex
+    # alone accepted 'wow-1.12.1-9999' for build 5875, a vanilla<->tbc
+    # swap, and a mismatched version component.
+    build = flavor.get("build")
+    version = flavor.get("version_resource")
+    if isinstance(client_id, str) and isinstance(build, int) and not isinstance(build, bool)             and isinstance(version, str) and "." in version and "-" in client_id:
+        # The naming convention keeps the patch letter in the clientId but
+        # drops it from the version resource (wotlk: the clientId's 3.3.5a
+        # carries a letter the resource omits), so consistency is per-component: the clientId's
+        # version parts carry the resource's numeric parts in order (plus
+        # at most a non-digit patch-letter tail), and its trailing build
+        # equals `build`.
+        cid_version, cid_build = client_id[len("wow-"):].rsplit("-", 1)
+        version_parts = version.split(".")[:-1]
+        cid_parts = cid_version.split(".")
+        version_ok = len(cid_parts) == len(version_parts) and all(
+            cid_part.startswith(v_part)
+            and (len(cid_part) == len(v_part) or cid_part[len(v_part):].isalpha())
+            for cid_part, v_part in zip(cid_parts, version_parts)
+        )
+        build_ok = cid_build.isdigit() and int(cid_build) == build
+        if not (version_ok and build_ok):
+            _err(
+                errors,
+                f"{where}.client_id {client_id!r} contradicts the flavor's own "
+                f"identity (version_resource {version!r}, build {build}) - the "
+                "managed identity stamps this string into every "
+                "client-manifest.json and must carry the flavor's own "
+                "version and build",
+            )
 
     build = flavor.get("build")
     build_is_int = isinstance(build, int) and not isinstance(build, bool)
@@ -95,12 +197,147 @@ def _check_flavor(flavor: dict, index: int, errors: list[str]) -> None:
         if not isinstance(flavor.get(field), str) or not flavor[field]:
             _err(errors, f"{where}.{field} must be a non-empty string")
 
-    for group in ("server_core", "db_content", "bots", "databases", "wine", "mpq_set", "llm"):
+    for group in ("server_core", "db_content", "bots", "databases", "wine", "mpq_set", "llm",
+                  "realmd", "auth_frame", "wtf", "client_binary", "conf_matrix"):
         if not isinstance(flavor.get(group), dict):
             _err(errors, f"{where}.{group} must be an object")
 
+    # Correction C1: realmbuilds varchar(64) is the realmlist column in every
+    # branch, and the accepted set must include the flavor's own build.
+    realmd = flavor.get("realmd")
+    if isinstance(realmd, dict):
+        if realmd.get("column") != "realmbuilds":
+            _err(
+                errors,
+                f"{where}.realmd.column must be 'realmbuilds' (correction C1: the numeric "
+                f"'gamebuild' column is TrinityCore's schema), got {realmd.get('column')!r}",
+            )
+        accepted = realmd.get("accepted_builds")
+        tokens: list[str] = []
+        if isinstance(accepted, str) and accepted and all(
+            token.isdigit() for token in accepted.split()
+        ):
+            tokens = accepted.split()
+        else:
+            _err(
+                errors,
+                f"{where}.realmd.accepted_builds must be a space-separated build list "
+                f"like '5875 6005 6141', got {accepted!r}",
+            )
+        if tokens and isinstance(build, int) and not isinstance(build, bool):
+            if str(build) not in tokens:
+                _err(
+                    errors,
+                    f"{where}.realmd.accepted_builds {accepted!r} does not include the "
+                    f"flavor's own build {build}",
+                )
+        # Round-3 R3-3: the C1 rule is the flavor's OWN accepted set — a
+        # foreign REGISTERED build in the list would configure a wrong-flavor
+        # client/server pair (vanilla's 5875 client authenticating against a
+        # tbc realmlist). Manifest is the source of record the W4.2 3x3
+        # auth matrix trusts, so a foreign build fails the gate here.
+        if tokens and isinstance(build, int) and not isinstance(build, bool):
+            foreign = sorted(
+                token for token in tokens
+                if token.isdigit() and int(token) != build
+                and int(token) in registered_builds
+            )
+            if foreign:
+                _err(
+                    errors,
+                    f"{where}.realmd.accepted_builds {accepted!r} contains foreign "
+                    f"registered build(s) {', '.join(foreign)} — the accepted set "
+                    f"is this flavor's own builds only (the other registered "
+                    f"flavors {sorted(set(registered_builds.values()))} own "
+                    "the other builds)",
+                )
+    for key in FORBIDDEN_MANIFEST_KEYS:
+        if _has_key(flavor, key):
+            _err(
+                errors,
+                f"{where}: forbidden key {key!r} (correction C1: realmlist uses "
+                "'realmbuilds' in all three branches; 'gamebuild' is TrinityCore's schema)",
+            )
+
+    # Correction C3: frame descriptors carry only verified facts (vanilla's
+    # 26-byte proof response today; null until S8 verifies the other branches).
+    auth_frame = flavor.get("auth_frame")
+    if isinstance(auth_frame, dict):
+        proof = auth_frame.get("proof_response_bytes")
+        if proof is not None and (not isinstance(proof, int) or isinstance(proof, bool) or proof <= 0):
+            _err(
+                errors,
+                f"{where}.auth_frame.proof_response_bytes must be a positive byte count "
+                f"or null (verified at S8), got {proof!r}",
+            )
+
+    # Correction C8: WTF layout descriptor.
+    wtf = flavor.get("wtf")
+    if isinstance(wtf, dict):
+        if wtf.get("layout") not in WTF_LAYOUTS:
+            _err(
+                errors,
+                f"{where}.wtf.layout must be one of {list(WTF_LAYOUTS)}, "
+                f"got {wtf.get('layout')!r}",
+            )
+        cache_files = wtf.get("character_cache_files")
+        if not isinstance(cache_files, list) or not all(isinstance(f, str) for f in cache_files):
+            _err(errors, f"{where}.wtf.character_cache_files must be a list of file names")
+        elif cache_files and WOTLK_ONLY_WTF_CACHE_FILES and fid != "wotlk":
+            _err(
+                errors,
+                f"{where}.wtf.character_cache_files must be empty for {fid!r} — the "
+                "char-level cache set is WotLK-era (correction C8)",
+            )
+
+    # Corrections C6/C7: pristine-exe provenance + LAA fact.
+    client_binary = flavor.get("client_binary")
+    if isinstance(client_binary, dict):
+        md5 = client_binary.get("known_exe_md5")
+        if md5 is not None and (
+            not isinstance(md5, str) or len(md5) != 32 or any(c not in "0123456789abcdef" for c in md5)
+        ):
+            _err(errors, f"{where}.client_binary.known_exe_md5 must be 32 lowercase hex or null")
+        size = client_binary.get("known_exe_size_bytes")
+        if size is not None and (not isinstance(size, int) or isinstance(size, bool) or size <= 0):
+            _err(errors, f"{where}.client_binary.known_exe_size_bytes must be a positive int or null")
+        laa = client_binary.get("large_address_aware")
+        if laa is not None and not isinstance(laa, bool):
+            _err(errors, f"{where}.client_binary.large_address_aware must be a boolean or null")
+
+    # Correction C9: self-documenting exclusions (F2-8 pattern).
+    conf_matrix = flavor.get("conf_matrix")
+    if isinstance(conf_matrix, dict):
+        excluded = conf_matrix.get("excluded_keys")
+        if not isinstance(excluded, list):
+            _err(errors, f"{where}.conf_matrix.excluded_keys must be a list")
+        else:
+            for entry in excluded:
+                if not isinstance(entry, dict) or any(
+                    not isinstance(entry.get(field), str) or not entry[field]
+                    for field in ("key_family", "reason", "register_ref", "enforced_by")
+                ):
+                    _err(
+                        errors,
+                        f"{where}.conf_matrix.excluded_keys entries need non-empty "
+                        "key_family/reason/register_ref/enforced_by strings",
+                    )
+
     wine = flavor.get("wine")
     if isinstance(wine, dict):
+        # C6/S5.1: the SHA-256 telltale is null-or-64-lowercase-hex — the
+        # registration rule below then binds its presence to the rest of the
+        # identity tuple.
+        sha256 = wine.get("known_exe_sha256")
+        if sha256 is not None and (
+            not isinstance(sha256, str)
+            or len(sha256) != 64
+            or any(c not in "0123456789abcdef" for c in sha256)
+        ):
+            _err(
+                errors,
+                f"{where}.wine.known_exe_sha256 must be 64 lowercase hex or null, got {sha256!r}",
+            )
         routes = wine.get("graphics_routes")
         if routes is not None:
             if not isinstance(routes, list) or not all(isinstance(route, str) for route in routes):
@@ -176,12 +413,43 @@ def _check_flavor(flavor: dict, index: int, errors: list[str]) -> None:
                 f"{where}: empty supported_client_builds needs a note explaining the qualification state",
             )
     else:
-        if flavor.get("supported_client_builds"):
-            _err(
-                errors,
-                f"{where}: unqualified flavors must not advertise supported_client_builds "
-                "(import rejects on qualified=false; advertising hashes would make the gate lie)",
-            )
+        # S5.1 identity registration (lanes item 13): an unqualified flavor may
+        # record the census-measured genuine-client identity, but only as a
+        # COMPLETE registration — every identity datum present and mutually
+        # consistent. The pre-S5.1 rule was an absolute null ban; the
+        # measurements exist now, so the half-truth this rule still refuses is
+        # the PARTIAL registration (hashes without the build list, a build
+        # list without hashes, or a build list naming anything but the
+        # flavor's own build). Import keeps rejecting on qualified=false;
+        # this data records identity, never permission.
+        client_binary = flavor.get("client_binary")
+        md5 = client_binary.get("known_exe_md5") if isinstance(client_binary, dict) else None
+        size = client_binary.get("known_exe_size_bytes") if isinstance(client_binary, dict) else None
+        wine_block = flavor.get("wine")
+        sha256 = wine_block.get("known_exe_sha256") if isinstance(wine_block, dict) else None
+        builds = flavor.get("supported_client_builds")
+        required = (flavor.get("mpq_set") or {}).get("required")
+        identity_facts = (
+            md5 is not None,
+            size is not None,
+            sha256 is not None,
+            bool(builds),
+            bool(required),
+        )
+        if any(identity_facts):
+            if not all(identity_facts):
+                _err(
+                    errors,
+                    f"{where}: partial S5.1 identity registration — client_binary md5/size, "
+                    "wine.known_exe_sha256, supported_client_builds, and mpq_set.required must "
+                    "be registered together (a half-registered identity would make the gate lie)",
+                )
+            elif build_is_int and builds != [build]:
+                _err(
+                    errors,
+                    f"{where}: unqualified supported_client_builds must be exactly [{build}] "
+                    f"(the registered client's own build), got {builds!r}",
+                )
         if flavor.get("storage") is not None:
             _err(
                 errors,
@@ -210,40 +478,85 @@ def _load_sources(sources_path: Path) -> tuple[list[dict] | None, str | None]:
     return [source for source in sources if isinstance(source, dict)], None
 
 
-def _resolve_source(group: dict, fallback_id: str, sources: list[dict]) -> dict | None:
-    """Map a flavor commit group to its sources.json entry: upstream URL match
-    first, then the explicit fallback id (covers fork URLs)."""
+def _resolve_source(group: dict, fallback_ids: list[str], sources: list[dict]) -> dict | None:
+    """Map a flavor commit group to its sources.json entry, RESTRICTED to the
+    flavor's expected source ids (round-2 R2-1b: the old URL-first form
+    matched ANY source's upstream_url, so a doctored manifest pointing tbc's
+    server_core at the vanilla source's URL + vanilla's commit bound to the
+    VANILLA entry and passed the gate — a provenance lie reported OK).
+
+    Resolution: the group's upstream URL may only select among the flavor's
+    OWN expected entries (fork URLs that match nothing fall through), then
+    the fallback ids in order (per-flavor entry before the legacy vanilla
+    id). The legacy tail (the last id — the pre-per-flavor vanilla entry)
+    is a candidate ONLY while the flavor's own entry does not exist in
+    sources.json: once cmangos-core-tbc exists, a tbc pin may never bind to
+    the vanilla entry, so a doctored manifest pointing a foreign group at
+    the vanilla URL + vanilla commit fails the commit comparison instead of
+    binding to the lie."""
+    expected = [s for s in sources if s.get("id") in fallback_ids]
+    if len(fallback_ids) > 1:
+        own_ids = set(fallback_ids[:-1])  # everything but the legacy tail
+        own_entries = [s for s in expected if s.get("id") in own_ids]
+        if own_entries:
+            expected = own_entries
+        elif len(expected) == 1 and expected[0].get("id") == fallback_ids[-1]:
+            # Round-3 R3-4: the flavor's OWN entries are ABSENT from
+            # sources.json and only the legacy tail remains — binding the
+            # group to the vanilla entry is exactly the coordinated
+            # two-file lie (delete cmangos-core-tbc, point the group at
+            # the vanilla URL/commit). Refuse: the per-flavor source
+            # entry is REQUIRED once the flavor is registered.
+            return None
     upstream = group.get("upstream")
     if isinstance(upstream, str) and upstream:
-        for source in sources:
+        for source in expected:
             if source.get("upstream_url") == upstream:
                 return source
-    for source in sources:
-        if source.get("id") == fallback_id:
-            return source
+    for fallback_id in fallback_ids:
+        for source in expected:
+            if source.get("id") == fallback_id:
+                return source
     return None
 
 
 def _check_source_pins(
     flavor: dict, index: int, sources: list[dict], errors: list[str]
 ) -> None:
-    """Bind every qualified flavor's commit pins to sources.json: the flavor
-    pin and the source pin must be the very same commit."""
+    """Bind every flavor's commit pins to sources.json: the flavor pin and the
+    source pin must be the very same commit. Applies to any group that carries
+    a commit — since correction C4 the tbc/wotlk bots pins exist while those
+    flavors stay unqualified, and a pinned-but-unbound pin is exactly the
+    provenance lie D16 guards against."""
     where = f"flavors[{index}]"
-    for group, fallback_id in FALLBACK_SOURCE_IDS.items():
+    fid = flavor.get("id")
+    fallback_table = FALLBACK_SOURCE_IDS.get(fid if isinstance(fid, str) else "", {})
+    if not fallback_table:
+        # round-2 R2-2: an unknown flavor id used to skip the whole binding
+        # silently — a doctored flavor with 40-'f' commits bound to nothing
+        # and passed. Unknown ids fail loud: every committed flavor must
+        # bind its pins.
+        _err(
+            errors,
+            f"{where}: flavor id {fid!r} has no sources.json binding table "
+            f"(known flavors: {sorted(FALLBACK_SOURCE_IDS)}) — a flavor "
+            "outside the binding table carries pins bound to nothing",
+        )
+        return
+    for group, fallback_ids in fallback_table.items():
         group_data = flavor.get(group)
         if not isinstance(group_data, dict):
             continue  # structural error already reported
         commit = group_data.get("commit")
         if not isinstance(commit, str) or not commit:
-            continue  # pin-shape error already reported
-        source = _resolve_source(group_data, fallback_id, sources)
+            continue  # pin-shape error already reported (or status: unresolved)
+        source = _resolve_source(group_data, fallback_ids, sources)
         if source is None:
             _err(
                 errors,
                 f"{where}.{group}: no sources.json entry pins upstream "
-                f"{group_data.get('upstream')!r} (fallback id {fallback_id!r} "
-                "not found either) — add the source entry before qualifying",
+                f"{group_data.get('upstream')!r} (fallback ids {fallback_ids!r} "
+                "not found either) — add the source entry before building this lane",
             )
             continue
         source_id = source.get("id")
@@ -314,11 +627,30 @@ def validate(manifest_path: Path, sources_path: Path | None = None) -> list[str]
     build_owners: dict[int, str] = {}
     version_owners: dict[str, str] = {}
     prefix_owners: dict[str, tuple[str, str]] = {}
+    # Round-3 R3-5: the measured exe identities are flavor-unique too — a
+    # flavor registering another flavor's exe hash/size would qualify a
+    # lane whose published telltale is byte-identical to a DIFFERENT lane's
+    # genuine client.
+    exe_md5_owners: dict[str, str] = {}
+    exe_sha256_owners: dict[str, str] = {}
+    exe_size_owners: dict[int, str] = {}
+    # Round-4 R2-2: register EVERY flavor's build before any per-flavor
+    # check runs — the C1 foreign-build rejection must see all
+    # registered builds regardless of manifest ordering.
+    registered_builds: dict[int, str] = {}
+    for flavor in flavors:
+        if not isinstance(flavor, dict):
+            continue
+        build = flavor.get("build")
+        fid = flavor.get("id")
+        if isinstance(build, int) and not isinstance(build, bool) and isinstance(fid, str):
+            registered_builds[build] = fid
+
     for index, flavor in enumerate(flavors):
         if not isinstance(flavor, dict):
             _err(errors, f"flavors[{index}] must be an object")
             continue
-        _check_flavor(flavor, index, errors)
+        _check_flavor(flavor, index, errors, registered_builds)
         fid = flavor.get("id")
         if isinstance(fid, str):
             if fid in ids:
@@ -390,8 +722,63 @@ def validate(manifest_path: Path, sources_path: Path | None = None) -> list[str]
                 else:
                     prefix_owners[key] = (owner, segment)
 
+        # Round-3 R3-5: exe-identity uniqueness (mirrors build_owners).
+        client_binary = flavor.get("client_binary") if isinstance(flavor, dict) else None
+        wine = flavor.get("wine") if isinstance(flavor, dict) else None
+        if isinstance(client_binary, dict):
+            md5 = client_binary.get("known_exe_md5")
+            if isinstance(md5, str):
+                if md5 in exe_md5_owners:
+                    _err(
+                        errors,
+                        f"duplicate exe identity across flavors: "
+                        f"client_binary.known_exe_md5 {md5!r} is pinned by both "
+                        f"{exe_md5_owners[md5]!r} and {owner!r} (two flavors must "
+                        "never share a measured exe identity)",
+                    )
+                else:
+                    exe_md5_owners[md5] = owner
+            size = client_binary.get("known_exe_size_bytes")
+            if isinstance(size, int) and not isinstance(size, bool):
+                if size in exe_size_owners:
+                    _err(
+                        errors,
+                        f"duplicate exe identity across flavors: "
+                        f"client_binary.known_exe_size_bytes {size} is pinned by "
+                        f"both {exe_size_owners[size]!r} and {owner!r}",
+                    )
+                else:
+                    exe_size_owners[size] = owner
+        if isinstance(wine, dict):
+            sha = wine.get("known_exe_sha256")
+            if isinstance(sha, str):
+                if sha in exe_sha256_owners:
+                    _err(
+                        errors,
+                        f"duplicate exe identity across flavors: "
+                        f"wine.known_exe_sha256 {sha!r} is pinned by both "
+                        f"{exe_sha256_owners[sha]!r} and {owner!r} (two flavors "
+                        "must never share a measured exe identity)",
+                    )
+                else:
+                    exe_sha256_owners[sha] = owner
+
     if qualified_count == 0:
         _err(errors, "at least one flavor must be qualified (the app must ship a lane)")
+
+    # Correction C3: the auth-challenge opcode is one shared constant — if the
+    # manifest records it at all, it must be exactly 0x1EC, never per-flavor.
+    auth = manifest.get("auth")
+    if auth is not None:
+        if not isinstance(auth, dict):
+            _err(errors, "auth must be an object when present")
+        elif auth.get("smsg_auth_challenge_opcode") != SHARED_AUTH_CHALLENGE_OPCODE:
+            _err(
+                errors,
+                f"auth.smsg_auth_challenge_opcode must be {SHARED_AUTH_CHALLENGE_OPCODE!r} "
+                "(correction C3: one shared constant in all three branches — the "
+                "per-flavor frame descriptors live in each flavor's auth_frame)",
+            )
 
     # Single-lane contract (D9): the runtime qualifies exactly one flavor;
     # the manifest may opt out explicitly, but never silently.
@@ -406,10 +793,21 @@ def validate(manifest_path: Path, sources_path: Path | None = None) -> list[str]
             f"{qualified_count} (qualified ids: {', '.join(qualified_ids) or 'none'})",
         )
 
-    # Provenance binding: a qualified flavor's commit pins must be the very
-    # commits recorded in schemas/sources.json (R3-4). A drifted pin means the
-    # manifest claims a source the repo does not pin.
-    if qualified_count:
+    # Provenance binding: every flavor's commit pins must be the very commits
+    # recorded in schemas/sources.json (R3-4/D16; widened by correction C4 —
+    # the tbc/wotlk bots pins are pinned while their flavors stay unqualified).
+    # A drifted pin means the manifest claims a source the repo does not pin.
+    if any(
+        isinstance(flavor, dict) and flavor.get("qualified") is True
+        for flavor in flavors
+    ) or any(
+        isinstance(flavor, dict)
+        and any(
+            isinstance((flavor.get(group) or {}).get("commit"), str)
+            for group in ("server_core", "db_content", "bots")
+        )
+        for flavor in flavors
+    ):
         if sources_path is None:
             sources_path = manifest_path.parent / "sources.json"
         sources, sources_error = _load_sources(sources_path)
@@ -417,7 +815,7 @@ def validate(manifest_path: Path, sources_path: Path | None = None) -> list[str]
             _err(errors, sources_error)
         else:
             for index, flavor in enumerate(flavors):
-                if not isinstance(flavor, dict) or flavor.get("qualified") is not True:
+                if not isinstance(flavor, dict):
                     continue
                 _check_source_pins(flavor, index, sources, errors)
 

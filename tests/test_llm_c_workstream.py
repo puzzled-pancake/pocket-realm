@@ -258,6 +258,41 @@ class TestC8HistoryPersistence:
         src = MEMORY_CPP.read_text(encoding="utf-8")
         assert "strftime('%%s','now')" in src
 
+    def test_no_discarded_public_api_parameters(self):
+        """The public APIs whose parameters were once discarded with bare
+        (void) casts carry no such parameter anymore: every declared
+        parameter is consumed (a discarded seam is re-added only with a
+        rationale comment at the site, the RecallCore hopSeed way)."""
+        header = MEMORY_H.read_text(encoding="utf-8")
+        # the signatures themselves: no sharedChannel/eventId/questId/
+        # chanName ride AppendTurn/NoteVerifiedEvent/OnQuestRewarded/
+        # BuildPromptContext
+        assert "AppendTurn(uint32 bot, uint32 playerOrChannel, std::string const& speaker" in header
+        assert "BuildPromptContext(Player* bot, Player* player, int chatChannelSource)" in header
+        assert "NoteVerifiedEvent(uint32 bot)" in header
+        assert "OnQuestRewarded(Player* player,\n        std::string const& questTitle" in header
+        # and no bare (void) discard remains in any of the four bodies
+        for signature in ("void PlayerbotLlmMemory::AppendTurn(",
+                          "std::string PlayerbotLlmMemory::BuildPromptContext(",
+                          "void PlayerbotLlmMemory::NoteVerifiedEvent(",
+                          "void PlayerbotLlmMemory::OnQuestRewarded("):
+            assert "(void)" not in impl(MEMORY_CPP, signature)
+        # the driver's anchor call sites follow the narrowed signatures
+        driver = DRIVER.read_text(encoding="utf-8")
+        assert "PlayerbotLlmMemory::OnQuestRewarded(this, pQuest->GetTitle()," in driver
+        assert "BuildPromptContext(bot, player, (int)chatChannelSource)" in driver
+        assert "BuildPromptContext(bot, master, (int)ChatChannelSource::SRC_PARTY)" in driver
+        # HygienePass dropped its botGuid the same way (pure pass; the
+        # stateful siblings DuplicateOfRecent/RememberReply/Deflection keep
+        # theirs - they consume it)
+        filters_h = (PATCHES / "PlayerbotLlmFilters.h").read_text(encoding="utf-8")
+        filters_cpp = (PATCHES / "PlayerbotLlmFilters.cpp").read_text(encoding="utf-8")
+        assert "HygienePass(std::string const& cleaned);" in filters_h
+        assert "PlayerbotLlmFilters::HygienePass(std::string const& cleaned)" in filters_cpp
+        assert "DuplicateOfRecent(uint32 botGuid" in filters_h
+        assert "(void)" not in impl(PATCHES / "PlayerbotLlmFilters.cpp",
+                                    "std::string PlayerbotLlmFilters::HygienePass(")
+
 
 class TestC2VoicedFactPersistence:
     """voiced_at has exactly one stamp site (the

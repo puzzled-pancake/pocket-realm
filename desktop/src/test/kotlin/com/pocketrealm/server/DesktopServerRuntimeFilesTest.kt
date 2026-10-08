@@ -1,10 +1,21 @@
 package com.pocketrealm.server
 
+import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.client.testFlavor
+import com.pocketrealm.database.DatabaseSqliteControlPlane
+import com.pocketrealm.database.DesktopSqliteConnection
+import com.pocketrealm.desktop.DesktopRuntimeBackend
 import com.pocketrealm.desktop.DesktopStorageRoots
+import com.pocketrealm.desktop.requireNativeIfDemanded
 import com.pocketrealm.storage.Settings
+import com.pocketrealm.supervisor.ComponentOwner
+import com.pocketrealm.supervisor.RealmEndpoint
 import java.io.File
+import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
@@ -15,27 +26,121 @@ import org.junit.rules.TemporaryFolder
  * The desktop ServerRuntimeFiles twin contract: conf contents pinned
  * against the Android twin's shape (ports, database paths, log layout),
  * the honest DATA_MISSING refusal without prepared world data, the
- * lifecycle record, and the log-rotation gate. Pure JVM — no DLLs.
+ * lifecycle record, and the log-rotation gate. Pure JVM — no realm
+ * DLLs; the GAP-4 realmlist-projection leg alone drives the SQLite
+ * seam (skipped unless pocket_sqlite.dll is built, like every other
+ * seam-consuming test).
  */
 class DesktopServerRuntimeFilesTest {
     @get:Rule
     val folder = TemporaryFolder()
 
+    /** GAP-4: the S5-flip tests swap [ActiveFlavor]'s qualified source
+     * for synthetic two-qualified lanes; the reset keeps every golden
+     * pin in this class resolving today's real (vanilla-only)
+     * registry, whatever a flip test leaves behind. */
+    @After
+    fun restoreTheFlavorMachine() {
+        ActiveFlavor.reset()
+    }
+
+    /** The GAP-4 projection leg's SQLite seam (see [requireNativeIfDemanded]). */
+    private val seamDll = File("../native/.build-win-x86_64/sqlite-seam-build/pocket_sqlite.dll")
+
+    private val owner = ComponentOwner(sessionId = "test", instanceToken = "test")
+
     private fun files(): Pair<DesktopStorageRoots, ServerRuntimeFiles> {
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
-        return roots to ServerRuntimeFiles(roots)
+        // A per-roots embedded-lane manager (not the process singleton):
+        // the tests' staged-model state must never leak across roots.
+        return roots to ServerRuntimeFiles(
+            roots,
+            llmModelManager = com.pocketrealm.desktop.DesktopLlmModelManager(roots),
+        )
     }
 
     @Test
     fun realmdConfigPinsTheContractShape() {
         val (roots, files) = files()
         val conf = files.realmdConfig().readText()
-        val realmd = File(roots.sqliteDatadir, "classicrealmd.sqlite3").absolutePath
+        val realmd = File(
+            roots.sqliteDatadir,
+            "${ServerRuntimeFiles.serverDatabases().realmd}.sqlite3",
+        ).absolutePath
         assertTrue("must point at the seeded datadir: $conf", "LoginDatabaseInfo = \"$realmd\"" in conf)
         assertTrue("RealmServerPort = 3724" in conf)
         assertTrue("BindIP = \"127.0.0.1\"" in conf)
         assertTrue(conf.contains("LogFile = \"") && "realmd.log" in conf)
         assertEquals("realmd.conf", File(files.realmdConfig().parentFile, "realmd.conf").name)
+    }
+
+    /** DESK-15/24/42: the LAN host bind — the shared RealmEndpoint parsing
+     * accepts a private dotted quad and the conf carries it as BindIP
+     * (the non-loopback threading the supervisor's lanHost spec rides). */
+    @Test
+    fun realmdConfigBindsTheLanAddress() {
+        val (_, files) = files()
+        val conf = files.realmdConfig("192.168.1.50").readText()
+        assertTrue("BindIP must carry the LAN address:\n$conf", "BindIP = \"192.168.1.50\"" in conf)
+        assertTrue("the realm port stays fixed: $conf", "RealmServerPort = 3724" in conf)
+        val linkLocal = files.realmdConfig("169.254.10.20").readText()
+        assertTrue("link-local binds too:\n$linkLocal", "BindIP = \"169.254.10.20\"" in linkLocal)
+    }
+
+    /**
+     * D11 (design-lan §2.6): the brute-force lockout keys are emitted for a
+     * non-loopback bind with the decided values — MaxCount 10 / BanTime 900 /
+     * BanType 0 (IP autoban into ip_banned, the engine default when the
+     * lockout is enabled).
+     */
+    @Test
+    fun realmdConfigEmitsTheWrongPassLockoutForNonLoopbackBinds() {
+        val (_, files) = files()
+        val conf = files.realmdConfig("192.168.1.50").readText()
+        assertTrue("MaxCount must be pinned:\n$conf", "WrongPass.MaxCount = 10" in conf)
+        assertTrue("BanTime must be pinned:\n$conf", "WrongPass.BanTime = 900" in conf)
+        assertTrue("BanType 0 (IP autoban) must be pinned:\n$conf", "WrongPass.BanType = 0" in conf)
+        val linkLocal = files.realmdConfig("169.254.10.20").readText()
+        assertTrue(
+            "link-local exposure is a non-loopback bind too:\n$linkLocal",
+            "WrongPass.MaxCount = 10" in linkLocal,
+        )
+    }
+
+    /**
+     * D11: the LOCAL (loopback) bind emits NO lockout keys. An unconditional
+     * emission would self-lockout the host: BanType 0 autobans the SOURCE IP,
+     * and the logon challenge's ip_banned gate matches loopback too
+     * (AuthSocket.cpp:416-423), so ten mistyped LOCAL passwords would lock
+     * 127.0.0.1 out of the user's own realm for 900 s with no in-app
+     * explanation.
+     */
+    @Test
+    fun realmdConfigOmitsTheWrongPassLockoutForLoopback() {
+        val (_, files) = files()
+        val conf = files.realmdConfig().readText()
+        assertFalse("loopback must not lock out:\n$conf", "WrongPass." in conf)
+        val explicit = files.realmdConfig("127.0.0.1").readText()
+        assertFalse("explicit loopback must not lock out:\n$explicit", "WrongPass." in explicit)
+    }
+
+    /** The endpoint guard is the shared RealmEndpoint's: a non-LAN address
+     * (public, or not canonical IPv4) is refused before any conf exists. */
+    @Test
+    fun nonLanBindAddressesAreRefused() {
+        val (_, files) = files()
+        listOf("8.8.8.8", "192.168.001.050", "example.com", "localhost").forEach { address ->
+            try {
+                files.realmdConfig(address)
+                fail("non-LAN bind address must be refused: $address")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(
+                    "refusal must name the endpoint contract: ${expected.message}",
+                    (expected.message ?: "").contains("endpoint") ||
+                        (expected.message ?: "").contains("LAN"),
+                )
+            }
+        }
     }
 
     @Test
@@ -114,8 +219,20 @@ class DesktopServerRuntimeFilesTest {
             "Corpse.Decay.ELITE = 3600",
             "Corpse.Decay.RAREELITE = 7200",
             "Corpse.Decay.WORLDBOSS = 14400",
-            "PocketRealm.NearbyInteract = 1",
+            // DESK-58: the nearby-use knob follows the patch lane's consent —
+            // the DEFAULT snapshot carries no tweak consent, so the reviewed
+            // knob stays 0 (the nearby-use acceptance leg pins below).
+            "PocketRealm.NearbyInteract = 0",
+            // DESK-132: the default debounce rides the conf at the shared
+            // policy's default.
+            "PocketRealm.NearbyInteractCooldownMs = " +
+                com.pocketrealm.server.NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
             "PocketRealm.BotTarget = 0",
+            // Design-timeframe §4.2: the golden conf carries the DEFAULT
+            // stage (the qualified flavor's final patch, resolved from the
+            // empty stored default) — the contract line rides the same
+            // golden-pinned body every other PocketRealm.* key does.
+            "PocketRealm.TimeframeStage = \"vanilla-1.12.1\"",
         ).forEach { line ->
             assertTrue("mangosd.conf must pin \"$line\":\n$conf", line in conf)
         }
@@ -133,12 +250,296 @@ class DesktopServerRuntimeFilesTest {
             assertTrue("aiplayerbot-disabled.conf must pin \"$line\":\n$botConf", line in botConf)
         }
         assertTrue("DataDir must point at the prepared generation", "DataDir = \"" in conf)
+        val databases = ServerRuntimeFiles.serverDatabases()
         assertTrue(
             "all four database infos must point at the sqlite datadir",
-            File(roots.sqliteDatadir, "classicrealmd.sqlite3").absolutePath in conf &&
-                File(roots.sqliteDatadir, "classicmangos.sqlite3").absolutePath in conf &&
-                File(roots.sqliteDatadir, "classiccharacters.sqlite3").absolutePath in conf &&
-                File(roots.sqliteDatadir, "classiclogs.sqlite3").absolutePath in conf,
+            File(roots.sqliteDatadir, "${databases.realmd}.sqlite3").absolutePath in conf &&
+                File(roots.sqliteDatadir, "${databases.world}.sqlite3").absolutePath in conf &&
+                File(roots.sqliteDatadir, "${databases.characters}.sqlite3").absolutePath in conf &&
+                File(roots.sqliteDatadir, "${databases.logs}.sqlite3").absolutePath in conf,
+        )
+    }
+
+    /**
+     * DESK-62/93: the conf database names are the QUALIFIED lane's
+     * [com.pocketrealm.client.ClientFlavor.databases] — resolved through
+     * the shared registry with the exactly-one-qualified fail-loud gate
+     * — never a hard-coded vanilla literal. Today the qualified lane is
+     * vanilla, so the emission is byte-identical to the old literals;
+     * the pin is that the conf follows the REGISTRY, so the day a second
+     * flavor qualifies the names move with it (and any drift between the
+     * gate's answer and the conf body fails here first).
+     */
+    @Test
+    fun confDatabaseNamesResolveThroughTheFlavorRegistry() {
+        val (roots, files) = files()
+        // exactly-one-qualified gate precondition: only vanilla qualifies.
+        assertEquals(
+            listOf("vanilla"),
+            com.pocketrealm.client.ClientFlavors.qualified().map { it.flavorId },
+        )
+        val databases = ServerRuntimeFiles.serverDatabases()
+        assertEquals(com.pocketrealm.client.ClientFlavors.VANILLA.databases, databases)
+        val realmdConf = files.realmdConfig().readText()
+        assertTrue(
+            "realmd.conf LoginDatabaseInfo must be the registry's realmd database:\n$realmdConf",
+            "LoginDatabaseInfo = \"${datadirPath(roots, databases.realmd)}\"" in realmdConf,
+        )
+        stageActiveGeneration(roots)
+        val worldConf = files.worldConfig().readText()
+        listOf(
+            "LoginDatabaseInfo" to databases.realmd,
+            "WorldDatabaseInfo" to databases.world,
+            "CharacterDatabaseInfo" to databases.characters,
+            "LogsDatabaseInfo" to databases.logs,
+        ).forEach { (key, name) ->
+            assertTrue(
+                "mangosd.conf $key must be the registry's $name database:\n$worldConf",
+                "$key = \"${datadirPath(roots, name)}\"" in worldConf,
+            )
+        }
+    }
+
+    private fun datadirPath(roots: DesktopStorageRoots, name: String): String =
+        com.pocketrealm.database.DatabaseSqliteControlPlane.databaseFile(
+            roots.sqliteDatadir,
+            name,
+        ).absolutePath
+
+    // ---- DESK-5/47/78: the MariaDB databaseInfo branch ------------------
+
+    /** Writes the engine's durable active-provider marker + credential
+     * record (the durable state the conf branch's shared decision reads). */
+    private fun stageMariadbDurableState(roots: DesktopStorageRoots, coreSecret: String) {
+        File(roots.database, "active-provider.json").writeText(
+            com.pocketrealm.database.DatabaseDurableState.activeProviderMarker(
+                com.pocketrealm.database.DatabaseDurableState.ProviderMode.MARIADB,
+                com.pocketrealm.database.DatabaseRuntimeContract.WINDOWS_PROVIDER_ID,
+                "11111111-1111-4111-8111-111111111111",
+            ),
+        )
+        File(roots.database, "secrets.json").writeText(
+            JSONObject()
+                .put("schema", 1)
+                .put("admin", "a".repeat(48))
+                .put("core", coreSecret)
+                .toString(),
+        )
+    }
+
+    @Test
+    fun mariadbMarkerSwitchesTheConfToTheSharedSocketForm() {
+        val roots = DesktopStorageRoots(folder.newFolder("roots")).apply { ensureDirectories() }
+        val secret = "c".repeat(48)
+        stageMariadbDurableState(roots, secret)
+        val files = ServerRuntimeFiles(roots, providerStagedOverride = true)
+        val conf = files.realmdConfig().readText()
+        assertTrue(
+            "the conf must carry the shared MariaDB socket form:\n$conf",
+            "LoginDatabaseInfo = \".;mariadb.sock;pocket_core;$secret;" +
+                ServerRuntimeFiles.serverDatabases().realmd + "\"" in conf,
+        )
+    }
+
+    @Test
+    fun mariadbMarkerWithoutTheStagedDistributionRefusesTheConf() {
+        val roots = DesktopStorageRoots(folder.newFolder("roots")).apply { ensureDirectories() }
+        stageMariadbDurableState(roots, "c".repeat(48))
+        val files = ServerRuntimeFiles(roots, providerStagedOverride = false)
+        try {
+            files.realmdConfig()
+            fail("a MARIADB marker without the staged distribution must refuse the conf")
+        } catch (expected: IllegalStateException) {
+            assertTrue(
+                "refusal must carry the DB-LINK copy: ${expected.message}",
+                (expected.message ?: "").contains("DB-LINK"),
+            )
+        }
+    }
+
+    @Test
+    fun mariadbMarkerWithoutCredentialsRefusesTheConf() {
+        val roots = DesktopStorageRoots(folder.newFolder("roots")).apply { ensureDirectories() }
+        stageMariadbDurableState(roots, "c".repeat(48))
+        assertTrue(File(roots.database, "secrets.json").delete())
+        val files = ServerRuntimeFiles(roots, providerStagedOverride = true)
+        try {
+            files.realmdConfig()
+            fail("the conf must never carry a guessed secret")
+        } catch (expected: IllegalStateException) {
+            assertTrue(
+                (expected.message ?: "").contains("database must be initialized before server start"),
+            )
+        }
+    }
+
+    @Test
+    fun absentMarkerKeepsTheSqliteFileForm() {
+        // No active-provider marker: the v1 SQLite posture serves (the
+        // existing pins cover the bodies; this leg pins the decision).
+        val (roots, files) = files()
+        val conf = files.realmdConfig().readText()
+        assertTrue(
+            datadirPath(roots, ServerRuntimeFiles.serverDatabases().realmd) in conf,
+        )
+    }
+
+    /**
+     * DESK-42: the world's LAN-bind golden body — the hosted world binds
+     * the exact private interface endpoint, port fixed at 8085. */
+    @Test
+    fun worldConfigBindsTheLanAddress() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        val conf = files.worldConfig("192.168.1.50").readText()
+        assertTrue("world BindIP must carry the LAN address:\n$conf", "BindIP = \"192.168.1.50\"" in conf)
+        assertTrue("the world port stays fixed:\n$conf", "WorldServerPort = 8085" in conf)
+    }
+
+    // ---- design-timeframe §4: the content-patch stage knob ----------------
+
+    /**
+     * Design-timeframe §4.2: a persisted NON-DEFAULT stage of the qualified
+     * flavor lands in the conf verbatim; the DEFAULT persists as "" in
+     * settings and still names the final patch in the conf ("<stage-or-
+     * default>" — never an empty value).
+     */
+    @Test
+    fun worldConfigCarriesTheChosenTimeframeStage() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        val explicit = files.worldConfig(nearbyUseEnabled = false).readText()
+        // No settings file at all: the default stage, still concrete.
+        assertTrue(
+            "the conf must always name a concrete stage:\n$explicit",
+            "PocketRealm.TimeframeStage = \"vanilla-1.12.1\"" in explicit,
+        )
+        // A persisted non-default selection rides verbatim (the emission
+        // reads the snapshot's resolveStored result through confValue).
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(Settings.Snapshot(timeframeStage = "vanilla-1.5").toJson())
+        val chosen = files.worldConfig().readText()
+        assertTrue(
+            "the chosen stage must ride the conf:\n$chosen",
+            "PocketRealm.TimeframeStage = \"vanilla-1.5\"" in chosen,
+        )
+        // The default selection stores "" and STILL names the final patch.
+        roots.settingsFile.writeText(Settings.Snapshot(timeframeStage = "vanilla-1.12.1").toJson())
+        val final = files.worldConfig().readText()
+        assertTrue(
+            "the final stage must ride the conf:\n$final",
+            "PocketRealm.TimeframeStage = \"vanilla-1.12.1\"" in final,
+        )
+    }
+
+    /**
+     * Design-timeframe §4.3, the one-read discipline: startWorld resolves
+     * the stage ONCE and passes its snapshot via [ServerRuntimeFiles.worldConfig]'s
+     * settingsSnapshot, feeding BOTH the conf write and the overlay's
+     * desiredStage — two independent loads could straddle a settings write
+     * and boot a world whose conf names a stage the DB/ledger were never
+     * brought to. The pin: the caller's snapshot wins over the on-disk
+     * store (no second read inside the conf writer).
+     */
+    @Test
+    fun worldConfigConsumesTheCallerSnapshotNotASecondStoreRead() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        roots.settingsFile.parentFile?.mkdirs()
+        // The on-disk store names a DIFFERENT stage than the caller's
+        // snapshot; the conf must ride the caller's snapshot alone.
+        roots.settingsFile.writeText(Settings.Snapshot(timeframeStage = "vanilla-1.5").toJson())
+        val conf = files.worldConfig(
+            settingsSnapshot = Settings.Snapshot(timeframeStage = "vanilla-1.9"),
+        ).readText()
+        assertTrue(
+            "the caller's snapshot drives the conf stage:\n$conf",
+            "PocketRealm.TimeframeStage = \"vanilla-1.9\"" in conf,
+        )
+        assertTrue(
+            "the store's own stage must not leak into the conf:\n$conf",
+            "vanilla-1.5" !in conf,
+        )
+    }
+
+    /**
+     * Design-timeframe §4.1: an IMPOSSIBLE persisted stage (a stale stage of
+     * an unqualified flavor, a never-registered id) degrades to the default
+     * at the settings layer — the conf can never carry a stage the lane
+     * cannot run, and the world start is never refused for one.
+     */
+    @Test
+    fun worldConfigDegradesAnImpossibleStageToTheDefault() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        roots.settingsFile.parentFile?.mkdirs()
+        // A raw (unvalidated) snapshot write simulates a stale/corrupted
+        // persisted value that predates a flavor change or a hand edit.
+        val stale = Settings.Snapshot().toJson()
+            .replace("\"timeframeStage\":\"\"", "\"timeframeStage\":\"tbc-2.4.3\"")
+        roots.settingsFile.writeText(stale)
+        val conf = files.worldConfig().readText()
+        assertTrue(
+            "an impossible stage must degrade to the qualified lane's default:\n$conf",
+            "PocketRealm.TimeframeStage = \"vanilla-1.12.1\"" in conf,
+        )
+        assertTrue("tbc-2.4.3" !in conf)
+    }
+
+    /**
+     * DESK-132: a non-default nearbyInteractTriggerGuardMs lands in the
+     * conf's PocketRealm.NearbyInteractCooldownMs, normalized through the
+     * shared policy (the bound-clamped value, never the raw one).
+     */
+    @Test
+    fun worldConfigCarriesANonDefaultNearbyTriggerGuard() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        val conf = files.worldConfig(nearbyInteractTriggerGuardMs = 500).readText()
+        assertTrue(
+            "the 500 ms guard must ride the conf:\n$conf",
+            "PocketRealm.NearbyInteractCooldownMs = 500" in conf,
+        )
+        // A guard outside the supported band is normalized (clamped), not
+        // echoed.
+        val clamped = files.worldConfig(nearbyInteractTriggerGuardMs = 99_999).readText()
+        assertTrue(
+            "an out-of-band guard must clamp to the policy maximum:\n$clamped",
+            "PocketRealm.NearbyInteractCooldownMs = " +
+                com.pocketrealm.server.NearbyInteractPolicy.MAX_TRIGGER_GUARD_MS in clamped,
+        )
+    }
+
+    /**
+     * DESK-58: the knob leg — the conf's PocketRealm.NearbyInteract rides
+     * the backend-computed EFFECTIVE verdict (the authorized-layout
+     * resolution of the requested tweaks over the user's actual exe), NOT
+     * the requested consent alone: a consented request on a non-qualified
+     * layout launches unpatched, so the requested-consent-without-verdict
+     * leg must keep the knob at 0 (the original DESK-58 failure shape).
+     */
+    @Test
+    fun nearbyUseKnobFollowsTheEffectiveVerdictNotTheRawConsent() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        // The consented request alone must NOT flip the knob...
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(
+            Settings.Snapshot(
+                tweaks = com.pocketrealm.client.ClientTweaksConfig(quicklootEnabled = true),
+            ).toJson(),
+        )
+        val unproven = files.worldConfig().readText()
+        assertTrue(
+            "requested consent without an effective verdict keeps the knob off:\n$unproven",
+            "PocketRealm.NearbyInteract = 0" in unproven,
+        )
+        // ...only the backend's effective verdict (the exe hashed as the
+        // authorized build-5875 layout) turns it on.
+        val effective = files.worldConfig(nearbyUseEnabled = true).readText()
+        assertTrue(
+            "the effective verdict must turn the nearby-use knob on:\n$effective",
+            "PocketRealm.NearbyInteract = 1" in effective,
         )
     }
 
@@ -187,6 +588,77 @@ class DesktopServerRuntimeFilesTest {
         )
     }
 
+    /**
+     * The stale-secret purge: only the ACTIVE profile's conf is rewritten
+     * at each world start, so a rotated or cleared external LLM key used
+     * to survive forever in every OTHER preset's staged conf. The next
+     * world start must delete every staged bot conf carrying a key line —
+     * the inactive preset's conf goes away entirely (it is re-staged from
+     * its profile when that profile is next active), while keyless confs
+     * (the disabled block) keep their bytes.
+     */
+    @Test
+    fun worldStartPurgesStaleKeysFromInactivePresetConfs() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(
+            Settings.Snapshot(
+                llmEnabled = true,
+                llmExternalUrl = "https://api.openai.com",
+                llmExternalModel = "gpt-test",
+                llmExternalApiKey = "sk-old",
+            ).toJson(),
+        )
+        val runDir = File(File(roots.runtime, "server"), "run")
+        // A previous world start on ANOTHER preset staged its conf with the key.
+        val lively = com.pocketrealm.bots.BotProfiles.LIVELY_160
+        files.worldConfig(botProfile = lively)
+        val staleConf = File(runDir, "aiplayerbot-${lively.id}.conf")
+        assertTrue(
+            "precondition: the other preset's conf carries the old key",
+            "AiPlayerbot.LLMApiKey = sk-old" in staleConf.readText(),
+        )
+        // An even earlier keyless start's disabled block shares the run dir.
+        files.worldConfig()
+        val disabled = File(runDir, "aiplayerbot-disabled.conf")
+        assertTrue("precondition: the keyless disabled conf is staged", disabled.isFile)
+
+        // The key is rotated; the next world start (on ANY profile) is the
+        // only writer that can evict the stale secret.
+        roots.settingsFile.writeText(
+            Settings.Snapshot(
+                llmEnabled = true,
+                llmExternalUrl = "https://api.openai.com",
+                llmExternalModel = "gpt-test",
+                llmExternalApiKey = "sk-new",
+            ).toJson(),
+        )
+        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
+        val conf = files.worldConfig(botProfile = profile).readText()
+        val active = File(runDir, "aiplayerbot-${profile.id}.conf")
+        assertTrue(
+            "the active conf carries the NEW key:\n${active.readText()}",
+            "AiPlayerbot.LLMApiKey = sk-new" in active.readText(),
+        )
+        assertTrue(
+            "mangosd.conf still points at the active conf",
+            "PocketRealm.PlayerbotConfig = \"${active.absolutePath}\"" in conf,
+        )
+        assertFalse(
+            "the stale-key preset conf must not survive the start: ${staleConf.absolutePath}",
+            staleConf.isFile,
+        )
+        assertTrue("a keyless staged conf keeps its bytes", disabled.isFile)
+        runDir.listFiles { file -> file.name.startsWith("aiplayerbot-") }!!
+            .forEach { staged ->
+                assertFalse(
+                    "no staged bot conf may carry the rotated key: ${staged.name}",
+                    "sk-old" in staged.readText(),
+                )
+            }
+    }
+
     @Test
     @Suppress("LongMethod") // the pinned emission list IS the test's content
     fun llmExternalBlockEmitsTheExternalLane() {
@@ -228,7 +700,7 @@ class DesktopServerRuntimeFilesTest {
             "AiPlayerbot.LLMTopK = 20",
             "AiPlayerbot.LLMRepeatPenalty = 1",
             "AiPlayerbot.LLMMaxNewTokens = 600",
-            "AiPlayerbot.LLMGenerationTimeout = 60",
+            "AiPlayerbot.LLMGenerationTimeout = 240",
             "AiPlayerbot.LLMConnectTimeout = 10",
             "AiPlayerbot.LLMFactsCap = 48",
             "AiPlayerbot.LLMMemoriesTail = 16",
@@ -236,6 +708,9 @@ class DesktopServerRuntimeFilesTest {
             "AiPlayerbot.LLMProviderSafe = 1",
             "AiPlayerbot.LLMBanterEnabled = 1",
             "AiPlayerbot.LLMChatterEnabled = 1",
+            // DESK-26: the prompt-pack file stages between the chatter and
+            // TLS lines (the confLines emission order).
+            "AiPlayerbot.LLMPromptPackFile = \"",
             "AiPlayerbot.LLMCloudChatter = 1",
         )
         // ORDER-SENSITIVE: the desktop object is a verbatim twin of the
@@ -251,12 +726,141 @@ class DesktopServerRuntimeFilesTest {
             )
             searchFrom = at + line.length
         }
-        // The chatter power file is staged enabled with the NORMAL rung.
+        // The chatter power file is staged enabled with the machine's honest
+        // rung (DESK-81: the GetSystemPowerStatus read replaced the old
+        // always-plugged-in constant — AC/charged/unreadable all read
+        // NORMAL, a low battery off the charger reads CONSTRAINED).
         val power = File(File(roots.runtime, "server/run"), "chatter-power.conf")
         assertTrue("chatter power file staged", power.isFile)
         val powerBody = power.readText()
         assertTrue("enabled=1: $powerBody", "enabled=1" in powerBody)
-        assertTrue("rung=4 (NORMAL): $powerBody", "rung=4" in powerBody)
+        val expectedRung = DesktopChatterPowerMonitor.applyRungCap(
+            DesktopChatterPowerMonitor.computeRung(DesktopChatterPowerMonitor.SYSTEM.read()),
+            profile.llmSpeech.chatterRung,
+        )
+        assertTrue("rung=$expectedRung (the machine's honest rung): $powerBody", "rung=$expectedRung" in powerBody)
+        // DESK-26: the staged prompt pack carries the RESOLVED default pack.
+        val pack = File(File(roots.runtime, "server/run"), ServerRuntimeFiles.PROMPT_PACK_FILE_NAME)
+        assertTrue("prompt pack file staged", pack.isFile)
+        assertEquals(
+            com.pocketrealm.llm.LlmPromptPack.resolve("").serialize(),
+            pack.readText(),
+        )
+    }
+
+    // ---- GAP-6 (was DESKPROD-7): digest-verified bundled-asset staging --
+
+    /**
+     * GAP-6: the staged-asset cache must verify CONTENT, not length. A
+     * same-size refresh of a bundled asset — the CA bundle's worst case:
+     * a rotation re-issuing a byte-count-identical pem — has to land in
+     * an existing run dir. Under the old size-equality cache the stale
+     * staged copy verified itself against the fresh source and shadowed
+     * it forever, silently freezing the security asset the process
+     * trusts. The test owns the SOURCE through resolveBundledAsset's
+     * FIRST candidate order (java.library.path — restored in a finally),
+     * so the refresh rewrites a temp file, never a tracked repo asset.
+     */
+    @Test
+    fun stageBundledAssetRestagesWhenContentChangesAtTheSameSize() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        val sourceDir = folder.newFolder("bundled-app")
+        val source = File(sourceDir, ServerRuntimeFiles.TLS_CA_BUNDLE_FILE_NAME)
+        val original = "A".repeat(2048)
+        val refreshed = "B".repeat(2048)
+        source.writeText(original)
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(
+            Settings.Snapshot(
+                llmEnabled = true,
+                llmExternalUrl = "https://api.openai.com",
+                llmExternalModel = "gpt-test",
+                llmExternalApiKey = "sk-test",
+            ).toJson(),
+        )
+        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
+        val previousLibraryPath = System.getProperty("java.library.path") ?: ""
+        try {
+            System.setProperty("java.library.path", sourceDir.absolutePath)
+            val runDir = File(roots.runtime, "server/run")
+            files.worldConfig(botProfile = profile)
+            val staged = File(runDir, ServerRuntimeFiles.TLS_CA_BUNDLE_FILE_NAME)
+            assertEquals(
+                "the first stage must land the source bytes",
+                original,
+                staged.readText(),
+            )
+            // The defect's exact premise: same byte count, different bytes.
+            assertEquals(
+                "both contents must be the same length for this pin to bite",
+                original.length,
+                refreshed.length,
+            )
+            source.writeText(refreshed)
+            files.worldConfig(botProfile = profile)
+            assertEquals(
+                "a same-size content refresh must reach the staged copy",
+                refreshed,
+                staged.readText(),
+            )
+        } finally {
+            System.setProperty("java.library.path", previousLibraryPath)
+        }
+    }
+
+    /**
+     * GAP-6, the counter-pin: digest verification must not degenerate into
+     * an unconditional re-copy. A world restart over an unchanged asset
+     * keeps the staged bytes untouched (no run-dir rewrite churn) — pinned
+     * by AGING the staged file's mtime: any rewrite would reset it to now,
+     * a cached copy keeps the aged timestamp.
+     */
+    @Test
+    fun stageBundledAssetKeepsTheCachedCopyWhenContentIsIdentical() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        val sourceDir = folder.newFolder("bundled-app")
+        val source = File(sourceDir, ServerRuntimeFiles.TLS_CA_BUNDLE_FILE_NAME)
+        val original = "C".repeat(2048)
+        source.writeText(original)
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(
+            Settings.Snapshot(
+                llmEnabled = true,
+                llmExternalUrl = "https://api.openai.com",
+                llmExternalModel = "gpt-test",
+                llmExternalApiKey = "sk-test",
+            ).toJson(),
+        )
+        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
+        val previousLibraryPath = System.getProperty("java.library.path") ?: ""
+        try {
+            System.setProperty("java.library.path", sourceDir.absolutePath)
+            val runDir = File(roots.runtime, "server/run")
+            files.worldConfig(botProfile = profile)
+            val staged = File(runDir, ServerRuntimeFiles.TLS_CA_BUNDLE_FILE_NAME)
+            assertEquals(
+                "the first stage must land the source bytes",
+                original,
+                staged.readText(),
+            )
+            val aged = staged.lastModified() - 60_000L
+            assertTrue("aging the staged copy must succeed", staged.setLastModified(aged))
+            files.worldConfig(botProfile = profile)
+            assertEquals(
+                "identical content must keep the staged bytes",
+                original,
+                staged.readText(),
+            )
+            assertEquals(
+                "identical content must not rewrite the staged copy",
+                aged,
+                staged.lastModified(),
+            )
+        } finally {
+            System.setProperty("java.library.path", previousLibraryPath)
+        }
     }
 
     @Test
@@ -339,12 +943,118 @@ class DesktopServerRuntimeFilesTest {
         val world = File(logs, "world.log").apply { writeText("x".repeat(5 * 1024 * 1024)) }
         File(logs, "world.log.1").writeText("previous")
         files.prepareWorldLogsForStart(ServerRuntimeContract.STOPPED)
-        // The retired .1 is deleted, the oversized live log rotates into
-        // its place, and the native writer recreates world.log on start.
+        // The oversized live log takes the .1 slot atomically (the incumbent
+        // is REPLACED, never retired first — the failed-rotation pins below
+        // hold that line), and the native writer recreates world.log on start.
         val rotated = File(logs, "world.log.1")
         assertTrue(rotated.isFile)
         assertEquals(5L * 1024L * 1024L, rotated.length())
         assertTrue(!world.isFile)
+        assertTrue(
+            "no stranded temp may survive a completed rotation: ${logs.list()?.toList()}",
+            logs.list()!!.none { it.endsWith(".tmp") },
+        )
+    }
+
+    /**
+     * worldlog-rotation pin, leg 1 — the archive survives a FAILED rotation.
+     * A locked archive slot (the antivirus/indexer hold that destroyed a
+     * 77.8 MB world.log.1 under the old delete-then-rename in reexec-1)
+     * refuses the rotation with the pinned WRONG_STATE code and leaves the
+     * incumbent archive byte-identical: the slot is never retired before the
+     * successor is in hand.
+     */
+    @Test
+    fun failedRotationPreservesTheExistingArchive() {
+        val (roots, files) = files()
+        val logs = File(File(roots.runtime, "server"), "logs").apply { mkdirs() }
+        File(logs, "world.log").apply { writeText("x".repeat(5 * 1024 * 1024)) }
+        val archive = File(logs, "world.log.1").apply { writeText("previous-archive") }
+        java.io.FileInputStream(archive).use { _ ->
+            try {
+                files.prepareWorldLogsForStart(ServerRuntimeContract.STOPPED)
+                fail("a rotation whose archive slot is locked must refuse")
+            } catch (expected: IllegalStateException) {
+                assertTrue(
+                    "refusal must carry the WRONG_STATE code: ${expected.message}",
+                    "WRONG_STATE" in expected.message!!,
+                )
+            }
+        }
+        assertEquals(
+            "the incumbent archive must survive the failed rotation",
+            "previous-archive",
+            archive.readText(),
+        )
+    }
+
+    /**
+     * worldlog-rotation pin, legs 2+3 — a failed rotation loses no log data
+     * and every refusal surfaces WRONG_STATE. Both refusal points leave
+     * every byte on disk under its honest name: an archive-move failure
+     * restores the stepped-aside live log byte-identical, and a live-rename
+     * failure never moves the live log at all — no delete-then-rename
+     * window, no stranded temp.
+     */
+    @Test
+    fun failedRotationKeepsTheLiveLogIntactAndRefusesWrongState() {
+        val (roots, files) = files()
+        val logs = File(File(roots.runtime, "server"), "logs").apply { mkdirs() }
+        val live = File(logs, "world.log")
+
+        // Leg A: the archive slot refuses the successor move (locked by
+        // another reader, the realistic AV/indexer hold) — the live log
+        // must come back under its own name, byte-identical.
+        val oversized = "y".repeat(5 * 1024 * 1024)
+        live.writeText(oversized)
+        File(logs, "world.log.1").writeText("previous-archive")
+        java.io.FileInputStream(File(logs, "world.log.1")).use { _ ->
+            try {
+                files.prepareWorldLogsForStart(ServerRuntimeContract.STOPPED)
+                fail("the locked archive slot must refuse the rotation")
+            } catch (expected: IllegalStateException) {
+                assertTrue(
+                    "refusal must carry the WRONG_STATE code: ${expected.message}",
+                    "WRONG_STATE" in expected.message!!,
+                )
+            }
+        }
+        assertEquals(
+            "the live log must be restored byte-identical",
+            oversized,
+            live.readText(),
+        )
+        assertTrue(
+            "no stranded temp may survive a refused rotation: ${logs.list()?.toList()}",
+            logs.list()!!.none { it.endsWith(".tmp") },
+        )
+        assertEquals(
+            "the archive the refused rotation kept must be intact too",
+            "previous-archive",
+            File(logs, "world.log.1").readText(),
+        )
+
+        // Leg B: the live log itself refuses to step aside (locked) —
+        // nothing was renamed away, so world.log must sit exactly as the
+        // native writer left it, under its own name.
+        val locked = "z".repeat(5 * 1024 * 1024)
+        live.writeText(locked)
+        java.io.FileInputStream(live).use { _ ->
+            try {
+                files.prepareWorldLogsForStart(ServerRuntimeContract.STOPPED)
+                fail("a rotation whose live log is locked must refuse")
+            } catch (expected: IllegalStateException) {
+                assertTrue(
+                    "refusal must carry the WRONG_STATE code: ${expected.message}",
+                    "WRONG_STATE" in expected.message!!,
+                )
+            }
+        }
+        assertEquals(
+            "the locked live log must be untouched",
+            locked,
+            live.readText(),
+        )
     }
 
     @Test
@@ -358,5 +1068,283 @@ class DesktopServerRuntimeFilesTest {
         val round = Settings.Snapshot(worldDebugLogs = true)
         assertTrue(Settings.Snapshot.fromJson(round.toJson()).worldDebugLogs)
         assertTrue(!Settings.Snapshot().worldDebugLogs)
+    }
+
+    /** DESK-24/42: the LAN topology rides the settings snapshot round trip
+     * (mode + the explicit allowLanPlayers gate + the canonical endpoint). */
+    @Test
+    fun settingsSnapshotCarriesTheLanTopology() {
+        val hosted = Settings.Snapshot(
+            runtimeMode = com.pocketrealm.supervisor.RuntimeMode.LAN_HOST,
+            allowLanPlayers = true,
+            lanAddress = "192.168.1.50",
+        )
+        val round = Settings.Snapshot.fromJson(hosted.toJson())
+        assertEquals(com.pocketrealm.supervisor.RuntimeMode.LAN_HOST, round.runtimeMode)
+        assertTrue(round.allowLanPlayers)
+        assertEquals("192.168.1.50", round.lanAddress)
+        val defaults = Settings.Snapshot.fromJson(Settings.Snapshot().toJson())
+        assertEquals(com.pocketrealm.supervisor.RuntimeMode.LOCAL, defaults.runtimeMode)
+        assertTrue(!defaults.allowLanPlayers)
+        assertEquals("", defaults.lanAddress)
+    }
+
+    /**
+     * DESK-13/26/132/139: the client-lane settings round trip through the
+     * JSON store — the tweaks request, the audio mode (DESK-139's "setting
+     * round-trips in the JSON store" leg), the normalized nearby guard
+     * (DESK-132), and the prompt-pack JSON (DESK-26).
+     */
+    @Test
+    fun settingsSnapshotCarriesTheClientLaunchLaneFields() {
+        val tweaks = com.pocketrealm.client.ClientTweaksConfig(
+            fovEnabled = true,
+            quicklootEnabled = true,
+            soundChannelsEnabled = true,
+            soundChannels = 32,
+        )
+        val written = Settings.Snapshot(
+            tweaks = tweaks,
+            audioMode = Settings.AudioMode.OFF,
+            nearbyInteractTriggerGuardMs = 600,
+            llmPromptPackJson = com.pocketrealm.llm.LlmPromptPack().serialize(),
+        )
+        val store = com.pocketrealm.desktop.DesktopSettingsStore(
+            folder.newFolder("store").resolve("settings.json"),
+        )
+        store.save(written)
+        val loaded = store.load()
+        assertEquals(tweaks, loaded.tweaks)
+        assertEquals(Settings.AudioMode.OFF, loaded.audioMode)
+        assertEquals(600, loaded.nearbyInteractTriggerGuardMs)
+        assertEquals(written.llmPromptPackJson, loaded.llmPromptPackJson)
+
+        // The defaults: audio ON (the Android twin's default), the policy's
+        // default guard, the pristine tweak request, the empty pack (=
+        // default pack at resolve time).
+        val defaults = Settings.Snapshot()
+        assertEquals(Settings.AudioMode.ON, defaults.audioMode)
+        assertEquals(
+            com.pocketrealm.server.NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
+            defaults.nearbyInteractTriggerGuardMs,
+        )
+        assertEquals(com.pocketrealm.client.ClientTweaksConfig(), defaults.tweaks)
+        assertEquals("", defaults.llmPromptPackJson)
+
+        // The normalize-on-load/write contract (the Android :801/:1077 twin):
+        // an out-of-band persisted guard clamps to the policy bounds on
+        // decode, and the write path normalizes too.
+        val outOfBand = Settings.Snapshot.fromJson(
+            Settings.Snapshot(nearbyInteractTriggerGuardMs = 99_999).toJson(),
+        )
+        assertEquals(
+            com.pocketrealm.server.NearbyInteractPolicy.MAX_TRIGGER_GUARD_MS,
+            outOfBand.nearbyInteractTriggerGuardMs,
+        )
+        val corruptAudio = Settings.Snapshot.fromJson(
+            Settings.Snapshot(audioMode = Settings.AudioMode.ON)
+                .toJson()
+                .replace("\"audioMode\":\"ON\"", "\"audioMode\":\"LOUD\""),
+        )
+        assertEquals("an unknown audio mode degrades to ON", Settings.AudioMode.ON, corruptAudio.audioMode)
+        val corruptTweaks = Settings.Snapshot.fromJson(
+            Settings.Snapshot().toJson().replace("\"tweaks\":{", "\"tweaks\":{\"bogus\":1,"),
+        )
+        assertEquals(
+            "a corrupt tweaks payload degrades to the pristine request",
+            com.pocketrealm.client.ClientTweaksConfig(),
+            corruptTweaks.tweaks,
+        )
+    }
+
+    // ---- DESK-48/80/103: the embedded (local sidecar) lane --------------
+
+    @Test
+    fun llmEmbeddedWithoutAServableSidecarFailsClosed() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(
+            Settings.Snapshot(
+                llmEnabled = true,
+                llmExternalMode = false,
+                llmModelId = com.pocketrealm.llm.LlmModelRegistry.BASE_E2B.id,
+            ).toJson(),
+        )
+        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
+        files.worldConfig(botProfile = profile)
+        val botConf = File(File(roots.runtime, "server/run"), "aiplayerbot-${profile.id}.conf")
+        val body = botConf.readText()
+        assertTrue(
+            "an unstaged model + no bundled sidecar must fail closed to no LLM block: $body",
+            "AiPlayerbot.LLMEnabled = 2" !in body,
+        )
+    }
+
+    @Test
+    fun llmEmbeddedEndpointOverridesTheExternalFieldsWhenTheLaneServes() {
+        // The manager's endpoint gate is the sidecar's honest absence here;
+        // the LAN ROUTING is what this leg pins: an embedded-mode snapshot
+        // whose EXTERNAL endpoint is deliberately broken still routes the
+        // emission decision through the manager (the conf stays off — the
+        // fail-closed shape), and an external-mode snapshot with the same
+        // broken endpoint fails closed identically. The routing symmetry
+        // proves the Source toggle actually selects the emission branch.
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(
+            Settings.Snapshot(
+                llmEnabled = true,
+                llmExternalMode = false,
+                llmExternalUrl = "https://embedded-lane-ignores-this.invalid",
+            ).toJson(),
+        )
+        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
+        files.worldConfig(botProfile = profile)
+        val botConf = File(File(roots.runtime, "server/run"), "aiplayerbot-${profile.id}.conf")
+        val body = botConf.readText()
+        assertTrue(
+            "the embedded lane must not leak the external endpoint: $body",
+            "embedded-lane-ignores-this" !in body,
+        )
+    }
+
+    @Test
+    fun llmSourceAndModelSelectionsRoundTripThroughTheSnapshotCodec() {
+        // DESK-103: the Source toggle + selected registry id persist; the
+        // defaults keep the reviewed external-only posture for old files.
+        val defaults = Settings.Snapshot.fromJson(Settings.Snapshot().toJson())
+        assertTrue("external stays the shipped default", defaults.llmExternalMode)
+        assertEquals("", defaults.llmModelId)
+        val toggled = Settings.Snapshot(llmExternalMode = false, llmModelId = "qwen35-08b-CLEAN-tuned-q4_0")
+        val parsed = Settings.Snapshot.fromJson(toggled.toJson())
+        assertFalse("the embedded selection persists", parsed.llmExternalMode)
+        assertEquals("qwen35-08b-CLEAN-tuned-q4_0", parsed.llmModelId)
+        // An old settings file without the keys keeps the external lane.
+        val legacy = Settings.Snapshot.fromJson("{\"llmEnabled\":true}")
+        assertTrue(legacy.llmExternalMode)
+        assertEquals("", legacy.llmModelId)
+    }
+
+    /** GAP-4: serverDatabases() resolves through the [ActiveFlavor]
+     * machine, not the single-qualified vanilla pin. At the S5 flip
+     * (two qualified flavors) the machine's honesty holds — with no
+     * Home-switcher selection the resolution refuses loud instead of
+     * guessing vanilla — and a selection resolves THAT lane's database
+     * names, exactly the shape the old require() bricked. */
+    @Test
+    fun serverDatabasesResolveTheActiveLaneWithTwoQualifiedFlavors() {
+        val vanilla = testFlavor("vanilla", qualified = true)
+        val wotlk = testFlavor("wotlk", qualified = true, build = 12340)
+        ActiveFlavor.qualifiedSource = { listOf(vanilla, wotlk) }
+        try {
+            ServerRuntimeFiles.serverDatabases()
+            fail("two qualified flavors without a selection must refuse, not guess")
+        } catch (expected: IllegalStateException) {
+            assertTrue(
+                "the refusal must stay the machine's honest one: ${expected.message}",
+                expected.message.orEmpty().contains("found 2"),
+            )
+        }
+        ActiveFlavor.select("wotlk")
+        assertEquals(wotlk.databases, ServerRuntimeFiles.serverDatabases())
+        ActiveFlavor.select("vanilla")
+        assertEquals(vanilla.databases, ServerRuntimeFiles.serverDatabases())
+        // The old refusal copy's promise ("pass its ClientFlavor
+        // explicitly") finally holds — the requireActive idiom.
+        assertEquals(wotlk.databases, ServerRuntimeFiles.serverDatabases(wotlk))
+    }
+
+    /** GAP-4: realmd.conf tracks the active flavor's realmd database —
+     * LoginDatabaseInfo names the selected lane's file at the flip, and
+     * today's sole-qualified registry keeps emitting the exact vanilla
+     * bytes (the golden pins' hard constraint: resolution changes,
+     * vanilla bytes do not). */
+    @Test
+    fun realmdConfigTracksTheActiveFlavorAtTheS5Flip() {
+        val (roots, files) = files()
+        val vanilla = testFlavor("vanilla", qualified = true)
+        val wotlk = testFlavor("wotlk", qualified = true, build = 12340)
+        ActiveFlavor.qualifiedSource = { listOf(vanilla, wotlk) }
+        ActiveFlavor.select("wotlk")
+        val flipped = files.realmdConfig().readText()
+        val wotlkRealmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "wotlkrealmd")
+        assertTrue(
+            "the active lane's realmd must drive LoginDatabaseInfo:\n$flipped",
+            "LoginDatabaseInfo = \"${wotlkRealmd.absolutePath}\"" in flipped,
+        )
+        ActiveFlavor.select("vanilla")
+        val vanillaConf = files.realmdConfig().readText()
+        val vanillaRealmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "vanillarealmd")
+        assertTrue(
+            "vanilla selected must drive its own lane:\n$vanillaConf",
+            "LoginDatabaseInfo = \"${vanillaRealmd.absolutePath}\"" in vanillaConf,
+        )
+        ActiveFlavor.reset()
+        val registryConf = files.realmdConfig().readText()
+        val classicRealmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "classicrealmd")
+        assertTrue(
+            "the real registry's vanilla lane must keep its exact bytes:\n$registryConf",
+            "LoginDatabaseInfo = \"${classicRealmd.absolutePath}\"" in registryConf,
+        )
+    }
+
+    /** GAP-4: the realmlist projection (DESK-93's flavor-registry
+     * resolution site in DesktopRuntimeBackend) projects the ACTIVE
+     * flavor's realmd — at the S5 flip the selected lane's database
+     * gets the advertised address, where the old require() turned the
+     * same call into REALMLIST-PROJECTION-FAILED (the bricked lane). */
+    @Test
+    fun projectRealmAdvertisementProjectsTheActiveFlavorsRealmlist() {
+        requireNativeIfDemanded("sqlite seam", seamDll)
+        val roots = DesktopStorageRoots(folder.newFolder("s5-flip-projection"))
+        // The DESK-5/47/78 default flip made MARIADB the fresh-init default;
+        // this projection seeds and asserts the SQLITE datadir, so — like
+        // every sibling sqlite-lane projection test — it selects the
+        // provider explicitly instead of riding the pre-flip default.
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(
+            com.pocketrealm.storage.Settings.Snapshot(
+                databaseProvider = com.pocketrealm.storage.Settings.DatabaseProvider.SQLITE,
+            ).toJson(),
+        )
+        roots.sqliteDatadir.mkdirs()
+        val vanilla = testFlavor("vanilla", qualified = true)
+        val wotlk = testFlavor("wotlk", qualified = true, build = 12340)
+        ActiveFlavor.qualifiedSource = { listOf(vanilla, wotlk) }
+        ActiveFlavor.select("wotlk")
+        val wotlkRealmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "wotlkrealmd")
+        DesktopSqliteConnection(wotlkRealmd.absolutePath).use { db ->
+            db.exec(
+                "CREATE TABLE realmlist (id INTEGER PRIMARY KEY, address TEXT, port INTEGER, " +
+                    "realmbuilds TEXT NOT NULL DEFAULT '');",
+            )
+            db.exec("INSERT INTO realmlist VALUES (1, '127.0.0.1', 3724, '');")
+        }
+        val backend = DesktopRuntimeBackend(roots)
+        val endpoint = RealmEndpoint.parseLan("192.168.1.50")
+        val result = runBlocking { backend.projectRealmAdvertisement(owner, endpoint, "192.168.1.50") }
+        assertTrue("the active flavor's projection must succeed: ${result.detail}", result.ok)
+        DesktopSqliteConnection(wotlkRealmd.absolutePath).use { db ->
+            assertEquals(
+                "the advertised address must land in the ACTIVE lane's realmlist",
+                "192.168.1.50",
+                db.queryText("SELECT address FROM realmlist WHERE id = 1;"),
+            )
+            // The accepted-builds advertisement follows the SAME active
+            // lane (testFlavor's realmdAcceptedBuilds is "$build"): the
+            // seed's realmbuilds is EMPTY, so this write is what makes
+            // realmd's ok_build gate pass for the lane's clients.
+            assertEquals(
+                "the ACTIVE lane's accepted builds must land in its realmlist",
+                "12340",
+                db.queryText("SELECT realmbuilds FROM realmlist WHERE id = 1;"),
+            )
+        }
+        assertFalse(
+            "the vanilla lane's database must stay untouched at the flip",
+            DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "classicrealmd").isFile,
+        )
     }
 }

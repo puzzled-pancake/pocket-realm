@@ -511,7 +511,7 @@ void EnqueueValidated(pocketllm::ChatterLayer layer, uint32 speakerGuid,
     std::string cleaned;
     if (!pocketllm::ExtractToolCalls(rawLine, &cleaned).empty())
         return;
-    std::string line = PlayerbotLlmFilters::HygienePass(cleaned, speakerGuid);
+    std::string line = PlayerbotLlmFilters::HygienePass(cleaned);
     if (!RegisterAdmits(line))
         return;
     line = pocketllm::ClampMurmurBytes(line, pocketllm::kMurmurMaxBytes);
@@ -551,8 +551,13 @@ void RunDeviceBatch(DeviceJob job)
     {
         RunDeviceBatchInner(job);
     }
+    catch (std::exception const& e)
+    {
+        sLog.outError("BotLLM: device worker failed: %s", e.what());
+    }
     catch (...)
     {
+        sLog.outError("BotLLM: device worker failed (unknown exception)");
     }
     BatchInFlight().store(false);
 }
@@ -563,8 +568,13 @@ void RunComposerBatch(ComposerJob job)
     {
         RunComposerBatchInner(job);
     }
+    catch (std::exception const& e)
+    {
+        sLog.outError("BotLLM: composer worker failed: %s", e.what());
+    }
     catch (...)
     {
+        sLog.outError("BotLLM: composer worker failed (unknown exception)");
     }
     BatchInFlight().store(false);
 }
@@ -797,7 +807,7 @@ bool DeliverLine(PendingLine& entry, time_t now, bool& delivered)
     uint32 const channelKey = entry.layer == pocketllm::LAYER_PARTY
         ? (0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_PARTY))
         : (0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY));
-    PlayerbotLlmMemory::AppendTurn(entry.speakerGuid, channelKey, true,
+    PlayerbotLlmMemory::AppendTurn(entry.speakerGuid, channelKey,
         speaker->GetName(), entry.text);
 
     // credence: everyone who could hear it, heard it - bots in say range
@@ -862,8 +872,14 @@ void DispatchDeviceJob(DeviceJob job)
     {
         std::thread(RunDeviceBatch, job).detach();
     }
+    catch (std::exception const& e)
+    {
+        sLog.outError("BotLLM: device worker spawn failed: %s", e.what());
+        BatchInFlight().store(false);
+    }
     catch (...)
     {
+        sLog.outError("BotLLM: device worker spawn failed (unknown exception)");
         BatchInFlight().store(false);
     }
 }
@@ -875,8 +891,14 @@ void DispatchComposerJob(ComposerJob job)
     {
         std::thread(RunComposerBatch, job).detach();
     }
+    catch (std::exception const& e)
+    {
+        sLog.outError("BotLLM: composer worker spawn failed: %s", e.what());
+        BatchInFlight().store(false);
+    }
     catch (...)
     {
+        sLog.outError("BotLLM: composer worker spawn failed (unknown exception)");
         BatchInFlight().store(false);
     }
 }
@@ -1003,8 +1025,13 @@ void RunSagaBatch(SagaJob job)
     {
         RunSagaBatchInner(job);
     }
+    catch (std::exception const& e)
+    {
+        sLog.outError("BotLLM: saga worker failed: %s", e.what());
+    }
     catch (...)
     {
+        sLog.outError("BotLLM: saga worker failed (unknown exception)");
     }
     SagaInFlight().store(false);
 }
@@ -1016,8 +1043,14 @@ void DispatchSagaJob(SagaJob job)
     {
         std::thread(RunSagaBatch, job).detach();
     }
+    catch (std::exception const& e)
+    {
+        sLog.outError("BotLLM: saga worker spawn failed: %s", e.what());
+        SagaInFlight().store(false);
+    }
     catch (...)
     {
+        sLog.outError("BotLLM: saga worker spawn failed (unknown exception)");
         SagaInFlight().store(false);
     }
 }
@@ -1116,10 +1149,15 @@ void PlayerbotLlmChatter::OnDuelCompleted(Player* participant, Player* opponent)
 
 void PlayerbotLlmChatter::NotePartyLine(uint32 playerGuid, std::string const& line)
 {
-    if (line.empty() || line.size() > 160)
+    // the scrub law (PlayerbotLlmMemory.h): player words die at the record
+    // site, street-lane style - a forged marker/[BRIDGE AI] line must never
+    // reach the cloud composer prompt as instruction-shaped text
+    std::string const safe = pocketllm::NeuterMarkersCopy(
+        PlayerbotLlmMemory::ScrubControlTokens(line).c_str());
+    if (safe.empty() || safe.size() > 160)
         return;
     std::lock_guard<std::mutex> lock(State().mutex);
-    State().partyLineAt[playerGuid] = std::make_pair(time(nullptr), line);
+    State().partyLineAt[playerGuid] = std::make_pair(time(nullptr), safe);
 }
 
 // Workers hand narrator lines here; Tick delivers them on the

@@ -17,6 +17,22 @@ Checks every entry by kind:
   - verified-package-converted: an immutable package/index hash, build script,
                                 and generated lockfile are recorded.
 
+Per-flavor git-submodule entries (S1) carry a `status` field with a
+deliberately asymmetric contract — loud about drift, patient about absence:
+
+  - status "unresolved"  : no commit pin yet (the tbc/wotlk cores and DBs
+                           until their forks/pins land). A missing checkout is
+                           PENDING (expected-loud, non-fatal); a tree PRESENT
+                           at the path is a failure — an unpinned tree is a
+                           provenance lie.
+  - status "registered"  : commit pinned (the tbc/wotlk bots pins per
+                           correction C4) but the checkout may still land with
+                           the fork-registration wave. A missing checkout is
+                           PENDING; a present checkout is checked strictly
+                           (wrong commit = DRIFT, fatal).
+  - no status (or "active", the vanilla lane) : the original strict behavior —
+                           missing checkout and drift are both fatal.
+
 No network access in CI. prebuilt-archive artifacts are expected to be cached
 locally (populated by tools/fetch_provider.py); a missing cache entry is
 reported but does not require network here.
@@ -46,7 +62,14 @@ PROVIDER_CACHE = ROOT / "native" / ".providers"
 
 
 def submodule_commit(path: Path) -> str:
-    """Return the exact commit a submodule is checked out at."""
+    """Return the exact commit a submodule is checked out at.
+
+    Round-3 R3-6: the +/- prefix of `git submodule status` is the DRIFT
+    SIGNAL (+ checkout != recorded gitlink, - gitlink not initialized).
+    The old lstrip("+-") discarded it before the == pin comparison, so a
+    checkout ADVANCED past the recorded gitlink passed as the pin. The
+    marker now fails loud; only a clean checkout (leading space) returns
+    its sha."""
     result = subprocess.run(
         ["git", "-C", str(ROOT), "submodule", "status", str(path)],
         capture_output=True,
@@ -57,7 +80,20 @@ def submodule_commit(path: Path) -> str:
     line = result.stdout.strip()
     if not line:
         raise RuntimeError(f"no submodule recorded at {path}")
-    return line.split()[0].lstrip("+-")
+    token = line.split()[0]
+    if token.startswith("+"):
+        raise RuntimeError(
+            f"{path}: checkout {token.lstrip('+')[:12]} is NOT the recorded "
+            "gitlink — the superproject's committed provenance has drifted "
+            "from the working tree; commit the new gitlink or check out the "
+            "recorded commit before verifying sources"
+        )
+    if token.startswith("-"):
+        raise RuntimeError(
+            f"{path}: the recorded gitlink is not initialized (git submodule "
+            "update --init) — an uninitialized pin cannot attest anything"
+        )
+    return token
 
 
 sha256_of = common.sha256_file
@@ -194,6 +230,7 @@ def main() -> int:
 
     drift = False
     unknown_kinds = False
+    pending = 0
     for entry in entries:
         kind = entry.get("kind")
         eid = entry["id"]
@@ -206,6 +243,35 @@ def main() -> int:
         if kind == "git-submodule":
             path = ROOT / entry["path"]
             expected = entry["commit"]
+            status = entry.get("status")
+            if status == "unresolved":
+                # No pin yet (per-flavor core/db entries pre-registration).
+                if path.exists():
+                    print(
+                        f"FAIL {eid}: tree present at {path} but the entry is "
+                        "status:unresolved — record its commit pin or remove the tree "
+                        "(an unpinned tree is a provenance lie)"
+                    )
+                    drift = True
+                else:
+                    pending += 1
+                    print(f"PEND {eid}: pin unregistered ({path} absent) — expected until "
+                          "its wave registers the fork/pin")
+                continue
+            if status == "registered":
+                # Pin recorded, checkout lands with the registration wave.
+                if not path.exists():
+                    pending += 1
+                    print(f"PEND {eid}: pin {str(expected)[:12]} registered, checkout "
+                          f"pending ({path} absent)")
+                    continue
+                actual = submodule_commit(path)
+                if actual == expected:
+                    print(f"OK   {eid:<36} {actual[:12]}")
+                else:
+                    print(f"DRIFT {eid}: expected {expected[:12]} got {actual[:12]}")
+                    drift = True
+                continue
             if not path.exists():
                 print(f"MISSING {eid}: {path} not checked out")
                 drift = True
@@ -231,6 +297,9 @@ def main() -> int:
             print("\nUnknown source kind(s) — add a checker to tools/check_sources.py.", file=sys.stderr)
         print("\nSource pin check FAILED. Update schemas/sources.json after a review.", file=sys.stderr)
         return 1
+    if pending:
+        print(f"\nAll active pins verified ({pending} per-flavor pin(s) pending registration — expected-loud).")
+        return 0
     print("\nAll pinned sources verified.")
     return 0
 

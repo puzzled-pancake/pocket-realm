@@ -38,6 +38,26 @@ ROOT = Path(__file__).resolve().parents[1]
 HOST_TAG = "windows-x86_64"
 
 
+# Round-5 R5-1: THE single Python resolver for the desktop product's data
+# root (D50): POCKET_REALM_DATA_ROOT wins when set (the same override
+# DesktopStorageRoots.defaultRoot() honors on the Kotlin side), else the
+# historical %LOCALAPPDATA% location. Every tool surface that must agree
+# with the app's root - data preparation, davos provisioning, the rp
+# harness probes - resolves through THIS function, never a direct
+# LOCALAPPDATA construction (a disagreement means the tool publishes to
+# one root while the app reads another).
+def product_data_root() -> Path:
+    override = os.environ.get("POCKET_REALM_DATA_ROOT", "").strip()
+    if override:
+        return Path(override)
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if not local_app_data:
+        raise RuntimeError(
+            "POCKET_REALM_DATA_ROOT is unset and LOCALAPPDATA is not set; "
+            "cannot locate the PocketRealm data root (set one of them)")
+    return Path(local_app_data) / "PocketRealm"
+
+
 def _exe(name: str) -> str:
     """Host-suffixed executable name (adb.exe on Windows, adb elsewhere)."""
     return f"{name}.exe" if os.name == "nt" else name

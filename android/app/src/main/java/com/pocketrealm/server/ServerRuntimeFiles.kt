@@ -8,6 +8,7 @@ import com.pocketrealm.bots.BotLlmSpeech
 import com.pocketrealm.bots.BotProfile
 import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.client.ClientFlavors
+import com.pocketrealm.client.TimeframeStages
 import com.pocketrealm.database.DatabaseDurableState
 import com.pocketrealm.database.DatabaseSqliteControlPlane
 import com.pocketrealm.llm.LlmModelCoordinator
@@ -50,23 +51,22 @@ internal class ServerRuntimeFiles(context: Context) {
     }
 
     fun realmdConfig(bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS): File {
-        val endpoint = RealmEndpoint.parseStored(bindAddress)
+        val bind = ServerRuntimeContract.resolveBindAddress(bindAddress)
         val databases = serverDatabases()
-        return secureWrite(File(run, "realmd.conf"), """
-            LoginDatabaseInfo = "${databaseInfo(databases.realmd)}"
-            RealmServerPort = ${ServerRuntimeContract.REALM_PORT}
-            BindIP = "${endpoint.address}"
-            RealmsStateUpdateDelay = 20
-            ListenerThreads = 1
-            LogLevel = 1
-            LogFile = "${logs.resolve("realmd.log").absolutePath}"
-            LogFileLevel = 1
-        """.trimIndent() + "\n")
+        return secureWrite(
+            File(run, "realmd.conf"),
+            realmdConfText(
+                loginDatabaseInfo = databaseInfo(databases.realmd),
+                bindAddress = bind,
+                realmLogFilePath = logs.resolve("realmd.log").absolutePath,
+            ),
+        )
     }
 
     fun worldConfig(
         bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
         nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
+        settingsSnapshot: Settings.Snapshot? = null,
     ): File {
         require(baselineData.isDirectory) {
             "Prepared server world data is missing. Open Game files and finish preparing it."
@@ -79,6 +79,7 @@ internal class ServerRuntimeFiles(context: Context) {
             normalPlay = false,
             bindAddress = bindAddress,
             nearbyInteractTriggerGuardMs = nearbyInteractTriggerGuardMs,
+            settingsSnapshot = settingsSnapshot,
         )
     }
 
@@ -86,11 +87,13 @@ internal class ServerRuntimeFiles(context: Context) {
     fun worldConfigNormal(
         bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
         nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
+        settingsSnapshot: Settings.Snapshot? = null,
     ): File = worldConfig(
         normalData.requireActive().root,
         normalPlay = true,
         bindAddress = bindAddress,
         nearbyInteractTriggerGuardMs = nearbyInteractTriggerGuardMs,
+        settingsSnapshot = settingsSnapshot,
     )
 
     /** Measured bot-profile entry point. Auction-house automation remains disabled. */
@@ -98,12 +101,14 @@ internal class ServerRuntimeFiles(context: Context) {
         profile: BotProfile,
         bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
         nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
+        settingsSnapshot: Settings.Snapshot? = null,
     ): File = worldConfig(
         normalData.requireActive().root,
         normalPlay = true,
         botProfile = profile,
         bindAddress = bindAddress,
         nearbyInteractTriggerGuardMs = nearbyInteractTriggerGuardMs,
+        settingsSnapshot = settingsSnapshot,
     )
 
     private fun worldConfig(
@@ -112,71 +117,64 @@ internal class ServerRuntimeFiles(context: Context) {
         botProfile: BotProfile? = null,
         bindAddress: String,
         nearbyInteractTriggerGuardMs: Int,
+        settingsSnapshot: Settings.Snapshot?,
     ): File {
-        val endpoint = RealmEndpoint.parseStored(bindAddress)
+        val bind = ServerRuntimeContract.resolveBindAddress(bindAddress)
         // One blocking settings read at world start feeds both the world
         // log level and (through llmConfigOverrides) the appended playerbot
         // LLM block - every world.conf toggle therefore applies on the next
-        // realm start, never mid-session.
-        val snapshot = Settings(appContext).blockingSnapshot()
+        // realm start, never mid-session. The caller's snapshot wins when
+        // provided: WorldRuntimeService resolves the stage ONCE per start
+        // and feeds both this conf write and the stage overlay — two
+        // independent loads could straddle a settings write and boot a
+        // world whose conf names a stage the DB/ledger never reached.
+        val snapshot = settingsSnapshot ?: Settings(appContext).blockingSnapshot()
+        purgeStaleBotConfSecrets()
         val botConfig = botProfile?.let {
             secureWrite(File(run, "aiplayerbot-${it.id}.conf"),
                 it.playerbotConfig() + (llmConfigOverrides(it, snapshot) ?: ""))
-        } ?: secureWrite(File(run, "aiplayerbot-disabled.conf"), """
-            AiPlayerbot.Enabled = 0
-            AiPlayerbot.RandomBotAutologin = 0
-            AiPlayerbot.RandomBotLoginAtStartup = 0
-            AiPlayerbot.RandomBotAutoCreate = 0
-            AiPlayerbot.CommandServerPort = 0
-            AiPlayerbot.LLMEnabled = 0
-            AiPlayerbot.ShowProgressBars = 0
-        """.trimIndent() + "\n")
+        } ?: secureWrite(File(run, "aiplayerbot-disabled.conf"), aiplayerbotDisabledConfText())
         val databases = serverDatabases()
-        return secureWrite(File(run, "mangosd.conf"), """
-            DataDir = "${data.absolutePath}"
-            LoginDatabaseInfo = "${databaseInfo(databases.realmd)}"
-            WorldDatabaseInfo = "${databaseInfo(databases.world)}"
-            CharacterDatabaseInfo = "${databaseInfo(databases.characters)}"
-            LogsDatabaseInfo = "${databaseInfo(databases.logs)}"
-            RealmID = 1
-            WorldServerPort = ${ServerRuntimeContract.WORLD_PORT}
-            BindIP = "${endpoint.address}"
-            Network.Threads = 1
-            Console.Enable = 0
-            Ra.Enable = 0
-            SOAP.Enabled = 0
-            vmap.enableLOS = ${if (normalPlay) 1 else 0}
-            vmap.enableHeight = ${if (normalPlay) 1 else 0}
-            vmap.enableIndoorCheck = ${if (normalPlay) 1 else 0}
-            mmap.enabled = ${if (normalPlay) 1 else 0}
-            LogLevel = 1
-            LogFile = "${logs.resolve("world.log").absolutePath}"
-            LogFileLevel = ${worldLogFileLevel(snapshot.worldDebugLogs)}
-            DBErrorLogFile = "${logs.resolve("database-errors.log").absolutePath}"
-            PlayerLimit = 10
-            # The production realm is app-private and loopback-only. Wine's
-            # clock can deliver buffered CMSG_PING packets in a burst after a
-            # slow emulated frame; CMaNGOS documents 0 as disabling this kick.
-            MaxOverspeedPings = 0
-            MaxCoreStuckTime = 0
-            # Handheld play can make returning to a corpse and aiming the
-            # pointer take longer. These timers apply only to creatures that
-            # spawned loot and have not yet been fully looted or skinned.
-            Corpse.Decay.NORMAL = 1800
-            Corpse.Decay.RARE = 3600
-            Corpse.Decay.ELITE = 3600
-            Corpse.Decay.RAREELITE = 7200
-            Corpse.Decay.WORLDBOSS = 14400
-            # Vanilla 1.12 has no Interact Target key. The managed controller
-            # add-on may request one normal nearby loot/use action through its
-            # authenticated session. The realm still applies five-yard range,
-            # line-of-sight, lock, ownership and ordinary loot rules. This
-            # bounded debounce can be raised for slower realm configurations.
-            PocketRealm.NearbyInteract = 1
-            PocketRealm.NearbyInteractCooldownMs = ${NearbyInteractPolicy.normalizeTriggerGuardMs(nearbyInteractTriggerGuardMs)}
-            PocketRealm.PlayerbotConfig = "${botConfig.absolutePath}"
-            PocketRealm.BotTarget = ${botProfile?.initialTarget ?: 0}
-        """.trimIndent() + "\n")
+        return secureWrite(
+            File(run, "mangosd.conf"),
+            mangosdConfText(
+                dataDirectoryAbsolutePath = data.absolutePath,
+                loginDatabaseInfo = databaseInfo(databases.realmd),
+                worldDatabaseInfo = databaseInfo(databases.world),
+                characterDatabaseInfo = databaseInfo(databases.characters),
+                logsDatabaseInfo = databaseInfo(databases.logs),
+                bindAddress = bind,
+                normalPlay = normalPlay,
+                worldLogFilePath = logs.resolve("world.log").absolutePath,
+                worldLogFileLevel = worldLogFileLevel(snapshot.worldDebugLogs),
+                databaseErrorsLogFilePath = logs.resolve("database-errors.log").absolutePath,
+                nearbyInteractCooldownMs =
+                    NearbyInteractPolicy.normalizeTriggerGuardMs(nearbyInteractTriggerGuardMs),
+                playerbotConfigPath = botConfig.absolutePath,
+                botTarget = botProfile?.initialTarget ?: 0,
+                // Design-timeframe §4.2: the persisted stage resolved to the
+                // "<stage-or-default>" conf value (never empty).
+                timeframeStage = TimeframeStages.confValue(snapshot.timeframeStage),
+            ),
+        )
+    }
+
+    /**
+     * The stale-secret purge (the desktop twin's F3 fix): a world start
+     * stages exactly ONE bot conf (the active profile's — or the disabled
+     * block), so a rotated or cleared external LLM key would otherwise
+     * survive indefinitely in every OTHER preset's staged conf. Before the
+     * active conf is rewritten, delete every staged aiplayerbot-*.conf that
+     * carries a key line — an inactive conf is never referenced by the
+     * running world (mangosd.conf names exactly one) and is re-staged from
+     * its profile whenever that profile becomes active again, so nothing is
+     * lost but the secret. Keyless confs (the disabled block, a
+     * fail-closed profile conf) keep their bytes. Fail-open per file
+     * (the staging posture): a locked file must never refuse a world
+     * start.
+     */
+    private fun purgeStaleBotConfSecrets() {
+        purgeStaleBotConfSecrets(run)
     }
 
     /**
@@ -461,17 +459,233 @@ internal class ServerRuntimeFiles(context: Context) {
         return target
     }
 
-    /** Keep one oversized previous-session diagnostic when the native writer is stopped. */
+    /**
+     * Keep one oversized previous-session diagnostic when the native writer
+     * is stopped. The Android twin of the desktop rotation fix (desktop
+     * [ServerRuntimeFiles.rotateRestartLog]): never delete-then-rename —
+     * the live log first steps aside under a unique temp name, and only
+     * then takes the archive slot. Every failure keeps the bytes — the
+     * previous archive keeps its slot and the live log keeps (or regains)
+     * its name — and the refusal carries the pinned WRONG_STATE code: the
+     * old delete-then-rename destroyed a 77.8 MB world.log.1 the moment its
+     * rename lost (reexec-1), and masked the one-lifetime refusal as
+     * "cannot rotate world.log".
+     */
     private fun rotateRestartLog(file: File, maximumBytes: Long = MAX_NORMAL_LOG_BYTES) {
-        if (!file.isFile || file.length() <= maximumBytes) return
-        val previous = File(file.parentFile, "${file.name}.1")
-        if (previous.exists()) check(previous.delete()) { "cannot retire ${previous.name}" }
-        check(file.renameTo(previous)) { "cannot rotate ${file.name}" }
+        rotateRestartLogBytes(file, maximumBytes, android.os.Process.myPid())
     }
 
     companion object {
         private const val MAX_NORMAL_LOG_BYTES = 4L * 1024L * 1024L
         private const val MAX_ERROR_LOG_BYTES = 8L * 1024L * 1024L
+
+        /**
+         * The rotation core the instance lane feeds — pure in its inputs so
+         * the android unit set can pin the failed-rotation legs without an
+         * app context (the same companion seam [realmdConfText] uses).
+         * Ported exactly from the desktop twin: never delete-then-rename —
+         * the live log first steps aside under a unique temp name, and only
+         * then takes the archive slot. Every failure keeps the bytes — the
+         * previous archive keeps its slot and the live log keeps (or
+         * regains) its name — and every refusal carries the pinned
+         * WRONG_STATE code.
+         *
+         * @param pid the rotating process id ([android.os.Process.myPid] on
+         * device) — a uniqueness salt in the holding temp's name, never a
+         * delete permission.
+         */
+        internal fun rotateRestartLogBytes(file: File, maximumBytes: Long, pid: Int) {
+            if (!file.isFile || file.length() <= maximumBytes) return
+            val previous = File(file.parentFile, "${file.name}.1")
+            // Step 1: the live log steps aside; nothing is ever deleted first.
+            // A failure here leaves the live log exactly where it was.
+            val holding = File(
+                file.parentFile,
+                ".${file.name}.$pid.${System.nanoTime()}.rotating.tmp",
+            )
+            if (!file.renameTo(holding)) {
+                throw IllegalStateException(
+                    "WRONG_STATE: cannot rotate ${file.name} (the live log stays in place)",
+                )
+            }
+            // Step 2: the temp takes the archive slot. A locked/occupied slot
+            // (an antivirus scanner, an indexer) refuses the move with the
+            // incumbent archive untouched and the live log restored — pinned
+            // by ServerRuntimeFilesRotationTest's failed-rotation legs, the
+            // android twin of DesktopServerRuntimeFilesTest's.
+            val failure = archiveMove(holding, previous) ?: return
+            if (!holding.renameTo(file)) {
+                throw IllegalStateException(
+                    "WRONG_STATE: cannot rotate ${file.name} — the archive keeps its " +
+                        "previous session and the live log's bytes are held at " +
+                        "${holding.name} (${failure.javaClass.simpleName}: ${failure.message})",
+                    failure,
+                )
+            }
+            throw IllegalStateException(
+                "WRONG_STATE: cannot rotate ${file.name} into ${previous.name} — the " +
+                    "archive keeps its previous session and the live log is intact " +
+                    "(${failure.javaClass.simpleName}: ${failure.message})",
+                failure,
+            )
+        }
+
+        /**
+         * The atomic-replace move as a probe: null = [temp] took the
+         * [archive] slot; non-null = the failure (the slot untouched — a
+         * refused REPLACE_EXISTING move never destroys its target).
+         */
+        private fun archiveMove(temp: File, archive: File): java.io.IOException? = try {
+            try {
+                java.nio.file.Files.move(
+                    temp.toPath(),
+                    archive.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                )
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                java.nio.file.Files.move(
+                    temp.toPath(),
+                    archive.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                )
+            }
+            null
+        } catch (failure: java.io.IOException) {
+            failure
+        }
+
+        /**
+         * The purge core the instance lane feeds — pure in its inputs so
+         * the android unit set can pin the stale-key eviction without an
+         * app context (the same companion seam [rotateRestartLogBytes]
+         * uses). Ported exactly from the desktop twin
+         * (DesktopServerRuntimeFiles.purgeStaleBotConfSecrets): delete
+         * every staged aiplayerbot-*.conf whose body carries a key line;
+         * keyless confs keep their bytes; fail-open per file.
+         */
+        internal fun purgeStaleBotConfSecrets(runDir: File) {
+            runDir.listFiles()?.forEach { staged ->
+                if (!staged.isFile || !staged.name.startsWith("aiplayerbot-") ||
+                    !staged.name.endsWith(".conf")
+                ) return@forEach
+                val body = runCatching { staged.readText() }.getOrNull() ?: return@forEach
+                if ("AiPlayerbot.LLMApiKey =" in body ||
+                    "AiPlayerbot.LLMChatterComposerKey =" in body
+                ) {
+                    runCatching { staged.delete() }
+                }
+            }
+        }
+
+        /**
+         * G3-7: the pure conf-template bodies the instance writers feed, so
+         * [VanillaConfGoldenTest] can byte-pin the vanilla lane's generated
+         * server conf against committed fixtures before any S2/S3
+         * parameterization touches the templates. The composition is moved
+         * verbatim out of [realmdConfig]/[worldConfig] — same keys, same
+         * order, same whitespace, CRLF-free LF-terminated lines.
+         */
+        internal fun realmdConfText(
+            loginDatabaseInfo: String,
+            bindAddress: String,
+            realmLogFilePath: String,
+        ): String = """
+            LoginDatabaseInfo = "$loginDatabaseInfo"
+            RealmServerPort = ${ServerRuntimeContract.REALM_PORT}
+            BindIP = "$bindAddress"
+            RealmsStateUpdateDelay = 20
+            ListenerThreads = 1
+            LogLevel = 1
+            LogFile = "$realmLogFilePath"
+            LogFileLevel = 1
+        """.trimIndent() + "\n" +
+            // design-remote-accounts §4.3/§6.3 (the desktop ServerRuntimeFiles
+            // D11 twin): login lockout on every non-loopback bind, omitted
+            // for loopback-only LOCAL binds. Loopback output is unchanged, so
+            // the vanilla golden pin below stays byte-exact.
+            ServerRuntimeContract.wrongPassLockoutConfLines(bindAddress)
+
+        internal fun aiplayerbotDisabledConfText(): String = """
+            AiPlayerbot.Enabled = 0
+            AiPlayerbot.RandomBotAutologin = 0
+            AiPlayerbot.RandomBotLoginAtStartup = 0
+            AiPlayerbot.RandomBotAutoCreate = 0
+            AiPlayerbot.CommandServerPort = 0
+            AiPlayerbot.LLMEnabled = 0
+            AiPlayerbot.ShowProgressBars = 0
+        """.trimIndent() + "\n"
+
+        // The faithful template signature — one parameter per pinned conf
+        // line; splitting it would obscure the byte-pinned composition.
+        @Suppress("LongParameterList")
+        internal fun mangosdConfText(
+            dataDirectoryAbsolutePath: String,
+            loginDatabaseInfo: String,
+            worldDatabaseInfo: String,
+            characterDatabaseInfo: String,
+            logsDatabaseInfo: String,
+            bindAddress: String,
+            normalPlay: Boolean,
+            worldLogFilePath: String,
+            worldLogFileLevel: Int,
+            databaseErrorsLogFilePath: String,
+            nearbyInteractCooldownMs: Int,
+            playerbotConfigPath: String,
+            botTarget: Int,
+            /** Design-timeframe §4.2: the RESOLVED stage id (never empty —
+             * callers resolve "" through TimeframeStages.confValue). */
+            timeframeStage: String,
+        ): String = """
+            DataDir = "$dataDirectoryAbsolutePath"
+            LoginDatabaseInfo = "$loginDatabaseInfo"
+            WorldDatabaseInfo = "$worldDatabaseInfo"
+            CharacterDatabaseInfo = "$characterDatabaseInfo"
+            LogsDatabaseInfo = "$logsDatabaseInfo"
+            RealmID = 1
+            WorldServerPort = ${ServerRuntimeContract.WORLD_PORT}
+            BindIP = "$bindAddress"
+            Network.Threads = 1
+            Console.Enable = 0
+            Ra.Enable = 0
+            SOAP.Enabled = 0
+            vmap.enableLOS = ${if (normalPlay) 1 else 0}
+            vmap.enableHeight = ${if (normalPlay) 1 else 0}
+            vmap.enableIndoorCheck = ${if (normalPlay) 1 else 0}
+            mmap.enabled = ${if (normalPlay) 1 else 0}
+            LogLevel = 1
+            LogFile = "$worldLogFilePath"
+            LogFileLevel = $worldLogFileLevel
+            DBErrorLogFile = "$databaseErrorsLogFilePath"
+            PlayerLimit = 10
+            # The production realm is app-private and loopback-only. Wine's
+            # clock can deliver buffered CMSG_PING packets in a burst after a
+            # slow emulated frame; CMaNGOS documents 0 as disabling this kick.
+            MaxOverspeedPings = 0
+            MaxCoreStuckTime = 0
+            # Handheld play can make returning to a corpse and aiming the
+            # pointer take longer. These timers apply only to creatures that
+            # spawned loot and have not yet been fully looted or skinned.
+            Corpse.Decay.NORMAL = 1800
+            Corpse.Decay.RARE = 3600
+            Corpse.Decay.ELITE = 3600
+            Corpse.Decay.RAREELITE = 7200
+            Corpse.Decay.WORLDBOSS = 14400
+            # Vanilla 1.12 has no Interact Target key. The managed controller
+            # add-on may request one normal nearby loot/use action through its
+            # authenticated session. The realm still applies five-yard range,
+            # line-of-sight, lock, ownership and ordinary loot rules. This
+            # bounded debounce can be raised for slower realm configurations.
+            PocketRealm.NearbyInteract = 1
+            PocketRealm.NearbyInteractCooldownMs = $nearbyInteractCooldownMs
+            PocketRealm.PlayerbotConfig = "$playerbotConfigPath"
+            PocketRealm.BotTarget = $botTarget
+            # Design-timeframe §4.2: the chosen content-patch stage of the
+            # qualified flavor ("<stage-or-default>", never empty). The game
+            # client stays at its fixed version; this gates world content
+            # only. Applied at world start — never mid-session.
+            PocketRealm.TimeframeStage = "$timeframeStage"
+        """.trimIndent() + "\n"
 
         /** The staged lore card index file (asset: lore/). */
         private const val LORE_CARDS_FILE_NAME = "lore_cards_v112.jsonl"

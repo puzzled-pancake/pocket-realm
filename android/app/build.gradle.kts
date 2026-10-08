@@ -1396,6 +1396,15 @@ android {
             // See docs/patches/wine-provider-provenance.md for the trim list.
             java.srcDir("../../runtime/xserver-winlator")
         }
+        getByName("androidTest") {
+            // The instrumented G3 guards (UserAccountStore fixture proof,
+            // supervisor-journal append/reload, generation-pointer
+            // quarantine) read the shared golden fixtures from
+            // src/test/resources via getResourceAsStream — package that tree
+            // into the androidTest APK so the same committed fixture file
+            // anchors the JVM pins and the on-device deployed-byte pins.
+            resources.srcDir("src/test/resources")
+        }
         getByName("databaseRuntime") {
             // Generated, deterministic provider support data + gzip migration
             // inputs. Executable code remains in nativeLibraryDir.
@@ -1823,8 +1832,10 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     // (com.winlator.xconnector.* + com.winlator.xserver.Drawable), so it is a
     // drop-in for System.loadLibrary("winlator").
     from(File(xserverBuild, "libwinlator.so"))
-    // Source-matched GLX is loaded only when the selected display lane enables it.
-    if (pocketAbi == "x86_64" || pocketAbi == "arm64-v8a") {
+    // The GLX bridge is retained only for the historical x86
+    // validation lane; the RP6/ARM product path is Box64 + DXVK and must
+    // never package a libGL client/server pair.
+    if (pocketAbi == "x86_64") {
         from(File(xserverBuild, "libgladiorenderer.so"))
     }
     if (pocketAbi == "arm64-v8a") {
@@ -1921,6 +1932,39 @@ val validateDatabaseRuntime by tasks.registering {
             "MariaDB runtime manifest identity mismatch for $selectedAbi: " +
                 File(stage, "assets/database/provider/runtime-manifest.json")
         }
+        // S1 item 7: the packaging gate learns the per-flavor ledger set
+        // (docs/FLAVOR-ARTIFACT-NAMING.md §2). A flavor whose staging tree
+        // exists (S4 staged it) must present the same completeness the
+        // vanilla lane requires — its staging root is
+        // native/.build-<suffix>-<flavor>/mariadb-staging per
+        // tools/stage_database_migrations.py asset_root(). Flavors with no
+        // staging yet (pre-S4) are skipped, so the vanilla build is unchanged.
+        for (flavor in listOf("tbc", "wotlk")) {
+            val flavorStage = File(repoRoot, "native/.build-$nativeRootSuffix-$flavor/mariadb-staging")
+            if (!flavorStage.isDirectory) continue
+            val flavorRequired = listOf(
+                File(flavorStage, "jniLibs/$selectedAbi/libpocket_mariadbd.so"),
+                File(flavorStage, "jniLibs/$selectedAbi/libpocket_mariadb_client.so"),
+                File(flavorStage, "assets/database/provider/bootstrap.sql"),
+                File(flavorStage, "assets/database/provider/runtime-manifest.json"),
+                File(flavorStage, "assets/database/migrations/manifest.json"),
+                File(flavorStage, "BUILD_PROVENANCE.json"),
+            )
+            val flavorMissing = flavorRequired.filterNot { it.isFile }
+            check(flavorMissing.isEmpty()) {
+                "$flavor MariaDB staging incomplete for $selectedAbi (the per-flavor " +
+                    "staging tree exists, so the packaging gate enforces it). " +
+                    "Re-run tools/stage_database_migrations.py --flavor $flavor. " +
+                    "Missing: ${flavorMissing.joinToString { it.name }}"
+            }
+            val flavorManifest = JsonSlurper().parse(
+                File(flavorStage, "assets/database/migrations/manifest.json"),
+            ) as Map<*, *>
+            check((flavorManifest["flavorId"] as? String) == flavor) {
+                "$flavor migration ledger flavorId mismatch: " +
+                    File(flavorStage, "assets/database/migrations/manifest.json")
+            }
+        }
     }
 }
 
@@ -1976,32 +2020,55 @@ val validateRealmRuntime by tasks.registering {
         check(lockfile.isFile) {
             "Realm runtime lockfile for $selectedAbi is missing: $lockfile"
         }
-        val lockText = lockfile.readText()
-        check(Regex("\"abi\"\\s*:\\s*\"${Regex.escape(selectedAbi)}\"").containsMatchIn(lockText)) {
+        // Both documents are parsed with JsonSlurper - the same parse the
+        // sibling ValidateNativeRuntimeFreshnessTask runs - so every pin
+        // below resolves BY FIELD NAME and a writer-side field reorder
+        // flips both gates together instead of erroring 'no record' in
+        // only one of them. Mirrors NativeRuntimeFreshness.artifactPins /
+        // seedTranscriptPin (unit-tested contract); keep them in sync.
+        val lockRecord = runCatching { JsonSlurper().parse(lockfile) as Map<*, *> }.getOrElse {
+            error("realm lockfile is not parseable JSON: $lockfile")
+        }
+        check(lockRecord["abi"] == selectedAbi) {
             "Realm runtime lockfile declares a different ABI: $lockfile"
         }
         if (isSqliteProvider) {
-            check(Regex("\"database_backend\"\\s*:\\s*\"sqlite\"").containsMatchIn(lockText)) {
+            check(lockRecord["database_backend"] == "sqlite") {
                 "sqlite provider lockfile does not record database_backend=sqlite: $lockfile"
             }
         }
         val provenance = File(repoRoot, "native/.build-o09-$selectedAbi/$realmRoot/BUILD_PROVENANCE.json")
         check(provenance.isFile) { "realm-runtime BUILD_PROVENANCE.json is missing; rebuild realm runtime" }
-        val provenanceText = provenance.readText()
+        val provenanceRecord = runCatching { JsonSlurper().parse(provenance) as Map<*, *> }.getOrElse {
+            error("realm provenance is not parseable JSON: $provenance")
+        }
+        fun artifactPins(record: Map<*, *>): Map<String, Pair<Long, String>> =
+            (record["artifacts"] as? List<*>).orEmpty()
+                .mapNotNull { row -> row as? Map<*, *> }
+                .mapNotNull { row ->
+                    val path = row["path"] as? String ?: return@mapNotNull null
+                    val size = (row["size"] as? Number)?.toLong() ?: return@mapNotNull null
+                    val sha256 = row["sha256"] as? String ?: return@mapNotNull null
+                    path to (size to sha256)
+                }
+                .toMap()
+        fun seedTranscriptPin(record: Map<*, *>, database: String): Pair<String, Long>? {
+            val row = (record["seed_transcripts"] as? Map<*, *>)?.get(database) as? Map<*, *> ?: return null
+            val gzipSha256 = row["gzip_sha256"] as? String ?: return null
+            val gzipSize = (row["gzip_size"] as? Number)?.toLong() ?: return null
+            return gzipSha256 to gzipSize
+        }
+        val lockPins = artifactPins(lockRecord)
+        val provenancePins = artifactPins(provenanceRecord)
         val files = listOf("libpocket_realmd_runtime.so", "libpocket_world_runtime.so")
         for (name in files) {
             val relative = "$lockPath$name"
-            val recordPattern = Regex(
-                "(?s)\\{\\s*\"path\"\\s*:\\s*\"" +
-                    Regex.escape(relative) +
-                    "\"\\s*,\\s*\"size\"\\s*:\\s*(\\d+)\\s*,\\s*\"sha256\"\\s*:\\s*\"([0-9a-fA-F]{64})\""
-            )
-            val lock = recordPattern.find(lockText)
+            val lock = lockPins[relative]
                 ?: error("realm lockfile has no record for $relative")
-            val provenanceRecord = recordPattern.find(provenanceText)
+            val provenancePin = provenancePins[relative]
                 ?: error("realm provenance has no record for $relative")
-            check(lock.groupValues[1] == provenanceRecord.groupValues[1] &&
-                lock.groupValues[2].equals(provenanceRecord.groupValues[2], ignoreCase = true)) {
+            check(lock.first == provenancePin.first &&
+                lock.second.equals(provenancePin.second, ignoreCase = true)) {
                 "realm provenance disagrees with lockfile for $name"
             }
             val artifact = File(repoRoot, relative)
@@ -2012,10 +2079,10 @@ val validateRealmRuntime by tasks.registering {
                 machine == expectedMachine) {
                 "Realm artifact is not $selectedAbi ELF (e_machine=$machine): $artifact"
             }
-            check(artifact.length() == lock.groupValues[1].toLong()) {
+            check(artifact.length() == lock.first) {
                 "realm artifact size disagrees with lockfile: $name"
             }
-            check(sha256Hex(artifact).equals(lock.groupValues[2], ignoreCase = true)) {
+            check(sha256Hex(artifact).equals(lock.second, ignoreCase = true)) {
                 "realm artifact SHA-256 disagrees with lockfile: $name"
             }
         }
@@ -2029,13 +2096,12 @@ val validateRealmRuntime by tasks.registering {
                 // *.gz, so the migrations' convention applies here
                 val gz = File(seedDir, "$db.sqlz")
                 check(gz.isFile) { "missing staged seed asset: $gz" }
-                val pin = Regex(
-                    "\"$db\"\\s*:\\s*\\{[^}]*\"gzip_sha256\"\\s*:\\s*\"([0-9a-fA-F]{64})\"[^}]*\"gzip_size\"\\s*:\\s*(\\d+)"
-                ).find(lockText) ?: error("lockfile has no seed pin for $db")
-                check(gz.length() == pin.groupValues[2].toLong()) {
+                val pin = seedTranscriptPin(lockRecord, db)
+                    ?: error("lockfile has no seed pin for $db")
+                check(gz.length() == pin.second) {
                     "seed asset size disagrees with lockfile: $db"
                 }
-                check(sha256Hex(gz).equals(pin.groupValues[1], ignoreCase = true)) {
+                check(sha256Hex(gz).equals(pin.first, ignoreCase = true)) {
                     "seed asset SHA-256 disagrees with lockfile: $db"
                 }
             }
@@ -2168,4 +2234,12 @@ dependencies {
     // TLS mock server for the community downloader's https-only redirect hops.
     testImplementation(libs.okhttp.tls)
     testImplementation("org.json:json:20240303")
+}
+
+// Round-2 R2-4-2/R3-1: forked unit-test WORKER JVMs take java.io.tmpdir
+// from the OS %TEMP% on C: (org.gradle.jvmargs only configures the daemon)
+// - every test scratch root stays under the E: toolchain root (plan
+// section 1 hard rule 1).
+tasks.withType<Test>().configureEach {
+    systemProperty("java.io.tmpdir", "E:/pocket_realm_toolchain/tmp")
 }

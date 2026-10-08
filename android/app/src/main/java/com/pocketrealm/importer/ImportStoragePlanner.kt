@@ -2,7 +2,7 @@ package com.pocketrealm.importer
 
 import android.content.Context
 import android.os.storage.StorageManager
-import com.pocketrealm.client.ClientFlavors
+import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.storage.StorageRoots
 import kotlin.math.ceil
 
@@ -65,24 +65,17 @@ class ImportStoragePlanner(
 }
 
 /**
- * The qualified flavor's measured extraction budget
- * (schemas/flavor.json storage.extracted_estimate_bytes). Exactly one
- * flavor may be qualified; any other registry state fails loud instead
- * of silently keeping VANILLA semantics.
+ * The active flavor's measured extraction budget
+ * (schemas/flavor.json storage.extracted_estimate_bytes), resolved through
+ * the multi-flavor [ActiveFlavor] machine: the Home flavor switcher's
+ * active lane drives the budget, and genuinely ambiguous registry states
+ * (no qualified flavor, several qualified flavors without an explicit
+ * active selection, a stale non-qualified selection) fail loud instead of
+ * silently keeping VANILLA semantics.
  */
 private fun flavorExtractedEstimate(): Long {
-    val flavor = qualifiedFlavor()
+    val flavor = ActiveFlavor.resolve("storage budgets resolve the qualified lane")
     return requireNotNull(flavor.extractedEstimateBytes) {
         "${flavor.flavorId} is qualified without a measured storage budget"
     }
-}
-
-/** The single qualified flavor; any other registry state fails loud. */
-private fun qualifiedFlavor(): com.pocketrealm.client.ClientFlavor {
-    val qualified = ClientFlavors.qualified()
-    require(qualified.size == 1) {
-        "expected exactly one qualified flavor, found ${qualified.size} — " +
-            "storage budgets resolve the qualified lane"
-    }
-    return qualified.single()
 }

@@ -3,7 +3,8 @@ import os
 import sqlite3
 from pathlib import Path
 
-root = Path(os.environ["LOCALAPPDATA"]) / "PocketRealm" / "database" / "sqlite-datadir"
+import common as _common  # local sibling import
+root = _common.product_data_root() / "database" / "sqlite-datadir"
 conn = sqlite3.connect(str(root / "classiccharacters.sqlite3"))
 tables = [r[0] for r in conn.execute(
     "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
@@ -21,7 +22,7 @@ if row:
             try:
                 conn.execute(f"DELETE FROM {tbl} WHERE guid = ?", (guid,))
                 print("cleaned", tbl)
-            except Exception as exc:
+            except sqlite3.Error as exc:
                 print(tbl, "skip:", exc)
     conn.commit()
     print("Davos deleted")

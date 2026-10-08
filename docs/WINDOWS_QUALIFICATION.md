@@ -16,13 +16,13 @@ machine-gated, what is human-in-the-loop, and what is deliberately deferred.
 | MSVC pure-core smoke | `pytest tests/test_win_msvc_smoke.py` | 8 batteries under cl.exe; banter golden FNV-1a64 `de4bd8227a3ab0d1` |
 | Native build lanes | `python tools/build_win_deps.py` then `python tools/build_win_realm_runtime.py [--extractors]` | both realm DLLs + the seam DLL + four extractor exes; JNI exports derived from the Kotlin shims; `--write-lockfile` refreshes the lane lockfile; submodule byte-pristine after every run |
 | Co-load gate | part of `gradlew test` (NativeCoLoadTest) | both realm DLLs loaded in ONE JVM, both shims resolving |
-| Seed bring-up | `cd desktop && gradlew seedRealmData` | four databases into `%LOCALAPPDATA%\PocketRealm\database\sqlite-datadir`; statement counts match the C pinned-amalgamation harness exactly (43 / 1,110,192 / 12 / 27,886) |
+| Seed bring-up | `cd desktop && gradlew seedRealmData` | four databases into `%LOCALAPPDATA%\PocketRealm\database\sqlite-datadir` (the SQLite dev/compat lane's datadir — see the provider posture above); statement counts match the C pinned-amalgamation harness exactly (43 / 1,110,192 / 12 / 27,886) |
 | realmd listener gate | `cd desktop && gradlew bootRealmd` | in-process realmd; 127.0.0.1:3724 accepts; clean stop; no WAL sidecars |
 | Protocol-auth gate | `cd desktop && gradlew authGate` | full 1.12 SRP6 logon: M1 accepted, M2 verified, session key persisted server-side; realmd logs "successfully authenticated" |
 | World boot gate | `cd desktop && gradlew bootWorld` | world READY with vmaps+mmaps; 8085 accepts; save rc=0; clean stops incl. WAL seal; cycle-2 refusal pinned (one lifetime per process) |
 | Whisper bridge gate | `cd desktop && gradlew whisperGate` | chat-injection surface: honest sender-not-online / unknown-channel; onlinePlayers honest; memory state JSON |
 | Supervisor-path gate | `cd desktop && gradlew supervisorStartGate` | the ONLY gate driving the shared DurableRuntimeSupervisor (the app's own start path): db+realm+world through model.startRealm, WORLD_READY, clean save/stop, journal clean — catches regressions the backend-direct gates cannot see |
-| Kill matrix + soak | `python tools/win_kill_matrix.py [--soak-min N]` | taskkill /F early-boot / mid-world-run (via the stdin-held launchClient victim, game client live) / mid-save; every kill followed by a full recovery boot proving SQLite's WAL recovery plus one complete clean cycle (READY, save rc=0, stop with WAL seal), no live sidecars left. NOTE: the supervisor journal is never written by these legs (they drive the backend directly); the journal's dirty-recovery contract is covered by the desktop JVM suite |
+| Kill matrix + soak | `python tools/win_kill_matrix.py [--soak-min N]` | taskkill /F early-boot / mid-world-run (via the stdin-held launchClient victim, game client live) / mid-save; every kill followed by a full recovery boot proving SQLite's WAL recovery plus one complete clean cycle (READY, save rc=0, stop with WAL seal), no live sidecars left. NOTE: the supervisor journal is never written by these legs (they drive the backend directly); the journal's dirty-recovery contract is covered by the desktop JVM suite. (SQLite dev/compat-lane legs — see the provider posture above) |
 | Vanilla-tweaks host lane | `python tools/build_vanilla_tweaks.py --host` | vanilla-tweaks.exe (x86_64-pc-windows-msvc) with PE machine/subsystem/import verification + lockfile |
 | Packaged app launch | `gradlew packageApp`, then run `build/package/PocketRealm/PocketRealm.exe` | jpackage app image with DLLs + app-local VC runtime + seeds + LLM assets + provenance; longPathAware launcher manifest; `JAVA_TOOL_OPTIONS=-Dpocketrealm.nativeSmoke=1` proves the exe loads its bundled natives |
 
@@ -30,6 +30,16 @@ CI: `hygiene` (ubuntu, check_repo + pytest) and `android-unit` +
 `desktop-unit` (windows-latest) run on every push; `desktop-native`
 (deps → DLLs → seam → `gradlew test detekt -PrequireNatives`) is
 scheduled weekly.
+
+**Provider posture (D19, owner directive 2026-10-07):** the desktop
+database engine is **MariaDB by default** — upstream-aligned with the
+cmangos/classic-db pipeline and matching the on-device default. The
+supervisor-path and app-driven gates below therefore boot the MariaDB
+lane (mariadbd from the staged provider over `mariadb-datadir`).
+SQLite desktop remains an explicit dev/compat opt-in (Settings →
+provider selection); the SQLite-named rows below (seam pins, seed
+bring-up into `sqlite-datadir`, the kill matrix's WAL-recovery legs)
+qualify that dev/compat lane.
 
 ## 2. Human-in-the-loop checks (needs the user at the keyboard)
 

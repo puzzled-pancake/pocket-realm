@@ -31,7 +31,6 @@ struct LlmRequest
     uint32 botGuid = 0;
     PlayerbotLlamaRuntime::LlmCallSource source = PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY;
     int timeOutSeconds = 600;
-    bool debug = false;
     bool prefillOnly = false;
     std::promise<std::string> result;
 };
@@ -765,7 +764,6 @@ std::string PlayerbotLlamaRuntime::Generate(const std::string& prompt, uint32 bo
     request.botGuid = botGuid;
     request.source = source;
     request.timeOutSeconds = timeOutSeconds;
-    request.debug = !debugLines.empty();
 
     auto future = GetLlamaRuntime().Submit(std::move(request));
 

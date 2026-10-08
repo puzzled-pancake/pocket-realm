@@ -54,12 +54,16 @@ The platform half of the app (Wine/Box64 launch chain, X server, DXVK/Turnip/Vir
 |---|---|---|---|
 | Client ID | `wow-1.12.1-5875` | `wow-2.4.3-8606` | `wow-3.3.5a-12340` |
 | PE version resource | 1.12.1.5875 | 2.4.3.8606 | 3.3.5a.12340 |
-| realmd acceptance | builds 5875/6005/6141 | build 8606 (`gamebuild=1`) | build 12340 (`gamebuild=2`) |
+| realmd acceptance | `realmbuilds` = `5875 6005 6141` | `realmbuilds` = `8606` | `realmbuilds` = `12340` |
+
+*(Correction C1, register §0: cmangos TBC/WotLK realmd uses the same `realmlist.realmbuilds` varchar(64) column as classic — the numeric `gamebuild` column named here previously is TrinityCore's schema. Per-flavor accepted sets are data in `schemas/flavor.json` (`realmd.accepted_builds`), mirrored on `ClientFlavor`.)*
 | account.expansion | 0 | 1 | 2 |
 | Addon `## Interface` | 11200 | 20400 | 30300 |
 | Bot max level | 60 | 70 | 80 |
 | Bot random maps | 0,1 | 0,1,530 | 0,1,530,571 |
-| MPQ set | base 11 MPQs | + expansion.mpq, locale MPQs | + lichking.mpq, patch-0..4, locale MPQs |
+| MPQ set | base 11 MPQs | root: `common, expansion, patch, patch-2` + `Data\enUS\` locale/speech set | root: `common, common-2, expansion, lichking, patch, patch-2, patch-3` (**no patch-4**) + locale set; tolerated aux `base-enUS`, `backup-enUS` |
+
+*(Correction C2, register §0: the corrected TBC/WotLK root+locale sets — not "vanilla-11 + expansion". Verified against checksum corpora and real client load logs. Exact per-file sets are recorded at S5 qualification with exact-set semantics; an unknown `patch-*.mpq` is a `VAL-04` naming the file.)*
 | Graphics route | DXVK (Gladio validated) | DXVK only | DXVK only |
 
 ## 4. Operating protocol — multi-agent red-team round-robin ("till perfection")
@@ -211,7 +215,7 @@ S2–S8 are defined **once** as a repeatable runbook; RA and RB execute them. Wi
    - internal-reference scrub commit equivalent;
    - depth-fix/HEAD pinning equivalent.
 3. **Re-derive the o09 overlay set** for the branch: `db-sqlite-connection-hardening` (DatabaseSqlite.* replacement — mostly portable, re-anchor), ahbot gates, `runtime-dialect-*` overlays in `ObjectMgr.cpp`/`libanticheat.cpp`, `PocketRealmInteraction.cpp` (re-anchor the hook point; re-test the "Interact Target" semantics per client).
-4. **realmd divergence:** TBC/WotLK upstream use the numeric `realmlist.gamebuild` column (vs classic's `realmbuilds`). Update `realmd.sql` base handling, seed row, `realmd_runtime.cpp` diagnostics, and `ServerRuntimeFiles.kt` conf generation accordingly, per flavor.
+4. **realmd build acceptance (correction C1):** TBC/WotLK upstream realmd uses the *same* `realmlist.realmbuilds` varchar(64) column as classic (register §0 C1 — the numeric `realmlist.gamebuild` named here previously is TrinityCore's schema; no `gamebuild` field may exist anywhere). Seed `realmbuilds='8606'` (tbc) / `'12340'` (wotlk); the sets are data in `schemas/flavor.json` (`realmd.accepted_builds`), mirrored on `ClientFlavor`. Drive `realmd.sql` base handling, the seed row, `realmd_runtime.cpp` diagnostics, and `ServerRuntimeFiles.kt` conf generation from that one source, per flavor.
 5. **Build lanes:** Android NDK build via S1's `--flavor`; Windows/MSVC lane (`tools/build_win_realm_runtime.py`) per flavor; per-flavor `realm-runtime-lockfile*` written and asserted.
 6. **Host smoke** (desktop lane): mangosd+realmd boot against seeded DB (S4-lite: base sql only), `account create`, world ping, bot module loads (stub ok).
 7. **Device smoke:** RP6 boot of the flavor's realm with minimal world content; supervisor ordering; Save & Exit; crash-tracer still wired.
@@ -230,12 +234,12 @@ S2–S8 are defined **once** as a repeatable runbook; RA and RB execute them. Wi
 **Goal:** a bots tree for the flavor's branch carries the Pocket Realm LLM patch set, and bot population policy is flavor-correct.
 
 **Work items (per flavor)**
-1. **Source resolution (kill-switch risk — do first).** Identify and pin the bots tree for the branch: classic playerbots (`cmangos/playerbots`) has no TBC/WotLK upstream; candidates must be evaluated for branch compatibility, license (GPL), maintenance, and API shape. If none exists: decision point — port the classic tree to the branch (large) or ship the flavor without bots initially (product call, record in Decision Log). **Do not proceed past S3 exit on an unpinned tree.**
+1. **Source resolution (correction C4 — resolved; no kill-switch).** Upstream `cmangos/playerbots` master is multi-expansion (`MANGOSBOT_ZERO/ONE/TWO`, per-expansion conf dists, CI matrix), and the Pocket Realm fork pin `7e2cd2fb` is post-multi-expansion — **one bots pin serves all flavors**. The former kill-switch premise ("no TBC/WotLK upstream; ship without bots" product call) is void. S3 is: port the LLM patch set to the flavor's bots API, select conf/SQL per flavor, and disable the in-tree legacy `PlayerBot` module; the fork/branch topology (`puzzled-pancake/playerbots` single `pocket-realm` branch vs per-branch branches) is recorded as H3-1's D-new decision (bots-llm.md:13). **Do not proceed past S3 exit on an unpinned tree** (unchanged — the pin now exists; drift/build failure on newer branches is the residual risk, §8.1 risk 1).
 2. Mirror into `native/playerbots-tbc|wotlk`, submodule + `sources.json` + mirror step in `build_native.py`.
 3. Port the ~25 LLM patch files (`native/patches/playerbots/`) to the flavor's bots API: LlmBridge/Chatter/Memory/Persona/Tools/Truth, banter core, Llama runtime hook. Keep a single source of truth where possible: factor genuinely flavor-independent logic into shared headers under `native/patches/playerbots-common/` (Decision Log entry), leaving thin per-flavor adapters.
 4. **Era lint re-curation:** rebuild the anachronism ban list per flavor (vanilla: current list; TBC: ban WotLK+ concepts — death knights, Northrend, lich king, etc., allow Outland/flying; WotLK: allow through WotLK concepts, ban Cataclysm+). Keep the rule that a term legitimate in *earlier* content is never banned. Add corpus-driven tests per flavor.
 5. Flavor-correct bot policy values in `BotProfiles.kt`/`BotPopulationPolicy.kt`: max level (60/70/80), random maps (+530/+571), characters-per-bot-account per the flavor's factory, POI rumor list per flavor (zones of that expansion), chat line cap per the flavor's client limit.
-6. aiplayerbot conf: `ServerRuntimeFiles.kt` emits per-flavor conf; **fail-loud config check** — unknown keys for the flavor's bots build must abort staging, not silently drop (R2 verifies).
+6. aiplayerbot conf: `ServerRuntimeFiles.kt` emits per-flavor conf; **fail-loud config check** — unknown keys for the flavor's bots build must abort staging, not silently drop (R2 verifies). **Correction C9 constraint:** the conf-matrix generator (`tools/generate_conf_matrix.py`) and every consumer must not emit or expect `VoiceChat*` keys — mangos-wotlk's VoiceChat is a 46-line inert stub (swallows the opcode, no conf keys; classic has none), recorded as data under the flavor's `conf_matrix.excluded_keys` (the F2-8 self-documenting-exclusion pattern) with the honest "VoiceChat UI present but inert" docs note (Decision Log entry).
 7. LLM SQL tables: `native/llm/sql/*`, `sql/migrations/*` applied per flavor (via S4 ledger); gossip pool seeded per flavor; prompt pack identity string per flavor ("World of Warcraft: The Burning Crusade" / "…: Wrath of the Lich King"); lore corpus per flavor (`lore_cards_v112.jsonl` → `v204`/`v303` variants or shared corpus + era lint — decision in-stage).
 
 **End State**
@@ -252,7 +256,7 @@ S2–S8 are defined **once** as a repeatable runbook; RA and RB execute them. Wi
 
 **Work items (per flavor)**
 1. Submodule the upstream DB (`cmangos/tbc-db` / `cmangos/wotlk-db`) → `native/classic-db-tbc|wotlk`; register pins.
-2. Extend `tools/stage_database_migrations.py` selection rules per flavor: base realmd/characters/logs from the flavor's core `sql/base/`; `Full_DB` archive; DB updates + instances; core `sql/updates` above the DB's installed revision; `sql/base/dbc/*`; scriptdev2; ACID (the flavor's `acid_*.sql`); bots SQL; Pocket Realm LLM SQLs. Per-flavor expected revisions from the flavor's `revision_sql.h`.
+2. Extend `tools/stage_database_migrations.py` selection rules per flavor: base realmd/characters/logs from the flavor's core `sql/base/`; `Full_DB` archive; DB updates + instances; core `sql/updates` above the DB's installed revision; `sql/base/dbc/*`; scriptdev2; **ACID as `[ACID]`-tagged commits pulled from the flavor DB repo's history** (correction C5 — there is no `acid_*.sql` file to select for tbc/wotlk; classic keeps its in-tree `ACID/acid_classic.sql`), digest-recorded in the ledger's `source_commits`; bots SQL; Pocket Realm LLM SQLs. Per-flavor expected revisions from the flavor's `revision_sql.h`.
 3. `tools/seed_realm_db.py` + `sqlite_seed_translator.py`: flavor parameter; per-flavor DB names (S0 resolver); row-count sanity floors per flavor (new numbers measured, not guessed).
 4. New seed-augment capture for the flavor (bot equip/rnditem caches) bound to the flavor's `manifest_sha256` tripwire.
 5. `schemas/sqlite-seed-baseline.json` per flavor; `DatabaseEngine.kt` routes ledger by flavor (marker files per flavor DB set); fail-loud `DB-REVISION` behavior preserved per flavor.
@@ -272,8 +276,8 @@ S2–S8 are defined **once** as a repeatable runbook; RA and RB execute them. Wi
 **Goal:** a genuine flavor client imports, verifies, and publishes as a managed copy with the flavor's identity — and every wrong client is rejected with an actionable code.
 
 **Work items (per flavor)**
-1. Qualify the genuine client: hash the `WoW.exe` (record pristine SHA-256), version-resource tuple (`(2,4,3,8606)` / `(3,3,5,12340)`), PE32 machine check (unchanged), file size; register in `ClientFlavor` + `flavor.json.supported_client_builds`. Note: WotLK `WoW.exe` is ~10× vanilla's size — verify `SafClientScanner.MAX_EXE_BYTES = 32 MiB` cap accommodates it (raise per flavor if needed).
-2. Per-flavor **MPQ allowlists**: TBC = vanilla 11 + `expansion.mpq` + locale MPQs; WotLK = `common.mpq, common-2.mpq, expansion.mpq, lichking.mpq, patch.mpq…patch-4.mpq, locale-enUS.mpq, expansion-locale-enUS.mpq, patch-enUS-*.mpq…` (derive exact set from the qualified client; the set is data in `ClientFlavor`, not code). MPQ magic check reused as-is.
+1. Qualify the genuine client: hash the `WoW.exe` (record pristine SHA-256, **cross-checked against the known pristine MD5s** — correction C6: 12340 `45892bde…`, 8606 `57c5c030…`, anzz1/wow-client-checksums; so S5.1 is SHA-256 compute + MD5 cross-check, not open-ended verification), version-resource tuple (`(2,4,3,8606)` / `(3,3,5,12340)`), PE32 machine check (unchanged), file size; register in `ClientFlavor` + `flavor.json.supported_client_builds` (entries carry exe size + SHA-256 + MD5 provenance). Size reality (C6): 12340 `WoW.exe` ≈ 12.6 MB ≈ 2.6× vanilla (~4.8 MB) — **not** "~10×" — and fits `SafClientScanner.MAX_EXE_BYTES = 32 MiB`; the cap needs no raise.
+2. Per-flavor **MPQ allowlists re-derived with exact-set semantics** (correction C2): TBC root = `common, expansion, patch, patch-2` plus the `Data\enUS\` locale/speech set — *not* vanilla-11 + expansion; WotLK root = `common, common-2, expansion, lichking, patch, patch-2, patch-3` (**no `patch-4`**) plus the locale set, with tolerated auxiliaries `base-enUS`/`backup-enUS`. Derive the exact per-file sets from the qualified client; the set is data in `ClientFlavor` (`requiredMpqPaths` + `toleratedAuxiliaryMpqs`), not code. An MPQ outside the required+tolerated set — e.g. an unknown `patch-4.mpq` — is a `VAL-04` naming the file (§2.2 H2-2/H2-9's treatments, client-data-runtime.md:23-52). MPQ magic check reused as-is.
 3. `ClientPeIdentity.kt`: replace `(1,12,1)` match with per-flavor tuples (accept any qualified tuple; reject others with `VAL-02` naming the supported builds).
 4. Deduplicate the scanner constants (`EXPECTED_VERSION`, `REQUIRED_MPQS` in `SafClientScanner.kt:170–174` and `ArchiveClientScanner.kt:128–132`) into the `ClientFlavor` table.
 5. `ImportExtractionPolicy.kt` root allowlists per flavor: extend `ROOT_FILES`/`ROOT_DIRECTORIES` with the flavor's root layout (TBC/WotLK: `BackgroundDownloader.exe`, `Launcher.exe`, `WowError.exe`, `dbghelp.dll`, `ijl15.dll`, `Patch.dll`?, `unicows.dll`, `divxdecoder.dll` — derive from the qualified client; WotLK adds `Data\enUS\` locale subfolder semantics — the scanner must accept clients whose MPQs live in `Data\` or `Data\<locale>\` per flavor).
@@ -299,7 +303,7 @@ S2–S8 are defined **once** as a repeatable runbook; RA and RB execute them. Wi
 1. Build the flavor's extractors (`ad`, `vmap_extractor`, `vmap_assembler`, `MoveMapGen`) from the flavor's cmangos fork via S1's lane; port `o11-cmangos-safe-mpq-listfile.patch` (re-anchor); per-flavor lockfiles; packaging into APK jniLibs per flavor (named per flavor: `libpocket_ad_tbc.so` … or selected at runtime — decision in-stage; naming per flavor is simpler and fail-closed).
 2. `DataPreparationStore`: per-flavor invocation, validation floors re-measured (MIN_DBC/MIN_MAP_TILES per flavor — WotLK has far more tiles), manifest carries flavor + `clientBuild` + family; provenance records the flavor's extractor commit.
 3. `PreparedDataStore` consumer gate: flavor + build + family must match the server session's flavor; mismatch = hard refuse (R2 verifies cross-flavor refusal both ways).
-4. **Size/time qualification on RP6:** measure extraction wall-clock, peak storage, and mmaps size; decide per flavor whether on-device-only prep is acceptable or the desktop-assisted lane (`tools/win_prepare_data.py` / `tools/prepare_o11_bot_data.py`) must be qualified as an official alternative for WotLK. **This is a named go/no-go decision point** (Decision Log + user sign-off if desktop-assisted becomes required for WotLK).
+4. **Size/time qualification on RP6:** measure extraction wall-clock, peak storage, and mmaps size; decide per flavor whether on-device-only prep is acceptable or the desktop-assisted lane (`tools/win_prepare_data.py` / `tools/prepare_o11_bot_data.py`) must be qualified as an official alternative for WotLK. **The go/no-go criteria explicitly include the client-side 2 GB VA ceiling (correction C7: WotLK 3.3.5a is NOT large-address-aware)** — Dalaran client RSS/VA pressure against that ceiling is part of the measured input (feeds DP12 and the graphics-preset default, W1-8). **This is a named go/no-go decision point** (Decision Log + user sign-off if desktop-assisted becomes required for WotLK).
 5. Bot-data host mirror per flavor (maps list per flavor).
 
 **End State**
@@ -317,8 +321,8 @@ S2–S8 are defined **once** as a repeatable runbook; RA and RB execute them. Wi
 **Work items (per flavor)**
 1. **Graphics route policy:** DXVK/d3d9 only for the flavor (`ClientRuntimeContract.armClientArguments()`); `opengl`/`virgl` lanes disabled per flavor with clear UI copy (Gladio validated for vanilla only). DXVK log attestation wording verified against the flavor's `WoW.exe` (exe name unchanged, so `isArmDxvkLogAttested` should hold — verify on device).
 2. **`Config.wtf` policy per flavor:** `ManagedConfigPolicy` enforced-keys set re-derived (TBC/WotLK cvar names differ; `gxApi "D3D9"`, `d3d9ex`, `gxResolution`; WotLK's sound cvar family differs from vanilla's — the vanilla catalog's "WotLK-era inert" comments become live keys). Per-flavor SAFE_CONFIG sets; float-echo format verified per client (`ConfigWtfCodec` — the 5875 float format pin needs per-build verification).
-3. **Settings & bindings catalogs:** build `WowTbcSettingsCatalog` / `WowWotlkSettingsCatalog` and binding catalogs: capture from the qualified client (WTF write-out + `Bindings.xml`/`binds` read), integrity-hash like vanilla's (109 settings/211 bindings for vanilla → measure per flavor; WotLK is much larger). `InGameSettingsFiles.kt` WTF layout per flavor (**WotLK: per-realm/per-character SavedVariables folders** — `SavedVariablesCodec`/`InGameSettingsFiles` reworked per flavor; the single-account-file assumption is vanilla-only).
-4. **vanilla-tweaks per flavor:** feature-gated off for tbc/wotlk at S7 start (honest UI copy: "not available for this flavor"). Optional later work item (recorded, not blocking): research equivalent byte patches for 8606/12340 (LAA is built into later clients? verify; widescreen FoV equivalents exist in community patchers — out of scope unless a maintained, license-compatible patcher is found).
+3. **Settings & bindings catalogs:** build `WowTbcSettingsCatalog` / `WowWotlkSettingsCatalog` and binding catalogs: capture from the qualified client (WTF write-out + `Bindings.xml`/`binds` read), integrity-hash like vanilla's (109 settings/211 bindings for vanilla → measure per flavor; WotLK is much larger). `InGameSettingsFiles.kt` WTF layout per flavor (correction C8: **TBC is already 3-level** — per-realm/per-character `SavedVariables` — so the rework covers TBC's SavedVariables too, with H4-5's scope split accordingly (§2.4 H4-5, ux-addons-controls.md:137-161); genuinely WotLK-only is the char-level cache-file set `config-cache.wtf`, `bindings-cache.wtf`, `macros-cache.txt`, `layout-local.txt`, `chat-cache.txt`, and W1-4's `config-cache.wtf` read path (client-data-runtime.md:493-506) is scoped to those WotLK-era files; the single-account-file assumption is vanilla-only).
+4. **vanilla-tweaks per flavor:** feature-gated off for tbc/wotlk at S7 start (honest UI copy: "not available for this flavor"). **The former "LAA is built into later clients? verify" is answered (correction C7): WotLK 3.3.5a is NOT large-address-aware (2 GB VA).** An LAA variant for 12340 would be a byte-patched exe requiring hash-pinned qualification (§2.2 H2-3's option branch, client-data-runtime.md:100-113), else the RAM admission gate (`minClientFreeMemoryMiB` preflight, H2-3 item 3). Optional later work item (recorded, not blocking): widescreen FoV equivalents exist in community patchers — out of scope unless a maintained, license-compatible patcher is found.
 5. **Auto-login:** per-flavor login-window topology (`Build5875LoginTopology` → `Build8606LoginTopology`, `Build12340LoginTopology`): capture window classes/geometry for the flavor's login screen (x86 and ARM lanes differ — both qualified), tap choreography re-calibrated (TBC/WotLK login screens differ from vanilla's), IME char map verified per client.
 6. **Addons per flavor:** `AddonArchiveValidator` acceptedInterfaces per flavor ({11200} / {20400} / {30300}; VoiceOver data policy per flavor — AI_VoiceOver has per-expansion artifacts, extend `VoiceOverReleaseResolver`); AndroidPort addon: port to the flavor's UI API or exclude per flavor with honest copy (decision in-stage); catalog `clientTarget` metadata promoted to first-class per-flavor catalogs.
 7. **UI copy sweep:** every user-visible "1.12"/"Vanilla" string (`FirstRunTutorial`, `HomeScreen` chip, `SettingsScreen` tweaks copy, `AddonsScreen`, `ControlsScreen`, `DiagnosticsScreen` flavor line) becomes flavor-aware.
@@ -339,9 +343,9 @@ S2–S8 are defined **once** as a repeatable runbook; RA and RB execute them. Wi
 
 **Work items (per flavor)**
 1. **Expansion flag:** add a relay op (`account set addon <n>`) invocation path in `native/realm-runtime/src/world_runtime.cpp` alongside `account create`; app sets expansion = 1 (tbc) / 2 (wotlk) at account creation; vanilla stays 0. `UserAccountStore` schema gains a flavor field (migration for existing data — vanilla stays vanilla).
-2. **Auth fixtures:** desktop lane pins (`AuthGate.kt`, `RpWowClient.kt` SRP6 frames hard-coding build 5875) → per-flavor frame layouts; `tools/rp_harness/probe_world_auth.py` et al. opcode pins (`SMSG_AUTH_CHALLENGE` per expansion) parameterized.
+2. **Auth fixtures:** desktop lane pins (`AuthGate.kt`, `RpWowClient.kt` SRP6 frames hard-coding build 5875) → per-flavor frame layouts; the auth-challenge opcode is **one shared 0x1EC constant** in all three branches (correction C3 — no per-expansion opcode parameterization; the plan's earlier per-expansion opcode pins were wrong), so this item parameterizes only the per-flavor *frame descriptors* (build-bytes width, proof-frame length — verified against each branch's `AuthSocket.cpp`) and the harness's frame pins; `tools/rp_harness/probe_world_auth.py` asserts the shared 0x1EC constant and fails loud on any other.
 3. **realmd protocol acceptance:** verify the flavor's realmd rejects other builds (both directions vs. vanilla) with clean client-side errors; warden module differences noted (classic's wardenwin scans are classic-specific — the flavor's branch ships its own).
-4. **Networking/LAN:** LAN host projection per flavor (no port/protocol change expected; verify realm list advertises the flavor's `gamebuild` so *remote* clients of the right flavor can connect and wrong ones cannot — a new, deliberate behavior to test explicitly).
+4. **Networking/LAN:** LAN host projection per flavor (no port/protocol change expected; verify realm list advertises the flavor's `realmbuilds` accepted-build set (correction C1) so *remote* clients of the right flavor can connect and wrong ones cannot — a new, deliberate behavior to test explicitly).
 5. Credentials/first-login flow: `SinglePlayerCredentialStore` unchanged; auto-login credentials injection verified in S7; `FIRST_LOGIN_UVAR_DEFAULTS` per flavor (WotLK cvar set).
 
 **End State**
@@ -396,13 +400,15 @@ S2–S8 are defined **once** as a repeatable runbook; RA and RB execute them. Wi
 | Parameter | vanilla | tbc | wotlk | Owner stage |
 |---|---|---|---|---|
 | Client ID / build | `wow-1.12.1-5875` / 5875 | `wow-2.4.3-8606` / 8606 | `wow-3.3.5a-12340` / 12340 | S5 |
-| Pristine exe SHA-256 | `b4756d38…` (existing) | measure | measure | S5 |
-| MPQ set | 11 base MPQs | +expansion +locale | +lichking, patch-0..4, locale set | S5 |
+| Pristine exe SHA-256 | `b4756d38…` (existing) | measure; MD5 cross-check `57c5c030…` (C6) | measure; MD5 cross-check `45892bde…` (C6); size ≈ 12.6 MB ≈ 2.6× vanilla — fits the 32 MiB scanner cap | S5 |
+| MPQ set | 11 base MPQs | root `common/expansion/patch/patch-2` + `Data\enUS\` locale/speech set (C2) | root `common, common-2, expansion, lichking, patch, patch-2, patch-3` — no `patch-4` — + locale set; tolerated aux `base-enUS`/`backup-enUS` (C2) | S5 |
 | Server core | mangos-classic fork @ ce83805d | mangos-tbc fork @ TBD | mangos-wotlk fork @ TBD | S2 |
 | DB content | classic-db @ be1a5206 | tbc-db @ TBD | wotlk-db @ TBD | S4 |
-| Bots tree | cmangos/playerbots fork @ 7e2cd2fb | **TBD (risk)** | **TBD (risk)** | S3 |
+| Bots tree | cmangos/playerbots fork @ 7e2cd2fb (multi-expansion master; one pin serves all flavors — correction C4) | same pin @ 7e2cd2fb | same pin @ 7e2cd2fb | S3 |
 | DB names | `classic*` (kept) | `tbc*` | `wotlk*` | S0/S4 |
-| realmlist schema | `realmbuilds` | `gamebuild=1` | `gamebuild=2` | S2 |
+| realmlist schema | `realmbuilds` `5875 6005 6141` | `realmbuilds` `8606` | `realmbuilds` `12340` | S2 |
+
+*(Correction C1: `realmbuilds` varchar(64) in all three branches — register §0.)*
 | account.expansion | 0 | 1 | 2 | S8 |
 | Addon interfaces | 11200 | 20400 | 30300 | S7 |
 | Bot max level / maps | 60 / 0,1 | 70 / 0,1,530 | 80 / 0,1,530,571 | S3 |
@@ -410,10 +416,12 @@ S2–S8 are defined **once** as a repeatable runbook; RA and RB execute them. Wi
 | extractedEstimate | 4 GiB | measure | measure (likely ≥ 8–12 GiB) | S5/S6 |
 | maxTotalBytes | 20 GiB | ~25 GiB | ~35 GiB (confirm) | S5 |
 | Settings/bindings catalog | 109 / 211 (existing) | capture | capture (larger) | S7 |
-| WTF layout | account-level | account-level (verify) | per-realm/per-char | S7 |
+| WTF layout | account-level | 3-level (per-realm/per-char SavedVariables — correction C8: already 3-level upstream, not "account-level (verify)") | 3-level + WotLK-era char-level cache set (`config-cache.wtf`, `bindings-cache.wtf`, `macros-cache.txt`, `layout-local.txt`, `chat-cache.txt`) | S7 |
 | Graphics lanes | DXVK + Gladio validated | DXVK only | DXVK only | S7 |
 | vanilla-tweaks | on | off (research item) | off (research item) | S7 |
-| Auth opcode/frames | 0x1EC vanilla | branch-defined | branch-defined | S8 |
+| Auth opcode/frames | `0x1EC` all flavors (frames verified per branch) | = | = | S8 |
+
+*(Correction C3, register §0: `SMSG_AUTH_CHALLENGE` = 0x1EC in all three branches — the "branch-defined" row this replaces was wrong. SRP6 frame *layouts* still need per-branch verification (P2-7 keeps that distinction); the per-flavor `authFrame` descriptors carry what S8 verifies.)*
 | LLM corpus / era lint | v112 (existing) | per-flavor | per-flavor | S3 |
 
 ## 7. Pinned-artifact inventory (what the gauntlet watches)
@@ -436,7 +444,7 @@ Every item below is a known vanilla pin (audit, 2026-09-29) that must end up fla
 
 | # | Risk | Stage | Mitigation / kill-switch |
 |---|---|---|---|
-| 1 | **No maintainable bots tree for tbc/wotlk branches** | S3 | Resolve *first* in S3. Kill-switch: ship flavor without bots (feature-gated) and record; do not fork-and-abandon silently. |
+| 1 | **Bots-tree drift/build failure on newer branches** *(demoted from the former "no maintainable bots tree" kill-switch by correction C4: upstream `cmangos/playerbots` master is multi-expansion and the 7e2cd2fb pin serves all flavors)* | S3 | Fallback = the recorded H1-16 decision entry (mod-playerbots evaluation with trigger conditions, server-systems.md:414-427); ship-flavor-without-bots only via that recorded path, never silently. |
 | 2 | **WotLK map/vmap/mmap on-device time+size** | S6 | Measured go/no-go; fallback = qualified desktop-assisted prep lane (already exists in tool form). |
 | 3 | **Fork commit port effort per branch** (Bionic/NDK breaks on newer branches) | S2 | Budget buffer; host-build first to shake out compile issues before device. |
 | 4 | **Storage caps on real devices** (multi-flavor installs) | S5/S9 | Per-flavor budgets; explicit user messaging; desktop-assisted prep reduces on-device headroom needs. |
@@ -450,7 +458,7 @@ Every item below is a known vanilla pin (audit, 2026-09-29) that must end up fla
 1. Genuine **TBC 2.4.3 enUS** client (build 8606) for qualification.
 2. Genuine **WotLK 3.3.5a enUS** client (build 12340) for qualification.
 3. RP6-class test device availability windows for S6/S7/S10 measurements and soaks.
-4. Product calls at named decision points: bots-less fallback (S3), WotLK desktop-assisted prep (S6), AndroidPort addon per-flavor scope (S7).
+4. Product calls at named decision points: WotLK desktop-assisted prep (S6), AndroidPort addon per-flavor scope (S7). *(The former "bots-less fallback (S3)" product call is removed — correction C4 resolved the bots-tree premise; the residual drift fallback is the recorded H1-16 decision entry, not a product call.)*
 
 ### 8.3 Decision Log
 

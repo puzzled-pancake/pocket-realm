@@ -11,9 +11,12 @@ direct execution against fakes; no device is required.
 """
 from __future__ import annotations
 
+import importlib
 import json
 import subprocess
 import sys
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -197,6 +200,19 @@ def test_bot_reply_name_match_and_word_guard():
     # >=3-word guard: a two-word line is not a conversational reply
     short = assertions.bot_reply([events[2]], "Beazil")
     assert not short.ok and "word guard" in short.reason
+    # exists-semantics: an under-guard line does not veto a later
+    # qualifying reply from the same bot (the scan keeps going)
+    nod_then_reply = [
+        protocol.event("bot_reply", speaker="Beazil", text="Beazil nods."),
+        protocol.event("bot_reply", speaker="Beazil", text="Aye, the road was long."),
+    ]
+    assert assertions.bot_reply(nod_then_reply, "Beazil").ok
+    # all the bot's lines under the guard -> False cites the first one
+    nods = [nod_then_reply[0],
+            protocol.event("bot_reply", speaker="Beazil", text="Beazil waves.")]
+    verdict = assertions.bot_reply(nods, "Beazil")
+    assert not verdict.ok and verdict.event is nods[0] \
+        and "Beazil nods." in verdict.reason
     # the since filter excludes stale lines
     stale = assertions.bot_reply(events, "Beazil", since_ms=events[0]["mono_ms"] + 1)
     assert not stale.ok
@@ -276,8 +292,10 @@ class ScriptedAdb:
         self.fail_first_push = fail_first_push
         self.never_answer = never_answer
         self.pushed: list[str] = []
+        self.argvs: list[list[str]] = []
 
     def __call__(self, argv: list[str], timeout: float) -> str:
+        self.argvs.append(argv)
         if "stat" in argv:
             return "10150:10150\n"
         if "push" in argv:
@@ -377,6 +395,111 @@ def test_relay_session_run_normalizes_a_hung_adb_timeout(tmp_path):
     # check=False tolerates the hang exactly like a RelayError failure
     # (adb_root's tolerated root call must not crash on a hung daemon)
     assert relay_session.run("root", timeout=0.05, check=False) == ""
+
+
+# ---- credential hygiene: the staged console-in payload ----------------------
+#
+# world-account/world-verify carry PLAINTEXT passwords through a local
+# console-in.json staging file before the adb push. That file must not
+# outlive the round trip - success, failed push, or exhausted retries
+# alike - and the device-side copy is chmod 600 (owner = the app uid the
+# relay runs as), never 644.
+
+
+def test_relay_session_unlinks_the_payload_once_pushed_and_chmods_600(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: None)
+    # fail_first_push=1: the first attempt dies at the push - the unlink
+    # must cover that attempt too, then the retry succeeds
+    fake = ScriptedAdb({"ok": True}, fail_first_push=1)
+    relay_session = session_mod.RelaySession(
+        adb="adb", runner=fake, workdir=tmp_path, poll_interval_s=0.0,
+        attempts=3)
+    assert relay_session.send("world-verify", "gm", "hunter2")["ok"] is True
+    # the credential really did transit the staged file (the reason for
+    # the hygiene), and the push read it before the unlink
+    assert json.loads(fake.pushed[-1])["arg2"] == "hunter2"
+    assert not (tmp_path / "console-in.json").exists(), \
+        "the password-bearing staging file must not outlive the round trip"
+    chmods = [a for a in fake.argvs if "chmod" in a]
+    assert chmods, "the round trip must chmod the device-side in-file"
+    assert all(a[-2] == "600" for a in chmods), \
+        "the device-side in-file is owner-only (app uid), not 644"
+
+
+def test_relay_session_unlinks_the_payload_when_the_push_never_lands(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: None)
+    fake = ScriptedAdb({"ok": True}, fail_first_push=99)
+    relay_session = session_mod.RelaySession(
+        adb="adb", runner=fake, workdir=tmp_path, poll_interval_s=0.0,
+        attempts=2)
+    try:
+        relay_session.send("world-account", "gm", "hunter2")
+        raised = False
+    except session_mod.RelayError:
+        raised = True
+    assert raised, "every push failed; send must exhaust retries and raise"
+    assert not (tmp_path / "console-in.json").exists(), \
+        "an exhausted round trip must not strand the credential either"
+
+
+def test_world_console_send_unlinks_the_staged_payload(tmp_path, monkeypatch):
+    """tools/world_console.py's send() is the mechanics this session
+    reuses; its build/world-console-in.json staging file gets the same
+    hygiene (R1: the console REPL's world-account/world-verify wrote the
+    last credential there and never cleared it)."""
+    import world_console
+    argvs: list[list[str]] = []
+    pushed: list[str] = []
+
+    def fake_run(cmd, cwd=None, check=True, timeout=None, capture=True):
+        argvs.append([str(a) for a in cmd])
+        if "stat" in cmd:
+            return "10150:10150\n"
+        if "push" in cmd:
+            pushed.append(Path(cmd[-2]).read_text(encoding="utf-8"))
+            return ""
+        if "cat" in cmd:
+            return json.dumps({"ok": True, "op": "world-account"})
+        return ""
+
+    monkeypatch.setattr(world_console, "ROOT", tmp_path)
+    monkeypatch.setattr(world_console, "uid", lambda: "10150:10150")
+    monkeypatch.setattr(world_console.LANE, "run", fake_run)
+    (tmp_path / "build").mkdir()  # the real repo always has ROOT/build
+    assert world_console.send("world-account", "gm", "hunter2")["ok"] is True
+    assert json.loads(pushed[0])["arg2"] == "hunter2"
+    assert not (tmp_path / "build" / "world-console-in.json").exists(), \
+        "the password-bearing staging file must not outlive the send"
+    chmods = [a for a in argvs if "chmod" in a]
+    assert chmods and chmods[0][-2] == "600", \
+        "the device-side in-file is owner-only (app uid), not 644"
+
+
+def test_world_console_send_unlinks_the_staged_payload_on_a_failed_push(
+        tmp_path, monkeypatch):
+    import world_console
+
+    def failing_run(cmd, cwd=None, check=True, timeout=None, capture=True):
+        if "stat" in cmd:
+            return "10150:10150\n"
+        if "push" in cmd:
+            raise RuntimeError("device offline")
+        return ""
+
+    monkeypatch.setattr(world_console, "ROOT", tmp_path)
+    monkeypatch.setattr(world_console, "uid", lambda: "10150:10150")
+    monkeypatch.setattr(world_console.LANE, "run", failing_run)
+    (tmp_path / "build").mkdir()  # the real repo always has ROOT/build
+    try:
+        world_console.send("world-verify", "gm", "hunter2")
+        raised = False
+    except RuntimeError:
+        raised = True
+    assert raised, "the failed push propagates (LANE.run check=True)"
+    assert not (tmp_path / "build" / "world-console-in.json").exists(), \
+        "a failed send must not strand the credential either"
 
 
 # ---- smoke suite schema over a fake session --------------------------------
@@ -634,3 +757,309 @@ def test_cli_end_to_end_with_a8(tmp_path, monkeypatch):
     assert run_suite.main(["--suite", "smoke", "--out", str(out),
                            "--world-log", str(empty_log),
                            "--require-a8"]) == 1
+
+
+# ---- rpdrive proto-chat includeSelf (LV-multiplayer-06 handoff) ----------
+
+
+def _rpdrive():
+    """Import the verification driver (out/live-verification/scripts)."""
+    scripts = str(ROOT / "out" / "live-verification" / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    import rpdrive
+    return rpdrive
+
+
+def test_rpdrive_bare_proto_chat_is_a_self_capture_say():
+    """LV-multiplayer-06 'chat capture returns the line': the bare
+    proto-chat:TEXT form must be the solo round-trip probe AND the
+    includeSelf flag must ride the request line. RpHost.kt reads it with
+    optBoolean("includeSelf", false) and chatAndCapture drops the speaker's
+    own rows by guid when it is absent - the recorded run drained the full
+    8s window to lines=[] because the driver never set the flag."""
+    rpdrive = _rpdrive()
+    steps = rpdrive.parse_steps(
+        'hello,account:DUALPORT1:DualPortPass1,proto-login,proto-world:DUALPORT1,'
+        'proto-create:Dualport,proto-chars,proto-pick,proto-chat:"handoff ok",stop')
+    chat = steps[7]
+    assert chat["op"] == "proto-chat"
+    # say, not whisper: an empty-target whisper is answered by
+    # SendPlayerNotFoundNotice and never emits SMSG_MESSAGECHAT
+    # (ChatHandler CHAT_MSG_WHISPER), and a whisper's self-echo additionally
+    # rides WHISPER_INFORM, which the capture's reply-type filter drops
+    # before the guid check. Say is the one kind that round-trips solo.
+    assert chat["kind"] == "say" and chat["target"] == "", chat
+    assert chat["includeSelf"] is True, chat
+    line = json.loads(rpdrive.step_to_line(chat))
+    # the wire line carries the flag - the regression was exactly this:
+    # kind/target/text only, so optBoolean("includeSelf", false) never saw
+    # a value and the capture could never return the sender's own line
+    assert line["kind"] == "say" and line["includeSelf"] is True, line
+
+
+def test_rpdrive_proto_chat_explicit_includeself_segment():
+    """The explicit trailing includeSelf= segment overrides the default:
+    reply-only bot-conversation rows turn the self rows back off, forcing
+    rows turn it explicitly on."""
+    rpdrive = _rpdrive()
+    reply_only = rpdrive.parse_steps(
+        'proto-chat:whisper:Beazil:hi there:includeSelf=false,stop')
+    chat = reply_only[0]
+    assert (chat["kind"], chat["target"], chat["text"]) == \
+        ("whisper", "Beazil", "hi there"), chat
+    assert chat["includeSelf"] is False, chat
+    assert json.loads(rpdrive.step_to_line(chat))["includeSelf"] is False
+    forced = rpdrive.parse_steps('proto-chat:say::hello:includeSelf=true,stop')[0]
+    assert (forced["kind"], forced["target"], forced["text"]) == ("say", "", "hello")
+    assert forced["includeSelf"] is True
+
+
+def test_rpdrive_proto_chat_rejects_bad_includeself_value():
+    rpdrive = _rpdrive()
+    try:
+        rpdrive.parse_steps("proto-chat:hi:includeSelf=yes")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("includeSelf=yes must not parse as a chat step")
+
+
+# ---- desktop toolprobe log slicing ---------------------------------------
+
+def test_toolprobe_slices_the_live_log_not_a_stale_smoke_snapshot(
+        tmp_path, monkeypatch):
+    """desktop_toolprobe must always read the LIVE %LOCALAPPDATA% world
+    log. The old import-time branch picked build/rp-desktop/world.log
+    whenever that directory existed - and a desktop_smoke run's
+    snapshot_log leaves the directory behind with a frozen copy - so
+    every later probe sliced a file that never grew: funnel_rows_since
+    never saw the current run's toolfunnel rows and all probes
+    misclassified as emitted-loss ("PROMPT problem") regardless of
+    reality. desktop_soak.py and desktop_play.py read the live log."""
+    from rp_harness import desktop_toolprobe
+
+    # the old branch's trigger: the snapshot parent directory exists
+    snap_dir = ROOT / "build" / "rp-desktop"
+    created = not snap_dir.exists()
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        importlib.reload(desktop_toolprobe)
+        live = (tmp_path / "PocketRealm" / "runtime" / "server" /
+                "logs" / "world.log")
+        assert desktop_toolprobe.WORLD_LOG == live
+    finally:
+        if created:
+            snap_dir.rmdir()
+
+
+def test_toolprobe_funnel_rows_since_sees_rows_appended_after_mark(
+        tmp_path, monkeypatch):
+    """A probe takes mark = log_count() before the whisper and slices the
+    file after the reply; the live log grows between the two reads, so
+    this run's toolfunnel rows must land in the slice (and earlier rows
+    must not leak into it)."""
+    from rp_harness import desktop_toolprobe
+
+    log = tmp_path / "world.log"
+    log.write_text(
+        "BotLLM: toolfunnel bot=1 speaker=2 stamp=3 tool=scene stage=queued\n"
+        "LLMLogLines lane=cloud durMs=12\n",
+        encoding="utf-8")
+    monkeypatch.setattr(desktop_toolprobe, "WORLD_LOG", log)
+    mark = desktop_toolprobe.log_count()
+    assert mark == 2
+    with log.open("a", encoding="utf-8") as handle:
+        handle.write("BotLLM: toolfunnel bot=7 speaker=2 stamp=9 "
+                     "tool=memory stage=emitted\n")
+    assert desktop_toolprobe.funnel_rows_since(mark) == \
+        [("7", "memory", "emitted")]
+
+
+# ---- desktop smoke reply-window stamp filter --------------------------------
+
+
+def test_desktop_smoke_poll_reply_lines_floors_on_the_row_stamp(tmp_path):
+    """poll_reply_lines must actually compare the world-log row stamp to
+    since_ts. The server stamps every row `YYYY-MM-DD HH:MM:SS ` (local
+    time) ahead of the message, but the old scan computed the stamp and
+    never used it - so the since_ts parameter was dead and undatable or
+    stale rows counted like fresh ones."""
+    from rp_harness import desktop_smoke
+
+    log = tmp_path / "world.log"
+    log.write_text(
+        "2026-10-08 03:26:41 BotLLM: line req=1 bot=5 chan=0 "
+        "text=The mines were quiet today\n"
+        "2026-10-08 03:26:42 no BotLLM prefix here\n"
+        "2026-10-08 03:26:43 BotLLM: line req=2 bot=6 chan=0 "
+        "text=wrong bot entirely\n"
+        "2026-10-08 03:26:44 BotLLM: line req=3 bot=5 chan=0 "
+        "text=Aye the road was long friend\n",
+        encoding="utf-8")
+    since = datetime(2026, 10, 8, 3, 26, 42).timestamp()
+    # only the asked bot's row stamped at/after the floor survives
+    assert desktop_smoke.poll_reply_lines(log, 5, since) == \
+        ["Aye the road was long friend"]
+    # a row that cannot be dated is never credited, at any floor
+    with log.open("a", encoding="utf-8") as handle:
+        handle.write("BotLLM: line req=4 bot=5 chan=0 text=stampless row\n")
+    assert desktop_smoke.poll_reply_lines(log, 5, since) == \
+        ["Aye the road was long friend"]
+    # floor 0 still keeps every DATED row for the bot (stale + fresh,
+    # not the stampless one)
+    assert desktop_smoke.poll_reply_lines(log, 5, 0.0) == \
+        ["The mines were quiet today", "Aye the road was long friend"]
+
+
+class FakeSmokeHost:
+    """desktop_smoke.run's host surface over a controllable live log."""
+
+    def __init__(self, live: Path, deliver_reply: bool) -> None:
+        self.live = live
+        self.deliver_reply = deliver_reply
+        self.chat_wall = 0.0
+
+    def online(self):
+        return 4
+
+    def botstatus(self):
+        return {"onlineBots": 4}
+
+    def account(self, user, password, gm=0):
+        return {"ok": True}
+
+    def reset(self, scope):
+        return {"ok": True}
+
+    def memory(self, query):
+        if not query:
+            return {"onlineBots": ["Abee", "Beazil"]}
+        return {"facts": [{"factCount": 1}],
+                "relationships": [{"bot": "Beazil", "botGuid": 5}]}
+
+    def chat(self, char, channel, target, text):
+        self.chat_wall = time.time()
+        if self.deliver_reply:
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with self.live.open("a", encoding="utf-8") as handle:
+                handle.write(f"{stamp} BotLLM: line req=8 bot=5 chan=0 "
+                             "text=Aye the road was long friend\n")
+        return {"ok": True, "injected": True}
+
+
+def test_desktop_smoke_bot_reply_never_satisfied_by_a_previous_run(
+        tmp_path, monkeypatch):
+    """run() must hand poll_reply_lines this run's whisper time, not 0:
+    the desktop world log under %LOCALAPPDATA% is append-only across runs
+    (bot guids are stable world identities), and the old call passed
+    since_ts=0, which made the stamp filter dead - a previous run's
+    BotLLM: line rows for the same guid then satisfied this run's
+    bot-reply step, because the genuine filter only drops sentinel
+    echoes and short lines."""
+    from rp_harness import desktop_smoke
+
+    live = tmp_path / "live.log"
+    snap = tmp_path / "snap.log"
+    stale = (datetime.now() - timedelta(seconds=60)).strftime(
+        "%Y-%m-%d %H:%M:%S")
+    live.write_text(
+        f"{stale} BotLLM: dispatch bot=5 src=0 lane=chat req=7\n"
+        f"{stale} BotLLM: gen end req=7 bot=5 class=busy durMs=3\n"
+        f"{stale} BotLLM: line req=7 bot=5 chan=0 "
+        "text=The mines were quiet today\n",
+        encoding="utf-8")
+
+    real_poll = desktop_smoke.poll_reply_lines
+    seen_since: list[float] = []
+
+    def recording_poll(log, bot_guid, since_ts):
+        seen_since.append(since_ts)
+        return real_poll(log, bot_guid, since_ts)
+
+    monkeypatch.setattr(desktop_smoke, "poll_reply_lines", recording_poll)
+    monkeypatch.setattr(desktop_smoke, "LOCAL_LOG", live)
+    monkeypatch.setattr(desktop_smoke, "WORLD_LOG", snap)
+    monkeypatch.setattr(desktop_smoke, "REPLY_WINDOW_S", 0.2)
+    monkeypatch.setattr(desktop_smoke.time, "sleep", lambda s: None)
+
+    host = FakeSmokeHost(live, deliver_reply=False)
+    report = desktop_smoke.run(host, 2)
+    by_name = {t["name"]: t for t in report["steps"]}
+    # the previous run's row for guid=5 is 60s old: not this run's reply
+    assert by_name["bot-reply"]["status"] == "failed"
+    assert seen_since and all(
+        0 < s <= time.time() and host.chat_wall - 2.0 <= s
+        for s in seen_since), \
+        "the scan floor must be the whisper's wall clock, never 0"
+
+    host = FakeSmokeHost(live, deliver_reply=True)
+    report = desktop_smoke.run(host, 2)
+    by_name = {t["name"]: t for t in report["steps"]}
+    assert by_name["bot-reply"]["status"] == "passed"
+    # and the credited reply is THIS run's row, not the stale one
+    assert by_name["bot-reply"]["reply"] == "Aye the road was long friend"
+
+
+# ---- desktop play battery exit code ----------------------------------------
+
+def test_desktop_play_exit_code_signals_reported_issues(tmp_path, monkeypatch):
+    """desktop_play is the conversational regression battery a scripted
+    caller runs (LIVE-VERIFICATION-PLAN LV-bot-actors-17); its exit code
+    must behave like desktop_smoke/desktop_boots and go non-zero when
+    the report carries think-leak/AI-meta/no-reply issues or a fatal
+    phase - it always returned 0, so a script could never see a
+    regression. Driven against fakes (the battery's own law: direct
+    execution against fakes, no device required)."""
+    from rp_harness import desktop_play
+
+    state = {"reply": "Well met, traveler - the pines keep their own "
+                      "counsel tonight."}
+
+    class FakeHost:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def wait_ready(self, timeout_s=0.0):
+            return None
+
+        def memory(self, _query):
+            return {"onlineBots": ["Beazil", "Coration", "Turian"]}
+
+        def reset(self, _query):
+            return {}
+
+        def send_raw(self, payload, timeout_s=None):
+            if payload.get("op") == "proto-chars":
+                return {"chars": [{"name": "Davos", "guid": 77}]}
+            if payload.get("kind") == "whisper":
+                return {"lines": [{"type": "whisper", "senderGuid": 2,
+                                   "text": state["reply"]}]}
+            return {}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(desktop_play, "DesktopHost", FakeHost)
+    monkeypatch.setattr(desktop_play, "wait_population",
+                        lambda host, minimum, timeout_s: minimum)
+    monkeypatch.setattr(desktop_play, "REPO", tmp_path)
+    # a healthy reset_davos run: desktop_play checks its returncode now
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *a, **kw: subprocess.CompletedProcess(a, 0))
+
+    assert desktop_play.main(["--soak-s", "0"]) == 0, \
+        "a clean session (every reply passes audit) must stay exit 0"
+
+    state["reply"] = "<think>hmm</think> As an AI language model I cannot say."
+    assert desktop_play.main(["--soak-s", "0"]) == 1, \
+        "think-leak/meta audit issues must exit 1"
+
+    class DeadHost(FakeHost):
+        def wait_ready(self, timeout_s=0.0):
+            raise desktop_play.DesktopHostError("boot died")
+
+    monkeypatch.setattr(desktop_play, "DesktopHost", DeadHost)
+    assert desktop_play.main(["--soak-s", "0"]) == 1, \
+        "a fatal phase must exit 1, not masquerade as a clean run"

@@ -471,7 +471,7 @@ internal fun LlmScreen(contentPadding: PaddingValues = PaddingValues()) {
                     tag = "llm-gen-timeout",
                     support = "Queue-inclusive wait for one reply before a bot falls back to a " +
                         "stock line. Raise it on slow devices or busy external servers; the " +
-                        "tier default is measured per model size.",
+                        "tier default is sized to measured completion times.",
                     onSelect = { id ->
                         update {
                             it.copy(llmGenerationTimeout =
@@ -533,13 +533,22 @@ internal fun LlmScreen(contentPadding: PaddingValues = PaddingValues()) {
                     val url = urlEdit ?: snap.llmExternalUrl
                     val model = modelEdit ?: snap.llmExternalModel
                     val apiKey = apiKeyEdit ?: snap.llmExternalApiKey
-                    val urlError = if (url.isBlank() ||
-                        LlmRuntimePolicy.normalizeExternalEndpoint(url) != null
-                    ) null else "Use a full http(s) URL, e.g. https://api.openai.com"
+                    val endpoint = LlmRuntimePolicy.normalizeExternalEndpoint(url)
+                    // http + key would send the bearer key in cleartext:
+                    // flag it here, not only as the fail-closed no-block at
+                    // world start (isCleartextKeyedEndpoint).
+                    val cleartextKey =
+                        LlmRuntimePolicy.isCleartextKeyedEndpoint(endpoint, apiKey)
+                    val urlError = when {
+                        url.isBlank() || (endpoint != null && !cleartextKey) -> null
+                        endpoint == null -> "Use a full http(s) URL, e.g. https://api.openai.com"
+                        else ->
+                            "http:// would send the API key in cleartext; " +
+                                "use https:// or clear the key"
+                    }
                     val modelError = if (model.isBlank() ||
                         LlmRuntimePolicy.normalizeExternalModel(model) != null
                     ) null else "No quotes, backslashes, or spaces"
-                    val endpoint = LlmRuntimePolicy.normalizeExternalEndpoint(url)
                     OutlinedTextField(
                         value = url,
                         onValueChange = { value ->
@@ -736,6 +745,7 @@ private val GENERATION_TIMEOUT_CHOICES = listOf(
     "90" to "90 seconds",
     "120" to "120 seconds",
     "240" to "240 seconds",
+    "300" to "300 seconds",
 )
 
 private data class LlmServiceState(

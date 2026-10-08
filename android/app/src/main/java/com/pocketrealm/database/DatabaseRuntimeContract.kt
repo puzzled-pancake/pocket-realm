@@ -7,6 +7,17 @@ object DatabaseRuntimeContract {
     const val ARM_PROVIDER_VERSION = "12.3.2"
 
     /**
+     * The desktop (Windows) provider identity (the DESK-5/47/78 engine
+     * lane): the pinned MariaDB version the Windows staging stages,
+     * qualified by its native platform. Same ABI-selection shape as the
+     * Android ids (family-version-platform); the seals' provider field
+     * must name exactly this string. Kept beside the Android ids so both
+     * lanes read one source of truth.
+     */
+    const val WINDOWS_PROVIDER_ID = "mariadb-11.5.2-windows-x86_64"
+    const val WINDOWS_PROVIDER_VERSION = "11.5.2"
+
+    /**
      * The in-tree SQLite provider's identity (the window APK
      * built with -PsqliteProvider). The version tracks the pinned
      * amalgamation (sources.json sqlite-amalgamation-3460100 = SQLite

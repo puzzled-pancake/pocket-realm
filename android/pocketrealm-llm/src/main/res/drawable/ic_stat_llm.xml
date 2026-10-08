@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Status-bar glyph for the LLM runtime foreground service: a chip.
+         This module ships no other res and cannot reach the app's launcher
+         drawable, so it owns a dedicated status icon. Small icons render by
+         alpha only (the system tints them) - keep the fill flat white. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M7,4h2v3h-2z M15,4h2v3h-2z M7,17h2v3h-2z M15,17h2v3h-2z M4,7h3v2h-3z M4,15h3v2h-3z M17,7h3v2h-3z M17,15h3v2h-3z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M7,7h10v10h-10z M10,10h4v4h-4z" />
+</vector>

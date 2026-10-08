@@ -5,8 +5,13 @@ Fails (exit 1) when tracked content regresses into known problem classes:
 forbidden build-output paths, committed oversized blobs outside the allowlist,
 personal identifiers (loaded from a gitignored local markers file)
 reappearing in tracked text, the flavor manifest drifting from its
-multi-flavor contract (tools/check_flavor.py), or banned flavor-identity
-literals leaking outside their owning tables (tools/leak_sweep.py).
+multi-flavor contract (tools/check_flavor.py), banned flavor-identity
+literals leaking outside their owning tables (tools/leak_sweep.py), the
+vanilla migration-ledger bytes drifting from the G3-3 golden seal
+(tools/check_ledger_golden.py), the vanilla addon catalog being edited
+off its G3-6 golden sha, or the section 7 E-drive contract regressing
+(tools/check_e_only.py: toolchain env redirections, C: path literals in
+tracked files, cache roots configured onto C:).
 
 Safe in CI or as a pre-commit gate (same contract as tools/check_sources.py).
 Personal-identifier scanning reads tools/pii_markers.local.json when present
@@ -28,6 +33,13 @@ SUBMODULE_PREFIXES = ("native/cmangos", "native/playerbots", "native/classic-db"
 MARKERS_FILE = ROOT / "tools" / "pii_markers.local.json"
 FLAVOR_MANIFEST = ROOT / "schemas" / "flavor.json"
 
+# G3-6 golden pin: the shipping vanilla addon catalog, frozen byte-for-byte
+# (measured 2026-09-30: 270,121 bytes). Any content change fails this gate;
+# a genuine content fix is a Decision Log entry + sha rotation (G3-6 item 1).
+ADDON_CATALOG_VANILLA_SHA256 = (
+    "1741a486e919696be6569c5f28b2ef53841737cd339f40d7e85be2ee569d1dba"
+)
+
 
 def check_flavor_manifest(errors: list[str]) -> None:
     """Gate schemas/flavor.json through tools/check_flavor.py (multi-flavor contract)."""
@@ -35,6 +47,113 @@ def check_flavor_manifest(errors: list[str]) -> None:
 
     for error in check_flavor.validate(FLAVOR_MANIFEST):
         errors.append(f"flavor.json: {error}")
+
+
+def check_timeframes_gate(errors: list[str]) -> None:
+    """Gate schemas/timeframes + the era/overlay chain through
+    tools/check_timeframes.py (design §8: the manifest/overlay validation
+    joins the repo Python gates)."""
+    import check_timeframes
+
+    for error in check_timeframes.validate():
+        errors.append(f"timeframes: {error}")
+
+
+def check_flavor_source_structure(errors: list[str]) -> None:
+    """Round-3 R3-4/R3-6: the flavor-registry provenance chain is pinned
+    structurally, not just content-wise —
+
+    (a) every flavor source id the binding table expects EXISTS in
+        schemas/sources.json (a coordinated deletion + re-point can no
+        longer bind a foreign group to the vanilla entry);
+    (b) every git-submodule source id maps 1:1 to a .gitmodules path and
+        the superproject's committed gitlink equals sources.json's pin
+        (the committed provenance cannot silently diverge from the
+        verified working tree — the drift marker check_sources strips)."""
+    import json
+
+    sources_path = ROOT / "schemas" / "sources.json"
+    manifest_path = ROOT / "schemas" / "flavor.json"
+    gitmodules_path = ROOT / ".gitmodules"
+    for required in (sources_path, manifest_path, gitmodules_path):
+        if not required.is_file():
+            errors.append(f"flavor-source structure: {required.name} is missing")
+            return
+    sources = json.loads(sources_path.read_text(encoding="utf-8"))["sources"]
+    by_id = {
+        s.get("id"): s
+        for s in sources
+        if isinstance(s, dict) and s.get("kind") == "git-submodule"
+    }
+    expected_ids = {
+        "cmangos-core", "cmangos-db", "playerbots",
+        "cmangos-core-tbc", "cmangos-db-tbc", "playerbots-tbc",
+        "cmangos-core-wotlk", "cmangos-db-wotlk", "playerbots-wotlk",
+    }
+    for source_id in sorted(expected_ids):
+        entry = by_id.get(source_id)
+        if entry is None:
+            errors.append(
+                f"flavor-source structure: sources.json lost the git-submodule "
+                f"entry {source_id!r} (the flavor binding table requires it — a "
+                "deleted entry lets a foreign group bind to the vanilla source)"
+            )
+            continue
+        path = entry.get("path")
+        commit = entry.get("commit")
+        if not path or not commit:
+            errors.append(
+                f"flavor-source structure: sources.json entry {source_id!r} "
+                "lost its path or commit pin"
+            )
+            continue
+        # .gitmodules 1:1 mapping
+        gitmodules = gitmodules_path.read_text(encoding="utf-8")
+        if f'path = {path}' not in gitmodules:
+            errors.append(
+                f"flavor-source structure: sources.json {source_id!r} names path "
+                f"{path!r} which .gitmodules does not register"
+            )
+        # committed gitlink == sources.json pin (R3-6: the drift marker
+        # check_sources strips is asserted HERE, against the INDEX bytes)
+        out = subprocess.run(
+            ["git", "ls-files", "-s", "--", path],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+        line = out.stdout.strip().splitlines()[0] if out.stdout.strip() else ""
+        fields = line.split()
+        gitlink = fields[1] if len(fields) >= 2 and fields[0] == "160000" else None
+        if gitlink is None:
+            errors.append(
+                f"flavor-source structure: {path} has no committed gitlink in "
+                "the index (the submodule pins are not recorded)"
+            )
+        elif gitlink != commit:
+            errors.append(
+                f"flavor-source structure: {path} gitlink {gitlink[:12]} != "
+                f"sources.json commit {commit[:12]} — the committed provenance "
+                "diverged from the pinned source"
+            )
+
+
+def check_e_drive_gate(errors: list[str]) -> None:
+    """Gate the section 7 E-drive contract through tools/check_e_only.py
+    (COMPLETION-PLAN W0): the toolchain env redirection table, the C:
+    path-literal sweep over tracked files, and the cache-root-on-C: list.
+    Notes from the gate (stale live-env daemons) print directly — like the
+    personal-marker skip note — so a pre-redirection process tree is named
+    without failing the gate the registry already satisfies."""
+    import check_e_only
+
+    report = check_e_only.collect_findings(ROOT)
+    for note in report["notes"]:
+        print(note)
+    for finding in report["findings"]:
+        code = finding.get("code", "E-?")
+        where = finding.get("path", finding.get("var", "?"))
+        line = finding.get("line")
+        loc = f":{line}" if isinstance(line, int) and line else ""
+        errors.append(f"e_only: {code} {where}{loc} {finding['detail']}")
 
 
 def check_leaks(errors: list[str]) -> None:
@@ -50,6 +169,109 @@ def check_leaks(errors: list[str]) -> None:
     for finding in findings:
         literals = ", ".join(finding["literals"])  # type: ignore[arg-type]
         errors.append(f"leak_sweep: {finding['path']}:{finding['line']} {literals}")
+
+
+def check_ledger_golden(errors: list[str]) -> None:
+    """Gate the G3-3 vanilla migration-ledger golden seal
+    (tools/check_ledger_golden.py): the packaged vanilla ledger bytes are
+    pinned so S1's per-flavor renames can never re-key what deployed vanilla
+    datadirs' migration seals verify."""
+    import check_ledger_golden
+
+    for error in check_ledger_golden.validate(ROOT):
+        errors.append(error)
+
+
+def check_addon_catalog_golden(errors: list[str]) -> None:
+    """Gate the G3-6 vanilla addon-catalog golden seal: the shipping
+    addons/catalog-v1.json asset is frozen byte-for-byte; per-flavor catalogs
+    are new assets (H4-3), never an edit of the vanilla file."""
+    import hashlib
+
+    catalog = ROOT / "android/app/src/main/assets/addons/catalog-v1.json"
+    if not catalog.is_file():
+        errors.append("addon catalog golden: android/app/src/main/assets/addons/catalog-v1.json is missing")
+        return
+    actual = hashlib.sha256(catalog.read_bytes()).hexdigest()
+    if actual != ADDON_CATALOG_VANILLA_SHA256:
+        errors.append(
+            f"addon catalog golden: addons/catalog-v1.json sha256 {actual} != pinned "
+            f"{ADDON_CATALOG_VANILLA_SHA256} (the vanilla catalog is never edited; "
+            "H4-3 per-flavor catalogs are new assets — G3-6 item 1)"
+        )
+
+
+# S1 provenance-divergence check (port plan S1 item 1, decision D36): the o11
+# extractor commit is recorded in four places that must name the very same
+# commit — the o11 extractor lockfiles (both ABIs), the o09/o11 driver pin,
+# the app constant, and the flavor manifest's vanilla server_core pin. The
+# c096bada↔ce83805d split this check forever prevents was a real one: the
+# staged extractors had been built from one commit while the lockfiles and
+# the app recorded another.
+O11_LOCKFILES = (
+    "schemas/o11-extractor-lockfile.json",
+    "schemas/o11-extractor-lockfile-arm64-v8a.json",
+)
+O09_DRIVER = "tools/build_o09_realm_runtime.py"
+DATA_PREP_STORE = (
+    "android/app/src/main/java/com/pocketrealm/importer/DataPreparationStore.kt"
+)
+
+
+def check_extractor_provenance(errors: list[str]) -> None:
+    """Fail on any divergence between the o11 extractor lockfile commits, the
+    o09 driver's CMANGOS_COMMIT pin, DataPreparationStore.CMANGOS_COMMIT, and
+    flavor.json's vanilla server_core.commit (the S1 'can never diverge
+    again' CI)."""
+    import re as _re
+
+    pins: dict[str, str] = {}
+    for rel in O11_LOCKFILES:
+        path = ROOT / rel
+        if not path.is_file():
+            errors.append(f"extractor provenance: {rel} is missing")
+            continue
+        pins[rel] = json.loads(path.read_text(encoding="utf-8")).get("cmangos_commit", "")
+    driver = ROOT / O09_DRIVER
+    match = _re.search(
+        r'^CMANGOS_COMMIT\s*=\s*"([0-9a-f]{40})"',
+        driver.read_text(encoding="utf-8"), _re.M,
+    )
+    if not match:
+        errors.append(f"extractor provenance: {O09_DRIVER} lost its CMANGOS_COMMIT pin")
+    else:
+        pins[O09_DRIVER] = match.group(1)
+    store = ROOT / DATA_PREP_STORE
+    match = _re.search(
+        r'CMANGOS_COMMIT\s*=\s*"([0-9a-f]{40})"',
+        store.read_text(encoding="utf-8"),
+    )
+    if not match:
+        errors.append(f"extractor provenance: {DATA_PREP_STORE} lost its CMANGOS_COMMIT constant")
+    else:
+        pins[DATA_PREP_STORE] = match.group(1)
+    manifest = json.loads(FLAVOR_MANIFEST.read_text(encoding="utf-8"))
+    vanilla = next(
+        (f for f in manifest.get("flavors", []) if f.get("id") == "vanilla"), None
+    )
+    if vanilla is None:
+        errors.append("extractor provenance: flavor.json has no vanilla flavor")
+    else:
+        pins["schemas/flavor.json (vanilla server_core)"] = (
+            (vanilla.get("server_core") or {}).get("commit") or ""
+        )
+    distinct = sorted({pin for pin in pins.values() if pin})
+    if len(distinct) > 1:
+        detail = "; ".join(f"{name}={pin[:12]}" for name, pin in sorted(pins.items()))
+        errors.append(
+            "extractor provenance split detected — the o11 extractor commit "
+            f"diverged across {detail}. Rebuild the extractors from the "
+            "driver pin and update every record together (decision D36; the "
+            "c096bada↔ce83805d split must never reopen)"
+        )
+    elif not distinct:
+        errors.append("extractor provenance: no commit pin found in any of the four records")
+
 
 FORBIDDEN_PATTERNS = [
     "native/.tmp-*",
@@ -200,6 +422,12 @@ def main() -> int:
     )
     check_flavor_manifest(errors)
     check_leaks(errors)
+    check_ledger_golden(errors)
+    check_addon_catalog_golden(errors)
+    check_extractor_provenance(errors)
+    check_timeframes_gate(errors)
+    check_flavor_source_structure(errors)
+    check_e_drive_gate(errors)
 
     for warning in sorted(set(warnings)):
         print(f"WARN {warning}")

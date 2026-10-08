@@ -656,8 +656,20 @@ internal class WineRuntimeStore(private val context: Context) {
         allowUserVulkanDrivers: Boolean = false,
     ): Prepared {
         check(ClientFlavors.isManagedClientId(clientId)) {
+            // GAP-3 (owner census UIUX-3): the refusal names the ACTIVE lane's
+            // build, resolved through the flavor machine from the PERSISTED
+            // Home-switcher pick — this :client process never sees the UI
+            // process's in-memory ActiveFlavor selection, so the multi-process
+            // settings store is the one selection this gate can resolve (the
+            // :supervisor realmlist projection's twin idiom). Resolution stays
+            // lazy in the failure message, exactly where the former
+            // `qualified().single()` lived: it fires only when an unmanaged
+            // clientId is refused, never on the happy path.
+            val lane = ActiveFlavorState(
+                runBlocking { com.pocketrealm.storage.Settings(context).flow.first().selectedFlavorOrNull() },
+            ).resolve(ActiveFlavor.qualifiedFlavors, ARM_RUNTIME_AUTHORIZATION_LANE)
             "ARM translated runtime currently authorizes only the imported " +
-                "build-${ClientFlavors.qualified().single().build} client"
+                "build-${lane.build} client"
         }
         val leased = ManagedClientStore(context).acquireRuntime(clientId)
         val managed = leased.client
@@ -1931,6 +1943,11 @@ internal class WineRuntimeStore(private val context: Context) {
     companion object {
         private const val TAG = "WineRuntimeStore"
         private const val ARM_RUNTIME_ROOT_NAME = "arm-translated/winlator-ca3d735"
+
+        /** GAP-3: the [ActiveFlavor] lane suffix naming the ARM runtime's
+         * managed-client authorization gate. */
+        private const val ARM_RUNTIME_AUTHORIZATION_LANE =
+            "the ARM translated runtime authorizes the active lane's client"
         private const val ARM_PREFIX_MANIFEST_SCHEMA = 2
         private const val ARM_GENERATIONS_DIRECTORY = "generations"
         private const val ARM_RETIRED_GENERATIONS_DIRECTORY = "retired-generations"

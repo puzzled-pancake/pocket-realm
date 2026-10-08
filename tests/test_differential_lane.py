@@ -98,8 +98,9 @@ _ORACLE_SPEC.loader.exec_module(_ORACLE)
 
 def _bundle(profile="quick", gated=False, provider="SQLITE", **overrides):
     """A minimal well-formed evidence bundle; the quick shape by default.
-    The export slice matches PINNED_REALMD_SLICE + 64 character tables so
-    the shape gates pass for well-formed pairs."""
+    The export slice matches PINNED_REALMD_SLICE + PINNED_CHARACTER_TABLES
+    character tables and the revision state carries the ledger-derived
+    migration pin, so the shape gates pass for well-formed pairs."""
     realmd = {name: {"rows": 0} for name in _ORACLE.PINNED_REALMD_SLICE}
     characters = {f"t{i:02d}": {"rows": 0} for i in range(_ORACLE.PINNED_CHARACTER_TABLES)}
     if provider == "SQLITE":
@@ -113,7 +114,8 @@ def _bundle(profile="quick", gated=False, provider="SQLITE", **overrides):
         "profile": profile, "providerMode": provider, "sqliteCapable": provider == "SQLITE",
         "revisionsVerified": True, "bootWallMs": 30000,
         "dump": dump,
-        "revisionState": {"migrationManifestCount": 412, "migrationSealedCount": 412,
+        "revisionState": {"migrationManifestCount": _ORACLE.PINNED_MIGRATION_COUNT,
+                          "migrationSealedCount": _ORACLE.PINNED_MIGRATION_COUNT,
                           "migrationsCurrent": True},
         "dirtyKillRecovered": True,
         "quickRecoverResult": {"ok": True, "recovered": True},
@@ -204,13 +206,57 @@ def test_oracle_gated_skip_surface_is_exactly_pinned() -> None:
 
 def test_row_count_summary_self_quantifies() -> None:
     """The rowCountCheckSummary key cannot silently report {0, 0}."""
+    expected_total = len(_ORACLE.PINNED_REALMD_SLICE) + _ORACLE.PINNED_CHARACTER_TABLES
     a, b = _pair("quick")
     report = _ORACLE.parity_oracle(a, b, "quick")
-    assert report["rowCountCheckSummary"] == {"total": 69, "nonZero": 0}
+    assert report["rowCountCheckSummary"] == {"total": expected_total, "nonZero": 0}
     a["dump"]["tables"]["classicrealmd"]["account"] = {"rows": 4}
     b["dump"]["rowCounts"]["classicrealmd"]["account"] = 4
     report = _ORACLE.parity_oracle(a, b, "quick")
-    assert report["rowCountCheckSummary"] == {"total": 69, "nonZero": 1}
+    assert report["rowCountCheckSummary"] == {"total": expected_total, "nonZero": 1}
+
+
+def test_w8_revision_pins_derive_from_the_golden_migration_ledger() -> None:
+    """LV-server-db-38 regression pin: the W8 revision checks source their
+    expected count from the golden migration ledger
+    (schemas/database-migrations.json), never from literals. Literal 412
+    pins went stale against the shipped 414/414 world and FAILed three
+    both-sides-equal checks — oracle-pin drift, not provider divergence.
+    A rotated ledger must rotate the pin AND the check names with it."""
+    ledger = json.loads((ROOT / "schemas" / "database-migrations.json")
+                        .read_text(encoding="utf-8"))
+    assert _ORACLE.PINNED_MIGRATION_COUNT == len(ledger["entries"])
+    # A well-formed pair (revision state = the ledger-derived pin) passes
+    # the W8 exact pins BY NAME — a reverted literal pin would rename the
+    # checks out from under the passing bundle.
+    report = _ORACLE.parity_oracle(*_pair("quick"), "quick")
+    ok = {f["check"] for f in report["findings"] if f["ok"] is True}
+    assert {f"W8-manifest-is-{_ORACLE.PINNED_MIGRATION_COUNT}",
+            f"W8-sealed-is-{_ORACLE.PINNED_MIGRATION_COUNT}",
+            "W8-migrations-current"} <= ok
+    # The derived pin still bites: a bundle frozen at the previous
+    # manifest era fails both exact checks even though A==B.
+    stale_a, stale_b = _pair("quick")
+    stale_count = _ORACLE.PINNED_MIGRATION_COUNT - 1
+    for stale in (stale_a, stale_b):
+        stale["revisionState"] = {"migrationManifestCount": stale_count,
+                                  "migrationSealedCount": stale_count,
+                                  "migrationsCurrent": True}
+    report = _ORACLE.parity_oracle(stale_a, stale_b, "quick")
+    failed = {f["check"] for f in _failed(report)}
+    assert {f"W8-manifest-is-{_ORACLE.PINNED_MIGRATION_COUNT}",
+            f"W8-sealed-is-{_ORACLE.PINNED_MIGRATION_COUNT}"} <= failed
+
+
+def test_character_slice_pin_matches_the_shipped_schema_shape() -> None:
+    """LV-server-db-38 regression pin: the characters slice pin equals the
+    shipped classiccharacters export shape — every staged schema table
+    minus the regenerable ai_playerbot_* family (76 − 11 = 65). The stale
+    64 pin FAILed W0-export-slice-characters against a healthy 65-table
+    export. Schema-shape drift is not manifest-shaped (the ledger carries
+    no table list), so this stays an exact pin: rotating it is a
+    deliberate, reviewed edit."""
+    assert _ORACLE.PINNED_CHARACTER_TABLES == 65
 
 
 def test_oracle_inspects_quick_recover_payload() -> None:

@@ -74,6 +74,40 @@ data class LlmModelDescriptor(
 }
 
 object LlmModelRegistry {
+    /**
+     * The external-endpoint lane's generation wall, sized to the round-2
+     * live-verification completions (finding LVF-bots-llm-013): the old 60 s
+     * tier default cut that lane's legs at exactly the wall (class=empty,
+     * durMs=60013/60058, zero packets) while the measured completions needed
+     * ~100-120 s cold (~3.2 tok/s prompt eval on the ~334-386-token whisper
+     * prompts) and the staged 240 s budget PROVED the full pass arc (gen end
+     * class=ok under it). Deliberately finite: the per-lane tier default
+     * plus the clamped advanced override
+     * (LlmRuntimePolicy.MIN/MAX_GENERATION_TIMEOUT_SEC) keep every leg
+     * bounded — never an indefinite hang.
+     */
+    const val MEASURED_GENERATION_TIMEOUT_SEC = 240
+
+    /**
+     * The EMBEDDED lanes' generation wall (device :llm + desktop sidecar),
+     * sized to the closeout re-execution of finding LVF-bots-llm-012: the
+     * cold trained whisper is ~967 tokens and this host's loaded CPU
+     * prompt-eval measured 3.12 tok/s — ~310 s of eval alone (the run was
+     * cancelled at progress 0.96, n_tokens=931, t=298.55 s; the earlier
+     * round's completed warm turn adds ~33 s of reply decode on top), while
+     * the old 300 s wall sat 10 s under that measured need and the 240 s
+     * budget cut the same cold dispatch at durMs=240068 class=empty (the
+     * warm follow-up completed only via LCP KV reuse). 360 s = the measured
+     * ~310 s need + ~16% margin. The window is a pure ceiling: requests are
+     * non-streaming, so a fast lane returns early and the extra headroom
+     * never adds latency. Same bound law as
+     * [MEASURED_GENERATION_TIMEOUT_SEC]: tier default plus the clamped
+     * advanced override, always finite, never past the
+     * [MIN_GENERATION_TIMEOUT_SEC, MAX_GENERATION_TIMEOUT_SEC] band the
+     * settings override clamps into.
+     */
+    const val MEASURED_COLD_START_TIMEOUT_SEC = 360
+
     /** Tuned Gemma 4 E2B (arm2 epoch-3, Q4_0) — the shipped default. */
     val TUNED_E2B = LlmModelDescriptor(
         id = "gemma4-E2B-TUNED-q4_0",
@@ -95,7 +129,7 @@ object LlmModelRegistry {
             // (~2.2k tokens) plus the prompt-pack seasoning blocks + reply
             // caps with 2 concurrent slots. Qwen-0.8B stays 6144
             // (small-model tier).
-            contextLength = 12288, generationTimeoutSec = 60,
+            contextLength = 12288, generationTimeoutSec = MEASURED_COLD_START_TIMEOUT_SEC,
             maxSimultaneousGenerations = 2,
             // CPU-safe capacity (NPU-E2B ≈10-12, CPU-E2B ≈8): the
             // shipped steady-state may be CPU until the hybrid coexistence
@@ -123,7 +157,10 @@ object LlmModelRegistry {
             repeatPenalty = 1.0, maxTokens = 210,
         ),
         tierProfile = LlmTierProfile(
-            contextLength = 6144, generationTimeoutSec = 45,
+            // Same cold-start wall as the E2B tier: prompt eval is a
+            // host property, so the small tier's old 45 s default
+            // had the identical starvation shape on cold prompts.
+            contextLength = 6144, generationTimeoutSec = MEASURED_COLD_START_TIMEOUT_SEC,
             maxSimultaneousGenerations = 2,
             governorBotMax = 8, governorGlobalMax = 20,
             factsCap = 8, memoriesTail = 4,
@@ -156,7 +193,7 @@ object LlmModelRegistry {
             // (~2.2k tokens) plus the prompt-pack seasoning blocks + reply
             // caps with 2 concurrent slots. Qwen-0.8B stays 6144
             // (small-model tier).
-            contextLength = 12288, generationTimeoutSec = 60,
+            contextLength = 12288, generationTimeoutSec = MEASURED_COLD_START_TIMEOUT_SEC,
             maxSimultaneousGenerations = 2,
             governorBotMax = 8, governorGlobalMax = 8,
             factsCap = 12, memoriesTail = 6,

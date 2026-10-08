@@ -18,6 +18,13 @@ Staging path per server (uninstall wipes app data, so per-install):
   adb push pack -> /sdcard/Android/data/com.pocketrealm/files/o09stage
   run-as com.pocketrealm sh -c 'mkdir -p files/content/o09-server &&
     cp -r .../o09stage files/content/o09-server/active'
+
+Honest-verdict discipline: a dead instrument (no
+files/baseline-world-sanity.json, e.g. a DB-CONFIG refusal) is reported as
+a FAIL verdict naming instrument-<tag>.log — the driver never crashes on
+the missing result file — and a leg's error path never kills the emulator
+(only a completed run is torn down; a crashed leg leaves it up for
+post-mortem).
 """
 
 import argparse
@@ -101,12 +108,28 @@ def drive(apk: bytes, tests: bytes, tag: str, out_dir: Path) -> dict:
     tree = LANE.run([LANE.ADB, "shell", "run-as", "com.pocketrealm", "find",
                      "no_backup/server", "-maxdepth", "2"], check=False, timeout=60)
     (out_dir / f"server-tree.{tag}").write_text(tree, encoding="utf-8")
-    raw = LANE.adb("shell", "run-as", "com.pocketrealm", "cat",
-                   "files/baseline-world-sanity.json", timeout=120)
-    (out_dir / f"evidence-{tag}.json").write_text(raw, encoding="utf-8")
+    # The result-file read is GUARDED: when the instrument died before
+    # writing files/baseline-world-sanity.json (e.g. a DB-CONFIG refusal),
+    # `run-as cat` exits nonzero and check=False turns that into text here
+    # instead of a CalledProcessError crash; the json.loads guard below
+    # turns a missing/unreadable file into a FAIL verdict naming the
+    # instrument log. The bundle collected above (instrument + component
+    # logs, logcat, server tree) is already on disk in out_dir.
+    read = LANE.adb("shell", "run-as", "com.pocketrealm", "cat",
+                    "files/baseline-world-sanity.json", timeout=120, check=False)
+    (out_dir / f"evidence-{tag}.json").write_text(read, encoding="utf-8")
     if "OK (1 test)" not in result:
         print(f"WARNING: server {tag} instrument did not report OK — see {out_dir / f'instrument-{tag}.log'}")
-    return json.loads(raw)
+    try:
+        return json.loads(read)
+    except ValueError:
+        instrument_log = out_dir / f"instrument-{tag}.log"
+        print(f"FAIL: server {tag} left no readable files/baseline-world-sanity.json "
+              f"— instrument log: {instrument_log}")
+        return {"verdict": "FAIL",
+                "reason": "result file missing/unreadable; run-as cat said: "
+                          + read.strip()[:200],
+                "instrumentLog": str(instrument_log)}
 
 
 def main() -> int:
@@ -132,26 +155,39 @@ def main() -> int:
     )
     order = ("b", "a") if not args.only else (args.only,)
     report = {"runId": run_id, "servers": {}}
+    legs_completed = False
     try:
         LANE.wait_for_device(600)
         for tag in order:
             evidence = drive(apks[f"server_{tag}"], apks[f"tests_{tag}"], tag, out_dir)
             report["servers"][tag] = {"providerMode": evidence.get("providerMode"),
                                       "evidence": evidence}
+        legs_completed = True
     finally:
-        try:
-            LANE.adb("emu", "kill", timeout=60, check=False)
-        except Exception:
-            pass
-        try:
-            emulator.wait(timeout=60)
-        except Exception:
-            pass
+        if legs_completed:
+            # Only a COMPLETED run tears the emulator down. A leg's error
+            # path (install/staging failure, ...) must NEVER 'adb emu kill'
+            # as a side effect — the headless emulator stays up for
+            # post-mortem of the live device state.
+            try:
+                LANE.adb("emu", "kill", timeout=60, check=False)
+            except Exception:
+                pass
+            try:
+                emulator.wait(timeout=60)
+            except Exception:
+                pass
+        else:
+            print(f"leg error path: leaving the emulator running for post-mortem "
+                  f"(evidence bundle in {out_dir})")
 
     (out_dir / "sanity-report.json").write_text(
         json.dumps(report, indent=2) + "\n", encoding="utf-8", newline="\n")
     for tag, entry in report["servers"].items():
         ev = entry["evidence"]
+        if ev.get("verdict") == "FAIL":
+            print(f"[{tag}] FAIL: {ev['reason']} — instrument log: {ev['instrumentLog']}")
+            continue
         print(f"[{tag}] provider={entry['providerMode']} "
               f"dbBootMs={ev.get('dbBootMs')} worldBootMs={ev.get('worldBootMs')} "
               f"saveallAckMs={ev.get('saveallAckMs')} accounts={json.dumps(ev.get('accounts'))} "
@@ -159,7 +195,8 @@ def main() -> int:
               f"onDiskAccounts={ev.get('onDiskAccounts')}")
     providers = {entry["providerMode"] for entry in report["servers"].values()}
     ok = providers <= {"MARIADB", "SQLITE"} and all(
-        entry["providerMode"] for entry in report["servers"].values())
+        entry["evidence"].get("verdict") != "FAIL" and entry["providerMode"]
+        for entry in report["servers"].values())
     return 0 if ok else 1
 
 

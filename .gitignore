@@ -2,6 +2,7 @@
 # Gradle / Android
 **/build/
 .local.properties
+local.properties
 *.apk
 *.aab
 *.ap_
@@ -109,6 +110,12 @@ logs/
 *.log
 support_bundle/
 /diagnostics/
+# Evidence archive root (COMPLETION-PLAN section 9): wave evidence and
+# campaign artifacts stay machine-local, never committed (R1-2).
+out/
+# Nested git worktree/repo copies (round-3 R3-1b): a sweeping `git add`
+# must never embed an un-swept tree as a .gitmodules-less gitlink.
+repo/
 
 # Local repository hygiene markers (real identifiers stay machine-local; only
 # the committed .example template with placeholder values is shared).
@@ -125,6 +132,11 @@ tools/pii_markers.local.json
 .pytest_cache/
 .tmp/
 native/.tmp-*
+# Ephemeral build outputs (W0 close-out owner rulings): sweepable scratch
+# trees/logs from ad-hoc build/fixer runs must never enter a commit.
+build-logs/
+build-fixer-*/
+desktop/build-*
 CMakeFiles/
 CMakeCache.txt
 CMakeConfigureLog.yaml

@@ -202,6 +202,33 @@ internal object DatabaseDurableState {
         }
     }
 
+    /**
+     * The MariaDB initialize answer contract (DatabaseLifecycleTest's
+     * first-run shape: DatabaseLifecycleTest.kt:44-48): EVERY ok:true
+     * initialize answer from the MariaDB lane carries BOTH pinned
+     * least-privilege probe keys - leastPrivilegeVerified (the pocket_core
+     * health query) and privilegedActionDenied (the pocket_core CREATE USER
+     * denial). An ok:true without them asserts bootstrap success no live
+     * evidence supports (the LVF-server-db-015 fake-ok: a leftover
+     * initialized datadir answered key-less ok in ~134 ms without its
+     * daemon ever booting). Every MariaDB initialize answer is built
+     * through this guard, so a key-less ok cannot be returned - it fails
+     * loud instead. Failure shapes (ok:false) are passed through untouched.
+     */
+    fun verifiedMariaDbInitializeAnswer(build: JSONObject.() -> Unit): JSONObject {
+        val answer = JSONObject().apply(build)
+        if (answer.optBoolean("ok")) {
+            check(
+                answer.optBoolean("leastPrivilegeVerified") &&
+                    answer.optBoolean("privilegedActionDenied"),
+            ) {
+                "DB-INIT: MariaDB initialize refused to answer ok without its pinned " +
+                    "leastPrivilegeVerified/privilegedActionDenied probe keys"
+            }
+        }
+        return answer
+    }
+
     fun startBlocker(
         initialized: Boolean,
         migrationsCurrent: Boolean,

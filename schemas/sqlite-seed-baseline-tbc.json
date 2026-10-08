@@ -1,0 +1,47 @@
+{
+  "flavor": "tbc",
+  "generated_by": "tools/seed_realm_db.py --flavor tbc --write-baseline (first successful seed; floors measured, not guessed)",
+  "inputs": {
+    "core_submodule": "native/cmangos-tbc",
+    "db_submodule": "native/classic-db-tbc",
+    "world_dump": "native/classic-db-tbc/Full_DB/TBCDB_1.11.0_Vengeance_One_A_Cmangos_Story.sql.gz"
+  },
+  "databases": {
+    "tbccharacters": {
+      "statements": 137,
+      "applied": 137,
+      "errors": 0,
+      "tables": 68,
+      "rows": 1
+    },
+    "tbclogs": {
+      "statements": 7,
+      "applied": 7,
+      "errors": 0,
+      "tables": 3,
+      "rows": 1
+    },
+    "tbcmangos": {
+      "statements": 982,
+      "applied": 982,
+      "errors": 0,
+      "tables": 185,
+      "rows": 1056228
+    },
+    "tbcrealmd": {
+      "statements": 36,
+      "applied": 36,
+      "errors": 0,
+      "tables": 13,
+      "rows": 272
+    }
+  },
+  "floor_tables": {
+    "tbcmangos": {
+      "creature_template": 18799,
+      "quest_template": 6599,
+      "item_template": 30396,
+      "areatrigger_teleport": 186
+    }
+  }
+}

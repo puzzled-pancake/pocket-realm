@@ -303,6 +303,30 @@ public:
             (result == POCKET_SERVER_TIMEOUT ? result : POCKET_SERVER_ACCOUNT_REJECTED);
     }
 
+    // F1-10 (lanes item 12): the account-expansion relay op. tbc/wotlk
+    // rows are born with the seed's expansion default (0) and the core
+    // evaluates expansion gating per account row, so a flavor account
+    // cannot use expansion content until the core's own verb runs —
+    // `account set addon <name> <0|1|2>` (Chat.cpp:73, registered
+    // SEC_ADMINISTRATOR with console allowed, so the SEC_CONSOLE
+    // issue_command lane reaches it; HandleAccountSetAddonCommand does
+    // the `UPDATE account SET expansion` write). Typed exactly like
+    // set_account_gmlevel: READY-gated, token-validated, expansion
+    // domain 0..2 (0 classic / 1 tbc / 2 wotlk), same verdict mapping.
+    int set_account_addon(const std::string& username, int expansion, uint64_t timeout_ms)
+    {
+        if (m_state.state() != POCKET_SERVER_READY) return POCKET_SERVER_WRONG_STATE;
+        if (username.empty() || username.size() > 16 || expansion < 0 || expansion > 2)
+            return POCKET_SERVER_INVALID_ARGUMENT;
+        if (!std::all_of(username.begin(), username.end(),
+                [](unsigned char c) { return std::isalnum(c); }))
+            return POCKET_SERVER_INVALID_ARGUMENT;
+        const std::string command = "account set addon " + username + " " + std::to_string(expansion);
+        const int result = issue_command(command, timeout_ms, nullptr);
+        return result == POCKET_SERVER_OK ? result :
+            (result == POCKET_SERVER_TIMEOUT ? result : POCKET_SERVER_ACCOUNT_REJECTED);
+    }
+
     bool verify_account_password(const std::string& username, const std::string& password)
     {
         if (m_state.state() != POCKET_SERVER_READY || username.empty() || password.empty() ||
@@ -447,6 +471,225 @@ public:
              << ",\"questCount\":" << quest_count
              << ",\"questSha256\":\"" << quest_digest << "\""
              << ",\"durableSha256\":\"" << sha256_hex(durable.str()) << "\"}";
+        return json.str();
+    }
+
+    // ---- Remote friend accounts (design-remote-accounts §3/§8/§9/§11): ----
+    // verifier provisioning, roster reads, and ban verbs. The verifier op
+    // mirrors AccountMgr::CreateAccount's write WITHOUT a password input
+    // (AccountMgr.cpp:51-68): (s,v) were derived on the friend's device and
+    // land in the login database verbatim, so the password never crosses
+    // the host process. Same READY gate and token validation family as
+    // create_account above.
+
+    static bool is_lowercase_srp_hex(const std::string& value)
+    {
+        return value.size() == 64 &&
+            std::all_of(value.begin(), value.end(), [](unsigned char c) {
+                return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+            });
+    }
+
+    // Returns {result, accountId}: accountId is the new row's id on
+    // POCKET_SERVER_OK, else 0. ACCOUNT_EXISTS is decided BEFORE the insert
+    // (the host rejects the request; no verify-and-adopt shortcut exists
+    // for the verifier path - the host cannot even form a password).
+    std::pair<int, uint32_t> create_account_verifier(
+        const std::string& username, const std::string& s_hex, const std::string& v_hex)
+    {
+        if (m_state.state() != POCKET_SERVER_READY) return {POCKET_SERVER_WRONG_STATE, 0};
+        if (username.empty() || username.size() > 16 ||
+            !std::all_of(username.begin(), username.end(),
+                [](unsigned char c) { return c < 0x80 && std::isalnum(c); }))
+            return {POCKET_SERVER_INVALID_ARGUMENT, 0};
+        if (!is_lowercase_srp_hex(s_hex) || !is_lowercase_srp_hex(v_hex))
+            return {POCKET_SERVER_INVALID_ARGUMENT, 0};
+        // AccountMgr::CreateAccount's normalizeString (AccountMgr.cpp:44) on
+        // this op's strict ASCII-alnum domain: the friend-side verifier is
+        // derived from the UPPERCASED identity (Srp6AccountMath), the vanilla
+        // client and the app's own logon harnesses all send uppercase, and
+        // realmd's lookup is the raw wire name — so the row MUST carry the
+        // normalized form or the friend can never log in, and (the SQLite
+        // lane carrying binary collation with no UNIQUE key) a verbatim
+        // name could additionally squat a case-variant of an existing one.
+        std::string normalized = username;
+        std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+            [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        if (account_info(normalized).first != 0) return {POCKET_SERVER_ACCOUNT_EXISTS, 0};
+        std::string escaped = normalized;
+        LoginDatabase.escape_string(escaped);
+        // The AccountMgr::CreateAccount write, password-less: gmlevel stays
+        // the schema default 0 (the host raises it explicitly later via
+        // set_account_gmlevel), and the realmcharacters bootstrap INSERT
+        // rides along exactly as the core performs it. _NOW_ is the
+        // backend-conditional timestamp token (AccountMgr.cpp:57 — NOW()
+        // on MySQL, datetime() on the DO_SQLITE lane).
+        if (!LoginDatabase.PExecute(
+                "INSERT INTO account(username,v,s,gmlevel,joindate) VALUES('%s','%s','%s',0," _NOW_ ")",
+                escaped.c_str(), v_hex.c_str(), s_hex.c_str()))
+            return {POCKET_SERVER_INTERNAL, 0};
+        LoginDatabase.Execute(
+            "INSERT INTO realmcharacters (realmid, acctid, numchars) "
+            "SELECT realmlist.id, account.id, 0 FROM realmlist,account "
+            "LEFT JOIN realmcharacters ON acctid=account.id WHERE acctid IS NULL");
+        return {POCKET_SERVER_OK, account_info(normalized).first};
+    }
+
+    // The Players-screen roster read (§11): identity columns plus the ban
+    // state (active account_banned row), the live failed_logins counter,
+    // the last SUCCESSFUL logon (account_logons records successes only),
+    // and online status. Online is the core's own onlinelist predicate
+    // (CliRunnable.cpp HandleAccountOnlineListCommand: active_realm_id =
+    // realmID) — the structured-op form the design's §11 allows instead of
+    // parsing console text. No user input reaches the query; row counts
+    // are tiny by design (friends + bots + host). Allowing SAVING mirrors
+    // account_info.
+    std::string account_list()
+    {
+        if (m_state.state() != POCKET_SERVER_READY && m_state.state() != POCKET_SERVER_SAVING)
+            return "{\"ok\":false,\"reason\":\"world-not-ready\"}";
+        auto result = LoginDatabase.PQuery(
+            "SELECT a.id,a.username,a.gmlevel,a.failed_logins,"
+            // The roster's ban flag must match what the engine ENFORCES at
+            // logon (AuthSocket.cpp:466-467): active = 1 AND (expires_at >
+            // _UNIXTIME_ OR expires_at = banned_at) — bigint epoch columns,
+            // and the equality is the engine's PERMANENT form. Without the
+            // expiry test a lapsed timed suspension renders "BANNED" on the
+            // roster surfaces forever while the friend logs in freely
+            // (DesktopGuestBans.listBans already applies this same
+            // predicate to the Guests list).
+            "(SELECT COUNT(*) FROM account_banned b WHERE b.account_id=a.id AND b.active=1"
+            " AND (b.expires_at > " _UNIXTIME_ " OR b.expires_at = b.banned_at)),"
+            "(SELECT l.ip FROM account_logons l WHERE l.accountId=a.id ORDER BY l.id DESC LIMIT 1),"
+            "(SELECT l.loginTime FROM account_logons l WHERE l.accountId=a.id ORDER BY l.id DESC LIMIT 1),"
+            "(a.active_realm_id <> 0) "
+            "FROM account a ORDER BY a.id");
+        // PQuery yields NULL for an EMPTY result set too (not only on
+        // error) - an account-less database is an empty roster, not a
+        // failure.
+        if (!result) return "{\"ok\":true,\"accounts\":[]}";
+        std::ostringstream json;
+        json << "{\"ok\":true,\"accounts\":[";
+        bool first = true;
+        do
+        {
+            Field* fields = result->Fetch();
+            if (!first) json << ",";
+            first = false;
+            json << "{\"id\":" << fields[0].GetUInt32()
+                 << ",\"username\":\"" << json_escape(fields[1].GetCppString()) << "\""
+                 << ",\"gmlevel\":" << fields[2].GetInt32()
+                 << ",\"failedLogins\":" << fields[3].GetUInt32()
+                 << ",\"banned\":" << (fields[4].GetUInt32() != 0 ? "true" : "false")
+                 << ",\"lastLogonIp\":\"" << json_escape(fields[5].GetCppString()) << "\""
+                 << ",\"lastLogon\":\"" << json_escape(fields[6].GetCppString()) << "\""
+                 << ",\"online\":" << (fields[7].GetUInt32() != 0 ? "true" : "false")
+                 << "}";
+        } while (result->NextRow());
+        json << "]}";
+        return json.str();
+    }
+
+    // Per-friend characters (§8): rows in `characters` key on the account
+    // id, so nothing new is required for characters to be per-account; this
+    // op only lists them (guid/name/race/class/level). The
+    // character_persistence validation pattern, mirrored.
+    std::string account_characters(const std::string& username)
+    {
+        if (m_state.state() != POCKET_SERVER_READY && m_state.state() != POCKET_SERVER_SAVING)
+            return "{\"ok\":false,\"reason\":\"world-not-ready\"}";
+        if (username.empty() || username.size() > 16 ||
+            !std::all_of(username.begin(), username.end(),
+                [](unsigned char c) { return c < 0x80 && std::isalnum(c); }))
+            return "{\"ok\":false,\"reason\":\"invalid-identity\"}";
+        const auto account = account_info(username);
+        if (account.first == 0) return "{\"ok\":false,\"reason\":\"account-missing\"}";
+        auto result = CharacterDatabase.PQuery(
+            "SELECT guid,name,race,class,level FROM characters "
+            "WHERE account='%u' AND deleteDate IS NULL ORDER BY guid",
+            account.first);
+        // NULL on the empty set: a fresh friend owns zero characters - an
+        // empty list is the answer, not a failure (the character_
+        // persistence sibling reads the same way).
+        if (!result) return "{\"ok\":true,\"accountId\":" + std::to_string(account.first) +
+            ",\"characters\":[]}";
+        std::ostringstream json;
+        json << "{\"ok\":true,\"accountId\":" << account.first << ",\"characters\":[";
+        bool first = true;
+        do
+        {
+            Field* fields = result->Fetch();
+            if (!first) json << ",";
+            first = false;
+            json << "{\"guid\":" << fields[0].GetUInt32()
+                 << ",\"name\":\"" << json_escape(fields[1].GetCppString()) << "\""
+                 << ",\"race\":" << fields[2].GetUInt32()
+                 << ",\"class\":" << fields[3].GetUInt32()
+                 << ",\"level\":" << fields[4].GetUInt32()
+                 << "}";
+        } while (result->NextRow());
+        json << "]}";
+        return json.str();
+    }
+
+    // Ban/unban (§9): the shared moderation surface, wrapping the console
+    // verbs through the SEC_CONSOLE issue_command every account op uses.
+    // `ban account <name> <duration> <reason>` needs all three arguments
+    // (Level3.cpp HandleBanHelper); duration "0" is the permanent ban, the
+    // caller presets (1h/24h) arrive as TimeStringToSecs-shaped strings
+    // ("1h"/"1d"). The reason is quoted for ExtractQuotedOrLiteralArg and
+    // stripped of quotes/control characters first. Output-scan style is
+    // create_account's: the raw console text rides back for the caller.
+    std::string ban_account(const std::string& username, const std::string& duration,
+        std::string reason, uint64_t timeout_ms)
+    {
+        if (m_state.state() != POCKET_SERVER_READY) return "{\"ok\":false,\"reason\":\"world-not-ready\"}";
+        if (username.empty() || username.size() > 16 ||
+            !std::all_of(username.begin(), username.end(),
+                [](unsigned char c) { return c < 0x80 && std::isalnum(c); }))
+            return "{\"ok\":false,\"reason\":\"invalid-identity\"}";
+        if (duration.empty() || duration.size() > 8 ||
+            !std::all_of(duration.begin(), duration.end(),
+                [](unsigned char c) { return (c >= '0' && c <= '9') || c == 's' || c == 'm' ||
+                    c == 'h' || c == 'd' || c == 'w' || c == 'M' || c == 'y'; }))
+            return "{\"ok\":false,\"reason\":\"invalid-duration\"}";
+        std::string sanitized;
+        sanitized.reserve(reason.size());
+        for (char c : reason)
+        {
+            const unsigned char uc = static_cast<unsigned char>(c);
+            if (uc >= 0x20 && c != '"' && c != '\\') sanitized.push_back(c);
+        }
+        if (sanitized.size() > 128) sanitized.resize(128);
+        if (sanitized.empty()) sanitized = "host ban";
+        const std::string command = "ban account " + username + " " + duration + " \"" + sanitized + "\"";
+        std::string output;
+        const int result = issue_command(command, timeout_ms, &output);
+        std::ostringstream json;
+        json << "{\"ok\":" << (result == POCKET_SERVER_OK ? "true" : "false")
+             << ",\"result\":" << result
+             << ",\"reason\":\"" << json_escape(sanitized) << "\""
+             << ",\"output\":\"" << json_escape(output) << "\"}";
+        return json.str();
+    }
+
+    std::string unban_account(const std::string& username, uint64_t timeout_ms)
+    {
+        if (m_state.state() != POCKET_SERVER_READY) return "{\"ok\":false,\"reason\":\"world-not-ready\"}";
+        if (username.empty() || username.size() > 16 ||
+            !std::all_of(username.begin(), username.end(),
+                [](unsigned char c) { return c < 0x80 && std::isalnum(c); }))
+            return "{\"ok\":false,\"reason\":\"invalid-identity\"}";
+        std::string output;
+        // HandleUnBanHelper requires the unban MESSAGE as a second argument
+        // (Level3.cpp: ExtractQuotedOrLiteralArg without one returns false).
+        const std::string command =
+            "unban account " + username + " \"host unban\"";
+        const int result = issue_command(command, timeout_ms, &output);
+        std::ostringstream json;
+        json << "{\"ok\":" << (result == POCKET_SERVER_OK ? "true" : "false")
+             << ",\"result\":" << result
+             << ",\"output\":\"" << json_escape(output) << "\"}";
         return json.str();
     }
 
@@ -1415,6 +1658,14 @@ Java_com_pocketrealm_server_WorldNative_setAccountGmLevelNative(
         static_cast<uint64_t>(std::max<jlong>(0, timeout_ms)));
 }
 
+extern "C" JNIEXPORT jint JNICALL
+Java_com_pocketrealm_server_WorldNative_setAccountAddonNative(
+    JNIEnv* env, jclass, jstring username, jint expansion, jlong timeout_ms)
+{
+    return g_runtime.set_account_addon(from_jstring(env, username), static_cast<int>(expansion),
+        static_cast<uint64_t>(std::max<jlong>(0, timeout_ms)));
+}
+
 extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_pocketrealm_server_WorldNative_accountInfoNative(JNIEnv* env, jclass, jstring username)
 {
@@ -1431,6 +1682,47 @@ Java_com_pocketrealm_server_WorldNative_characterPersistenceNative(
 {
     return to_jstring(env, g_runtime.character_persistence(
         from_jstring(env, username), from_jstring(env, character_name)));
+}
+
+// ---- Remote friend accounts (design-remote-accounts) ----
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_com_pocketrealm_server_WorldNative_createAccountVerifierNative(
+    JNIEnv* env, jclass, jstring username, jstring s_hex, jstring v_hex)
+{
+    const auto verdict = g_runtime.create_account_verifier(
+        from_jstring(env, username), from_jstring(env, s_hex), from_jstring(env, v_hex));
+    const jlong values[2] = {static_cast<jlong>(verdict.first),
+        static_cast<jlong>(verdict.second)};
+    jlongArray result = env->NewLongArray(2);
+    env->SetLongArrayRegion(result, 0, 2, values);
+    return result;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_server_WorldNative_accountListNative(JNIEnv* env, jclass)
+{ return to_jstring(env, g_runtime.account_list()); }
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_server_WorldNative_accountCharactersNative(
+    JNIEnv* env, jclass, jstring username)
+{ return to_jstring(env, g_runtime.account_characters(from_jstring(env, username))); }
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_server_WorldNative_banAccountNative(
+    JNIEnv* env, jclass, jstring username, jstring duration, jstring reason, jlong timeout_ms)
+{
+    return to_jstring(env, g_runtime.ban_account(
+        from_jstring(env, username), from_jstring(env, duration), from_jstring(env, reason),
+        static_cast<uint64_t>(std::max<jlong>(0, timeout_ms))));
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_server_WorldNative_unbanAccountNative(
+    JNIEnv* env, jclass, jstring username, jlong timeout_ms)
+{
+    return to_jstring(env, g_runtime.unban_account(
+        from_jstring(env, username), static_cast<uint64_t>(std::max<jlong>(0, timeout_ms))));
 }
 
 // ---- H2 relay-min smoke-rail ops ----

@@ -30,54 +30,132 @@ class SinglePlayerAutoLoginCredentials internal constructor(
 }
 
 /**
+ * Structural login-window topology contract for one client build's
+ * Wine/Winlator lane (P11, lanes item 19 — the per-build seam behind
+ * [Build5875LoginTopology]).
+ */
+internal interface LoginTopologyMatcher {
+    fun matches(
+        windows: List<AutoLoginWindow>,
+        lane: AutoLoginWindowLane,
+        expectedWidth: Int = 1920,
+        expectedHeight: Int = 1080,
+    ): Boolean
+}
+
+/**
  * Exact mapped topology accepted for the qualified build-5875 login window.
  * The x86 lane publishes a blank-title `wow.exe` top-level plus a same-sized
  * anonymous backing window. The current ARM Winlator transport omits WM_CLASS
  * and _NET_WM_PID, so it is accepted only as one anonymous exact-size top-level;
  * the caller separately gates this matcher to the production build id.
  */
-internal object Build5875LoginTopology {
-    fun matches(
+internal object Build5875LoginTopology : LoginTopologyMatcher {
+    override fun matches(
         windows: List<AutoLoginWindow>,
         lane: AutoLoginWindowLane,
-        expectedWidth: Int = 1920,
-        expectedHeight: Int = 1080,
-    ): Boolean {
-        val large = windows.filter {
-            it.renderable && it.topLevel && it.width >= 640 && it.height >= 480
-        }
-        return when (lane) {
-            AutoLoginWindowLane.X86_DIRECT -> {
-                val clients = large.filter {
-                    it.name.isEmpty() && it.className.equals("wow.exe", ignoreCase = true) &&
-                        it.processId > 0 && it.width == expectedWidth &&
-                        it.height == expectedHeight
-                }
-                clients.size == 1 && large.size == 2 && large.any {
-                    it !== clients.single() && it.name.isEmpty() && it.className.isEmpty() &&
-                        it.processId == 0 && it.width == clients.single().width &&
-                        it.height == clients.single().height
-                }
+        expectedWidth: Int,
+        expectedHeight: Int,
+    ): Boolean = matchQualifiedLoginTopology(windows, lane, expectedWidth, expectedHeight)
+}
+
+/**
+ * Build-8606 (tbc) login topology — the build-keyed twin of
+ * [Build5875LoginTopology].
+ *
+ * Provenance, honestly: the X11/Winlator transport contract below is the one
+ * VERIFIED against the production build-5875 lane; the 8606 client rides the
+ * identical Wine stack (same `wow.exe` process name, same single top-level
+ * login frame) but has not yet been mapped in a device session, so this twin
+ * exists as its own seam — when the 8606 device capture lands, its divergence
+ * (if any) is pinned here without touching the verified 5875 contract. Until
+ * then, resolving the tbc flavor to this matcher is exactly as conservative
+ * as the 5875 lane: any modal or decoy window still cancels injection.
+ */
+internal object Build8606LoginTopology : LoginTopologyMatcher {
+    override fun matches(
+        windows: List<AutoLoginWindow>,
+        lane: AutoLoginWindowLane,
+        expectedWidth: Int,
+        expectedHeight: Int,
+    ): Boolean = matchQualifiedLoginTopology(windows, lane, expectedWidth, expectedHeight)
+}
+
+/**
+ * Build-12340 (wotlk) login topology — the build-keyed twin of
+ * [Build5875LoginTopology], same provenance contract as [Build8606LoginTopology].
+ */
+internal object Build12340LoginTopology : LoginTopologyMatcher {
+    override fun matches(
+        windows: List<AutoLoginWindow>,
+        lane: AutoLoginWindowLane,
+        expectedWidth: Int,
+        expectedHeight: Int,
+    ): Boolean = matchQualifiedLoginTopology(windows, lane, expectedWidth, expectedHeight)
+}
+
+/**
+ * Login topologies keyed by build/flavor id — the Android twin of the desktop
+ * lane's `LOGIN_SIGNATURES` registry (Win32AutoLogin). An unknown id resolves
+ * to null and the caller must refuse honestly instead of guessing a topology.
+ */
+internal object LoginTopologies {
+    fun forBuild(build: Int): LoginTopologyMatcher? = when (build) {
+        ClientFlavors.VANILLA.build -> Build5875LoginTopology
+        ClientFlavors.TBC.build -> Build8606LoginTopology
+        ClientFlavors.WOTLK.build -> Build12340LoginTopology
+        else -> null
+    }
+
+    fun forFlavorId(flavorId: String): LoginTopologyMatcher? = when (flavorId) {
+        ClientFlavors.VANILLA.flavorId -> Build5875LoginTopology
+        ClientFlavors.TBC.flavorId -> Build8606LoginTopology
+        ClientFlavors.WOTLK.flavorId -> Build12340LoginTopology
+        else -> null
+    }
+}
+
+/** The verified mapped-login-window contract shared by the pinned builds. */
+private fun matchQualifiedLoginTopology(
+    windows: List<AutoLoginWindow>,
+    lane: AutoLoginWindowLane,
+    expectedWidth: Int,
+    expectedHeight: Int,
+): Boolean {
+    val large = windows.filter {
+        it.renderable && it.topLevel && it.width >= 640 && it.height >= 480
+    }
+    return when (lane) {
+        AutoLoginWindowLane.X86_DIRECT -> {
+            val clients = large.filter {
+                it.name.isEmpty() && it.className.equals("wow.exe", ignoreCase = true) &&
+                    it.processId > 0 && it.width == expectedWidth &&
+                    it.height == expectedHeight
             }
-            AutoLoginWindowLane.ARM_TRANSLATED -> {
-                val mapped = windows.filter { it.renderable }
-                val topLevel = mapped.filter { it.topLevel }
-                // Box64 exposes one exact-size, non-desktop top-level game
-                // surface. Same-sized child surfaces are compositor details,
-                // never a second credential target.
-                val topTargets = topLevel.filter {
-                    !it.desktop && it.width == expectedWidth && it.height == expectedHeight
-                }
-                if (topTargets.size != 1) return false
-                val target = topTargets.single()
-                // ARM Winlator metadata (WM_NAME/WM_CLASS/_NET_WM_PID) is not
-                // stable across Wine/DXVK revisions. Bind to a separate game
-                // drawable. Any other non-tiny top-level window is a
-                // modal/decoy and cancels credential injection.
-                mapped.all {
-                    it === target || !it.topLevel ||
-                        (it.width <= 16 && it.height <= 16)
-                }
+            clients.size == 1 && large.size == 2 && large.any {
+                it !== clients.single() && it.name.isEmpty() && it.className.isEmpty() &&
+                    it.processId == 0 && it.width == clients.single().width &&
+                    it.height == clients.single().height
+            }
+        }
+        AutoLoginWindowLane.ARM_TRANSLATED -> {
+            val mapped = windows.filter { it.renderable }
+            val topLevel = mapped.filter { it.topLevel }
+            // Box64 exposes one exact-size, non-desktop top-level game
+            // surface. Same-sized child surfaces are compositor details,
+            // never a second credential target.
+            val topTargets = topLevel.filter {
+                !it.desktop && it.width == expectedWidth && it.height == expectedHeight
+            }
+            if (topTargets.size != 1) return false
+            val target = topTargets.single()
+            // ARM Winlator metadata (WM_NAME/WM_CLASS/_NET_WM_PID) is not
+            // stable across Wine/DXVK revisions. Bind to a separate game
+            // drawable. Any other non-tiny top-level window is a
+            // modal/decoy and cancels credential injection.
+            mapped.all {
+                it === target || !it.topLevel ||
+                    (it.width <= 16 && it.height <= 16)
             }
         }
     }
@@ -105,6 +183,10 @@ internal class SinglePlayerAutoLoginController(
     private val lane: AutoLoginWindowLane,
     private val expectedWidth: Int = 1920,
     private val expectedHeight: Int = 1080,
+    /** Login topology contract for the launched build (P11): resolved from
+     * [LoginTopologies] by the caller; the default preserves the verified
+     * build-5875 behavior of every existing call site. */
+    private val loginTopology: LoginTopologyMatcher = Build5875LoginTopology,
     private val bridge: AutoLoginBridge,
     private val scheduler: AutoLoginScheduler,
     private val onDiagnostic: (String) -> Unit = {},
@@ -276,7 +358,7 @@ internal class SinglePlayerAutoLoginController(
         topologyMatches(bridge.mappedWindows())
 
     private fun topologyMatches(windows: List<AutoLoginWindow>): Boolean =
-        Build5875LoginTopology.matches(
+        loginTopology.matches(
             windows, lane, expectedWidth, expectedHeight,
         )
 

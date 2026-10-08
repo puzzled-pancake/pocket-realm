@@ -15,7 +15,12 @@ interface IDatabaseControl {
     String initialize();
     String start();
     String queryHealth();
-    String projectRealmEndpoint(String instanceToken, String address, int worldPort);
+    // The realmbuilds advertisement rides the projection as a VALUE (the
+    // desktop DesktopDatabaseService twin): the caller resolves the session's
+    // flavor where that selection is visible and threads the accepted-build
+    // list across Binder — :database never re-resolves a flavor selection it
+    // cannot see (the Home switcher's ActiveFlavor state is UI-process-local).
+    String projectRealmEndpoint(String instanceToken, String address, int worldPort, String realmbuilds);
     String applyPinnedMigrations();
     String provisionSqliteProvider();
     String translateUserStateToSqliteStaging();

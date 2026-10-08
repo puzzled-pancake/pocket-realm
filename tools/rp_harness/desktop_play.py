@@ -1,6 +1,6 @@
 """Desktop RP play session v2: a REAL protocol-client player.
 
-The player (rptest/Davos) logs in through the full 1.12 wire (SRP6 logon
+The player (RPTEST/Davos) logs in through the full 1.12 wire (SRP6 logon
 + world auth + char login) so every conversational gate sees a real
 player session. Chat goes out as CMSG_MESSAGECHAT and every bot reply
 comes back as SMSG_MESSAGECHAT — captured directly, cross-checked
@@ -20,16 +20,16 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
+import common  # noqa: E402
 
-from rp_harness.desktop_host import DesktopHost, DesktopHostError  # noqa: E402
+from rp_harness.desktop_host import (DesktopHost, DesktopHostError,  # noqa: E402
+                                     RPTEST_PASS, RPTEST_USER)
 from rp_harness.protocol import make_sentinel  # noqa: E402
 
-WORLD_LOG = Path(__import__("os").environ.get("LOCALAPPDATA", "")) / "PocketRealm" / "runtime" / "server" / "logs" / "world.log"
+WORLD_LOG = common.product_data_root() / "runtime" / "server" / "logs" / "world.log"
 RE_THINK = re.compile(r"<think>|</think>|<reasoning>|</reasoning>|<thought>", re.I)
 META_MARKERS = ("as an ai", "language model", "i'm a bot", "i am a bot",
                 "ai assistant")
-RPTEST_USER = "rptest"
-RPTEST_PASS = "rptestpass"
 RP_CHAR = "Davos"
 
 
@@ -75,8 +75,15 @@ def main(argv: list[str] | None = None) -> int:
     # a prior session may have saved Davos at a bot's position (water,
     # other map) - a level-1 human loading there can crash the world
     import subprocess
-    subprocess.run([sys.executable, str(REPO / "tools" / "reset_davos.py")],
-                   capture_output=True)
+    reset = subprocess.run([sys.executable, str(REPO / "tools" / "reset_davos.py")],
+                           capture_output=True)
+    if reset.returncode != 0:
+        # fail the suite with the reset's own error instead of booting on
+        # a possibly stale/corrupt Davos row
+        detail = (reset.stderr or reset.stdout or b"").decode("utf-8", "replace").strip()
+        print(f"reset_davos failed (rc={reset.returncode}): {detail[:400]}",
+              file=sys.stderr)
+        return 1
     host = DesktopHost(REPO, bots=25,
                        stderr_path=out_dir / "play2-stderr.log")
     try:
@@ -204,7 +211,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"exchanges={len(report['exchanges'])} issues={len(report['issues'])}")
     for issue in report["issues"]:
         print("ISSUE:", issue["issues"], "->", issue.get("reply", "")[:90])
-    return 0
+    fatal = any(phase.get("phase") == "fatal" for phase in report["phases"])
+    return 1 if report["issues"] or fatal else 0
 
 
 if __name__ == "__main__":

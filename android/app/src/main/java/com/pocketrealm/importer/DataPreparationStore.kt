@@ -12,11 +12,18 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
+import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.server.PreparedDataStore
 import kotlin.coroutines.coroutineContext
 
 /** Checkpointed CMaNGOS data generation and immutable normal-mode publication. */
+/** The lane string the data-preparation publish/recover legs resolve 
+ * through ActiveFlavor (top-level so verifiedSourceFlavor shares it). */
+private const val SERVER_DATA_PREPARATION_LANE =     "server data preparation resolves the qualified lane"
+
+
 class DataPreparationStore(
     context: Context,
     private val journal: ImportJournal,
@@ -24,8 +31,6 @@ class DataPreparationStore(
     private val app = context.applicationContext
     private val root = File(app.filesDir, "content/o11-server").apply { mkdirs() }
     private val generations = File(root, "generations").apply { mkdirs() }
-    private val active = File(root, "active.json")
-    private val previous = File(root, "previous.json")
     private val nativeDir = File(app.applicationInfo.nativeLibraryDir)
 
     suspend fun prepare(
@@ -57,7 +62,7 @@ class DataPreparationStore(
             requireCount(File(stageRoot, "vmaps"), ".vmtree", 1)
         }
         prepareMmaps(importId, stageRoot, onTick)
-        publish(importId, stageRoot, onTick)
+        publish(importId, stageRoot, clientRoot, onTick)
     }
 
     /**
@@ -242,7 +247,7 @@ class DataPreparationStore(
         }
     }
 
-    private fun publish(importId: String, stageRoot: File, onTick: () -> Unit): PublishedData {
+    private fun publish(importId: String, stageRoot: File, clientRoot: File, onTick: () -> Unit): PublishedData {
         recover(importId, onTick)?.let { return it }
         // Unknown-length like the other finite stages — the full
         // data hash walk would otherwise leave a frozen "0/1" bar for its
@@ -264,12 +269,29 @@ class DataPreparationStore(
             .put("vmapTiles", count(File(stageRoot, "vmaps"), ".vmtile"))
             .put("mmapMaps", count(File(stageRoot, "mmaps"), ".mmap"))
             .put("mmapTiles", count(File(stageRoot, "mmaps"), ".mmtile"))
-        val flavor = ClientFlavors.qualified().single()
-        val manifest = JSONObject().put("schema", 1).put("complete", true)
-            .put("mode", "NORMAL").put("clientBuild", flavor.build).put("cmangosFamily", flavor.serverFamily)
-            .put("generator", generatorProvenance())
-            .put("sourceClientGeneration", importId).put("counts", counts)
-            .put("files", JSONArray(files)).put("publishedAtMs", System.currentTimeMillis())
+        // GAP-3 (owner census UIUX-3): publication resolves the ACTIVE lane
+        // through the flavor machine — with several qualified flavors the
+        // manifest identity and the per-flavor active pointer follow the
+        // Home switcher's selection instead of `qualified().single()`
+        // refusing data preparation wholesale.
+        // R2-4 (code-red round 2): the ACTIVE selection alone was the whole
+        // identity — a flavor switch during the hours-long prep window
+        // published a generation stamped for the WRONG lane and every
+        // consume-side envelope gate keyed off the same selection, so the
+        // mislabeled bytes booted without rejection. The stamp now comes
+        // from the VERIFIED source generation's own client-manifest
+        // clientId (the PE-resolved identity ClientGenerationStore pins),
+        // and a disagreement with the active lane refuses loudly instead
+        // of relabeling the bytes.
+        val flavor = verifiedSourceFlavor(clientRoot)
+        val manifest = buildDataManifestJson(
+            flavor = flavor,
+            counts = counts,
+            files = files,
+            generator = generatorProvenance(),
+            importId = importId,
+            publishedAtMs = System.currentTimeMillis(),
+        )
         val manifestFile = File(stageRoot, "data-manifest.json")
         atomicWrite(manifestFile, manifest.toString(2).toByteArray())
         val digest = sha256(manifestFile)
@@ -277,7 +299,7 @@ class DataPreparationStore(
         check(!final.exists()) { "data generation collision" }
         Os.rename(stageRoot.absolutePath, final.absolutePath)
         fsyncDirectory(generations)
-        activate(importId, digest)
+        activate(importId, digest, flavor)
         journal.checkpointDataStage(importId, DataStage.MANIFEST, 1, 1, directoryBytes(final), "complete", true)
         return PublishedData(importId, final, digest)
     }
@@ -288,12 +310,24 @@ class DataPreparationStore(
      * checkpoint is cleaned up here instead of leaving a stale RUNNING row
      * that pins the "Current work" pane and the completion notification.
      */
+    /**
+     * R2-4: the data manifest's flavor is the VERIFIED identity of the
+     * source client generation (its client-manifest.json clientId — the
+     * PE-resolved lane the import gate stamped), never the Home switcher's
+     * current selection. A generation whose verified flavor disagrees with
+     * the active lane REFUSES publication: a mid-prep flavor switch must
+     * not relabel cross-flavor bytes (the consume-side envelope gates key
+     * off the manifest, so a mislabeled generation would boot unrejected).
+     */
     private fun recover(importId: String, onTick: () -> Unit = {}): PublishedData? {
         val final = generation(importId)
         val manifestFile = File(final, "data-manifest.json")
         if (!final.isDirectory || !manifestFile.isFile) return null
         val manifest = JSONObject(manifestFile.readText())
-        val flavor = ClientFlavors.qualified().single()
+        // GAP-3: recovery resolves the same ACTIVE lane publication did —
+        // the envelope identity gate and the re-activation follow the
+        // selection, never a `.single()` crash at the second qualification.
+        val flavor = ActiveFlavor.resolve(SERVER_DATA_PREPARATION_LANE)
         check(manifest.getInt("schema") == 1 && manifest.getBoolean("complete") &&
             manifest.getString("mode") == "NORMAL" &&
             manifest.getInt("clientBuild") == flavor.build) {
@@ -306,6 +340,12 @@ class DataPreparationStore(
             "data generation was built for the ${manifest.optString("cmangosFamily")} server family, " +
                 "but the qualified lane is ${flavor.serverFamily}"
         }
+        // G3-2: the flavor key is an additive alias of the fields above —
+        // absent on pre-flavor manifests, refused on disagreement.
+        check(manifest.optString("flavor", flavor.flavorId) == flavor.flavorId) {
+            "data generation was built for the \"${manifest.optString("flavor")}\" flavor, " +
+                "but the qualified lane is ${flavor.flavorId}"
+        }
         onTick()
         for (index in 0 until manifest.getJSONArray("files").length()) {
             val record = manifest.getJSONArray("files").getJSONObject(index)
@@ -314,29 +354,72 @@ class DataPreparationStore(
             onTick()
         }
         val digest = sha256(manifestFile)
-        activate(importId, digest)
+        activate(importId, digest, flavor)
         journal.checkpointDataStage(importId, DataStage.MANIFEST, 1, 1, directoryBytes(final), "complete", true)
         return PublishedData(importId, final, digest)
     }
 
-    private fun activate(importId: String, digest: String) {
+    /**
+     * Flavor-scoped activation (G3-5): the pointer switch and the prune run
+     * inside [flavor]'s namespace. The keep-set never contains another
+     * flavor's data generation (hours of on-device mmaps work), and the
+     * pointer body carries the flavor key so a doctored cross-flavor pointer
+     * is detectable by the fail-closed readers.
+     */
+    private fun activate(importId: String, digest: String, flavor: ClientFlavor) {
         PreparedDataStore.acquirePublicationLease(root).use {
-            val current = if (active.isFile) {
-                runCatching { JSONObject(active.readText()) }.getOrNull()
+            val activePointer = activePointerFor(flavor)
+            val previousPointer = previousPointerFor(flavor)
+            val current = if (activePointer.isFile) {
+                runCatching { JSONObject(activePointer.readText()) }.getOrNull()
             } else null
             val priorGeneration = current?.optString("generation")?.takeIf { it.matches(UUID) }
             if (priorGeneration == importId && current?.optString("manifestSha256") == digest &&
                 current?.optString("mode") == "NORMAL") return
-            if (priorGeneration != null && priorGeneration != importId) atomicWrite(previous, active.readBytes())
-            atomicWrite(active, JSONObject().put("schema", 1).put("generation", importId)
+            if (priorGeneration != null && priorGeneration != importId) {
+                atomicWrite(previousPointer, activePointer.readBytes())
+            }
+            atomicWrite(activePointer, JSONObject().put("schema", 1).put("generation", importId)
                 .put("manifestSha256", digest).put("mode", "NORMAL")
+                .put("flavor", flavor.flavorId)
                 .put("activatedAtMs", System.currentTimeMillis()).toString().toByteArray())
-            val keep = setOfNotNull(importId, priorGeneration)
-            generations.listFiles().orEmpty().filter {
-                it.isDirectory && !it.name.startsWith(".staging-") && it.name !in keep
-            }.forEach { check(it.deleteRecursively()) { "cannot retire old data generation" } }
+            val pruneCandidates = generations.listFiles().orEmpty()
+                .filter { it.isDirectory && !it.name.startsWith(".staging-") }
+            val keep = GenerationPointers.scopedKeepSet(
+                activatingGeneration = importId,
+                priorGeneration = priorGeneration,
+                generations = pruneCandidates,
+                activatingFlavorId = flavor.flavorId,
+                generationFlavor = GenerationPointers::dataGenerationFlavor,
+            )
+            pruneCandidates.filter { it.name !in keep }.forEach {
+                check(it.deleteRecursively()) { "cannot retire old data generation" }
+            }
             fsyncDirectory(generations)
         }
+    }
+
+    /**
+     * G3-5 legacy seed (data lane: copy-then-adopt through the atomic
+     * writer). On first read, when the canonical per-flavor pointer is absent
+     * and the un-namespaced pointer exists, copy it under the canonical name
+     * and continue there; the canonical name wins the moment it exists.
+     */
+    private fun activePointerFor(flavor: ClientFlavor): File =
+        adoptLegacyPointer(
+            File(root, GenerationPointers.activePointerName(flavor.flavorId)),
+            File(root, GenerationPointers.LEGACY_ACTIVE),
+        )
+
+    private fun previousPointerFor(flavor: ClientFlavor): File =
+        adoptLegacyPointer(
+            File(root, GenerationPointers.previousPointerName(flavor.flavorId)),
+            File(root, GenerationPointers.LEGACY_PREVIOUS),
+        )
+
+    private fun adoptLegacyPointer(canonical: File, legacy: File): File {
+        if (!canonical.isFile && legacy.isFile) atomicWrite(canonical, legacy.readBytes())
+        return canonical
     }
 
     private fun removeIntermediates(stageRoot: File) {
@@ -419,10 +502,39 @@ class DataPreparationStore(
     companion object {
         private const val MIN_DBC = 100
         private const val MIN_MAP_TILES = 100
+
+        /** GAP-3: the [ActiveFlavor] lane suffix naming the data-prep gate. */
+        /**
+         * Pure data-manifest composition (the [publish] writer body) so the
+         * durable format is golden-fixture-testable on the JVM (G3-2). The
+         * manifest stays schema 1; when S6 stamps the `flavor` alias key into
+         * new manifests, the committed fixture rotates deliberately — never
+         * silently, and never through a schema bump.
+         */
+        // The faithful template signature — one parameter per pinned manifest
+        // field; splitting it would obscure the byte-pinned composition.
+        @Suppress("LongParameterList")
+        internal fun buildDataManifestJson(
+            flavor: ClientFlavor,
+            counts: JSONObject,
+            files: List<JSONObject>,
+            generator: JSONObject,
+            importId: String,
+            publishedAtMs: Long,
+        ): JSONObject = JSONObject().put("schema", 1).put("complete", true)
+            .put("mode", "NORMAL").put("clientBuild", flavor.build).put("cmangosFamily", flavor.serverFamily)
+            .put("generator", generator)
+            .put("sourceClientGeneration", importId).put("counts", counts)
+            .put("files", JSONArray(files)).put("publishedAtMs", publishedAtMs)
         // RP6/modern handheld lane: leave two cores for Android/UI while the
         // finite on-device navigation build uses the remaining big/little pool.
         internal const val MMAP_THREADS = 6
-        private const val CMANGOS_COMMIT = "c096bada9e4ed23ad4ca706c67160a26d7121337"
+        // The extractor provenance pin (port plan S1 item 1): must equal the
+        // commit the o11 extractor lockfiles were built from — the o09/o11
+        // drivers and schemas/flavor.json vanilla server_core.commit all pin
+        // the same commit, and tools/check_repo.py's divergence check fails
+        // the build if these ever disagree again (decision D36).
+        private const val CMANGOS_COMMIT = "ce83805d48f9c98b2af617096be5347acb8a1f17"
         private val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
     }
 }
@@ -432,6 +544,25 @@ internal fun zeroLengthFiles(directory: File): List<File> =
         .filter { it.isFile && it.length() == 0L }
         .sortedBy { it.relativeTo(directory).invariantSeparatorsPath }
         .toList()
+
+internal fun verifiedSourceFlavor(clientRoot: File): ClientFlavor {
+    val active = ActiveFlavor.resolve(SERVER_DATA_PREPARATION_LANE)
+    val manifestFile = File(clientRoot, "client-manifest.json")
+    if (!manifestFile.isFile) return active
+    val clientId = JSONObject(manifestFile.readText()).optString("clientId")
+    val verified = ClientFlavors.ALL.firstOrNull { it.clientId == clientId }
+    checkNotNull(verified) {
+        "source client generation identity \"$clientId\" resolves to no registered " +
+            "flavor — the verified clientId must name a registered lane"
+    }
+    check(verified == active) {
+        "data preparation source generation is \"$clientId\" (${verified.flavorId}) " +
+            "but the active lane is ${active.flavorId} — a mid-prep flavor switch " +
+            "cannot relabel the bytes; re-run preparation from the " +
+            "${active.flavorId} lane"
+    }
+    return verified
+}
 
 /**
  * Map IDs that can carry a navmesh: terrain-backed maps (extracted .map tiles)

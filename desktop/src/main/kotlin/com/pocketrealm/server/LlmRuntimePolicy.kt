@@ -1,17 +1,22 @@
 package com.pocketrealm.server
 
 import com.pocketrealm.bots.BotLlmSpeech
+import com.pocketrealm.llm.LlmModelRegistry
 import com.pocketrealm.llm.LlmSamplingProfile
 import com.pocketrealm.llm.LlmTierProfile
 
 /**
- * Desktop twin of the Android server/LlmRuntimePolicy: the EXTERNAL-endpoint
- * subset only (the Windows lane has no embedded llama-server — cloud is the
- * only LLM lane on x86_64). The normalizers and the conf emission are the
- * same code, same semantics, same conf keys; the embedded-model,
- * NPU/core-placement and :llm-process pieces of the Android object do not
- * exist here. Android parity for this subset is what the conf golden test
- * in ServerRuntimeFiles pins.
+ * Desktop twin of the Android server/LlmRuntimePolicy: the external-endpoint
+ * emission verbatim, plus the ON-DEVICE lane's block (DESK-80/103) — the
+ * local llama-server sidecar's loopback URL rides [confBlockEmbedded], the
+ * Android confBlock twin: model "local", keyless, providerSafe OFF (the
+ * peer IS llama.cpp, so the llama.cpp body keys — repeat_penalty 1.0 is
+ * load-bearing for Gemma per the registry — survive) and the SELECTED
+ * registry model's measured sampling/tier profiles. The NPU/core-placement
+ * and :llm-process supervision pieces of the Android object stay
+ * android-specific (the desktop sidecar is a plain CPU/GPU child process
+ * owned by DesktopLlmModelManager). Android parity for the external
+ * subset is what the conf golden test in ServerRuntimeFiles pins.
  */
 @Suppress(
     "LongParameterList",
@@ -33,12 +38,26 @@ internal object LlmRuntimePolicy {
 
     /**
      * Advanced-tier generation overrides. 0 means "follow the tier value";
-     * anything above 0 is clamped into the supported band.
+     * anything above 0 is clamped into the supported band. The band stays
+     * finite on purpose — 0 follows the tier's measured wall (the embedded
+     * sidecar lane's LlmModelRegistry.MEASURED_COLD_START_TIMEOUT_SEC, the
+     * external endpoint's MEASURED_GENERATION_TIMEOUT_SEC, the round-2
+     * live-verified budget; the old 60 s default cut both chatter legs at
+     * exactly the wall), a positive value clamps into
+     * [MIN_GENERATION_TIMEOUT_SEC, MAX_GENERATION_TIMEOUT_SEC]; no input
+     * resolves to an unbounded wait. The ceiling sits above the measured
+     * worst need (~260 s), encloses the embedded tier's cold-start wall
+     * (the shared registry's MEASURED_COLD_START_TIMEOUT_SEC, 360 s) so an
+     * override of exactly the tier default is never clamped below the wall
+     * the tier itself ships, and EQUALS the Android twin's ceiling (the
+     * twins are deliberately separate sources, so
+     * DesktopLlmUserOverrideCeilingsTest pins the equality) while staying
+     * under the native compiled default (600 s).
      */
     const val MIN_MAX_NEW_TOKENS = 24
     const val MAX_MAX_NEW_TOKENS = 600
     const val MIN_GENERATION_TIMEOUT_SEC = 15
-    const val MAX_GENERATION_TIMEOUT_SEC = 240
+    const val MAX_GENERATION_TIMEOUT_SEC = 360
 
     fun normalizeMaxNewTokensOverride(tokens: Int): Int =
         if (tokens <= 0) 0 else tokens.coerceIn(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS)
@@ -56,7 +75,9 @@ internal object LlmRuntimePolicy {
      * The user-supplied external endpoint, normalized for conf emission, or
      * null when it is unusable (fail-closed: no LLM block is then emitted at
      * all). Same rules as the Android twin — the native conf parser and the
-     * JSON body are the downstream consumers.
+     * JSON body are the downstream consumers. http:// survives normalization
+     * (keyless LAN endpoints stay usable) but can never pair with a key —
+     * [isCleartextKeyedEndpoint].
      */
     fun normalizeExternalEndpoint(url: String): String? {
         val trimmed = url.trim()
@@ -104,9 +125,104 @@ internal object LlmRuntimePolicy {
     }
 
     /**
+     * True when the pair would put the bearer key on the wire in cleartext:
+     * an http:// endpoint with a non-empty key (the Android twin's rule).
+     * The native client sends `Authorization: Bearer` over the endpoint's
+     * own socket, so http + key hands the cloud key to anything on the
+     * path. Keyless http stays usable (a LAN llama box needs no key);
+     * https carries keys. Enforced at both key choke points:
+     * [confBlockExternal] fails closed to no block, and the composer lane
+     * ([chatterLines]) drops its lines.
+     */
+    fun isCleartextKeyedEndpoint(endpoint: String?, apiKey: String?): Boolean =
+        !endpoint.isNullOrBlank() && !apiKey.isNullOrBlank() &&
+            endpoint.substringBefore("://").equals("http", ignoreCase = true)
+
+    // ---------------- embedded-sidecar engine knobs (DESK-9/80) ----------------
+    // The CPU/GPU argv twins of the Android :llm runtimeConfig's threads
+    // and offload knobs (the NPU compute-mode and cores-mask pieces stay
+    // android-specific and are NOT twinned here).
+
+    /** The embedded-sidecar decode-threads band (llama-server -t). */
+    const val MIN_THREADS = 1
+    const val MAX_THREADS = 8
+
+    /** The desktop decode-threads default (the Android runtimeConfig's
+     * shipped value — a game coexistence budget, not hardware concurrency). */
+    const val DEFAULT_THREADS = 3
+
+    fun normalizeThreads(threads: Int): Int = threads.coerceIn(MIN_THREADS, MAX_THREADS)
+
+    /**
+     * The embedded-sidecar offload knob (llama-server -ngl). DESKTOP
+     * DELIBERATE DEFAULT: 0 = CPU-ONLY — no GPU offload lane is bundled on
+     * Windows, so the default launches CPU-serving; 1..128 offloads that
+     * many layers (the Android band). Android's default 99 is the NPU/dGPU
+     * posture and is deliberately NOT twinned.
+     */
+    const val MIN_OFFLOAD_LAYERS = 0
+    const val MAX_OFFLOAD_LAYERS = 128
+    const val DEFAULT_OFFLOAD_LAYERS = 0
+
+    fun normalizeOffloadLayers(layers: Int): Int =
+        if (layers <= 0) DEFAULT_OFFLOAD_LAYERS else layers.coerceIn(MIN_OFFLOAD_LAYERS, MAX_OFFLOAD_LAYERS)
+
+    /**
+     * The appended block for the EMBEDDED lane (the desktop twin of the
+     * Android confBlock, DESK-80/103): the local llama-server sidecar's
+     * loopback endpoint with the SELECTED registry model's measured
+     * sampling/tier profiles, model "local", keyless, providerSafe OFF —
+     * the llama.cpp body keys ride because the peer IS llama.cpp.
+     * [endpoint] is the health-probed sidecar URL (the full
+     * /v1/chat/completions form); null means the lane cannot serve —
+     * no block (fail-closed, the shared posture).
+     */
+    fun confBlockEmbedded(
+        endpoint: String?,
+        banterEnabled: Boolean = true,
+        profile: LlmSamplingProfile = LlmModelRegistry.TUNED_E2B.profile,
+        tier: LlmTierProfile = LlmModelRegistry.TUNED_E2B.tierProfile,
+        loreFile: String? = null,
+        chatterPowerFile: String? = null,
+        composerEndpoint: String? = null,
+        composerModel: String? = null,
+        composerApiKey: String? = null,
+        maxNewTokensOverride: Int = 0,
+        generationTimeoutOverride: Int = 0,
+        speech: BotLlmSpeech = BotLlmSpeech(),
+        promptPackFile: String? = null,
+        defaultPromptsFile: String? = null,
+        tlsCaFile: String? = null,
+    ): String? {
+        if (endpoint == null) return null
+        return confLines(
+            endpoint = endpoint,
+            model = DEFAULT_EXTERNAL_MODEL,
+            apiKey = "",
+            banterEnabled = banterEnabled,
+            profile = profile,
+            tier = tier,
+            providerSafe = false,
+            loreFile = loreFile,
+            chatterPowerFile = chatterPowerFile,
+            composerEndpoint = composerEndpoint,
+            composerModel = composerModel,
+            composerApiKey = composerApiKey,
+            maxNewTokensOverride = maxNewTokensOverride,
+            generationTimeoutOverride = generationTimeoutOverride,
+            speech = speech,
+            promptPackFile = promptPackFile,
+            defaultPromptsFile = defaultPromptsFile,
+            tlsCaFile = tlsCaFile,
+        )
+    }
+
+    /**
      * The appended block for external-endpoint mode: the realm talks to any
      * OpenAI-compatible /v1/chat/completions service. [endpoint] must
-     * already be normalized; any null input means "no block".
+     * already be normalized; any null input means "no block" — and so does
+     * an http:// endpoint paired with a non-empty key (the Bearer key must
+     * never cross in cleartext — [isCleartextKeyedEndpoint]).
      */
     fun confBlockExternal(
         endpoint: String?,
@@ -128,6 +244,9 @@ internal object LlmRuntimePolicy {
         logLines: Boolean = false,
     ): String? {
         if (endpoint == null || model == null || apiKey == null) return null
+        // http + key never pairs: the Bearer key must not cross in
+        // cleartext — fail closed exactly like any other unusable field.
+        if (isCleartextKeyedEndpoint(endpoint, apiKey)) return null
         return confLines(
             endpoint = endpoint,
             model = model,
@@ -161,9 +280,16 @@ internal object LlmRuntimePolicy {
         repeatPenalty = 1.0, maxTokens = 600,
     )
 
-    /** External-endpoint runtime knobs (16/bot, 48 global; 60s generation; ctx 128k). */
+    /**
+     * External-endpoint runtime knobs (16/bot, 48 global; ctx 128k). The
+     * wall is the MEASURED budget (the Android twin's value, verbatim;
+     * LVF-bots-llm-013): the old 60 s default cut both chatter legs of the
+     * round-2 external run at exactly the wall (class=empty,
+     * durMs=60013/60058) against ~100-120 s cold completions.
+     */
     val EXTERNAL_TIER = LlmTierProfile(
-        contextLength = 131072, generationTimeoutSec = 60,
+        contextLength = 131072,
+        generationTimeoutSec = LlmModelRegistry.MEASURED_GENERATION_TIMEOUT_SEC,
         maxSimultaneousGenerations = 4,
         governorBotMax = 16, governorGlobalMax = 48,
         factsCap = 48, memoriesTail = 16,
@@ -241,6 +367,12 @@ internal object LlmRuntimePolicy {
             } else ""
         val botToBotLine =
             if (botToBotChance > 0) "\n            AiPlayerbot.LLMBotToBotChatChance = $botToBotChance" else ""
+        // The Android twin's thinking-template kwarg (emit_chat_template_
+        // kwargs {"enable_thinking": false}): set on model families whose
+        // export template defaults to thinking (the qwen tier) — load-
+        // bearing for the embedded lane's tuned checkpoints.
+        val thinkingLine =
+            if (tier.thinkingKwargs) "\n            AiPlayerbot.LLMThinkingKwargs = 1" else ""
         val logLinesLine =
             if (logLines) "\n            AiPlayerbot.LLMLogLines = 1" else ""
         val providerSafeLine =
@@ -292,15 +424,15 @@ internal object LlmRuntimePolicy {
             AiPlayerbot.LLMGovernorGlobalMax = ${tier.governorGlobalMax}
             AiPlayerbot.LLMContextLength = ${tier.contextLength}
             AiPlayerbot.LLMFactsCap = $factsCap
-            AiPlayerbot.LLMMemoriesTail = $memoriesTail$botToBotLine$providerSafeLine
+            AiPlayerbot.LLMMemoriesTail = $memoriesTail$botToBotLine$thinkingLine$providerSafeLine
             AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$defaultPromptsLine$tlsCaLine${if (providerSafe) cloudLane.confLines() else ""}$packDeltaLines$rpDialLines$logLinesLine
         """.trimIndent() + "\n"
     }
 
     /**
-     * The world-chatter conf lines (the Android twin's emission; on the
-     * desktop the staged power file carries enabled=1/rung=NORMAL whenever
-     * ambience is on — there is no battery to dim it).
+     * The world-chatter conf lines (the Android twin's emission; the staged
+     * power file's rung comes from DesktopChatterPowerMonitor's
+     * GetSystemPowerStatus read — DESK-81's battery-aware pacing).
      */
     private fun chatterLines(
         chatterPowerFile: String?,
@@ -311,8 +443,13 @@ internal object LlmRuntimePolicy {
         if (chatterPowerFile.isNullOrBlank()) {
             return "\n            AiPlayerbot.LLMChatterEnabled = 0"
         }
+        // An http composer endpoint paired with a key drops the composer
+        // lines entirely (the native composer-off state) — the key must
+        // never cross in cleartext (isCleartextKeyedEndpoint).
         val composerLines =
-            if (composerEndpoint.isNullOrBlank()) ""
+            if (composerEndpoint.isNullOrBlank() ||
+                isCleartextKeyedEndpoint(composerEndpoint, composerApiKey)
+            ) ""
             else {
                 "\n            AiPlayerbot.LLMChatterComposerUrl = $composerEndpoint" +
                     "\n            AiPlayerbot.LLMChatterComposerModel = ${composerModel ?: DEFAULT_EXTERNAL_MODEL}" +

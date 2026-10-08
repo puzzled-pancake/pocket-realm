@@ -40,10 +40,19 @@ def flavor_by_id(manifest: dict, fid: str) -> dict:
     return next(f for f in manifest["flavors"] if f["id"] == fid)
 
 
-def default_sources() -> dict:
-    """A sibling sources.json consistent with the manifest pins: the vanilla
-    upstreams mirror the real commits; the tbc/wotlk upstreams mirror the
-    HEX40 pins promote_to_qualified writes."""
+def default_sources(manifest: dict | None = None) -> dict:
+    """A sibling sources.json consistent with the manifest under test: every
+    registered server_core/db_content commit mirrors the manifest exactly,
+    which is precisely the binding _check_source_pins enforces (mirroring the
+    REAL manifest keeps the unmodified manifest clean; mirroring the promoted
+    copy keeps promote_to_qualified's HEX40 pins bound). Groups whose pin is
+    still unresolved (tbc/wotlk db_content) carry the HEX40 placeholder
+    _check_source_pins skips."""
+    # Vanilla mirrors the REAL registry so a tampered pin (the drift the
+    # binding exists to catch) is detectable; tbc/wotlk mirror the manifest
+    # under test so promote_to_qualified's synthetic qualification pins stay
+    # bound exactly as a real registration would bind them.
+    m = manifest if manifest is not None else REAL_MANIFEST
     vanilla = flavor_by_id(REAL_MANIFEST, "vanilla")
     entries = [
         {
@@ -63,19 +72,26 @@ def default_sources() -> dict:
         },
     ]
     for fid in ("tbc", "wotlk"):
-        flavor = flavor_by_id(REAL_MANIFEST, fid)
+        flavor = flavor_by_id(m, fid)
         entries.append(
             {
-                "id": f"cmangos-{fid}-core",
+                "id": f"cmangos-core-{fid}",
                 "upstream_url": flavor["server_core"]["upstream"],
-                "commit": HEX40,
+                "commit": flavor["server_core"].get("commit") or HEX40,
             }
         )
         entries.append(
             {
-                "id": f"cmangos-{fid}-db",
+                "id": f"cmangos-db-{fid}",
                 "upstream_url": flavor["db_content"]["upstream"],
-                "commit": HEX40,
+                "commit": flavor["db_content"].get("commit") or HEX40,
+            }
+        )
+        entries.append(
+            {
+                "id": f"playerbots-{fid}",
+                "upstream_url": flavor["bots"]["upstream"],
+                "commit": flavor["bots"].get("commit") or VANILLA_BOTS_PIN,
             }
         )
     return {"schema": 1, "sources": entries}
@@ -94,7 +110,7 @@ def validate_manifest(
     extractors.patch existence check resolves <root> = tmp_path; the real
     vanilla patch path is staged as an existing file there."""
     if sources is _AUTO:
-        sources = default_sources()
+        sources = default_sources(manifest)
     schemas = tmp_path / "schemas"
     schemas.mkdir(exist_ok=True)
     if sources is not None:
@@ -350,3 +366,254 @@ def test_vanilla_may_keep_its_gl_routes(tmp_path):
     assert "opengl" in flavor_by_id(manifest, "vanilla")["wine"]["graphics_routes"]
     assert "virgl" in flavor_by_id(manifest, "vanilla")["wine"]["graphics_routes"]
     assert validate_manifest(manifest, tmp_path) == []
+
+
+def test_s51_registration_is_complete_for_both_declared_flavors():
+    # Lanes item 13: the staged genuine clients' identity is registered as a
+    # COMPLETE tuple on both unqualified flavors — hashes, size, build list,
+    # and MPQ exact set — with the build list naming exactly the flavor's own
+    # build. Import still rejects on qualified=false (pinned above).
+    manifest = load_manifest()
+    for fid, build in (("tbc", 8606), ("wotlk", 12340)):
+        flavor = flavor_by_id(manifest, fid)
+        assert flavor["qualified"] is False
+        assert flavor["client_binary"]["known_exe_md5"] is not None
+        assert flavor["client_binary"]["known_exe_size_bytes"] > 0
+        assert flavor["wine"]["known_exe_sha256"] is not None
+        assert flavor["supported_client_builds"] == [build]
+        assert flavor["mpq_set"]["required"], f"{fid} MPQ exact set is empty"
+        # ... while storage stays a measured-later field (P5 first-extraction).
+        assert flavor["storage"] is None
+
+
+def test_partial_s51_registration_errors(tmp_path):
+    # The pre-S5.1 rule banned any identity datum on an unqualified flavor;
+    # the measurements exist now, so the surviving lie is the PARTIAL
+    # registration. Stripping one member of the tuple (the build list) must
+    # fail loud, naming the completeness rule.
+    manifest = load_manifest()
+    flavor_by_id(manifest, "wotlk")["supported_client_builds"] = []
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "partial S5.1 identity registration" in error
+        and "mpq_set.required" in error
+        for error in errors
+    ), errors
+
+
+def test_unqualified_supported_client_builds_must_name_only_the_own_build(tmp_path):
+    # A registered build list naming anything but the flavor's own build
+    # claims a client that was never measured — the exact drift the
+    # registration rule refuses.
+    manifest = load_manifest()
+    flavor_by_id(manifest, "tbc")["supported_client_builds"] = [8606, 10505]
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "must be exactly [8606]" in error and "[8606, 10505]" in error
+        for error in errors
+    ), errors
+
+
+def test_wine_known_exe_sha256_shape_is_checked(tmp_path):
+    # The S5.1 sha256 telltale is null-or-64-lowercase-hex; a 32-hex MD5
+    # pasted into the sha256 slot must fail loud.
+    manifest = load_manifest()
+    flavor_by_id(manifest, "tbc")["wine"]["known_exe_sha256"] = (
+        "57c5c03097103e15f9abe2803aebdc3c"
+    )
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "wine.known_exe_sha256 must be 64 lowercase hex or null" in error
+        for error in errors
+    ), errors
+
+
+# ---- round-2 R2-1b/R2-2: the provenance binding is fail-closed against
+# doctored manifests (upstream-rerouting and unknown-flavor attacks).
+
+
+def test_foreign_upstream_rerouting_cannot_satisfy_the_binding(tmp_path):
+    """R2-1b (round 2): pointing tbc's server_core at the VANILLA source's
+    URL with vanilla's commit must FAIL - the old URL-first resolution bound
+    the doctored group to the vanilla entry and reported OK on a lying
+    manifest. The binding must land on the flavor's OWN entry (the legacy
+    vanilla tail is not a binding candidate while cmangos-core-tbc exists),
+    so the foreign commit fails the comparison."""
+    manifest = load_manifest()
+    vanilla = flavor_by_id(REAL_MANIFEST, "vanilla")
+    tbc = flavor_by_id(manifest, "tbc")
+    tbc["server_core"]["upstream"] = vanilla["server_core"]["upstream"]
+    tbc["server_core"]["commit"] = vanilla["server_core"]["commit"]
+    # the REAL sources manifest (not the mirrored fixture): the attack binds
+    # only against the real per-flavor entries
+    errors = validate_manifest(
+        manifest, tmp_path,
+        sources=json.loads((ROOT / "schemas" / "sources.json").read_text(encoding="utf-8")),
+    )
+    assert any(
+        "server_core.commit" in error and "does not match sources.json" in error
+        for error in errors
+    ), errors
+
+
+def test_unknown_flavor_id_fails_loud_not_silent_unbound(tmp_path):
+    """R2-2 (round 2): a flavor id outside FALLBACK_SOURCE_IDS used to skip
+    the whole pin binding silently - a doctored flavor with pins bound to
+    nothing passed. The gate must name the unknown id and the known set."""
+    manifest = load_manifest()
+    template = flavor_by_id(manifest, "tbc")
+    import copy
+    cata = copy.deepcopy(template)
+    cata["id"] = "cata"
+    cata["client_id"] = "wow-4.0.1-99999"
+    cata["build"] = 99999
+    cata["version_resource"] = "4.0.1.99999"
+    manifest["flavors"].append(cata)
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "has no sources.json binding table" in error and "'cata'" in error
+        for error in errors
+    ), errors
+
+
+# ---- round-3 R3-3/R3-4/R3-5: identity + provenance rejections.
+
+
+def test_accepted_builds_containing_a_foreign_registered_build_fails(tmp_path):
+    """R3-3: the accepted set is the flavor's OWN builds — tbc advertising
+    vanilla's 5875 would configure a wrong-flavor client/server pair (the
+    exact rejection W4.2's 3x3 auth matrix assumes exists at the gate)."""
+    manifest = load_manifest()
+    tbc = flavor_by_id(manifest, "tbc")
+    tbc["realmd"]["accepted_builds"] = "8606 5875"
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "accepted_builds" in error and "foreign registered build" in error
+        and "5875" in error
+        for error in errors
+    ), errors
+
+
+def test_exe_identity_hashes_are_flavor_unique(tmp_path):
+    """R3-5: registering another flavor's measured exe identity must fail —
+    a qualified lane whose published telltale is byte-identical to a
+    DIFFERENT lane's genuine client is exactly the half-truth the S5.1
+    registration rule prevents."""
+    manifest = load_manifest()
+    vanilla = flavor_by_id(REAL_MANIFEST, "vanilla")
+    wotlk = flavor_by_id(manifest, "wotlk")
+    wotlk["wine"]["known_exe_sha256"] = vanilla["wine"]["known_exe_sha256"]
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "duplicate exe identity" in error and "known_exe_sha256" in error
+        for error in errors
+    ), errors
+
+
+def test_md5_exe_identity_duplicate_also_fails(tmp_path):
+    manifest = load_manifest()
+    tbc = flavor_by_id(REAL_MANIFEST, "tbc")
+    wotlk = flavor_by_id(manifest, "wotlk")
+    wotlk["client_binary"]["known_exe_md5"] = tbc["client_binary"]["known_exe_md5"]
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "duplicate exe identity" in error and "known_exe_md5" in error
+        for error in errors
+    ), errors
+
+
+def test_sources_json_deletion_plus_foreign_repoint_fails(tmp_path):
+    """R3-4: the coordinated two-file lie — delete cmangos-core-tbc from
+    sources.json and point tbc's server_core at the vanilla URL/commit —
+    must fail (the legacy tail is not a binding candidate while the
+    flavor's own entry is missing)."""
+    manifest = load_manifest()
+    vanilla = flavor_by_id(REAL_MANIFEST, "vanilla")
+    tbc = flavor_by_id(manifest, "tbc")
+    tbc["server_core"]["upstream"] = vanilla["server_core"]["upstream"]
+    tbc["server_core"]["commit"] = vanilla["server_core"]["commit"]
+    sources = json.loads(
+        (ROOT / "schemas" / "sources.json").read_text(encoding="utf-8"))
+    sources["sources"] = [
+        s for s in sources["sources"] if s.get("id") != "cmangos-core-tbc"
+    ]
+    errors = validate_manifest(manifest, tmp_path, sources=sources)
+    assert any(
+        "no sources.json entry pins upstream" in error
+        for error in errors
+    ), errors
+
+
+def test_first_listed_flavor_claiming_a_foreign_registered_build_fails(tmp_path):
+    """Round-4 R2-2: the registry is now a PRE-PASS over all flavors — the
+    FIRST-listed flavor's foreign-build claim must fail exactly like a
+    later flavor's (the old inside-the-loop population made the check
+    order-dependent: vanilla claiming wotlk's 12340 passed clean)."""
+    manifest = load_manifest()
+    vanilla = flavor_by_id(manifest, "vanilla")
+    vanilla["realmd"]["accepted_builds"] = "5875 12340"
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "accepted_builds" in error and "foreign registered build" in error
+        and "12340" in error
+        for error in errors
+    ), errors
+
+
+def test_validate_is_deterministic_across_calls_in_one_process(tmp_path):
+    """Round-4 R2-2: the foreign-build registry leaked across validate()
+    calls (module global) — the same doctored file returned 0 errors then
+    1 error depending on call order. Identical bytes must produce
+    identical error sets, every time."""
+    import copy
+
+    manifest = load_manifest()
+    vanilla = flavor_by_id(manifest, "vanilla")
+    vanilla["realmd"]["accepted_builds"] = "5875 12340"
+    first = validate_manifest(copy.deepcopy(manifest), tmp_path)
+    second = validate_manifest(copy.deepcopy(manifest), tmp_path)
+    third = validate_manifest(copy.deepcopy(manifest), tmp_path)
+    assert first == second == third, (first, second, third)
+    assert any("foreign registered build" in e for e in third), third
+
+
+# ---- round-5 R5-R2-1: the clientId is CONSISTENT with the flavor's own
+# identity (build suffix, version components), not just shape-valid.
+
+
+def test_client_id_with_wrong_build_suffix_fails(tmp_path):
+    manifest = load_manifest()
+    flavor_by_id(manifest, "vanilla")["client_id"] = "wow-1.12.1-9999"
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "client_id" in error and "contradicts" in error and "9999" in error
+        for error in errors
+    ), errors
+
+
+def test_client_id_with_foreign_version_component_fails(tmp_path):
+    manifest = load_manifest()
+    flavor_by_id(manifest, "vanilla")["client_id"] = "wow-2.4.3-5875"
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "client_id" in error and "contradicts" in error for error in errors
+    ), errors
+
+
+def test_cross_flavor_client_id_swap_fails(tmp_path):
+    manifest = load_manifest()
+    tbc = flavor_by_id(REAL_MANIFEST, "tbc")
+    flavor_by_id(manifest, "vanilla")["client_id"] = tbc["client_id"]
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "client_id" in error and "contradicts" in error
+        and "8606" in error
+        for error in errors
+    ), errors
+
+
+def test_wotlk_patch_letter_client_id_stays_consistent():
+    """The naming convention keeps the patch letter in the clientId
+    (wow-3.3.5a-12340) while the version resource drops it (3.3.5.12340)
+    — the consistency rule must keep accepting that pair."""
+    assert check_flavor.validate(MANIFEST) == []

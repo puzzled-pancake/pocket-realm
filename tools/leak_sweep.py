@@ -99,13 +99,18 @@ _STRING_RES = tuple(
     (literal, re.compile(re.escape(literal), re.IGNORECASE)) for literal in BANNED_STRINGS
 )
 
-# v2 scope (D18 redesign): inside a git checkout the sweep covers EVERY
-# tracked text file, so no production tree can silently sit outside the
-# tripwire (the enumerated-roots design missed desktop/build.gradle.kts and
-# needed a patch per omission). Excluded: vendored submodule sources (own
-# upstreams) and vendored runtime blobs; binaries are skipped by a NUL-byte
-# sniff. Outside a git repo (synthetic test trees) the sweep falls back to
-# the legacy enumerated SCAN_ROOTS walk so scope tests keep working.
+# v2 scope (D18 redesign; round-1 R1-1/R3-1 extension): inside a git
+# checkout the sweep covers EVERY COMMITTED-OR-COMMITTABLE text file
+# (git ls-files --cached --others --exclude-standard), so no production
+# tree - tracked or awaiting the finalize commit - can silently sit
+# outside the tripwire (the enumerated-roots design missed
+# desktop/build.gradle.kts and needed a patch per omission; the
+# tracked-only form missed the wave's own untracked production code).
+# Excluded: vendored submodule sources (own upstreams) and vendored
+# runtime blobs; binaries are skipped by a NUL-byte sniff. Outside a git
+# repo (synthetic test trees) the sweep falls back to the legacy
+# enumerated SCAN_ROOTS walk so scope tests keep working - and a scan
+# that resolves ZERO files is a loud degraded-scan failure (R2-2).
 SCAN_ROOTS: tuple[tuple[str, bool, tuple[str, ...]], ...] = (
     ("android/app/src/main", True, (".kt", ".java", ".xml")),
     ("android/app/src/debug", True, (".kt", ".java")),
@@ -177,6 +182,15 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "path": "tests/test_check_flavor.py",
         "literals": None,
         "reason": "the validator's tests construct flavor identities by design to prove rejection",
+        "retires": "never (owning-table test)",
+    },
+    {
+        "path": "tests/test_s1_flavor_parameterization.py",
+        "literals": None,
+        "reason": (
+            "the S1 corrections/parameterization tests pin the C1/C4 accepted-build "
+            "sets and prove the C1 rejection copy by constructing flavor identities"
+        ),
         "retires": "never (owning-table test)",
     },
     # Seed plumbing legitimately names the vanilla databases it seeds,
@@ -284,37 +298,29 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "tools/win_prepare_data.py",
-        "literals": ("5875",),
-        "reason": "host lane: Windows data preparation pins clientBuild 5875",
+        "literals": ("5875", "8606", "12340", "2.4.3.8606"),
+        "reason": (
+            "host lane: Windows data preparation carries the per-flavor "
+            "FLAVOR_IDENTITIES table (DESK-128) — the host mirror of the "
+            "S5.1-registered clientBuild/cmangosFamily pairs the manifest "
+            "and ClientFlavors pin; identity data, not flavor-agnostic code. "
+            "The dotted 2.4.3.8606 form appears once, in the measured-floors "
+            "prose citing the staged client the tbc counts were measured on"
+        ),
         "retires": "S5 retires: client identity qualification via the flavor registry",
     },
-    {
-        "path": "tools/install_client_windows.ps1",
-        "literals": ("1.12.1.5875",),
-        "reason": "host-side client qualification helper: verifies the WoW.exe identity (size + version resource) of the 1.12.1.5875 client",
-        "retires": "S5 retires: host-side client qualification helper",
-    },
+    # Pruned (S4 wave, 2026-10-08): the install_client_windows.ps1 entry
+    # ("1.12.1.5875") went stale when the helper was flavor-routed through
+    # the manifest's flavorBlock (version/size literals now come from
+    # schemas/flavor.json) — the sweep's own staleness gate demanded its
+    # retirement.
     # S4/S8 (desktop lane): the Windows desktop test lane mirrors the vanilla
     # server stack with hard-coded classic* DB names and build-5875 auth
     # fixtures. Found when the desktop module entered SCAN_ROOTS (round 5).
-    {
-        "path": "desktop/src/main/kotlin/com/pocketrealm/desktop/AuthGate.kt",
-        "literals": ("5875", "classicrealmd"),
-        "reason": "desktop SRP6/logon fixtures pin the 5875 auth frames; vanilla realmd DB name",
-        "retires": "S8 retires (5875 auth frames); classicrealmd retires at S4",
-    },
-    {
-        "path": "desktop/src/main/kotlin/com/pocketrealm/desktop/DesktopRuntimeBackend.kt",
-        "literals": ("classicrealmd",),
-        "reason": "desktop lane hard-codes the vanilla realmd DB name",
-        "retires": "S4 retires: per-flavor DB routing",
-    },
-    {
-        "path": "desktop/src/main/kotlin/com/pocketrealm/desktop/RpHost.kt",
-        "literals": ("classicrealmd",),
-        "reason": "desktop lane hard-codes the vanilla realmd DB name",
-        "retires": "S4 retires: per-flavor DB routing",
-    },
+    # Pruned (wave verification round 2): the AuthGate, DesktopRuntimeBackend,
+    # RpHost and server/ServerRuntimeFiles entries went stale when their
+    # literals were routed through ClientFlavors (DESK-93/94 flavor routing) —
+    # the sweep's own staleness gate demanded their retirement.
     {
         "path": "desktop/src/main/kotlin/com/pocketrealm/desktop/RpWowClient.kt",
         "literals": ("5875",),
@@ -322,10 +328,21 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "retires": "S8 retires: per-flavor desktop auth fixtures",
     },
     {
-        "path": "desktop/src/main/kotlin/com/pocketrealm/server/ServerRuntimeFiles.kt",
-        "literals": VANILLA_DB_NAMES,
-        "reason": "desktop conf emission mirrors the vanilla DB name set",
-        "retires": "S4 retires: per-flavor DB routing",
+        "path": "desktop/src/main/kotlin/com/pocketrealm/desktop/Win32AutoLogin.kt",
+        "literals": ("8606", "12340"),
+        "reason": (
+            "desktop login-window signatures are keyed off the shared "
+            "ClientFlavors registry (P11 lanes item 19); the KDoc documents "
+            "that the alternate window classes were captured from the staged "
+            "8606/12340 exes' own PE strings (out/flavor-capture manifests "
+            "own the data) — prose describing per-flavor capture provenance, "
+            "not a code literal routing a lane"
+        ),
+        "retires": (
+            "S7/S8 (W3) retires: login-topology verification promotes the "
+            "signatures and the build mentions move to the capture-manifest "
+            "owning table"
+        ),
     },
     {
         "path": "desktop/src/test/kotlin/com/pocketrealm/database/DesktopSqliteSeederTest.kt",
@@ -335,15 +352,25 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopRuntimeBackendTest.kt",
-        "literals": ("classicrealmd",),
-        "reason": "desktop backend fixture pins the vanilla realmd DB name",
-        "retires": "S4 retires: per-flavor DB routing",
+        "literals": ("5875", "classicrealmd") + VANILLA_DB_NAMES,
+        "reason": (
+            "desktop backend fixture pins the vanilla realmd DB name and the "
+            "DESK-108 bootstrap fixture replays one synthetic transcript per "
+            "vanilla database (its synthetic data-manifest stamps the vanilla "
+            "clientBuild 5875)"
+        ),
+        "retires": "S4 retires: per-flavor DB routing; 5875 retires at S8",
     },
     {
         "path": "desktop/src/test/kotlin/com/pocketrealm/server/DesktopServerRuntimeFilesTest.kt",
-        "literals": ("5875",) + VANILLA_DB_NAMES,
-        "reason": "desktop runtime-files fixture pins vanilla DB names and the 5875 identity",
-        "retires": "S4 retires (DB names); 5875 retires at S8",
+        "literals": ("5875", "12340") + VANILLA_DB_NAMES,
+        "reason": (
+            "desktop runtime-files fixture pins vanilla DB names and the 5875 "
+            "identity; the S5-flip fixtures construct a synthetic "
+            "two-qualified flavor set (wotlk build 12340) to pin ActiveFlavor "
+            "resolution"
+        ),
+        "retires": "S4 retires (DB names); 5875/12340 retire at S8",
     },
     # S6 (extractor manifest provenance) currently owns nothing: the extractor
     # lanes (build_o11_extractors.py, build_o09_realm_runtime.py) sweep clean.
@@ -357,9 +384,19 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "android/app/src/main/java/com/pocketrealm/client/SinglePlayerAutoLogin.kt",
-        "literals": ("5875",),
-        "reason": "login-window mapped topology captured from the qualified build-5875 client",
-        "retires": "S7 retires: per-flavor client datasets and UX copy",
+        "literals": ("5875", "8606", "12340"),
+        "reason": (
+            "login-window mapped topology captured from the qualified build-5875 "
+            "client plus its build-keyed 8606/12340 twins (P11 lanes item 19): "
+            "the KDoc documents each twin's provenance contract — the 5875 lane "
+            "is device-verified, the 8606/12340 matchers ride the same verified "
+            "Wine transport seam until their device captures land"
+        ),
+        "retires": (
+            "S7 (W3) retires: per-flavor client datasets and UX copy — the "
+            "login-topology verification promotes the twins and the identity "
+            "strings move to the capture-manifest owning table"
+        ),
     },
     {
         "path": "android/app/src/main/java/com/pocketrealm/client/WowVanillaBindingCatalog.kt",
@@ -554,6 +591,15 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "retires": "S5 retires: per-flavor fixtures",
     },
     {
+        "path": "android/app/src/test/java/com/pocketrealm/server/NativeRuntimeFreshnessTest.kt",
+        "literals": ("classiccharacters", "classicrealmd", "classiclogs"),
+        "reason": (
+            "freshness-gate fixture: the lockfile seed_transcript rows it decodes "
+            "are keyed by the vanilla database names"
+        ),
+        "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
         "path": "android/app/src/test/java/com/pocketrealm/ui/FirstRunTutorialTest.kt",
         "literals": ("5875",),
         "reason": "synthetic vanilla test fixture",
@@ -609,7 +655,13 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "path": "schemas/database-migrations.json",
         "literals": VANILLA_DB_NAMES,
         "reason": "the vanilla migration ledger names the classic* databases it seeds",
-        "retires": "S4 retires: per-flavor ledgers",
+        "retires": "S9 retires: the deprecation-window alias file is deleted once no consumer reads it (G3-3 item 2 / D35); this entry retires with it",
+    },
+    {
+        "path": "schemas/database-migrations-vanilla.json",
+        "literals": VANILLA_DB_NAMES,
+        "reason": "the canonical per-flavor vanilla ledger (byte copy of the alias) names the classic* databases it seeds",
+        "retires": "never while the vanilla lane seeds classic* (the alias entry above retires first)",
     },
     {
         "path": "schemas/sqlite-seed-baseline.json",
@@ -633,6 +685,16 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "path": "schemas/realm-runtime-lockfile-sqlite-win.json",
         "literals": VANILLA_DB_NAMES,
         "reason": "lockfile provenance names the classic* databases the lane seeds",
+        "retires": "S4 retires: per-flavor ledgers",
+    },
+    {
+        "path": "schemas/realm-runtime-lockfile-mariadb-win.json",
+        "literals": VANILLA_DB_NAMES,
+        "reason": (
+            "lockfile provenance names the classic* databases the lane seeds "
+            "(mariadb win lane twin of the sqlite win lockfile; seed corpus "
+            "identical, backend pins differ)"
+        ),
         "retires": "S4 retires: per-flavor ledgers",
     },
     {
@@ -666,6 +728,42 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "retires": "S4 retires: per-flavor DB routing",
     },
     {
+        "path": "android/app/src/androidTest/java/com/pocketrealm/importer/ClientGenerationStoreQuarantineInstrumentedTest.kt",
+        "literals": ("wow-1.12.1-5875", "wow-2.4.3-8606"),
+        "reason": "G3-5 quarantine androidTest seeds a vanilla and a foreign (TBC) generation to prove the scoped prune keeps the foreign one",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/importer/ManifestFlavorShimTest.kt",
+        "literals": ("1.12.1.5875", "5875", "wow-1.12.1-5875"),
+        "reason": "G3-2 golden-fixture test composes the vanilla client identity the manifest writer stamps",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/importer/GenerationPointerQuarantineTest.kt",
+        "literals": ("5875", "wow-1.12.1-5875", "wow-2.4.3-8606"),
+        "reason": "G3-5 keep-set test resolves vanilla and foreign (TBC) generations' flavors",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/server/VanillaConfGoldenTest.kt",
+        "literals": VANILLA_DB_NAMES,
+        "reason": "G3-7 golden conf fixtures pin the vanilla database-name set the templates seed",
+        "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/client/VanillaCatalogPinsTest.kt",
+        "literals": ("5875",),
+        "reason": "G3-10 pins the binding/settings catalogs to the 5875 capture",
+        "retires": "S7 retires: vanilla client datasets",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/ingame/InGameSettingsFilesLayoutPinTest.kt",
+        "literals": ("5875", "wow-1.12.1-5875"),
+        "reason": "G3-10 WtfLayout path-equality pins use a canonical vanilla client root",
+        "retires": "S7 retires: vanilla client datasets",
+    },
+    {
         "path": "tests/test_sqlite_seeding.py",
         "literals": VANILLA_DB_NAMES,
         "reason": "repo test constructs the vanilla DB names to pin the sqlite seed",
@@ -676,6 +774,347 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "literals": ("classiccharacters",),
         "reason": "repo test constructs the vanilla characters DB name",
         "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
+        "path": "tests/test_utf16_gate_coverage.py",
+        "literals": None,
+        "reason": "the round-3 UTF-16 gate-coverage tests construct banned flavor literals by design to prove both gates sweep encoded text",
+        "retires": "never (owning-table test)",
+    },
+    # ---- code-red round 1 (R1-1/R3-1): the sweep now covers UNTRACKED
+    # commit-candidate files (--cached --others --exclude-standard), which
+    # surfaced the wave's not-yet-committed surfaces. Every entry below is
+    # triaged to the same standard as the tracked set: owning table,
+    # generated data, golden fixture, or synthetic test fixture, each with
+    # its retiring wave.
+    # Per-flavor client catalogs: each catalog IS the owning table for its
+    # own flavor's build identity (the WowVanillaBindingCatalog/
+    # WowVanillaSettingsCatalog twins above hold the vanilla entries).
+    {
+        "path": "android/app/src/main/java/com/pocketrealm/client/WowTbcBindingCatalog.kt",
+        "literals": ("8606",),
+        "reason": "the tbc binding catalog is the owning table for the 8606 build's captured bindings",
+        "retires": "S7 retires: per-flavor client datasets (identity routes through the registry)",
+    },
+    {
+        "path": "android/app/src/main/java/com/pocketrealm/client/WowWotlkBindingCatalog.kt",
+        "literals": ("12340",),
+        "reason": "the wotlk binding catalog is the owning table for the 12340 build's captured bindings",
+        "retires": "S7 retires: per-flavor client datasets",
+    },
+    {
+        "path": "android/app/src/main/java/com/pocketrealm/ingame/WowTbcSettingsCatalog.kt",
+        "literals": ("8606",),
+        "reason": "the tbc settings catalog is the owning table for the 8606 build's captured settings",
+        "retires": "S7 retires: per-flavor client datasets",
+    },
+    {
+        "path": "android/app/src/main/java/com/pocketrealm/ingame/WowWotlkSettingsCatalog.kt",
+        "literals": ("12340",),
+        "reason": "the wotlk settings catalog is the owning table for the 12340 build's captured settings",
+        "retires": "S7 retires: per-flavor client datasets",
+    },
+    {
+        "path": "android/app/src/main/java/com/pocketrealm/client/GeneratedTimeframeOverlayCatalog.kt",
+        "literals": None,
+        "reason": (
+            "GENERATED owning data: tools/generate_timeframe_era.py emits this "
+            "catalog from the vanilla timeframe overlays (which target the "
+            "vanilla world DB by design) - generated tables own their inputs' "
+            "literals the way flavor.json owns the registry's"
+        ),
+        "retires": "W3 retires: per-flavor era curation regenerates per-flavor catalogs",
+    },
+    {
+        "path": "android/app/src/main/java/com/pocketrealm/database/TimeframeOverlayPlan.kt",
+        "literals": ("classicmangos",),
+        "reason": "timeframe overlay plan names the vanilla world DB the overlay SQL applies to",
+        "retires": "W3 retires: per-flavor overlay plans route DB names through the registry",
+    },
+    {
+        "path": "android/app/src/main/java/com/pocketrealm/database/TimeframeOverlayApplier.kt",
+        "literals": ("classicmangos",),
+        "reason": "timeframe overlay applier writes to the vanilla world DB the overlays target",
+        "retires": "W3 retires: per-flavor overlay application",
+    },
+    {
+        "path_prefix": "schemas/timeframes/vanilla/overlays/",
+        "literals": None,
+        "reason": (
+            "the VANILLA timeframe's own overlay SQL targets the vanilla world "
+            "DB by design - owning data for the vanilla timeframe lane"
+        ),
+        "retires": "never while vanilla overlays target classicmangos (W3 adds the sibling flavors' own trees)",
+    },
+    {
+        "path": "tools/generate_timeframe_era.py",
+        "literals": ("classicmangos",),
+        "reason": "the timeframe-era generator names the vanilla world DB its vanilla overlays write to",
+        "retires": "W3 retires: per-flavor era curation parameterizes the target",
+    },
+    {
+        "path": "tools/capture_flavor_framexml.py",
+        "literals": ("5875",),
+        "reason": "capture harness names the vanilla 109/211 capture precedent build in its provenance prose",
+        "retires": "S7 retires: per-flavor capture provenance",
+    },
+    {
+        "path": "tools/generate_flavor_catalogs.py",
+        "literals": ("8606", "12340"),
+        "reason": (
+            "the per-flavor catalog generator emits each flavor's build "
+            "identity into its catalog - the tool is the owning-table writer"
+        ),
+        "retires": "S7 retires: per-flavor catalogs (the generator keeps owning them)",
+    },
+    # Desktop lane production surfaces (the desktop twins of tracked
+    # android entries).
+    {
+        "path": "desktop/src/main/kotlin/com/pocketrealm/database/DesktopMariaDbEngine.kt",
+        "literals": VANILLA_DB_NAMES + ("5875",),
+        "reason": (
+            "KNOWN DEFECT (port plan section 3(b), W1 item 2): the desktop "
+            "MariaDB bootstrap CREATE DATABASE literals still name the "
+            "classic* set and the 5875 build stamp - flavor routing through "
+            "the resolver is W1's first work item, both engine twins"
+        ),
+        "retires": "W1 retires: flavor-routed bootstrap CREATE DATABASE",
+    },
+    {
+        "path": "desktop/src/main/kotlin/com/pocketrealm/desktop/NativeRuntimeFence.kt",
+        "literals": VANILLA_DB_NAMES,
+        "reason": (
+            "desktop freshness fence names the classic* databases of the "
+            "mariadb-win lockfile lane it pins"
+        ),
+        "retires": "S4/W1 retires: per-flavor lockfile lanes carry their own DB name sets",
+    },
+    {
+        "path": "desktop/src/main/kotlin/com/pocketrealm/client/ClientTweaksRuntime.kt",
+        "literals": ("5875",),
+        "reason": "desktop runtime applies byte-addressed vanilla tweaks pinned to the build-5875 image",
+        "retires": "S7 retires: per-flavor client datasets",
+    },
+    {
+        "path": "desktop/src/main/kotlin/com/pocketrealm/client/DesktopVanillaTweaksPatcher.kt",
+        "literals": ("5875",),
+        "reason": "desktop patcher applies byte-addressed vanilla tweaks pinned to the build-5875 image",
+        "retires": "S7 retires: per-flavor client datasets",
+    },
+    {
+        "path": "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/FirstRunTutorial.kt",
+        "literals": ("5875",),
+        "reason": "desktop UX copy names the client the user must supply (the vanilla twin's S7 entry class)",
+        "retires": "S7 retires: per-flavor UX copy",
+    },
+    # Per-flavor win lockfiles (tool-written by the W0 rebuilds).
+    {
+        "path": "schemas/realm-runtime-lockfile-sqlite-win-tbc.json",
+        "literals": VANILLA_DB_NAMES,
+        "reason": (
+            "tool-written per-flavor win lockfile: its seed-transcript "
+            "provenance still records the classic* names the lane seeded "
+            "(the win lanes have not yet re-keyed per flavor)"
+        ),
+        "retires": "S4 retires: per-flavor DB routing re-keys the transcripts",
+    },
+    {
+        "path": "schemas/realm-runtime-lockfile-sqlite-win-wotlk.json",
+        "literals": VANILLA_DB_NAMES,
+        "reason": (
+            "tool-written per-flavor win lockfile: its seed-transcript "
+            "provenance still records the classic* names the lane seeded"
+        ),
+        "retires": "S4 retires: per-flavor DB routing re-keys the transcripts",
+    },
+    # G3 golden fixtures (D27: byte-stable pins, never edited).
+    {
+        "path": "android/app/src/test/resources/fixtures/g3/client-manifest-current-release.json",
+        "literals": None,
+        "reason": "G3-2 golden fixture bytes pin the vanilla identity the manifest writer stamps (D27: never edited)",
+        "retires": "never while the golden seal stands (D27)",
+    },
+    {
+        "path": "android/app/src/test/resources/fixtures/g3/data-manifest-current-release.json",
+        "literals": None,
+        "reason": "G3-2 golden fixture bytes pin the vanilla identity the data manifest stamps (D27: never edited)",
+        "retires": "never while the golden seal stands (D27)",
+    },
+    {
+        "path_prefix": "android/app/src/test/resources/fixtures/g3/conf/",
+        "literals": None,
+        "reason": "G3-7 golden conf fixtures pin the vanilla database-name set the templates seed (D27: never edited)",
+        "retires": "never while the golden seal stands (D27)",
+    },
+    # Synthetic per-flavor test fixtures (android + desktop).
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/client/ActiveFlavorTest.kt",
+        "literals": ("5875",),
+        "reason": "synthetic vanilla-lane fixture proving ActiveFlavor resolution",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/client/LoginTopologiesTest.kt",
+        "literals": ("5875", "8606", "12340"),
+        "reason": "synthetic per-build login-topology fixtures for all three captured builds",
+        "retires": "S5/S7 retires: per-flavor fixtures + topology promotion",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/client/MultiQualifiedLaneResolutionTest.kt",
+        "literals": ("5875", "8606"),
+        "reason": "synthetic two-qualified-flavor fixture proving lane-scoped resolution",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/importer/DataPreparationStoreTest.kt",
+        "literals": ("wow-1.12.1-5875",),
+        "reason": "R2-4 quarantine fixtures pin the verified vanilla clientId the generation stamp must resolve",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/client/TwoQualifiedFlavors.kt",
+        "literals": ("8606", "wow-2.4.3-8606"),
+        "reason": "shared synthetic two-qualified-flavor registry fixture (tbc identity by design)",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/database/RealmBuildsProjectionContractTest.kt",
+        "literals": ("classicrealmd",),
+        "reason": "realmd fixture pins the vanilla realmlist projection",
+        "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/ui/TunnelInviteTest.kt",
+        "literals": ("5875",),
+        "reason": "tunnel-invite fixture pins the registry-derived client line's vanilla rendering",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/client/DesktopVanillaTweaksPatcherTest.kt",
+        "literals": ("5875",),
+        "reason": "synthetic vanilla patcher fixture",
+        "retires": "S7 retires: per-flavor client datasets",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/database/DesktopDatabaseServiceTest.kt",
+        "literals": ("5875",),
+        "reason": "synthetic vanilla identity fixture",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/database/DesktopMariaDbEngineTest.kt",
+        "literals": ("5875", "12340", "classicmangos", "classicrealmd"),
+        "reason": (
+            "desktop engine fixtures: vanilla bootstrap rows (the W1-routing "
+            "defect's own test surface) plus a 12340-flavored row proving "
+            "per-flavor DB name routing where it already exists"
+        ),
+        "retires": "W1 retires with the bootstrap routing; the 12340 row retires at S8",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/database/DesktopSqliteSealsTest.kt",
+        "literals": ("classiclogs",),
+        "reason": "sqlite seal fixture names the vanilla logs DB it seals",
+        "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/database/DesktopTimeframeOverlayTest.kt",
+        "literals": ("classicmangos",),
+        "reason": "timeframe overlay fixture targets the vanilla world DB",
+        "retires": "W3 retires: per-flavor overlays",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/AuthGateTest.kt",
+        "literals": ("1.12.1.5875", "5875"),
+        "reason": "synthetic vanilla auth fixture (the desktop auth-gate lane)",
+        "retires": "S8 retires: per-flavor desktop auth fixtures",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopAppModelTest.kt",
+        "literals": ("classicrealmd",),
+        "reason": "synthetic vanilla realmd fixture",
+        "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopRealmArchiveTest.kt",
+        "literals": ("classicrealmd",),
+        "reason": "synthetic vanilla realmd archive fixture",
+        "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopSnapshotsRestoreTest.kt",
+        "literals": ("classicrealmd",),
+        "reason": "synthetic vanilla snapshot fixture",
+        "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopStorageRootsTest.kt",
+        "literals": ("classicrealmd",),
+        "reason": "synthetic vanilla datadir fixture",
+        "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopTunnelBackendTest.kt",
+        "literals": ("5875",),
+        "reason": "synthetic vanilla tunnel-lane identity fixture",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/FirstRunTutorialTest.kt",
+        "literals": ("5875",),
+        "reason": "tutorial copy fixture (vanilla rendering)",
+        "retires": "S7 retires: per-flavor UX copy",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/NativeRuntimeFenceTest.kt",
+        "literals": ("classiccharacters", "classicmangos", "classicrealmd"),
+        "reason": "fence fixture pins the mariadb-win lane's vanilla DB set the fence verifies",
+        "retires": "S4/W1 retires: per-flavor lockfile lanes",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/Win32AutoLoginSignatureTest.kt",
+        "literals": ("5875",),
+        "reason": "signature-test prose names the pinned build-5875 login frame (DESK-138)",
+        "retires": "S8 retires: per-flavor desktop auth fixtures",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/importer/DesktopImportStoragePlannerTest.kt",
+        "literals": ("classicrealmd",),
+        "reason": "synthetic vanilla import fixture",
+        "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/server/DesktopTunnelServerFilesTest.kt",
+        "literals": ("5875",),
+        "reason": "tunnel conf fixture stamps the vanilla identity",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "tests/test_davos_tools_error_reporting.py",
+        "literals": ("classiccharacters", "classicrealmd"),
+        "reason": "repo test constructs the vanilla DB names davos tools report on",
+        "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
+        "path": "tests/test_install_client_windows_ps1.py",
+        "literals": ("1.12.1.5875", "5875", "8606"),
+        "reason": (
+            "installer-lane tests stage genuine vanilla 1.12.1.5875 archives "
+            "and a registered tbc 8606 client for the -Flavor ranking rows"
+        ),
+        "retires": "S5 retires: client identity qualification via the registry",
+    },
+    {
+        "path": "tests/test_verify_seed_sqlite_floor.py",
+        "literals": ("classiccharacters",),
+        "reason": "seed-floor test names the vanilla characters DB it floors",
+        "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
+        "path": "tests/test_win_prepare_data_flavors.py",
+        "literals": ("5875", "8606", "12340"),
+        "reason": "per-flavor prep tests pin the FLAVOR_IDENTITIES build numbers (owning-table pins)",
+        "retires": "S5 retires: client identity qualification via the registry",
     },
 )
 
@@ -728,13 +1167,21 @@ def _line_literals(line: str) -> set[str]:
 
 
 def _git_tracked_files(root: Path) -> list[Path] | None:
-    """Every tracked text file, or None when root is not a git checkout."""
+    """Every COMMITTED-or-COMMITTABLE text file, or None when the git
+    enumeration cannot run (not a checkout / git failure).
+
+    R1-1/R3-1: the enumeration is `--cached --others --exclude-standard`
+    — the index PLUS the untracked files a finalize commit would sweep in.
+    The old tracked-only scan left untracked production code (e.g. an
+    uncompiled-yet DesktopMariaDbEngine.kt full of classic* literals)
+    structurally invisible to the tripwire until the commit flipped it red."""
     import subprocess
 
     try:
         result = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "-z"],
-            capture_output=True, timeout=60,
+            ["git", "-C", str(root), "ls-files",
+             "--cached", "--others", "--exclude-standard", "-z"],
+            capture_output=True, timeout=120,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -751,13 +1198,38 @@ def _git_tracked_files(root: Path) -> list[Path] | None:
         if not path.is_file():
             continue
         try:
-            with path.open("rb") as handle:
-                if bytes([0]) in handle.read(8192):
-                    continue  # binary: no text literals to sweep
+            head_bytes = path.open("rb").read(8192)
         except OSError:
             pass  # unreadable files surface as <unreadable> findings
+        else:
+            # Round-3 R3-2: UTF-16/32 text carries NUL bytes but is text —
+            # a whole file class (PowerShell 5.1 Out-File default) used to
+            # vanish from the sweep silently. Decode via BOM; skip only
+            # genuinely binary files.
+            if bytes([0]) in head_bytes and _decode_bom_text(path) is None:
+                continue
         paths.append(path)
     return paths
+
+
+def _decode_bom_text(path: Path) -> str | None:
+    """Decode a UTF-16/32 file via its BOM; None when no BOM (binary)."""
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    for bom, encoding in (
+        (bytes([0xFF, 0xFE, 0x00, 0x00]), "utf-32"),
+        (bytes([0x00, 0x00, 0xFE, 0xFF]), "utf-32"),
+        (bytes([0xFF, 0xFE]), "utf-16"),
+        (bytes([0xFE, 0xFF]), "utf-16"),
+    ):
+        if raw.startswith(bom):
+            try:
+                return raw.decode(encoding)
+            except (UnicodeDecodeError, ValueError):
+                return None
+    return None
 
 
 def _git_binary_skipped(root: Path) -> int:
@@ -767,7 +1239,8 @@ def _git_binary_skipped(root: Path) -> int:
 
     try:
         result = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "-z"],
+            ["git", "-C", str(root), "ls-files",
+             "--cached", "--others", "--exclude-standard", "-z"],
             capture_output=True, timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -850,24 +1323,121 @@ def _stale_allowlist_findings(
     return stale
 
 
+def _ledger_pair_findings(root: Path) -> list[dict[str, object]]:
+    """G3-3 item 3: the vanilla ledger path set — canonical
+    `schemas/database-migrations-vanilla.json` plus the deprecation-window
+    alias `schemas/database-migrations.json` — must be byte-identical to each
+    other, not just literal-scanned. The S1 ledger rename is additive; a
+    divergence between the two names means a consumer would apply different
+    migration sets depending on which name it resolved."""
+    canonical = root / "schemas" / "database-migrations-vanilla.json"
+    alias = root / "schemas" / "database-migrations.json"
+    if not (canonical.is_file() and alias.is_file()):
+        return []
+    try:
+        canonical_bytes = canonical.read_bytes()
+        alias_bytes = alias.read_bytes()
+    except OSError:
+        return []  # unreadable files already surface as <unreadable> findings
+    if canonical_bytes == alias_bytes:
+        return []
+    return [
+        {
+            "path": "schemas/database-migrations-vanilla.json",
+            "line": 0,
+            "literals": ["<ledger-pair-divergence>"],
+            "text": (
+                "per-flavor ledger gate: vanilla ledger path set "
+                "{schemas/database-migrations-vanilla.json, "
+                "schemas/database-migrations.json} must stay byte-identical "
+                "to each other (G3-3)"
+            ),
+        }
+    ]
+
+
+def _journal_schema_findings(root: Path) -> list[dict[str, object]]:
+    """G3-4: the supervisor journal schema stays 3 — the session flavor
+    entered as an optional field, never a schema bump (a strict decode at a
+    bumped schema would strand any device killed mid-session just before an
+    app update). Any `JOURNAL_SCHEMA = <n>` other than 3 under the supervisor
+    package is a finding."""
+    supervisor = root / "android" / "app" / "src" / "main" / "java" / "com" / "pocketrealm" / "supervisor"
+    if not supervisor.is_dir():
+        return []
+    findings: list[dict[str, object]] = []
+    for path in sorted(supervisor.glob("*.kt")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue  # unreadable files already surface as <unreadable> findings
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if re.search(r"JOURNAL_SCHEMA\s*=\s*(?!3\b)\d+", line):
+                findings.append(
+                    {
+                        "path": path.relative_to(root).as_posix(),
+                        "line": lineno,
+                        "literals": ["<journal-schema-bump>"],
+                        "text": line.strip(),
+                    }
+                )
+    return findings
+
+
 def sweep(
     root: Path, allowlist: tuple[dict[str, object], ...] = ALLOWLIST
 ) -> tuple[list[dict[str, object]], int, int]:
     """Return (findings, allowlisted count, files scanned). Stale scoped
-    allowlist entries are reported as findings (config errors)."""
+    allowlist entries are reported as findings (config errors).
+
+    R2-2 fail-closed: a scan that resolves ZERO files is reported as a loud
+    degraded-scan finding — a tripwire that saw nothing must never answer
+    OK (the legacy SCAN_ROOTS fallback exists for synthetic test trees; a
+    root with neither git nor any SCAN_ROOTS dir is a coverage failure)."""
     findings: list[dict[str, object]] = []
     allowlisted = 0
     paths = scan_paths(root)
+    if not paths:
+        findings.append(
+            {
+                "path": str(root),
+                "line": 0,
+                "literals": ["<degraded-scan>"],
+                "text": (
+                    "leak_sweep: the scan resolved ZERO files (git "
+                    "unavailable and no legacy SCAN_ROOTS directory exists) "
+                    "— a sweep that saw nothing is a coverage failure, never "
+                    "a pass"
+                ),
+            }
+        )
+        # W0 close-out: the structural surfaces do not depend on the
+        # content-scan path yield. A synthetic tree carrying only a
+        # structural surface (e.g. a schemas/ ledger-pair fixture with no
+        # .kt/.py file anywhere) must still get the pair/journal/stale
+        # checks — the round-2 degraded early-return was skipping them.
+        # The degraded tripwire itself stays (zero content files is still
+        # a coverage failure, never a pass).
+        findings.extend(_stale_allowlist_findings(root, allowlist))
+        findings.extend(_ledger_pair_findings(root))
+        findings.extend(_journal_schema_findings(root))
+        return findings, 0, 0
     for path in paths:
         rel = path.relative_to(root).as_posix()
         entry = _allowlist_entry(rel, allowlist)
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
-            findings.append(
-                {"path": rel, "line": 0, "literals": ["<unreadable>"], "text": str(exc)}
-            )
-            continue
+            # Round-3 R3-2: a UTF-16/32 BOM file fails the utf-8 read by
+            # design — decode via its BOM before calling it unreadable.
+            decoded = _decode_bom_text(path)
+            if decoded is not None:
+                text = decoded
+            else:
+                findings.append(
+                    {"path": rel, "line": 0, "literals": ["<unreadable>"], "text": str(exc)}
+                )
+                continue
         for lineno, line in enumerate(text.splitlines(), 1):
             literals = _line_literals(line)
             if not literals:
@@ -890,6 +1460,8 @@ def sweep(
                 }
             )
     findings.extend(_stale_allowlist_findings(root, allowlist))
+    findings.extend(_ledger_pair_findings(root))
+    findings.extend(_journal_schema_findings(root))
     return findings, allowlisted, len(paths)
 
 

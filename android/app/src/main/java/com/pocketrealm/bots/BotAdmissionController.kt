@@ -11,6 +11,11 @@ data class BotResourceSample(
     val thermal: ThermalLevel,
     val hardStallCount: Int = 0,
     val hardStallTotal: Long = hardStallCount.toLong(),
+    // D7 (design-lan §6.2): plain observation field — the human session
+    // count beside the bot load. No policy consumes it yet (no behavior
+    // change rides on the field); a later tuning change may let the shared
+    // admission controller tighten under guest load.
+    val realPlayers: Int = 0,
 )
 
 data class BotAdmissionState(

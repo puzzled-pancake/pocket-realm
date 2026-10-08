@@ -1,8 +1,11 @@
 package com.pocketrealm.desktop
 
+import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.database.DatabaseSqliteControlPlane
 import com.pocketrealm.database.DesktopSqliteConnection
 import com.pocketrealm.server.ServerRuntimeContract
+import com.pocketrealm.server.ServerRuntimeFiles
+import com.pocketrealm.server.Srp6AccountMath
 import com.pocketrealm.supervisor.ComponentLifecycle
 import com.pocketrealm.supervisor.ComponentOwner
 import com.pocketrealm.supervisor.RuntimeComponent
@@ -14,16 +17,21 @@ import java.math.BigInteger
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.security.MessageDigest
-import java.security.SecureRandom
 import kotlin.experimental.xor
 import kotlin.system.exitProcess
 
 /**
  * Protocol-auth gate: boot realmd, then prove AUTHENTICATION at
- * protocol level with a minimal WoW 1.12.1 (build 5875) SRP6 logon
- * client — challenge, proof, and the server's M2 verified — against an
- * SRP verifier row seeded directly into classicrealmd.sqlite (the
- * account-creation math mirrored from cmangos's AccountMgr/SRP6).
+ * protocol level with a minimal WoW vanilla SRP6 logon client —
+ * challenge, proof, and the server's M2 verified — against an SRP
+ * verifier row seeded directly into the qualified lane's realmd
+ * database (the account-creation math mirrored from cmangos's
+ * AccountMgr/SRP6). The client identity (build, version resource,
+ * proof-response frame length) resolves through the shared
+ * [com.pocketrealm.client.ClientFlavors] registry — exactly the one
+ * qualified flavor the in-process server lane runs, never a hard-coded
+ * build constant (DESK-94) — with golden-vector pins in
+ * desktop/src/test AuthGateTest (DESK-56).
  *
  * Three independent proofs land:
  *  1. realmd accepts our M1 (it computes its own M1 from the stored
@@ -65,7 +73,13 @@ fun main() {
     val account = "AUTHGATE"
     val password = "AuthGate-Password-1"
     val srp = VsrpMath.verifierFor(account, password)
-    val realmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "classicrealmd")
+    // DESK-93: the verifier row lands in the same database realmd.conf's
+    // LoginDatabaseInfo points at — one flavor-routed source, never a
+    // second hard-coded vanilla name.
+    val realmd = DatabaseSqliteControlPlane.databaseFile(
+        roots.sqliteDatadir,
+        ServerRuntimeFiles.serverDatabases().realmd,
+    )
     DesktopSqliteConnection(realmd.absolutePath).use { db ->
         db.exec("DELETE FROM account WHERE username = '$account';")
         db.exec(
@@ -130,6 +144,17 @@ fun main() {
         System.err.println("CLEAN STOP FAILED: ${stop.detail} / ${dbStop.detail}")
         exitProcess(EXIT_STOP)
     }
+    // Test-scoped state, not a persistent credential: once every proof has
+    // landed and the components are stopped, the gate's known-password
+    // account row leaves the live realmd database (a failed run leaves it
+    // for triage; the next run's seed DELETE replaces it regardless).
+    DesktopSqliteConnection(realmd.absolutePath).use { db ->
+        db.exec("DELETE FROM account WHERE username = '$account';")
+        check(db.queryLong("SELECT COUNT(*) FROM account WHERE username = '$account';") == 0L) {
+            "gate account row survived cleanup"
+        }
+    }
+    println("removed gate account row ($account) from the realmd database")
     DesktopLog.i("AuthGate", "protocol-auth gate passed")
     println("PROTOCOL-AUTH GATE PASSED")
 }
@@ -146,36 +171,32 @@ private const val READY_POLL_SLEEP_MS = 250L
 
 /** The account-creation + handshake math, mirrored from cmangos
  * (AccountMgr::CalculateShaPassHash / SRP6.cpp). The server verifies
- * every output independently — this object only has to AGREE. */
+ * every output independently — this object only has to AGREE.
+ *
+ * The verifier derivation itself moved to the shared
+ * [com.pocketrealm.server.Srp6AccountMath] (design-remote-accounts §3.2:
+ * the friend side derives s/v on its own device, so the math must compile
+ * on both platforms); these two overloads delegate so the gate's
+ * golden-vector pins keep guarding the one implementation. */
 internal object VsrpMath {
-    val N = BigInteger(SRP_PRIME_HEX, RADIX_HEX)
-    val G = BigInteger.valueOf(SRP_GENERATOR)
-    private const val SRP_PRIME_HEX =
-        "894B645E89E1535BBDAD5B8B290650530801B18EBFBF5E8FAB3C82872A3E9BB7"
-    private const val SRP_GENERATOR = 7L
+    val N = Srp6AccountMath.N
+    val G = Srp6AccountMath.G
 
     data class Verifier(val s: ByteArray, val sHex: String, val v: BigInteger, val vHex: String, val x: BigInteger)
 
     fun verifierFor(account: String, password: String): Verifier {
-        // AccountMgr::normalizeString uppercases both before hashing.
-        val accountUpper = account.uppercase()
-        val passwordUpper = password.uppercase()
-        val random = SecureRandom()
-        val s = ByteArray(SALT_BYTES)
-        do {
-            random.nextBytes(s)
-            // Top byte nonzero keeps the number 32 bytes; bottom byte
-            // nonzero keeps its little-endian minimal form 32 bytes too
-            // (the challenge packet carries the unpadded minimal form).
-        } while (s[0] == 0.toByte() || s[SALT_BYTES - 1] == 0.toByte())
-        val identity = sha1("$accountUpper:$passwordUpper".toByteArray(Charsets.US_ASCII))
-        // BigNumber::SetBinary REVERSES its input (a little-endian
-        // interpreter): x = the derivation digest read little-endian,
-        // over the salt's LE bytes and the raw identity digest (the
-        // verifier path's own std::reverse cancels the LE there).
-        val x = BigInteger(1, sha1(s.reversedArray(), identity).reversedArray())
-        val v = G.modPow(x, N)
-        return Verifier(s, s.toHexLower(), v, v.toString(RADIX_HEX), x)
+        val derived = Srp6AccountMath.verifierFor(account, password)
+        return Verifier(derived.s, derived.sHex, derived.v, derived.vHex, derived.x)
+    }
+
+    /**
+     * Deterministic salt-pinned verifier derivation — the golden-vector
+     * path AuthGateTest pins against (the random overload above only
+     * picks the salt).
+     */
+    fun verifierFor(account: String, password: String, s: ByteArray): Verifier {
+        val derived = Srp6AccountMath.verifierFor(account, password, s)
+        return Verifier(derived.s, derived.sHex, derived.v, derived.vHex, derived.x)
     }
 
     /** The interleaved 40-byte session-key hash (SRP6::HashSessionKey). */
@@ -232,11 +253,7 @@ internal object VsrpMath {
     fun sha1(vararg chunks: ByteArray): ByteArray =
         MessageDigest.getInstance("SHA-1").digest(chunks.fold(byteArrayOf()) { acc, b -> acc + b })
 
-    private fun ByteArray.toHexLower(): String = joinToString("") { "%02x".format(it) }
-
-    private const val SALT_BYTES = 32
     private const val SECRET_BYTES = 32
-    private const val RADIX_HEX = 16
     private const val SHA1_BYTES = 20
     private const val SESSION_KEY_BYTES = 40
 }
@@ -256,13 +273,16 @@ internal fun BigInteger.toPaddedBe(size: Int): ByteArray {
     return ByteArray(size).also { System.arraycopy(min, 0, it, size - min.size, min.size) }
 }
 
-/** The 1.12.1 wire client: logon challenge -> SRP proof -> M2 verify.
- * Returns the negotiated session key as lowercase hex on success. */
+/** The vanilla wire client: logon challenge -> SRP proof -> M2 verify.
+ * Returns the negotiated session key as lowercase hex on success. The
+ * client identity (build, version resource, proof-response frame) is
+ * per-flavor data resolved from the shared registry at each logon
+ * (DESK-94); the golden wire/math vectors are pinned in AuthGateTest
+ * (DESK-56). */
 internal object VsrpClient {
     private const val CMD_AUTH_LOGON_CHALLENGE = 0
     private const val CMD_AUTH_LOGON_PROOF = 1
     private const val AUTH_LOGON_SUCCESS = 0
-    private const val BUILD_5875 = 5875
     private const val EPHEMERAL_BYTES = 32
     private const val PROOF_BYTES = 20
     private const val SALT_BYTES = 32
@@ -272,6 +292,30 @@ internal object VsrpClient {
     private const val CLIENT_SECRET_BYTES = 19
     private const val GATE_CONNECT_TIMEOUT_MS = 5_000
     private const val SRP_MULTIPLIER = 3L
+
+    /**
+     * The vanilla proof-response frame: cmd + error + M2[20] + uint32
+     * LoginFlags = 26. The LENGTH the client parses; the registry pins
+     * the same 26 as [com.pocketrealm.client.ClientFlavors.VANILLA]
+     * `.proofResponseBytes`, and logon refuses any mismatched pairing
+     * instead of silently mis-parsing the wire (DESK-94).
+     */
+    internal const val VANILLA_PROOF_RESPONSE_BYTES = 2 + PROOF_BYTES + LOGIN_FLAGS_BYTES
+
+    /**
+     * DESK-94: platform/os/locale have no per-flavor registry field yet,
+     * so they stay the vanilla client's constants — the
+     * [com.pocketrealm.client.ClientFlavors.AUTH_CHALLENGE_OPCODE]
+     * shared-constant pattern (named in one place; swap for registry
+     * data the day the registry grows a per-flavor field for them).
+     * cmangos C-string-reads platform/os from index 0 BEFORE
+     * un-reversing, so their reversed wire form carries the NUL LAST
+     * (see [reverseAsciiNul]); the vanilla client sends all three
+     * reversed.
+     */
+    private const val VANILLA_PLATFORM = "x86"
+    private const val VANILLA_OS = "Win"
+    private const val VANILLA_LOCALE = "enUS"
 
     // The 1.12 wire format is fixed-width fields; every literal names its
     // field in the adjacent comment (per-field constants would obscure it).
@@ -288,16 +332,11 @@ internal object VsrpClient {
             val out = socket.getOutputStream()
             val input = socket.getInputStream()
 
-            val name = accountUpper.toByteArray(Charsets.US_ASCII)
-            // sAuthLogonChallengeBody: gamename[4] "WoW\0", version
-            // 1.12.1, build 5875 (LE), platform/os/locale REVERSED
-            // (the server un-reverses), timezone bias, ip, name.
-            val body = "WoW".toByteArray(Charsets.US_ASCII) + byteArrayOf(0) +
-                byteArrayOf(1, 12, 1) + // version 1.12.1 (literals coerce to Byte)
-                byteArrayOf(BUILD_5875.toByte(), (BUILD_5875 shr 8).toByte()) +
-                reverseAsciiNul("x86") + reverseAsciiNul("Win") + reverseAscii("enUS") +
-                byteArrayOf(0, 0, 0, 0) + byteArrayOf(127, 0, 0, 1) +
-                byteArrayOf(name.size.toByte()) + name
+            // DESK-94: the challenge identity rides the one qualified
+            // flavor (ClientFlavor.build / versionResource), never a
+            // hard-coded build constant.
+            val flavor = ServerRuntimeFiles.serverFlavor()
+            val body = challengeBody(accountUpper, flavor)
             out.write(byteArrayOf(CMD_AUTH_LOGON_CHALLENGE.toByte(), 0) +
                 byteArrayOf((body.size and 0xFF).toByte(), (body.size shr 8).toByte()) + body)
             out.flush()
@@ -354,12 +393,20 @@ internal object VsrpClient {
             out.write(proof)
             out.flush()
 
-            // Build 5875's proof response frame is 26 bytes: cmd, error,
-            // M2[20], uint32 LoginFlags (the sAuthLogonProof_S_BUILD_6005
-            // layout the server writes whole). Drain the full frame and
-            // assert the flags tail stays zero instead of leaving it
-            // unread on the wire.
-            val response = input.readExactly(2 + PROOF_BYTES + LOGIN_FLAGS_BYTES, "logon proof response")
+            // DESK-94: the proof-response frame LENGTH is per-flavor data
+            // (ClientFlavor.proofResponseBytes — "null until verified").
+            // A flavor with no verified length, or one whose verified
+            // length does not fit the parsed layout, fails loud here
+            // instead of silently mis-parsing the wire; the vanilla
+            // pairing (26 == 26) is the AuthGateTest frame pin.
+            val proofResponseBytes = flavor.proofResponseBytes
+                ?: error("qualified flavor ${flavor.flavorId} has no verified proof-response frame length")
+            check(proofResponseBytes == VANILLA_PROOF_RESPONSE_BYTES) {
+                "proof-response frame layout mismatch: flavor ${flavor.flavorId} pins " +
+                    "$proofResponseBytes bytes, the client parses $VANILLA_PROOF_RESPONSE_BYTES " +
+                    "(cmd + error + M2[$PROOF_BYTES] + uint32 LoginFlags)"
+            }
+            val response = input.readExactly(proofResponseBytes, "logon proof response")
             check(response[0] == CMD_AUTH_LOGON_PROOF.toByte()) { "proof response cmd ${response[0]}" }
             check(response[1] == AUTH_LOGON_SUCCESS.toByte()) {
                 "logon proof REJECTED (result=${response[1].toInt() and 0xFF})"
@@ -374,6 +421,31 @@ internal object VsrpClient {
             println("logon proof accepted; M2 verified; account=$accountUpper")
             return sessionKey.toString(16)
         }
+    }
+
+    /**
+     * The sAuthLogonChallengeBody, extracted as the pure per-flavor
+     * layout so AuthGateTest pins the exact wire bytes without a socket
+     * (DESK-56): gamename[4] "WoW\0", the version resource's
+     * major.minor.patch, the build (LE u16), platform/os/locale
+     * REVERSED (the server un-reverses), timezone bias, ip, name.
+     */
+    @Suppress("MagicNumber") // fixed-width 1.12 challenge fields
+    internal fun challengeBody(accountUpper: String, flavor: ClientFlavor): ByteArray {
+        val version = flavor.versionResource.split(".")
+        check(version.size >= 3) {
+            "versionResource ${flavor.versionResource} is not major.minor.patch[.build]"
+        }
+        val build = flavor.build
+        check(build in 0..0xFFFF) { "build $build does not fit the challenge's u16 field" }
+        val name = accountUpper.toByteArray(Charsets.US_ASCII)
+        return "WoW".toByteArray(Charsets.US_ASCII) + byteArrayOf(0) +
+            byteArrayOf(version[0].toByte(), version[1].toByte(), version[2].toByte()) +
+            byteArrayOf(build.toByte(), (build shr 8).toByte()) +
+            reverseAsciiNul(VANILLA_PLATFORM) + reverseAsciiNul(VANILLA_OS) +
+            reverseAscii(VANILLA_LOCALE) +
+            byteArrayOf(0, 0, 0, 0) + byteArrayOf(127, 0, 0, 1) +
+            byteArrayOf(name.size.toByte()) + name
     }
 
     /** cmangos reverses the platform/os/locale strings on read; the

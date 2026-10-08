@@ -12,8 +12,27 @@ internal object WorldNative {
     external fun createAccountNative(username: String, password: String, timeoutMs: Long): Int
     external fun verifyAccountPasswordNative(username: String, password: String): Boolean
     external fun setAccountGmLevelNative(username: String, level: Int, timeoutMs: Long): Int
+
+    // F1-10 (lanes item 12): the account-expansion verb — the core's
+    // `account set addon <name> <0|1|2>` console op (0 classic / 1 tbc /
+    // 2 wotlk), typed like setAccountGmLevelNative. The account-creation
+    // wirings chain it after a successful create so a flavor's account
+    // row carries its expansion BEFORE first login.
+    external fun setAccountAddonNative(username: String, expansion: Int, timeoutMs: Long): Int
     external fun accountInfoNative(username: String): LongArray
     external fun characterPersistenceNative(username: String, characterName: String): String
+
+    // Remote friend accounts (design-remote-accounts §3/§8/§9/§11): the
+    // verifier provisioning op (no password ever crosses the host), the
+    // roster read, per-friend characters, and the ban/unban verbs. All
+    // require the world READY; JSON answers follow the
+    // characterPersistence pattern. createAccountVerifierNative returns
+    // [resultCode, accountId].
+    external fun createAccountVerifierNative(username: String, sHex: String, vHex: String): LongArray
+    external fun accountListNative(): String
+    external fun accountCharactersNative(username: String): String
+    external fun banAccountNative(username: String, duration: String, reason: String, timeoutMs: Long): String
+    external fun unbanAccountNative(username: String, timeoutMs: Long): String
     external fun realmInfoNative(): String
     // Test-support smoke rail: inject a chat line through the real chat
     // opcode handler, clear LLM assertion memory, read LLM memory state.

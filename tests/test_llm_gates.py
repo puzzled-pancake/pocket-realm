@@ -58,15 +58,20 @@ def test_header_is_pure_no_io_clock_config_or_state():
         assert banned not in text, f"scope fence breached: {banned}"
 
 
-def test_overlay_registration_is_the_22nd_file():
+def test_overlay_registration_is_the_23rd_file():
     driver_text = DRIVER.read_text(encoding="utf-8")
     assert '(bot_root / "PlayerbotLlmGates.h").write_bytes' in driver_text
     assert '"playerbot/PlayerbotLlmGates.h",' in driver_text
     copies = [line for line in driver_text.splitlines()
               if line.strip().startswith("(bot_root /") and
               ".write_bytes((NATIVE / \"patches\" / \"playerbots\"" in line]
-    assert len(copies) == 22, (
-        f"expected 22 whole-file overlay copies, found {len(copies)}")
+    assert len(copies) == 23, (
+        f"expected 23 whole-file overlay copies, found {len(copies)}")
+    # The 23rd: the era-policy table, quote-included by
+    # PlayerbotLlmTruthCore.h:32 - staged beside it or every fresh
+    # o09/Android and win rebuild dies at compile (the mirror has no
+    # include path that reaches native/patches).
+    assert '(bot_root / "PlayerbotLlmEraStages.generated.h").write_bytes' in driver_text
 
 
 def test_sayaction_bridges_the_src_enum_with_static_asserts():

@@ -10,6 +10,29 @@ interface IRuntimeSupervisorControl {
     String setCompanionMode(boolean enabled);
     String recover();
     String createAccount(String username, String password, int gmLevel);
+    /** F9 (census-backend-tools): the read-only world presence sample
+     * (state/realPlayers/playerbotsEnabled/onlinePlayers) behind the LAN
+     * screen's joined-mode players line — the DesktopAppModel
+     * .lanPlayersOnline twin. Observe-only: never starts or claims
+     * anything, and a stopped world reports EMPTY without binding :world. */
+    String worldPresence();
+    /** Remote friend accounts (design-remote-accounts §5/§9/§11): the same
+     * seam carries the new verbs. provisionFriendAccount inserts the
+     * friend-derived (s, v) with NO password input; the moderation verbs
+     * are the shared ban/unban/gm surface; friendAccessState carries the
+     * listener state + invite rows; approveFriendRequest runs the
+     * verifier-provision approval leg. */
+    String provisionFriendAccount(String username, String sHex, String vHex);
+    String banFriendAccount(String username, String duration, String reason);
+    String unbanFriendAccount(String username);
+    String setFriendGmLevel(String username, int level);
+    String friendRoster();
+    String friendCharacters(String username);
+    String friendAccessState();
+    String createFriendInvite(String note);
+    String revokeFriendInvite(String inviteId);
+    String rejectFriendRequest(String inviteId);
+    String approveFriendRequest(String inviteId);
     String createBackup(String name);
     String listBackups();
     String restoreBackup(String snapshotId);

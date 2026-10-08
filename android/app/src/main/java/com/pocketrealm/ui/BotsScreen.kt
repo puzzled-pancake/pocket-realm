@@ -144,7 +144,7 @@ fun BotsScreen() {
     val supervisorClient = remember(context) { RuntimeSupervisorClient(context) }
     val realmState by remember(supervisorClient) {
         supervisorClient.observeRealmState()
-    }.collectAsState(initial = RealmState.Idle)
+    }.collectAsState(initial = RealmState.Idle())
 
     // One-time migration of a legacy advanced setup into a named preset.
     // Reuses an existing "Imported Advanced Setup" preset so a half-completed

@@ -1,6 +1,8 @@
 package com.pocketrealm.supervisor
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -147,5 +149,35 @@ class AutoLoginPolicyTest {
             AutoLoginCredentialProof.Disposition.AUTHORITY_UNAVAILABLE)
         assertTrue(disposition(session = null) ==
             AutoLoginCredentialProof.Disposition.AUTHORITY_UNAVAILABLE)
+    }
+
+    @Test fun `a stale verdict injects no launch credential and never fails the client start`() {
+        // The twin-parity pin: the credential hand-off seam startClient routes
+        // through (and DesktopAppModel.autoLoginIfEnabled mirrors) — a stale
+        // INVALID_CREDENTIAL verdict KEEPS the stored record but injects NO
+        // credential, so the client start continues to the manual login
+        // screen. It must never turn a stale saved account into a failed
+        // launch on either platform.
+        val verified = UserAccountStore.UserAccount("player1", "topsecret", 42L)
+        assertSame(
+            verified,
+            AutoLoginCredentialProof.credentialForLaunch(
+                AutoLoginCredentialProof.Disposition.ACCEPT,
+                verified,
+            ),
+        )
+        assertNull(
+            "a stale record injects no credential - manual login, launch continues",
+            AutoLoginCredentialProof.credentialForLaunch(
+                AutoLoginCredentialProof.Disposition.INVALID_CREDENTIAL,
+                verified,
+            ),
+        )
+        assertNull(
+            AutoLoginCredentialProof.credentialForLaunch(
+                AutoLoginCredentialProof.Disposition.AUTHORITY_UNAVAILABLE,
+                verified,
+            ),
+        )
     }
 }

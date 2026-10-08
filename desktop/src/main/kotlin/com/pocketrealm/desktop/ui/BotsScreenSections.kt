@@ -23,12 +23,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.pocketrealm.bots.BotActivityPreset
+import com.pocketrealm.bots.BotAdvancedSettings
 import com.pocketrealm.bots.BotCustomConfiguration
 import com.pocketrealm.bots.BotLlmSpeech
 import com.pocketrealm.bots.BotPlaystylePreset
 import com.pocketrealm.bots.BotPopulationPolicy
 import com.pocketrealm.bots.BotPresetStore
 import com.pocketrealm.bots.BotProfiles
+import com.pocketrealm.desktop.DesktopBotAdmissionVerdict
 
 /**
  * The Bots screen's editor sections and the preset rail — split from
@@ -712,5 +714,238 @@ private fun SwitchRow(label: String, checked: Boolean, onChecked: (Boolean) -> U
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Switch(checked = checked, onCheckedChange = onChecked)
         Text(label, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/**
+ * DESK-8/23/43/99: the live adaptive-admission verdict — the shared
+ * controller's latest decision for the running world (effective vs
+ * selected target, the reason, and the sample it came from). Null while no
+ * measured profile runs; the world-side knob still rides the next
+ * `PocketRealm.BotTarget` conf via the persisted admission record.
+ */
+@Composable
+internal fun BotAdmissionCard(verdict: DesktopBotAdmissionVerdict?, running: Boolean) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("ADAPTIVE ADMISSION (LIVE)", style = MaterialTheme.typography.labelMedium)
+            if (verdict == null) {
+                Text(
+                    if (running) {
+                        "No measured bot profile is being adapted in this session."
+                    } else {
+                        "Start the realm with a bot profile to see the live load-protection verdict."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                return@Column
+            }
+            Text(
+                verdict.profileId + " - target " + verdict.effectiveTarget + " of " +
+                    verdict.selectedTarget + " (" + verdict.reason + ")" +
+                    if (verdict.adapted) " - adapted" else "",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                verdict.onlineBots.toString() + " bots online - world tick p99 " +
+                    verdict.worldP99Ms + " ms",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "free memory " + verdict.freeMemoryMiB + " MiB - free storage " +
+                    verdict.freeStorageMiB + " MiB - process cpu " +
+                    (if (verdict.processCpuLoad >= 0) {
+                        (verdict.processCpuLoad * 100).toInt().toString() + "%"
+                    } else {
+                        "n/a"
+                    }) + " - footprint " + verdict.committedMemoryMiB + " MiB",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (verdict.error.isNotEmpty()) {
+                Text(
+                    "monitor: " + verdict.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * DESK-118/124: the launcher-level advanced tuning editor — the Android
+ * per-tab "Advanced tuning" disclosures' launch-time override lane
+ * (storage `botAdvancedEnabled`/`botAdvanced`), rendered as one disclosure
+ * card editing the shared [BotAdvancedSettings] draft. When enabled and no
+ * saved preset is applied, the shared BotSelection.resolve takes the
+ * advanced (non-preset) branch at world start; applying a preset clears
+ * the override (the Android apply() parity).
+ */
+@Composable
+@Suppress("LongMethod", "MagicNumber") // the Android advanced editor's control set
+internal fun AdvancedTuningCard(
+    enabled: Boolean,
+    advanced: BotAdvancedSettings,
+    presetApplied: Boolean,
+    onEnabled: (Boolean) -> Unit,
+    onAdvanced: (BotAdvancedSettings) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("LAUNCH-TIME ADVANCED TUNING", style = MaterialTheme.typography.labelMedium)
+            Text(
+                "The adv-style launch override: when no saved preset is selected, the realm " +
+                    "launches a profile built from these values instead of the plain built-in. " +
+                    "Applies at the next realm start (or Apply now on a running world).",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Switch(checked = enabled, onCheckedChange = onEnabled)
+                Text(
+                    if (enabled) "Advanced launch tuning is on" else "Advanced launch tuning is off",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            if (presetApplied) {
+                Text(
+                    "A saved preset is applied — it wins over this override until you apply " +
+                        "a built-in profile.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
+            if (enabled) {
+                Stepper(
+                    label = "Nearby bots per human",
+                    value = advanced.nearbyBotLimit,
+                    range = 0..50,
+                    onValue = { value ->
+                        onAdvanced(
+                            advanced.copy(
+                                nearbyBotLimit = value,
+                                nearbyRadius = if (value == 0) 0 else maxOf(advanced.nearbyRadius, 100),
+                            ),
+                        )
+                    },
+                )
+                if (advanced.nearbyBotLimit > 0) {
+                    Stepper(
+                        label = "Nearby radius (yd)",
+                        value = advanced.nearbyRadius,
+                        range = 100..500,
+                        onValue = { value -> onAdvanced(advanced.copy(nearbyRadius = value)) },
+                    )
+                }
+                Stepper(
+                    label = "Login batch",
+                    value = advanced.loginBatchSize,
+                    range = 1..10,
+                    onValue = { value -> onAdvanced(advanced.copy(loginBatchSize = value)) },
+                )
+                Stepper(
+                    label = "Maintenance batch",
+                    value = advanced.maintenanceBatchSize,
+                    range = 1..32,
+                    onValue = { value -> onAdvanced(advanced.copy(maintenanceBatchSize = value)) },
+                )
+                Stepper(
+                    label = "AI update interval (ms)",
+                    value = advanced.updateIntervalMs,
+                    range = 1000..5000,
+                    step = 250,
+                    onValue = { value -> onAdvanced(advanced.copy(updateIntervalMs = value)) },
+                )
+                Stepper(
+                    label = "Teleport min (min)",
+                    value = advanced.teleportMinMinutes,
+                    range = 10..2880,
+                    step = 5,
+                    onValue = { value ->
+                        onAdvanced(
+                            advanced.copy(
+                                teleportMinMinutes = value,
+                                teleportMaxMinutes = maxOf(value, advanced.teleportMaxMinutes),
+                            ),
+                        )
+                    },
+                )
+                Stepper(
+                    label = "Teleport max (min)",
+                    value = advanced.teleportMaxMinutes,
+                    range = advanced.teleportMinMinutes..2880,
+                    step = 5,
+                    onValue = { value -> onAdvanced(advanced.copy(teleportMaxMinutes = value)) },
+                )
+                Stepper(
+                    label = "Bot work per tick (iterations)",
+                    value = advanced.iterationsPerTick,
+                    range = 1..20,
+                    onValue = { value -> onAdvanced(advanced.copy(iterationsPerTick = value)) },
+                )
+                SliderRow(
+                    label = "Admission: reduce above world p99 (ms)",
+                    value = advanced.admissionWorldP99Ms.toFloat(),
+                    range = 100f..300f,
+                    steps = 7,
+                    onValue = { value ->
+                        onAdvanced(
+                            advanced.copy(admissionWorldP99Ms = ((value.toInt() / 25) * 25)),
+                        )
+                    },
+                )
+                Stepper(
+                    label = "Fully active background bots (%)",
+                    value = advanced.activeBotPercent,
+                    range = 1..20,
+                    onValue = { value -> onAdvanced(advanced.copy(activeBotPercent = value)) },
+                )
+                SwitchRow(
+                    label = "Match bot levels to players",
+                    checked = advanced.syncLevelWithPlayers,
+                    onChecked = { value -> onAdvanced(advanced.copy(syncLevelWithPlayers = value)) },
+                )
+                SwitchRow(
+                    label = "Limit background combat work",
+                    checked = advanced.limitCombatActivity,
+                    onChecked = { value -> onAdvanced(advanced.copy(limitCombatActivity = value)) },
+                )
+                SwitchRow(
+                    label = "Quest and level autonomously",
+                    checked = advanced.autoDoQuests,
+                    onChecked = { value -> onAdvanced(advanced.copy(autoDoQuests = value)) },
+                )
+                SwitchRow(
+                    label = "Bots may chat",
+                    checked = advanced.allowBotChat,
+                    onChecked = { value -> onAdvanced(advanced.copy(allowBotChat = value)) },
+                )
+                SwitchRow(
+                    label = "Bots may invite the player",
+                    checked = advanced.allowPlayerInvites,
+                    onChecked = { value -> onAdvanced(advanced.copy(allowPlayerInvites = value)) },
+                )
+                SwitchRow(
+                    label = "Form groups with nearby bots",
+                    checked = advanced.groupNearby,
+                    onChecked = { value -> onAdvanced(advanced.copy(groupNearby = value)) },
+                )
+                SwitchRow(
+                    label = "Wander when idle",
+                    checked = advanced.wanderWhenIdle,
+                    onChecked = { value -> onAdvanced(advanced.copy(wanderWhenIdle = value)) },
+                )
+                SwitchRow(
+                    label = "Use off-spec strategies",
+                    checked = advanced.enableOffSpecStrategies,
+                    onChecked = { value -> onAdvanced(advanced.copy(enableOffSpecStrategies = value)) },
+                )
+            }
+        }
     }
 }

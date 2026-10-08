@@ -32,10 +32,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools" / "rp_harness"))
 
-from desktop_host import DesktopHost, DesktopHostError  # noqa: E402
+from desktop_host import (DesktopHost, DesktopHostError,  # noqa: E402
+                          RPTEST_PASS, RPTEST_USER)
 
-RPTEST_USER = "RPTEST"
-RPTEST_PASS = "rptest"
 RP_CHAR = "Davos"
 
 FAILFAST_EXIT = 0xC0000409
@@ -43,8 +42,16 @@ FAILFAST_EXIT = 0xC0000409
 
 def boot_once(out_dir: Path, iteration: int, bots: int) -> dict:
     result: dict = {"boot": iteration, "bots": bots}
-    subprocess.run([sys.executable, str(REPO / "tools" / "reset_davos.py")],
-                   capture_output=True)
+    reset = subprocess.run([sys.executable, str(REPO / "tools" / "reset_davos.py")],
+                           capture_output=True)
+    if reset.returncode != 0:
+        # fail THIS boot with the reset's own error - a failed reset
+        # (e.g. locked sqlite from a prior run) used to surface later as
+        # an unrelated "no Davos"/login failure instead
+        detail = (reset.stderr or reset.stdout or b"").decode("utf-8", "replace").strip()
+        result["error"] = f"reset_davos rc={reset.returncode}: {detail[:300]}"
+        result["inWorld"] = False
+        return result
     host = DesktopHost(REPO, bots=bots,
                        stderr_path=out_dir / f"boots-{iteration}-stderr.log")
     started = time.monotonic()
@@ -123,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  boot {b['boot']}: bots={b.get('bots')} ready={b.get('readyAfterS')}s "
               f"auth={b.get('worldAuth')} echo={b.get('echoLines')} "
               f"exit={b.get('exitCode')}")
+        if b.get("error"):
+            print(f"    error: {b['error']}")
     return 0 if ok else 1
 
 

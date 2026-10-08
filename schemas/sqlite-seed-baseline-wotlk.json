@@ -1,0 +1,47 @@
+{
+  "flavor": "wotlk",
+  "generated_by": "tools/seed_realm_db.py --flavor wotlk --write-baseline (first successful seed; floors measured, not guessed)",
+  "inputs": {
+    "core_submodule": "native/cmangos-wotlk",
+    "db_submodule": "native/classic-db-wotlk",
+    "world_dump": "native/classic-db-wotlk/Full_DB/WoTLKDB_1_9_14092.sql.gz"
+  },
+  "databases": {
+    "wotlkcharacters": {
+      "statements": 156,
+      "applied": 156,
+      "errors": 0,
+      "tables": 77,
+      "rows": 56
+    },
+    "wotlklogs": {
+      "statements": 7,
+      "applied": 7,
+      "errors": 0,
+      "tables": 3,
+      "rows": 1
+    },
+    "wotlkmangos": {
+      "statements": 978,
+      "applied": 978,
+      "errors": 0,
+      "tables": 200,
+      "rows": 1526808
+    },
+    "wotlkrealmd": {
+      "statements": 36,
+      "applied": 36,
+      "errors": 0,
+      "tables": 13,
+      "rows": 272
+    }
+  },
+  "floor_tables": {
+    "wotlkmangos": {
+      "creature_template": 29919,
+      "quest_template": 9086,
+      "item_template": 44613,
+      "areatrigger_teleport": 262
+    }
+  }
+}

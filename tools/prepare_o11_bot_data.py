@@ -41,7 +41,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 # Env-first (the ANDROID_SDK_ROOT precedent): the default names this
 # host's client install; another host overrides it without editing.
-CLIENT = Path(os.environ.get("POCKET_WOW_CLIENT") or r"C:\Vanilla wow 1.12.1")
+CLIENT = Path(os.environ.get("POCKET_WOW_CLIENT") or r"E:\Wow clients\WoW_Classic_ENG_1.12.1")
 BASELINE = ROOT / "native" / ".build-o09-server-data"
 TOOLS = ROOT / "build" / "host-extractors-linux" / "out"
 WORK = ROOT / "build" / "o11-bot-data"

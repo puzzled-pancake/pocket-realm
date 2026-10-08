@@ -33,6 +33,15 @@ internal object NativeRuntimeFreshness {
     data class ArtifactPin(val name: String, val size: Long, val sha256: String)
 
     /**
+     * One artifact row exactly as a lockfile / BUILD_PROVENANCE.json
+     * document records it: repo-relative path plus the pin fields.
+     */
+    data class RecordedArtifactPin(val path: String, val size: Long, val sha256: String)
+
+    /** Seed-transcript pin for one database's shipped .sqlz asset bytes. */
+    data class SeedTranscriptPin(val gzipSha256: String, val gzipSize: Long)
+
+    /**
      * One staged file observation. [size] of 0 or a null [sha256] means the
      * staged artifact is missing or empty (never packaged silently).
      */
@@ -128,6 +137,41 @@ internal object NativeRuntimeFreshness {
             }
         }
         return Verdict(reasons)
+    }
+
+    /**
+     * Artifact pin rows read out of one PARSED lockfile/provenance document.
+     * Rows resolve BY FIELD NAME through the parsed JSON - never by textual
+     * field order: the lane writer (tools/build_o09_realm_runtime.py) may
+     * serialize rows with any key order, and rows carry extra sibling fields
+     * ("needed", "load_alignments"). A row that is not an object or lacks
+     * path/size/sha256 is skipped entirely, never half-parsed. The Gradle
+     * gates that read these documents (validateNativeRuntimeFreshness and
+     * validateRealmRuntime, android/app/build.gradle.kts) mirror this
+     * parse; keep them in sync in the same change.
+     */
+    fun artifactPins(record: Map<*, *>): List<RecordedArtifactPin> =
+        (record["artifacts"] as? List<*>).orEmpty()
+            .mapNotNull { row -> row as? Map<*, *> }
+            .mapNotNull { row ->
+                val path = row["path"] as? String ?: return@mapNotNull null
+                val size = (row["size"] as? Number)?.toLong() ?: return@mapNotNull null
+                val sha256 = row["sha256"] as? String ?: return@mapNotNull null
+                RecordedArtifactPin(path, size, sha256)
+            }
+
+    /**
+     * Seed pin for one database out of a PARSED sqlite-lane lockfile's
+     * seed_transcripts map; null when the database or its gzip_sha256 /
+     * gzip_size fields are absent. Field lookup is by name, so textual
+     * field order never matters (validateRealmRuntime's .sqlz legs mirror
+     * this parse).
+     */
+    fun seedTranscriptPin(record: Map<*, *>, database: String): SeedTranscriptPin? {
+        val row = (record["seed_transcripts"] as? Map<*, *>)?.get(database) as? Map<*, *> ?: return null
+        val gzipSha256 = row["gzip_sha256"] as? String ?: return null
+        val gzipSize = (row["gzip_size"] as? Number)?.toLong() ?: return null
+        return SeedTranscriptPin(gzipSha256, gzipSize)
     }
 
     private fun commitMismatches(

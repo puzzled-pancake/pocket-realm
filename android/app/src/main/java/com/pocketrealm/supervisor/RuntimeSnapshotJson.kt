@@ -11,6 +11,11 @@ object RuntimeSnapshotJson {
         .put("requestedProfile", value.requestedProfile)
         .put("runtimeMode", value.runtimeMode.name)
         .put("realmEndpoint", value.realmEndpoint.address)
+        // Design-tunnel §5: the live session's advertised address when
+        // tunnel mode is on (optional key; absent = plain advertisement).
+        .also { encoded ->
+            value.advertisedAddress?.let { encoded.put("advertisedAddress", it) }
+        }
         .put("realmPort", RealmEndpoint.REALM_PORT)
         .put("worldPort", RealmEndpoint.WORLD_PORT)
         .put("clean", value.clean)
@@ -29,4 +34,8 @@ object RuntimeSnapshotJson {
         .put("updatedAtWallMs", value.updatedAtWallMs)
         .put("updatedAtElapsedMs", value.updatedAtElapsedMs)
         .put("recoverability", value.recoverability.name)
+        // Design-lan D9: WHY hosting stopped, when the stop was the
+        // interface-loss monitor's call (optional key; absent = ordinary
+        // stop). The client humanizes it into the shared D9 copy.
+        .also { encoded -> value.stopReason?.let { encoded.put("stopReason", it) } }
 }

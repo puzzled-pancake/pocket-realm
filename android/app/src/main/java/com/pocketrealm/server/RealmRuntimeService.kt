@@ -38,11 +38,15 @@ class RealmRuntimeService : Service() {
                 RealmNative.statusNative(), RealmNative.detailNative(), activeBindAddress)) }
         override fun start() = startAt(RealmEndpoint.LOOPBACK_ADDRESS)
         override fun startAt(bindAddress: String) = guarded { synchronized(transitionLock) {
-            val endpoint = RealmEndpoint.parseStored(bindAddress)
+            // Design-tunnel §4.4.2: the ONE raw conf value beside the typed
+            // grammar is the wildcard — a tunnel-advertised start binds
+            // 0.0.0.0 so the advertised tunnel address is actually
+            // reachable. Anything else stays the strict endpoint grammar.
+            val bind = ServerRuntimeContract.resolveBindAddress(bindAddress)
             files.prepareRealmLogsForStart(currentNativeState())
-            files.writeLifecycle("realm", false, "start", endpoint.address)
-            activeBindAddress = endpoint.address
-            val rc = RealmNative.startNative(files.realmdConfig(endpoint.address).absolutePath)
+            files.writeLifecycle("realm", false, "start", bind)
+            activeBindAddress = bind
+            val rc = RealmNative.startNative(files.realmdConfig(bind).absolutePath)
             if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             ServerStatusJson.operation("realm", "start", rc)
         } }

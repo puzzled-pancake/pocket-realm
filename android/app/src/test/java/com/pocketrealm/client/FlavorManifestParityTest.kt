@@ -2,6 +2,7 @@ package com.pocketrealm.client
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -71,6 +72,48 @@ class FlavorManifestParityTest {
                 (0 until randomMaps.length()).map { randomMaps.getInt(it) },
                 flavor.botRandomMaps,
             )
+
+            // Correction C1: realmbuilds accepted-build set (never gamebuild).
+            val realmd = manifest.getJSONObject("realmd")
+            assertEquals("realmbuilds", realmd.getString("column"))
+            assertEquals(flavor.realmdAcceptedBuilds, realmd.getString("accepted_builds"))
+            assertTrue(
+                "realmd.accepted_builds must include the flavor's own build " + flavor.build,
+                flavor.realmdAcceptedBuilds.split(" ").contains(flavor.build.toString()),
+            )
+
+            // Correction C3: per-flavor frame descriptor; the OPCODE is the
+            // shared constant asserted once below, never per-flavor.
+            val authFrame = manifest.getJSONObject("auth_frame")
+            assertEquals(flavor.proofResponseBytes, optionalInt(authFrame, "proof_response_bytes"))
+            assertFalse(authFrame.has("smsg_auth_challenge_opcode"))
+
+            // Correction C8: WTF layout + WotLK-only char-level cache set.
+            val wtf = manifest.getJSONObject("wtf")
+            assertEquals(flavor.wtfLayout, wtf.getString("layout"))
+            val cacheFiles = wtf.getJSONArray("character_cache_files")
+            assertEquals(
+                flavor.wtfCharacterCacheFiles,
+                (0 until cacheFiles.length()).map { cacheFiles.getString(it) }.toSet(),
+            )
+
+            // Corrections C6/C7: pristine-exe provenance + the LAA fact.
+            val clientBinary = manifest.getJSONObject("client_binary")
+            assertEquals(flavor.knownExeMd5, optionalString(clientBinary, "known_exe_md5"))
+            assertEquals(flavor.knownExeSizeBytes, optionalLong(clientBinary, "known_exe_size_bytes"))
+            assertEquals(flavor.largeAddressAware, optionalBoolean(clientBinary, "large_address_aware"))
+
+            // Correction C9: the conf matrix's excluded families come from the
+            // manifest verbatim (the generator enforces them tool-side).
+            val confMatrix = manifest.getJSONObject("conf_matrix")
+            val excluded = confMatrix.getJSONArray("excluded_keys")
+            for (index in 0 until excluded.length()) {
+                val entry = excluded.getJSONObject(index)
+                assertTrue(entry.getString("key_family").isNotEmpty())
+                assertTrue(entry.getString("reason").isNotEmpty())
+                assertTrue(entry.getString("register_ref").isNotEmpty())
+                assertTrue(entry.getString("enforced_by").isNotEmpty())
+            }
         }
 
         // Exactly the qualified flags the registry projects.
@@ -79,10 +122,25 @@ class FlavorManifestParityTest {
             ClientFlavors.qualified().map { it.flavorId }.toSet(),
         )
         assertTrue(ClientFlavors.ALL.isNotEmpty())
+
+        // Correction C3: ONE shared auth-challenge opcode across the three
+        // branches — pinned on both sides of the parity gate.
+        assertEquals(0x1EC, ClientFlavors.AUTH_CHALLENGE_OPCODE)
+        val auth = root.getJSONObject("auth")
+        assertEquals("0x1EC", auth.getString("smsg_auth_challenge_opcode"))
     }
 
     private fun optionalString(obj: JSONObject, key: String): String? =
         if (obj.isNull(key)) null else obj.getString(key)
+
+    private fun optionalInt(obj: JSONObject, key: String): Int? =
+        if (obj.isNull(key)) null else obj.getInt(key)
+
+    private fun optionalLong(obj: JSONObject, key: String): Long? =
+        if (obj.isNull(key)) null else obj.getLong(key)
+
+    private fun optionalBoolean(obj: JSONObject, key: String): Boolean? =
+        if (obj.isNull(key)) null else obj.getBoolean(key)
 
     private fun locateManifest(): File {
         var dir: File? = File(System.getProperty("user.dir") ?: ".")

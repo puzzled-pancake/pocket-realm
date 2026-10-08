@@ -3,6 +3,7 @@ package com.pocketrealm.importer
 import com.pocketrealm.importer.inno.InnoSetupReader
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -62,6 +63,29 @@ class InnoLaneTest {
         InnoSetupReader.open(scratch).use { reader ->
             assertEquals("Synthetic Client", reader.appName)
             assertTrue(reader.files().any { it.path == "WoW.exe" })
+        }
+    }
+
+    /** NTFS aliases "setup.exe." onto "setup.exe", so a scratch pair like
+     *  that would pass the VAL-06 duplicate gate and silently overwrite —
+     *  the scratch lane must reject what the client lane rejects. */
+    @Test fun scratchExtractorRejectsTrailingDotOrSpaceEntryNamesAsVal07() {
+        listOf(
+            "Wowinstall classic/setup.exe.",
+            "Wowinstall classic/setup-1.bin ",
+            "Wowinstall classic/slice/setup-2.bin.",
+        ).forEach { name ->
+            val zipFile = SyntheticClientArchives.zip(
+                SyntheticClientArchives.uniqueFile(temp.newFolder(), "aliasing"),
+                listOf(
+                    SyntheticClientArchives.Entry("Wowinstall classic/setup.exe", ByteArray(2)),
+                    SyntheticClientArchives.Entry(name, ByteArray(2)),
+                ),
+            )
+            val error = assertThrows(name, ImportRejected::class.java) {
+                ScratchArchiveExtractor.extract(zipFile, ArchiveFormat.ZIP, temp.newFolder(), ImportLimits())
+            }
+            assertTrue(error.message!!.startsWith("VAL-07: trailing dot or space"))
         }
     }
 

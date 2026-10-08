@@ -66,12 +66,35 @@ KNOWN_DIFFERENCE_LEDGER = [
 # Server A's export slice shape (DatabaseUserStateBridge.REALMD_USER_
 # STATE_TABLES + classiccharacters minus ai_playerbot*): pinned so an
 # exporter/schema regression cannot shrink the compared set silently.
-# The characters count is as deterministic as the realmd
-# list (sha-pinned bootstrap + the 412 pinned migrations) — exact pin,
-# updated together with the migration manifest.
+# The revision count is DERIVED from the pinned migration ledger
+# (schemas/database-migrations.json — the G3-3 golden bytes, verified
+# byte-identical to the packaged manifest), so a manifest rotation cannot
+# leave the oracle pinning a stale count (LV-server-db-38: literal 412s
+# failed W8 against the shipped 414 world with A==B on every check).
+# The characters count is schema-shaped, not manifest-shaped — the ledger
+# carries no table list — so it stays an exact pin rotated together with
+# the staged classiccharacters schema (76 staged tables − 11 ai_playerbot_*).
 PINNED_REALMD_SLICE = {"account", "account_banned", "ip_banned",
                        "realmcharacters", "system_fingerprint_usage"}
-PINNED_CHARACTER_TABLES = 64
+PINNED_CHARACTER_TABLES = 65
+
+
+def _pinned_migration_count() -> int:
+    """The shipped migration-manifest size, read from the repo's golden
+    ledger. Fail-loud on a missing/malformed ledger: the oracle refuses
+    to adjudicate a world it cannot pin."""
+    ledger_path = ROOT / "schemas" / "database-migrations.json"
+    try:
+        return len(json.loads(
+            ledger_path.read_text(encoding="utf-8"))["entries"])
+    except (OSError, ValueError, KeyError, TypeError) as failure:
+        raise RuntimeError(
+            f"cannot pin the migration count from {ledger_path} "
+            f"({type(failure).__name__}: {failure}) — the W8 revision pins "
+            "derive from the golden ledger, so it must be present") from failure
+
+
+PINNED_MIGRATION_COUNT = _pinned_migration_count()
 
 
 def run(cmd, cwd=None, check=True, timeout=None, capture=True):
@@ -257,11 +280,15 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
     for key in ("migrationManifestCount", "migrationSealedCount", "migrationsCurrent"):
         check(f"W8-{key}", ra.get(key) == rb.get(key) and ra.get(key) is not None,
               f"A={ra.get(key)} B={rb.get(key)} (must agree)")
-    check("W8-manifest-is-412", ra.get("migrationManifestCount") == 412,
-          f"A={ra.get('migrationManifestCount')} B={rb.get('migrationManifestCount')}")
-    check("W8-sealed-is-412",
-          ra.get("migrationSealedCount") == 412 and rb.get("migrationSealedCount") == 412,
-          f"A={ra.get('migrationSealedCount')} B={rb.get('migrationSealedCount')}")
+    check(f"W8-manifest-is-{PINNED_MIGRATION_COUNT}",
+          ra.get("migrationManifestCount") == PINNED_MIGRATION_COUNT,
+          f"A={ra.get('migrationManifestCount')} B={rb.get('migrationManifestCount')} "
+          f"(pin {PINNED_MIGRATION_COUNT})")
+    check(f"W8-sealed-is-{PINNED_MIGRATION_COUNT}",
+          ra.get("migrationSealedCount") == PINNED_MIGRATION_COUNT
+          and rb.get("migrationSealedCount") == PINNED_MIGRATION_COUNT,
+          f"A={ra.get('migrationSealedCount')} B={rb.get('migrationSealedCount')} "
+          f"(pin {PINNED_MIGRATION_COUNT})")
     check("W8-migrations-current",
           ra.get("migrationsCurrent") is True and rb.get("migrationsCurrent") is True,
           f"A={ra.get('migrationsCurrent')} B={rb.get('migrationsCurrent')}")

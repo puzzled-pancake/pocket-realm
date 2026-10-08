@@ -1,0 +1,58 @@
+{
+  "generated_catalog": {
+    "path": "android/app/src/main/java/com/pocketrealm/client/GeneratedTimeframeOverlayCatalog.kt",
+    "sha256": "e4de8244a0b38c1e9736b86696def361436923ad43c233e9bac6543a9f859a06"
+  },
+  "generator": "tools/generate_timeframe_era.py overlays",
+  "overlays": {
+    "vanilla-1.1": {
+      "sha256": "5d7bdbdd0f8217080efb6229b20685b477f39c2e30b922eff1477b6045448939",
+      "sql": "schemas/timeframes/vanilla/overlays/vanilla-1.1.sql"
+    },
+    "vanilla-1.10": {
+      "sha256": "bc1eaf06625385f3987bec22c5f83fca2e5930320a98937d1517a513cadcc282",
+      "sql": "schemas/timeframes/vanilla/overlays/vanilla-1.10.sql"
+    },
+    "vanilla-1.11": {
+      "sha256": "bbdd93a7f4298d2d547adf077671ce3463ac51b0df1165d6c2ab25f53f00224d",
+      "sql": "schemas/timeframes/vanilla/overlays/vanilla-1.11.sql"
+    },
+    "vanilla-1.12.1": {
+      "sha256": "f57027ae36fb0a996939a2bc5bcd7117b4342ea52b10a4ff5858262ed953c50d",
+      "sql": "schemas/timeframes/vanilla/overlays/vanilla-1.12.1.sql"
+    },
+    "vanilla-1.2": {
+      "sha256": "6aee53900b33364dac7cadaedf4f398091ef40ea8d3aaf22141de95a7e1f916a",
+      "sql": "schemas/timeframes/vanilla/overlays/vanilla-1.2.sql"
+    },
+    "vanilla-1.3": {
+      "sha256": "2ec94c1b876df3cda36f5607bf12d7e746f6438b08b046f8e963dec5e24d9ada",
+      "sql": "schemas/timeframes/vanilla/overlays/vanilla-1.3.sql"
+    },
+    "vanilla-1.4": {
+      "sha256": "4a5a30231ec21e73c82d45e4d8617b605db5f44e74ed10f9733799896dfd2abd",
+      "sql": "schemas/timeframes/vanilla/overlays/vanilla-1.4.sql"
+    },
+    "vanilla-1.5": {
+      "sha256": "00f06c0240a3955badc36d7001cd270c6e988fe3f8ee5cbf1841b6e4ccd4f79a",
+      "sql": "schemas/timeframes/vanilla/overlays/vanilla-1.5.sql"
+    },
+    "vanilla-1.6": {
+      "sha256": "4c1b9e4245ca91d93e8ab20b3f9f1c290e6aacc312aa9dfadcff0db3b61ead57",
+      "sql": "schemas/timeframes/vanilla/overlays/vanilla-1.6.sql"
+    },
+    "vanilla-1.7": {
+      "sha256": "e74ad63a1eecd4efe33ea98b916ac288dd697be1b1afdd34cc2c48f414f536b4",
+      "sql": "schemas/timeframes/vanilla/overlays/vanilla-1.7.sql"
+    },
+    "vanilla-1.8": {
+      "sha256": "551746d54358dcfbe76c407ac67d5e5ad9119954fcf9b5acb382f7a67fa8c379",
+      "sql": "schemas/timeframes/vanilla/overlays/vanilla-1.8.sql"
+    },
+    "vanilla-1.9": {
+      "sha256": "1ed54e4b688114d3edadc9f0f5afb910c783ed6ef34a192f2582927596b8596f",
+      "sql": "schemas/timeframes/vanilla/overlays/vanilla-1.9.sql"
+    }
+  },
+  "schema": 1
+}
