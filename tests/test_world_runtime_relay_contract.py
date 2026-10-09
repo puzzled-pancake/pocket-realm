@@ -608,12 +608,27 @@ def test_android_create_account_chains_the_flavor_expansion_write():
     )[1].split("\n        }")[0]
     # the create still runs first, unchanged
     assert "WorldNative.createAccountNative(username, password," in create
-    # the expansion write is chained ONLY after a successful create
-    assert "val addonRc = if (rc == 0) {" in create
+    # the expansion write is chained on the accepted shapes: a successful
+    # create AND (R2-1, review round 2) the password-proven ACCOUNT_EXISTS
+    # retry leg
+    assert "ServerRuntimeContract.shouldWriteExpansion(rc, accountExists) && identityProven" in create
+    assert "val addonRc = if (ServerRuntimeContract.shouldWriteExpansion(rc, accountExists) && identityProven) {" in create
     assert "WorldNative.setAccountAddonNative(" in create
-    # with the ACTIVE flavor's registry level through the fail-loud
-    # resolver (the PreparedDataStore SERVER_DATA_LANE idiom)
-    assert "ActiveFlavor.resolve(ACCOUNT_EXPANSION_LANE).accountExpansion" in create
+    # R1-arch-5/R2-2 + R2-1 (android-core review rounds 1-2): the expansion
+    # resolves through the :world persisted-Settings lane (the holder's
+    # selection is :ui-local), and the ACCOUNT_EXISTS leg is gated by the
+    # PASSWORD PROOF (the retry-vs-collision discriminator — a mismatched
+    # credential is a collision and is refused without any addon write).
+    # R2-2 (review round 2): the expansion comes from the BOOT lane (pinned
+    # by the start leg from its own snapshot) — a Home switch after start
+    # must never re-lane the write.
+    assert (
+        "(bootLane\n                ?: worldLaneFlavor(ACCOUNT_EXPANSION_LANE)).accountExpansion"
+        in create
+    )
+    assert "ServerRuntimeContract.shouldWriteExpansion(rc, accountExists) && identityProven" in create
+    assert "WorldNative.verifyAccountPasswordNative(username, password)" in create
+    assert '"ACCOUNT_PASSWORD_MISMATCH"' in create
     assert 'private const val ACCOUNT_EXPANSION_LANE =' in service
     # fail-loud: a refused write flips the answer to the addon op's own
     # error code (never a silently classic tbc/wotlk account); a refused
@@ -664,12 +679,24 @@ def test_both_conf_emissions_resolve_through_the_active_flavor_seam():
     desktop_twin = (
         ROOT / "desktop/src/main/kotlin/com/pocketrealm/server/ServerRuntimeFiles.kt"
     ).read_text(encoding="utf-8")
-    for name, twin in (("android", android_twin), ("desktop", desktop_twin)):
-        assert "TimeframeStages.confValue(" in twin, (
-            f"{name} twin's TimeframeStage conf must resolve through "
-            "TimeframeStages.confValue (the active-flavor seam)"
-        )
-        assert "TimeframeStages.confValueFor(" not in twin or True
+    # R2-1/R4-2 (android-core review round 2): the ANDROID twin runs in
+    # :world, where the ActiveFlavor holder's selection never crosses the
+    # process boundary — its conf must resolve through the PERSISTED
+    # Settings machine (worldLaneFlavor, the D62 form), not the bare
+    # confValue holder helper. The desktop twin is single-process: its
+    # in-memory confValue use is legitimate.
+    assert (
+        "TimeframeStages.confValueFor(" in android_twin
+        and "worldLaneFlavor(" in android_twin
+    ), (
+        "android twin's TimeframeStage conf must resolve through the "
+        "persisted-selection machine (worldLaneFlavor + confValueFor)"
+    )
+    assert "TimeframeStages.confValue(" in desktop_twin, (
+        "desktop twin's TimeframeStage conf must resolve through "
+        "TimeframeStages.confValue (single-process: the holder is the "
+        "persisted machine here)"
+    )
     # the active-aware core itself: confValue resolves the ACTIVE flavor,
     # never a hard-coded vanilla fallback
     registry = CLIENT_FLAVOR_KT.with_name("TimeframeStage.kt").read_text(encoding="utf-8")

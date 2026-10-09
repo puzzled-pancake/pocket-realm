@@ -1553,12 +1553,30 @@ class DesktopRuntimeBackend(
                         AccountProvisionResult(ok = false, code = "ACCOUNT_PASSWORD_MISMATCH")
                     } else {
                         val info = WorldNative.accountInfoNative(username)
-                        AccountProvisionResult(
-                            ok = true,
-                            code = "ACCOUNT_VERIFIED",
-                            accountId = accountInfoId(info),
-                            gmLevel = accountInfoGmLevel(info),
+                        // R1-arch-2 retry leg: this branch is the host-retry
+                        // path — an earlier attempt may have created the row
+                        // and died before (or during) the F1-10 expansion
+                        // write. Ensure the addon level before answering, so
+                        // a retried provisioning always converges to the
+                        // active flavor's expansion (never a silently
+                        // classic friend on a tbc/wotlk host).
+                        val expansion = ServerRuntimeFiles.serverFlavor().accountExpansion
+                        val addon = WorldNative.setAccountAddonNative(
+                            username, expansion, ServerRuntimeContract.CONTROL_TIMEOUT_MS,
                         )
+                        if (addon != 0) {
+                            AccountProvisionResult(
+                                ok = false,
+                                code = ServerRuntimeContract.errorName(addon.toLong()),
+                            )
+                        } else {
+                            AccountProvisionResult(
+                                ok = true,
+                                code = "ACCOUNT_VERIFIED",
+                                accountId = accountInfoId(info),
+                                gmLevel = accountInfoGmLevel(info),
+                            )
+                        }
                     }
                 }
                 rc != 0 -> AccountProvisionResult(ok = false, code = ServerRuntimeContract.errorName(rc.toLong()))
@@ -1676,6 +1694,7 @@ class DesktopRuntimeBackend(
         username: String,
         sHex: String,
         vHex: String,
+        allowExistingAccount: Boolean,
     ): AccountProvisionResult = withContext(Dispatchers.IO) {
         val world = observeWorld()
         if (world.state != ComponentLifecycle.READY) {
@@ -1686,15 +1705,71 @@ class DesktopRuntimeBackend(
             val rc = verdict.getOrElse(0) { Long.MAX_VALUE }
             val accountId = verdict.getOrElse(1) { 0L }
             when {
-                rc == ERR_ACCOUNT_EXISTS.toLong() ->
-                    AccountProvisionResult(ok = false, code = "ACCOUNT_EXISTS")
+                rc == ERR_ACCOUNT_EXISTS.toLong() -> {
+                    // R1-arch-2 (android-core review round 1, serious): the
+                    // designed HOST RETRY LANE (approvalFailed → the row
+                    // returns to SUBMITTED → the host retries) re-enters
+                    // here with ACCOUNT_EXISTS when an earlier attempt
+                    // created the row but failed a later leg; the retry's
+                    // authorization is the host's attempt bookkeeping
+                    // (allowExistingAccount — R2-1, review round 2). A FIRST
+                    // approval landing on an existing account is an identity
+                    // COLLISION: refused with no addon write on the existing
+                    // row (the §3.5 contract — the host rejects, the friend
+                    // picks another name).
+                    if (!allowExistingAccount) {
+                        AccountProvisionResult(ok = false, code = "ACCOUNT_EXISTS")
+                    } else {
+                    val exists = (WorldNative.accountInfoNative(username)
+                        .getOrNull(0) ?: 0L) > 0L
+                    if (!exists) {
+                        AccountProvisionResult(ok = false, code = "ACCOUNT_EXISTS")
+                    } else {
+                        val expansion = ServerRuntimeFiles.serverFlavor().accountExpansion
+                        val addon = WorldNative.setAccountAddonNative(
+                            username, expansion, ServerRuntimeContract.CONTROL_TIMEOUT_MS,
+                        )
+                        if (addon != 0) {
+                            AccountProvisionResult(
+                                ok = false,
+                                code = ServerRuntimeContract.errorName(addon.toLong()),
+                            )
+                        } else {
+                            AccountProvisionResult(
+                                ok = true,
+                                code = "ACCOUNT_CREATED",
+                                accountId = accountId,
+                                gmLevel = 0, // friends provision at gmlevel 0; the host raises it explicitly (§10)
+                            )
+                        }
+                    }
+                    }
+                }
                 rc != 0L -> AccountProvisionResult(ok = false, code = ServerRuntimeContract.errorName(rc))
-                else -> AccountProvisionResult(
-                    ok = true,
-                    code = "ACCOUNT_CREATED",
-                    accountId = accountId,
-                    gmLevel = 0, // friends provision at gmlevel 0; the host raises it explicitly (§10)
-                )
+                else -> {
+                    // F1-10 parity (R1-arch-2): the fresh row is born at the
+                    // seed's expansion default (0) exactly like the Android
+                    // seam — the ACTIVE flavor's level is written before
+                    // first login, fail-loud on refusal (never a silently
+                    // classic provisioned friend).
+                    val expansion = ServerRuntimeFiles.serverFlavor().accountExpansion
+                    val addon = WorldNative.setAccountAddonNative(
+                        username, expansion, ServerRuntimeContract.CONTROL_TIMEOUT_MS,
+                    )
+                    if (addon != 0) {
+                        AccountProvisionResult(
+                            ok = false,
+                            code = ServerRuntimeContract.errorName(addon.toLong()),
+                        )
+                    } else {
+                        AccountProvisionResult(
+                            ok = true,
+                            code = "ACCOUNT_CREATED",
+                            accountId = accountId,
+                            gmLevel = 0, // friends provision at gmlevel 0; the host raises it explicitly (§10)
+                        )
+                    }
+                }
             }
         } catch (failure: Throwable) {
             AccountProvisionResult(

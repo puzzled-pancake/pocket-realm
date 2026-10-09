@@ -1,7 +1,7 @@
 package com.pocketrealm.database
 
+import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.ClientFlavor
-import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.client.GeneratedTimeframeOverlayCatalog
 import com.pocketrealm.client.TimeframeStages
 
@@ -41,11 +41,42 @@ internal object TimeframeOverlayPlan {
     /** The statement excerpt a policy refusal quotes (readability, not security). */
     const val POLICY_EXCERPT_CHARS = 80
 
-    /** The one qualified lane the world runs (the shared exactly-one gate;
-     * the vanilla fallback keeps the failure mode a loud overlay-missing
-     * refusal instead of a zero-flavor crash). */
-    fun qualifiedLane(): ClientFlavor =
-        ClientFlavors.qualified().singleOrNull() ?: ClientFlavors.VANILLA
+    /** The world-process lane binding (R1-arch-5/R2-2, android-core review
+     * round 1): this plan object is SHARED by both platforms and both
+     * Android processes, and the [ActiveFlavor] holder's selection is
+     * :ui-process-local in-memory state (the Home picker) — the default
+     * resolver (the holder's own fail-loud machine) is right for the
+     * single-process desktop twin, but a bare holder resolve inside
+     * Android's :world process would refuse at a multi-qualified flip even
+     * with a valid persisted pick. The Android :world service therefore
+     * INSTALLS a resolver that threads the persisted Home selection as a
+     * value (the ActiveFlavorState + Settings form the :supervisor twins
+     * use, AndroidRuntimeBackend REALMD_BUILDS_LANE). Zero-qualified,
+     * ambiguous (multi-qualified with no pick), and stale-pick states fail
+     * loud in whichever resolver is installed — never a silent downgrade. */
+    @Volatile
+    var laneResolver: () -> ClientFlavor = {
+        ActiveFlavor.resolve("the timeframe overlay plan resolves the qualified lane")
+    }
+        private set
+
+    /** Installs a process-appropriate lane resolver (the Android :world
+     * seam; the desktop twin keeps the holder-machine default). */
+    fun installLaneResolver(resolver: () -> ClientFlavor) {
+        laneResolver = resolver
+    }
+
+    /** The one qualified lane the world runs, resolved through the SAME
+     * fail-loud machine as the conf stage writer (R2-1/R1-2, android-core
+     * review round 1): the old
+     * `ClientFlavors.qualified().singleOrNull() ?: VANILLA` fallback picked
+     * VANILLA silently when the qualified list was empty or ambiguous, so
+     * at a multi-qualified flip the overlay's lane diverged from the active
+     * lane the machine resolved — an invariant-4 cross-flavor world-DB
+     * write direction the moment tbc/wotlk overlays stage. Zero-qualified,
+     * ambiguous (multi-qualified with no pick), and stale-pick states now
+     * fail loud here exactly like every other lifted gate. */
+    fun qualifiedLane(): ClientFlavor = laneResolver()
 
     /** True when [desiredStage] is the qualified lane's final patch — the
      * seed's own state: record it, touch no world DB. */

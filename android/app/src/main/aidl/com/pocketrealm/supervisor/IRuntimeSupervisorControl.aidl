@@ -22,7 +22,10 @@ interface IRuntimeSupervisorControl {
      * are the shared ban/unban/gm surface; friendAccessState carries the
      * listener state + invite rows; approveFriendRequest runs the
      * verifier-provision approval leg. */
-    String provisionFriendAccount(String username, String sHex, String vHex);
+    /** R2-1: allowExistingAccount = the invite's own attempt bookkeeping
+     * (the approval is a RETRY whose attempt-1 create succeeded) — the
+     * only authorization under which ACCOUNT_EXISTS converges. */
+    String provisionFriendAccount(String username, String sHex, String vHex, boolean allowExistingAccount);
     String banFriendAccount(String username, String duration, String reason);
     String unbanFriendAccount(String username);
     String setFriendGmLevel(String username, int level);

@@ -103,3 +103,75 @@ class ProvisionRateLimiterTest {
         assertTrue(limiter.tryAcquireConnection())
     }
 }
+
+// ---------------------------------------------------------------------------
+// R4-3 (android-core review round 1): the live per-IP maps are keyed by
+// attacker-supplied source IPs and used to grow without bound or eviction
+// for the process lifetime - a many-unique-source spray (the exact hostile
+// pattern layer 1 exists for) monotonically grew the host app heap. The
+// maps are now capped at MAX_TRACKED_IPS with oldest-first eviction that
+// never drops a locked-while-locked source (the same amnesty shape the
+// persisted layer's MAX_RATE_ROWS rule applies to unlocked rows).
+// ---------------------------------------------------------------------------
+
+class ProvisionRateLimiterBudgetTest {
+    @get:Rule
+    val folder = TemporaryFolder()
+
+    private var nowMs = 5_000_000L
+
+    private fun limiter(cap: Int): ProvisionRateLimiter =
+        ProvisionRateLimiter(
+            FriendInviteStore(folder.newFolder("friend-$cap"), clock = { nowMs }),
+            clock = { nowMs },
+            maxTrackedIps = cap,
+        )
+
+    @Test
+    fun theLiveIpMapsStayBoundedUnderADistinctSourceSpray() {
+        val cap = 8
+        val limiter = limiter(cap)
+        repeat(cap * 3) { index -> limiter.recordFailure("10.1.0.$index") }
+        assertTrue(
+            "a distinct-source spray must not grow the live maps past the " +
+                "cap (tracked ${limiter.trackedIpCount()})",
+            limiter.trackedIpCount() <= cap,
+        )
+        // Oldest-first eviction: the earliest sprayed source lost its
+        // in-memory failure counter, so a fresh failure from it starts
+        // counting from zero again (the same amnesty the persisted layer
+        // applies to displaced unlocked rows).
+        nowMs += 1
+        assertFalse(
+            "the oldest sprayed source must have been evicted (its counter " +
+                "amnestied, a new failure starts a fresh count)",
+            limiter.recordFailure("10.1.0.0"),
+        )
+    }
+
+    @Test
+    fun aLockedIpIsNeverEvictedWhileItsLockoutIsLive() {
+        val cap = 4
+        val limiter = limiter(cap)
+        val locked = (0 until cap).map { "10.2.0.$it" }
+        for (ip in locked) {
+            repeat(ProvisionRateLimiter.MAX_FAILURES) { limiter.recordFailure(ip) }
+        }
+        for (ip in locked) assertTrue("precondition: $ip locked", limiter.isLocked(ip))
+        // The budget is saturated with LOCKED sources: a new spray cannot
+        // evict them (the eviction skips locked-while-locked sources), and
+        // the tracked count may transiently exceed the cap by the new
+        // sources rather than dropping a live lockout.
+        repeat(cap * 2) { index -> limiter.recordFailure("10.3.0.$index") }
+        for (ip in locked) {
+            assertTrue(
+                "a live lockout must never be evicted while locked: $ip",
+                limiter.isLocked(ip),
+            )
+        }
+        assertTrue(
+            "the new sources stay tracked (the transient overshoot)",
+            limiter.trackedIpCount() >= locked.size,
+        )
+    }
+}

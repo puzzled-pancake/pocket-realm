@@ -24,7 +24,11 @@ interface IWorldControl {
      * device), the roster read, per-friend characters, and the ban/unban
      * verbs through the SEC_CONSOLE relay. JSON answers follow the
      * characterPersistence pattern. */
-    String createAccountVerifier(String username, String sHex, String vHex);
+    /** R2-1 (android-core review round 2): allowExistingAccount authorizes
+     * the ACCOUNT_EXISTS retry leg (the host threads its attempt
+     * bookkeeping). Without it, ACCOUNT_EXISTS is an identity COLLISION:
+     * refused with ok=false and NO addon write on the existing row. */
+    String createAccountVerifier(String username, String sHex, String vHex, boolean allowExistingAccount);
     String accountList();
     String accountCharacters(String username);
     String banAccount(String username, String duration, String reason);

@@ -78,8 +78,13 @@ class RuntimeSupervisorClient(context: Context) {
     }
 
     // Remote friend accounts (design-remote-accounts §5/§9/§11).
-    suspend fun provisionFriendAccount(username: String, sHex: String, vHex: String): JSONObject = withContext(Dispatchers.IO) {
-        transact { remote -> JSONObject(remote.provisionFriendAccount(username, sHex, vHex)) }
+    suspend fun provisionFriendAccount(
+        username: String,
+        sHex: String,
+        vHex: String,
+        allowExistingAccount: Boolean = false,
+    ): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.provisionFriendAccount(username, sHex, vHex, allowExistingAccount)) }
     }
 
     suspend fun banFriendAccount(username: String, duration: String, reason: String): JSONObject = withContext(Dispatchers.IO) {

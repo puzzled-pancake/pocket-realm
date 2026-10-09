@@ -16,12 +16,16 @@ import com.pocketrealm.bots.BotResourceSample
 import com.pocketrealm.bots.BotResourceSampler
 import com.pocketrealm.bots.BotRuntimeMetrics
 import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.client.ActiveFlavorState
+import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.client.TimeframeStages
 import com.pocketrealm.database.DatabaseSqliteControlPlane
 import com.pocketrealm.database.TimeframeOverlayApplier
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.service.RealmService
 import com.pocketrealm.storage.Settings
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import com.pocketrealm.storage.StorageRoots
 import com.pocketrealm.supervisor.ComponentOwnership
 import com.pocketrealm.supervisor.RealmEndpoint
@@ -42,6 +46,13 @@ class WorldRuntimeService : Service() {
     @Volatile private var admissionState: BotAdmissionState? = null
     @Volatile private var latestMetrics: BotRuntimeMetrics? = null
     @Volatile private var admissionError = ""
+    /** R2-2 (android-core review round 2): the lane THIS process's world
+     * booted with, pinned from the start leg's own settings snapshot. The
+     * account-expansion writes consume THIS lane — a Home switch after
+     * world start must never write the new pick's expansion level into the
+     * booting lane's world DB (the silently-wrong-expansion class). Null
+     * until a start leg runs; the account seams refuse without it. */
+    @Volatile private var bootLane: ClientFlavor? = null
     /** Desired native target awaiting acknowledgement; retained across a timeout. */
     @Volatile private var pendingAdmissionTarget: Int? = null
     @Volatile private var activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
@@ -53,6 +64,14 @@ class WorldRuntimeService : Service() {
         super.onCreate()
         // Saved bot presets must resolve in the world process too.
         com.pocketrealm.bots.BotCustomPresets.install(java.io.File(filesDir, "bots"))
+        // R1-arch-5/R2-2: the overlay plan's lane binding is installed at
+        // :world start — the ActiveFlavor holder's selection never crosses
+        // the process boundary, so every overlay-plan resolve in this
+        // process goes through the persisted Home selection instead (the
+        // same Settings-threaded form the expansion lanes below use).
+        com.pocketrealm.database.TimeframeOverlayPlan.installLaneResolver {
+            worldLaneFlavor("the timeframe overlay plan resolves the qualified lane")
+        }
         files = ServerRuntimeFiles(applicationContext)
         resourceSampler = BotResourceSampler(applicationContext, applicationContext.filesDir)
         ownership = ComponentOwnership("world") {
@@ -161,7 +180,8 @@ class WorldRuntimeService : Service() {
                 nearbyInteractTriggerGuardMs,
                 settingsSnapshot = settingsSnapshot,
             )
-            applyStageOverlayOrRefuse(settingsSnapshot)
+            bootLane = worldLaneFlavor(PreparedDataStore.SERVER_DATA_LANE, settingsSnapshot)
+                applyStageOverlayOrRefuse(settingsSnapshot)
             val rc = WorldNative.startNative(config.absolutePath)
             if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             ServerStatusJson.operation("world", "start", rc)
@@ -191,6 +211,7 @@ class WorldRuntimeService : Service() {
                     nearbyInteractTriggerGuardMs,
                     settingsSnapshot = settingsSnapshot,
                 )
+                bootLane = worldLaneFlavor(PreparedDataStore.SERVER_DATA_LANE, settingsSnapshot)
                 applyStageOverlayOrRefuse(settingsSnapshot)
                 config
             }
@@ -226,6 +247,7 @@ class WorldRuntimeService : Service() {
                 val config = files.worldConfigBot(
                     profile, bind, nearbyInteractTriggerGuardMs,
                     settingsSnapshot = settingsSnapshot)
+                bootLane = worldLaneFlavor(PreparedDataStore.SERVER_DATA_LANE, settingsSnapshot)
                 applyStageOverlayOrRefuse(settingsSnapshot)
                 config
             }
@@ -255,15 +277,41 @@ class WorldRuntimeService : Service() {
             // (vanilla stays 0; the resolve fails loud on an ambiguous
             // flavor state, exactly like the start lanes' resolve). A
             // refused addon op fails the answer naming its own error,
-            // never a silently classic tbc/wotlk account.
-            val expansion = ActiveFlavor.resolve(ACCOUNT_EXPANSION_LANE).accountExpansion
-            val addonRc = if (rc == 0) {
+            // never a silently classic tbc/wotlk account. R1-arch-1: the
+            // write also runs on the designed HOST RETRY leg. R2-1 (review
+            // round 2, serious): the retry vs COLLISION discriminator is
+            // the PASSWORD — the retry re-submits the exact credential
+            // attempt 1 created the row with (the desktop ACCOUNT_VERIFIED
+            // precedent); a mismatched password on ACCOUNT_EXISTS is a
+            // collision and is refused without any addon write.
+            val accountExists = accountExists(username)
+            val identityProven = if (rc == ServerRuntimeContract.ACCOUNT_EXISTS_CODE && accountExists) {
+                WorldNative.verifyAccountPasswordNative(username, password)
+            } else {
+                true
+            }
+            // R2-2: the BOOT lane — the world DB being written is the one
+            // this process booted; a Home switch after start must never
+            // re-lane the expansion write.
+            val expansion = (bootLane
+                ?: worldLaneFlavor(ACCOUNT_EXPANSION_LANE)).accountExpansion
+            val addonRc = if (ServerRuntimeContract.shouldWriteExpansion(rc, accountExists) && identityProven) {
                 WorldNative.setAccountAddonNative(
                     username, expansion, ServerRuntimeContract.CONTROL_TIMEOUT_MS)
             } else {
                 null
             }
+            val accepted = if (ServerRuntimeContract.shouldWriteExpansion(rc, accountExists)) {
+                addonRc == 0 && identityProven
+            } else {
+                rc == 0
+            }
+            val answerCode =
+                if (!identityProven) "ACCOUNT_PASSWORD_MISMATCH"
+                else ServerRuntimeContract.errorName(addonRc?.toLong() ?: rc.toLong())
             accountResult("create-account", username, addonRc ?: rc)
+                .put("ok", accepted)
+                .put("code", answerCode)
                 .put("expansion", expansion)
                 .put("addonCode", addonRc?.let { ServerRuntimeContract.errorName(it.toLong()) } ?: "SKIPPED")
         }
@@ -287,15 +335,71 @@ class WorldRuntimeService : Service() {
             ServerRuntimeContract.requireAccountToken("username", username)
             accountResult("account-status", username, 0)
         }
-        override fun createAccountVerifier(username: String, sHex: String, vHex: String) = guarded {
+        override fun createAccountVerifier(
+            username: String,
+            sHex: String,
+            vHex: String,
+            allowExistingAccount: Boolean,
+        ) = guarded {
             ServerRuntimeContract.requireAccountToken("username", username)
             require(FriendProvisionProtocol.isSrpHex(sHex) && FriendProvisionProtocol.isSrpHex(vHex)) {
                 "verifier must be 64 lowercase hex chars"
             }
             val verdict = WorldNative.createAccountVerifierNative(username, sHex, vHex)
             val rc = verdict.getOrElse(0) { Long.MAX_VALUE }.toInt()
-            accountResult("create-account-verifier", username, rc)
+            // R1-1 (android-core review round 1, serious): the verifier path
+            // is provisioning's SECOND account-creation seam and was the only
+            // one that never wrote the per-flavor expansion - the native
+            // INSERT births the row at the seed's expansion default (0), so
+            // at the W4.4 flip every provisioned friend account on a
+            // tbc/wotlk host was silently born classic (the core then
+            // refuses expansion races/classes and maps for the account).
+            // Mirror createAccount's F1-10 leg: the ACTIVE flavor's level is
+            // written after a successful create and before first login; a
+            // refused addon op fails the answer naming its own error, never
+            // a silently classic tbc/wotlk friend. R1-arch-1: the write also
+            // runs on the designed HOST RETRY leg (ACCOUNT_EXISTS with the
+            // row present — attempt 1 created it, its addon write failed,
+            // approvalFailed returned the row to SUBMITTED) — skipping here
+            // re-opens the hole on exactly the lane the retry design serves.
+            val accountExists = accountExists(username)
+            // R2-2: the BOOT lane — the world DB being written is the one
+            // this process booted; a Home switch after start must never
+            // re-lane the expansion write.
+            val expansion = (bootLane
+                ?: worldLaneFlavor(ACCOUNT_EXPANSION_LANE)).accountExpansion
+            // R2-1 (android-core review round 2, serious): the (rc, exists)
+            // decision alone cannot distinguish the designed HOST RETRY (the
+            // row is OUR attempt-1 create; the host threads its attempt
+            // bookkeeping as allowExistingAccount) from an IDENTITY COLLISION
+            // (the username was already on the realm before any attempt — the
+            // submitted s/v never proven against it). Without the host's
+            // authorization, ACCOUNT_EXISTS refuses with ok=false and NO
+            // addon write on the existing row; the approval leg then rejects
+            // the invite (never PROVISIONED, never a success reveal).
+            // R3-1 (android-core review round 3, serious): the decision is
+            // CONJUNCTIVE on the authorization — the round-2 expression OR-ed
+            // the gated leg with shouldWriteExpansion, whose rc==10 leg is
+            // authorization-blind, so the gate was a no-op and every
+            // collision still wrote the existing row and answered ok=true.
+            val writeExpansion = ServerRuntimeContract.verifierExpansionWrite(
+                rc, accountExists, allowExistingAccount,
+            )
+            val addonRc = if (writeExpansion) {
+                WorldNative.setAccountAddonNative(
+                    username, expansion, ServerRuntimeContract.CONTROL_TIMEOUT_MS)
+            } else {
+                null
+            }
+            // An accepted answer requires the addon write when the decision
+            // demanded one (addonRc == 0); an unauthorized ACCOUNT_EXISTS is
+            // a rejection even though accountResult's shape would accept it.
+            val accepted = writeExpansion && addonRc == 0
+            accountResult("create-account-verifier", username, addonRc ?: rc)
+                .put("ok", accepted)
                 .put("accountId", verdict.getOrElse(1) { 0L })
+                .put("expansion", expansion)
+                .put("addonCode", addonRc?.let { ServerRuntimeContract.errorName(it.toLong()) } ?: "SKIPPED")
         }
         override fun accountList() = guarded {
             JSONObject(WorldNative.accountListNative())
@@ -474,7 +578,16 @@ class WorldRuntimeService : Service() {
         // The CALLER's snapshot — the same one the conf write consumed — so
         // the conf's PocketRealm.TimeframeStage and the overlay's desired
         // stage can never disagree (one stage resolution per start).
-        val desiredStage = TimeframeStages.confValue(settingsSnapshot.timeframeStage)
+        // R2-1/R4-2 (android-core review round 2): the desired stage
+        // resolves through the SAME persisted-selection machine as the conf
+        // write (worldLaneFlavor) — the old bare `TimeframeStages.confValue`
+        // resolved through the :ui-local holder, which refuses at a
+        // multi-qualified flip even with a valid persisted pick and blamed
+        // the overlay for a lane-resolution failure.
+        val desiredStage = TimeframeStages.confValueFor(
+            settingsSnapshot.timeframeStage,
+            worldLaneFlavor("the overlay's desired stage resolves the qualified lane").flavorId,
+        )
         try {
             TimeframeOverlayApplier.prepareForStart(
                 java.io.File(
@@ -514,6 +627,35 @@ class WorldRuntimeService : Service() {
             .put("accountExists", exists).put("accountId", info.getOrElse(0) { 0 })
             .put("gmLevel", info.getOrElse(1) { -1 })
     }
+
+    /** The accountInfoNative presence check the expansion-write decision
+     * consumes (R1-arch-1: ACCOUNT_EXISTS retry legs must prove the row is
+     * really there before writing the addon — the same shape accountResult
+     * uses for its accepted verdict). */
+    private fun accountExists(username: String): Boolean =
+        WorldNative.accountInfoNative(username).let { it.size >= 2 && it[0] > 0 }
+
+    /** R1-arch-5/R2-2 (android-core review round 1): the flavor resolver
+     * for this process's per-flavor gates. The [ActiveFlavor] holder's
+     * selection is :ui-process-local in-memory state (the Home picker) that
+     * never crosses the process boundary — this service runs in :world
+     * (AndroidManifest android:process=":world"), where the holder's own
+     * resolve would refuse at a multi-qualified flip even with a valid
+     * persisted pick. Resolve through the PERSISTED Home selection instead,
+     * threaded as a value exactly like the :supervisor twins
+     * (AndroidRuntimeBackend REALMD_BUILDS_LANE / launchLaneFlavor): sole
+     * qualified degrades to it, the persisted pick is honored, and an
+     * ambiguous post-flip state refuses loud — never a silent downgrade. */
+    private fun worldLaneFlavor(
+        lane: String,
+        settingsSnapshot: Settings.Snapshot? = null,
+    ): ClientFlavor =
+        ActiveFlavorState(
+            settingsSnapshot?.selectedFlavorOrNull()
+                ?: runBlocking {
+                    Settings(applicationContext).flow.first().selectedFlavorOrNull()
+                },
+        ).resolve(ActiveFlavor.qualifiedFlavors, lane)
     private fun addBotStatus(value: JSONObject) {
         val bot = WorldNative.botStatusNative()
         check(bot.size == BOT_STATUS_SIZE && bot[0] == ServerRuntimeContract.ABI_VERSION)

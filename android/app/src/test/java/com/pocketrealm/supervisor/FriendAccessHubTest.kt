@@ -73,8 +73,10 @@ class FriendAccessHubTest {
             username: String,
             sHex: String,
             vHex: String,
+            allowExistingAccount: Boolean,
         ): AccountProvisionResult {
-            actions += "provision-verifier:$username"
+            actions += "provision-verifier:$username" +
+                (if (allowExistingAccount) ":retry" else "")
             return verifierVerdict
         }
         override suspend fun accountRoster(): RosterRead = RosterRead(

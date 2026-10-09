@@ -608,6 +608,7 @@ class DurableRuntimeSupervisor(
         username: String,
         sHex: String,
         vHex: String,
+        allowExistingAccount: Boolean = false,
     ): AccountProvisionResult = operationLock.withLock {
         if (username.length !in 1..16 || !username.all { it.isLetterOrDigit() && it.code < 128 }) {
             return@withLock AccountProvisionResult(false, "ACCOUNT_INVALID", detail = "invalid username")
@@ -623,7 +624,9 @@ class DurableRuntimeSupervisor(
         }
         ownerOf(RuntimeComponent.WORLD)
             ?: return@withLock AccountProvisionResult(false, "WORLD_NOT_OWNED")
-        val result = runCatching { backend.provisionAccountVerifier(username, sHex, vHex) }
+        val result = runCatching {
+            backend.provisionAccountVerifier(username, sHex, vHex, allowExistingAccount)
+        }
             .getOrElse { AccountProvisionResult(false, "ACCOUNT_CONTROL_FAILED", detail = it.javaClass.simpleName) }
         publish(_state.value.copy(lastDurableAction = if (result.ok)
             "friend-account-provisioned-verifier" else "friend-account-provision-failed"))

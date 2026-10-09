@@ -1116,6 +1116,42 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "per-flavor prep tests pin the FLAVOR_IDENTITIES build numbers (owning-table pins)",
         "retires": "S5 retires: client identity qualification via the registry",
     },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/client/MpqSetKeyFormTripwireTest.kt",
+        "literals": ("5875",),
+        "reason": "R2-1 tripwire builds the synthetic vanilla 5875 client its positive control validates (owning-surface fixture)",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/client/R2DoctoredMpqScannerTest.kt",
+        "literals": ("1.12.1.5875", "2.4.3.8606", "3.3.5.12340", "wow-1.12.1-5875"),
+        "reason": "R2 doctored-manifest matrix exercises the scanner against the registered per-flavor client ids (owning-surface negative fixtures)",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/database/TimeframeOverlayPlanTest.kt",
+        "literals": VANILLA_DB_NAMES,
+        "reason": "R2-1 overlay-lane pin asserts the plan never targets the vanilla world DB while the tbc lane is active (the banned literal is the negative assertion)",
+        "retires": "S4 retires: per-flavor DB routing",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/server/PreparedDataVerifyWalkTest.kt",
+        "literals": ("5875",),
+        "reason": "R4-4 verify-walk pins plant the synthetic vanilla 5875 generation the requireActive walk validates (owning-surface fixture)",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/server/R3BreakerNegativeTest.kt",
+        "literals": ("5875", "1.12.1.5875", "wow-1.12.1-5875"),
+        "reason": "R3 breaker probes build the synthetic vanilla 5875 client and the adjacent-build 6005 manifest cell (owning-surface negative fixtures)",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/server/R2WrongFlavorManifestMatrixTest.kt",
+        "literals": ("5875", "8606", "12340", "wow-1.12.1-5875", "wow-2.4.3-8606"),
+        "reason": "R2 wrong-flavor manifest matrix drives the real reader against every registered per-flavor client id (owning-surface negative fixtures)",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
 )
 
 

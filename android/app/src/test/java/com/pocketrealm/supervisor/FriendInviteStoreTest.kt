@@ -1,6 +1,7 @@
 package com.pocketrealm.supervisor
 
 import java.io.File
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -339,5 +340,90 @@ class FriendInviteStoreTest {
             "absent from the desktop JVM build that compiles this same file",
             "android.os.Process" in source,
         )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// R4-1 (android-core review round 2): the friend-access audit's bounded
+// persistence — every refused submission appends a row, so a sustained
+// bad-submission spray against the LAN-exposed port must not convert
+// attacker traffic into unbounded host-disk growth (the same discipline
+// the rate rows' MAX_RATE_ROWS applies), and the host UI's auditTail must
+// never materialize a spray-grown file whole.
+// ---------------------------------------------------------------------------
+
+class FriendInviteStoreAuditBudgetTest {
+    @get:Rule
+    val folder = TemporaryFolder()
+
+    private var nowMs = 9_000_000L
+
+    private fun store(maxRows: Int, maxBytes: Long): FriendInviteStore =
+        FriendInviteStore(
+            folder.newFolder("friend-$maxRows-$maxBytes"),
+            clock = { nowMs },
+            maxAuditRows = maxRows,
+            maxAuditBytes = maxBytes,
+        )
+
+    @Test
+    fun `the audit file rotates at the row cap under a refused-submission spray`() {
+        val cap = 50
+        // a byte budget the spray exceeds (~150 B per refused submission):
+        // rotation triggers partway through, keeping the newest rows.
+        val directory = folder.newFolder("audit-cap")
+        val store = FriendInviteStore(
+            directory,
+            clock = { nowMs },
+            maxAuditRows = cap,
+            maxAuditBytes = 4_096L,
+        )
+        val created = (store.create("spray") as FriendInviteStore.CreateResult.Created)
+        // The spray shape that the bounded persistence exists for: BAD-TOKEN
+        // submissions from rotating sources (each refusal audits a row —
+        // the same valid token would be the friend's read-only poll, which
+        // deliberately does not audit).
+        repeat(cap * 4) { attempt ->
+            store.submit(
+                inviteId = created.inviteId,
+                token = "bad-token-$attempt",
+                username = "spray$attempt",
+                sHex = "ab".repeat(32),
+                vHex = "cd".repeat(32),
+                sourceIp = "10.9.0.$attempt",
+            )
+        }
+        val auditFile = File(directory, FriendInviteStore.AUDIT_FILE_NAME)
+        assertTrue("the audit file must exist", auditFile.isFile)
+        val lineCount = auditFile.readLines().count { it.isNotBlank() }
+        assertTrue(
+            "the audit file must rotate at the cap: $lineCount lines > $cap",
+            lineCount <= cap,
+        )
+        // the newest rows survive: the LAST spray attempt is still recorded
+        assertTrue(
+            "the newest row must survive rotation; tail=" +
+                auditFile.readLines().takeLast(3),
+            auditFile.readText().contains("10.9.0.${cap * 4 - 1}"),
+        )
+    }
+
+    @Test
+    fun `auditTail reads a spray-grown file without materializing it whole`() {
+        val directory = folder.newFolder("audit-tail")
+        val store = FriendInviteStore(directory, clock = { nowMs })
+        val auditFile = File(directory, "friend-access-audit.jsonl")
+        // a synthetic multi-MB body: ~20k rows of ~150 bytes
+        val row = JSONObject()
+            .put("at", 1L).put("action", "submit-refused")
+            .put("username", "sprayed-name-000000")
+            .put("sourceIp", "10.8.0.1")
+            .put("outcome", "refused").toString()
+        val bigBody = StringBuilder()
+        repeat(20_000) { bigBody.append(row).append('\n') }
+        auditFile.writeText(bigBody.toString(), Charsets.UTF_8)
+        val tail = store.auditTail(limit = 100)
+        assertTrue("the tail must be bounded", tail.size <= 100)
+        assertEquals("the newest audit row is the last", "submit-refused", tail.last().optString("action"))
     }
 }

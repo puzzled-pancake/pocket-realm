@@ -49,6 +49,8 @@ class FriendInviteStore(
     private val directory: File,
     private val clock: () -> Long = System::currentTimeMillis,
     private val random: SecureRandom = SecureRandom(),
+    internal val maxAuditRows: Int = MAX_AUDIT_ROWS,
+    internal val maxAuditBytes: Long = MAX_AUDIT_BYTES,
 ) {
     private val lock = Any()
     private val storeFile = File(directory, STORE_FILE_NAME)
@@ -218,7 +220,12 @@ class FriendInviteStore(
      * indistinct refusal — a poll must not leak the difference.
      */
     sealed class PollResult {
-        data class Provisioned(val accountId: Long) : PollResult()
+        /** R3-2 (android-core review round 2): the PROVISIONED reveal carries
+         * the ROW's stored username — the durable identity the account was
+         * provisioned under — never the poll REQUEST's username (a friend
+         * editing the username field between submit and poll must not be
+         * told the account is a name that was never provisioned). */
+        data class Provisioned(val accountId: Long, val username: String) : PollResult()
         object Pending : PollResult()
         object Refused : PollResult()
     }
@@ -245,7 +252,7 @@ class FriendInviteStore(
                 audit(ACTION_TOKEN_BURNED, inviteId = inviteId, username = invite.username,
                     accountId = invite.accountId, sourceIp = invite.sourceIp, outcome = "revealed")
                 writeLocked(persisted)
-                PollResult.Provisioned(invite.accountId ?: 0L)
+                PollResult.Provisioned(invite.accountId ?: 0L, invite.username ?: "")
             }
             else -> PollResult.Refused
         }
@@ -265,7 +272,12 @@ class FriendInviteStore(
         val invite = persisted.invites[index]
         if (invite.state != State.SUBMITTED) return@synchronized null
         val verifier = pendingVerifiers[inviteId] ?: return@synchronized null
-        persisted.invites[index] = invite.copy(state = State.APPROVED)
+        // R2-1 (android-core review round 2, serious): the FIRST approval is
+        // this invite's one provisioning attempt — the flag authorizes the
+        // seam's addon write on the ACCOUNT_EXISTS retry leg (the row our
+        // attempt created) and distinguishes it from an identity COLLISION
+        // (a username that was already on the realm before any attempt).
+        persisted.invites[index] = invite.copy(state = State.APPROVED, attempted = true)
         audit(ACTION_APPROVED, inviteId = inviteId, username = invite.username,
             accountId = null, sourceIp = invite.sourceIp, outcome = "approved")
         writeLocked(persisted)
@@ -321,6 +333,35 @@ class FriendInviteStore(
     // Reads
     // ------------------------------------------------------------------
 
+    /** R2-1: true when this invite already ran a provisioning attempt (the
+     * first markApproved). The authorization the host threads to the
+     * verifier seam: on the retry, ACCOUNT_EXISTS is OUR attempt-1 row and
+     * the addon write converges it; on a first approval, ACCOUNT_EXISTS is
+     * an identity COLLISION and must refuse without any write. */
+    fun hasPriorAttempt(inviteId: String): Boolean = synchronized(lock) {
+        val persisted = readLocked()
+        persisted.invites.firstOrNull { it.inviteId == inviteId }?.attempted == true
+    }
+
+    /** R2-1: the collision refusal — APPROVED → REJECTED with the durable
+     * outcome naming it (the §3.5 contract: the relay op returns
+     * ACCOUNT_EXISTS and the host REJECTS; the friend picks another name).
+     * The held verifier is discarded; nothing was written to the row. */
+    fun refuseCollision(inviteId: String): Boolean = synchronized(lock) {
+        val persisted = readLocked()
+        val index = persisted.invites.indexOfFirst { it.inviteId == inviteId }
+        if (index < 0) return@synchronized false
+        val invite = persisted.invites[index]
+        if (invite.state != State.APPROVED) return@synchronized false
+        persisted.invites[index] = invite.copy(state = State.REJECTED)
+        audit("collision-refused", inviteId = inviteId, username = invite.username,
+            accountId = null, sourceIp = invite.sourceIp,
+            outcome = "username already on the realm - no provisioning, no addon write")
+        pendingVerifiers.remove(inviteId)
+        writeLocked(persisted)
+        true
+    }
+
     fun rows(): List<InviteRow> = synchronized(lock) {
         val persisted = readLocked()
         expireDueLocked(persisted)
@@ -353,8 +394,27 @@ class FriendInviteStore(
      * accountId, source IP, timestamp, outcome — no secrets (§12). */
     fun auditTail(limit: Int = DEFAULT_AUDIT_TAIL): List<JSONObject> {
         if (!auditFile.isFile) return emptyList()
-        val lines = runCatching { auditFile.readLines() }.getOrDefault(emptyList())
-        return lines.takeLast(limit).mapNotNull { line -> runCatching { JSONObject(line) }.getOrNull() }
+        // R4-1 (android-core review round 2): a bounded TAIL read — the last
+        // AUDIT_TAIL_WINDOW_BYTES only. auditTail runs on the host UI's
+        // players screen; reading the whole (attacker-fed, spray-grown) file
+        // would be an OOM-scale read. The window may open mid-line, so the
+        // first (partial) line is dropped.
+        val fileLength = if (auditFile.isFile) auditFile.length() else 0L
+        val windowStart = maxOf(0L, fileLength - AUDIT_TAIL_WINDOW_BYTES)
+        val window = if (fileLength > 0L) runCatching {
+            java.io.RandomAccessFile(auditFile, "r").use { handle ->
+                handle.seek(windowStart)
+                val bytes = ByteArray((fileLength - windowStart).toInt())
+                handle.readFully(bytes)
+                String(bytes, Charsets.UTF_8)
+            }
+        }.getOrDefault("") else ""
+        // Only when the window opens mid-file can its first line be partial;
+        // a window covering the file head keeps every line.
+        val lines = if (windowStart > 0L) window.lines().drop(1) else window.lines()
+        return lines.takeLast(limit)
+            .filter { it.isNotBlank() }
+            .mapNotNull { line -> runCatching { JSONObject(line) }.getOrNull() }
     }
 
     // ------------------------------------------------------------------
@@ -417,6 +477,7 @@ class FriendInviteStore(
         val username: String? = null,
         val sourceIp: String? = null,
         val accountId: Long? = null,
+        val attempted: Boolean = false,
     ) {
         fun toRow() = InviteRow(
             inviteId, state, note, createdAtMs, submittedAtMs, expiresAtMs, username, sourceIp, accountId,
@@ -475,6 +536,7 @@ class FriendInviteStore(
                     username = row.optStringOrNull("username"),
                     sourceIp = row.optStringOrNull("sourceIp"),
                     accountId = row.optLongOrNull("accountId"),
+                    attempted = row.optBoolean("attempted"),
                 )
             }
         }
@@ -506,6 +568,7 @@ class FriendInviteStore(
             invite.username?.let { row.put("username", it) }
             invite.sourceIp?.let { row.put("sourceIp", it) }
             invite.accountId?.let { row.put("accountId", it) }
+            if (invite.attempted) row.put("attempted", true)
             invites.put(row)
         }
         val rate = JSONArray()
@@ -567,6 +630,30 @@ class FriendInviteStore(
             auditFile.parentFile?.mkdirs()
             auditFile.appendText(row.toString() + "\n", Charsets.UTF_8)
         }
+        // R4-1: the rotation runs OUTSIDE the append's runCatching — a
+        // rotation failure must be loud, never silently swallowed (the
+        // silent-skip shape would let the file regrow without bound).
+        rotateAuditBudgetLocked()
+    }
+
+    /** R4-1: the audit rotation — once the file exceeds MAX_AUDIT_BYTES it
+     * is rewritten to its newest MAX_AUDIT_ROWS rows (oldest rotated out).
+     * Called under [lock] from audit()'s callers; the rewrite is the only
+     * whole-file pass and only runs on the budget-breaching append. */
+    private fun rotateAuditBudgetLocked() {
+        if (auditFile.length() <= maxAuditBytes) return
+        val kept = auditFile.readLines().takeLast(maxAuditRows)
+        val rotated = File(auditFile.parentFile, auditFile.name + ".rotate.tmp")
+        rotated.writeText(
+            if (kept.isEmpty()) "" else kept.joinToString("\n") + "\n",
+            Charsets.UTF_8,
+        )
+        // Files.move with REPLACE_EXISTING: File.renameTo fails on Windows
+        // when the target exists (the observed silent-skip failure).
+        java.nio.file.Files.move(
+            rotated.toPath(), auditFile.toPath(),
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+        )
     }
 
     // LoopWithTooManyJumpStatements/ReturnCount: the collision-checked id
@@ -610,6 +697,17 @@ class FriendInviteStore(
         internal const val MAX_NOTE_CHARS = 64
         internal const val MAX_IP_CHARS = 45
         internal const val MAX_OUTCOME_CHARS = 128
+        /** R4-1 (android-core review round 2): the friend-access audit's
+         * bounded-persistence contract — the same discipline the rate rows'
+         * MAX_RATE_ROWS applies. Every refused submission appends a row, so
+         * a sustained bad-submission spray against the LAN-exposed port
+         * must not convert attacker traffic into unbounded host-disk
+         * growth: once the file exceeds MAX_AUDIT_BYTES it rotates down to
+         * the newest MAX_AUDIT_ROWS rows (and auditTail reads a bounded
+         * tail window, never the whole file). */
+        internal const val MAX_AUDIT_ROWS = 4096
+        internal const val MAX_AUDIT_BYTES = 1L * 1024L * 1024L
+        private const val AUDIT_TAIL_WINDOW_BYTES = 256L * 1024L
 
         /** The rate-row cap (§6 layer 1, bounded persistence): one row per
          * unique source IP, evicted insertion-oldest-unlocked-first once

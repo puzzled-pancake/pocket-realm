@@ -58,6 +58,46 @@ internal object ServerRuntimeContract {
     fun stateName(value: Long): String = states.getOrNull(value.toInt()) ?: "UNKNOWN"
     fun errorName(value: Long): String = errors.getOrNull(value.toInt()) ?: "UNKNOWN"
 
+    /** Whether an account-creation seam must write the per-flavor expansion
+     * for this native result (R1-arch-1, android-core review round 1,
+     * serious): the HOST RETRY LANE is designed — a failed relay op returns
+     * the invite row to SUBMITTED and the host retries, so the second
+     * attempt lands on ACCOUNT_EXISTS (10) with the row present. The old
+     * `if (rc == 0)` guard skipped the addon write on exactly that leg,
+     * birthing a silently classic friend on a tbc/wotlk host while the
+     * accepted answer reported the active flavor's expansion. The decision
+     * mirrors the accepted shape of accountResult (rc == 0, or
+     * ACCOUNT_EXISTS with the row verified present): an accepted answer
+     * always carries a real addon write, never a skipped one. Pure and
+     * JVM-testable; [accountExists] is the accountInfoNative presence check
+     * the seam computes before deciding. */
+    fun shouldWriteExpansion(createRc: Int, accountExists: Boolean): Boolean =
+        createRc == 0 || (createRc == ACCOUNT_EXISTS_CODE && accountExists)
+
+    const val ACCOUNT_EXISTS_CODE = 10
+
+    /** The VERIFIER lane's expansion-write decision (R3-1, android-core
+     * review round 3, serious): on ACCOUNT_EXISTS the addon write converges
+     * the row ONLY under the host's attempt-bookkeeping authorization —
+     * (rc, exists) alone cannot distinguish the designed HOST RETRY (the row
+     * is our attempt-1 create) from an IDENTITY COLLISION (a username that
+     * was already on the realm; the submitted s/v were never proven against
+     * it). The round-2 seam OR-ed this conjunctive leg with
+     * [shouldWriteExpansion], whose rc==10 leg is authorization-blind — the
+     * disjunction made the gate a no-op and every collision still wrote the
+     * existing row and answered ok=true. Behavior: (0,_,_)=true;
+     * (10,true,false)=false (the collision refusal);
+     * (10,true,true)=true (the designed retry); (10,false,*)=false;
+     * every other rc=false. Pure and JVM-testable — the behavioral truth
+     * table is pinned in AccountExpansionWiringTest. */
+    fun verifierExpansionWrite(
+        createRc: Int,
+        accountExists: Boolean,
+        allowExistingAccount: Boolean,
+    ): Boolean =
+        createRc == 0 ||
+            (createRc == ACCOUNT_EXISTS_CODE && accountExists && allowExistingAccount)
+
     fun requireAccountToken(label: String, value: String) {
         require(value.length in 1..16) { "$label must contain 1..16 characters" }
         require(value.all { it.isLetterOrDigit() && it.code < 128 }) {

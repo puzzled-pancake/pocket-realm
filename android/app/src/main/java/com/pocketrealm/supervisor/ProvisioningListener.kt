@@ -214,7 +214,9 @@ class ProvisioningListener(
                 answer(socket, FriendProvisionProtocol.encodeSubmitted(inviteId))
             is FriendInviteStore.PollResult.Provisioned -> answer(
                 socket,
-                FriendProvisionProtocol.encodeProvisioned(inviteId, request.optString("username"), poll.accountId),
+                // R3-2: the reveal names the ROW's stored username, never the
+                // poll request's (an edited form field is not an identity).
+                FriendProvisionProtocol.encodeProvisioned(inviteId, poll.username, poll.accountId),
             )
             FriendInviteStore.PollResult.Refused -> refuse(socket, sourceIp)
         }

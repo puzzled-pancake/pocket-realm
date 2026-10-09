@@ -92,11 +92,17 @@ interface RuntimeBackend : AutoCloseable {
 
     /** §3: inserts the friend-derived (s, v) verbatim — no password ever
      * crosses the host. ACCOUNT_EXISTS on a name collision; the HOST
-     * rejects the request, the friend picks another name. */
+     * rejects the request, the friend picks another name. R2-1 (review
+     * round 2): [allowExistingAccount] is the host's attempt bookkeeping —
+     * the only authorization under which ACCOUNT_EXISTS converges (the
+     * row is our attempt-1 create and the addon write completes it);
+     * without it, ACCOUNT_EXISTS refuses with no write (a collision can
+     * never mutate the existing row). */
     suspend fun provisionAccountVerifier(
         username: String,
         sHex: String,
         vHex: String,
+        allowExistingAccount: Boolean = false,
     ): AccountProvisionResult = AccountProvisionResult(false, "UNSUPPORTED")
 
     /** §11: the Players roster read (identity + ban state + the live

@@ -6,6 +6,8 @@ import android.system.OsConstants
 import com.pocketrealm.BuildConfig
 import com.pocketrealm.bots.BotLlmSpeech
 import com.pocketrealm.bots.BotProfile
+import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.client.ActiveFlavorState
 import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.client.TimeframeStages
@@ -17,6 +19,8 @@ import com.pocketrealm.llm.LlmPromptPack
 import com.pocketrealm.llm.LlmTierProfile
 import com.pocketrealm.llm.LlmSamplingProfile
 import com.pocketrealm.storage.Settings
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import com.pocketrealm.storage.StorageRoots
 import com.pocketrealm.supervisor.RealmEndpoint
 import org.json.JSONObject
@@ -34,6 +38,25 @@ internal class ServerRuntimeFiles(context: Context) {
     private val baselineData = File(roots.content, "o09-server/active")
     private val normalData = PreparedDataStore(File(roots.content, "o11-server"))
     private val secretFile = File(roots.databaseRoot, "secrets.json")
+
+    /** R1-arch-5/R2-2 (android-core review round 1): the :world process's
+     * per-flavor resolver for every data/verify lane. The [ActiveFlavor]
+     * holder's selection is :ui-process-local in-memory state (the Home
+     * picker) that never crosses the process boundary, so a bare holder
+     * resolve here would refuse at a multi-qualified flip even with a valid
+     * persisted pick. Resolve through the PERSISTED Home selection (or the
+     * threaded settings snapshot when the caller carries one), threaded as
+     * a value exactly like the :supervisor twins (AndroidRuntimeBackend
+     * REALMD_BUILDS_LANE): sole qualified degrades to it, the persisted
+     * pick is honored, and an ambiguous post-flip state refuses loud. */
+    fun worldLaneFlavor(lane: String, settingsSnapshot: Settings.Snapshot? = null): ClientFlavor {
+        val persisted = settingsSnapshot?.selectedFlavorOrNull()
+            ?: kotlinx.coroutines.runBlocking {
+                Settings(appContext).flow.first().selectedFlavorOrNull()
+            }
+        return com.pocketrealm.client.ActiveFlavorState(persisted)
+            .resolve(ActiveFlavor.qualifiedFlavors, lane)
+    }
 
     fun acquireNormalDataLease(): PreparedDataStore.GenerationLease = normalData.acquireRuntimeLease()
 
@@ -88,13 +111,19 @@ internal class ServerRuntimeFiles(context: Context) {
         bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
         nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
         settingsSnapshot: Settings.Snapshot? = null,
-    ): File = worldConfig(
-        normalData.requireActive().root,
-        normalPlay = true,
-        bindAddress = bindAddress,
-        nearbyInteractTriggerGuardMs = nearbyInteractTriggerGuardMs,
-        settingsSnapshot = settingsSnapshot,
-    )
+    ): File {
+        // R1-arch-5/R2-2: the verification lane resolves the same flavor the
+        // conf stage below resolves - the persisted Home selection threaded
+        // from the caller's snapshot, never the :ui-local holder.
+        val active = normalData.requireActive(worldLaneFlavor(PreparedDataStore.SERVER_DATA_LANE, settingsSnapshot))
+        return worldConfig(
+            active.root,
+            normalPlay = true,
+            bindAddress = bindAddress,
+            nearbyInteractTriggerGuardMs = nearbyInteractTriggerGuardMs,
+            settingsSnapshot = settingsSnapshot,
+        )
+    }
 
     /** Measured bot-profile entry point. Auction-house automation remains disabled. */
     fun worldConfigBot(
@@ -102,14 +131,17 @@ internal class ServerRuntimeFiles(context: Context) {
         bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
         nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
         settingsSnapshot: Settings.Snapshot? = null,
-    ): File = worldConfig(
-        normalData.requireActive().root,
-        normalPlay = true,
-        botProfile = profile,
-        bindAddress = bindAddress,
-        nearbyInteractTriggerGuardMs = nearbyInteractTriggerGuardMs,
-        settingsSnapshot = settingsSnapshot,
-    )
+    ): File {
+        val active = normalData.requireActive(worldLaneFlavor(PreparedDataStore.SERVER_DATA_LANE, settingsSnapshot))
+        return worldConfig(
+            active.root,
+            normalPlay = true,
+            botProfile = profile,
+            bindAddress = bindAddress,
+            nearbyInteractTriggerGuardMs = nearbyInteractTriggerGuardMs,
+            settingsSnapshot = settingsSnapshot,
+        )
+    }
 
     private fun worldConfig(
         data: File,
@@ -154,7 +186,18 @@ internal class ServerRuntimeFiles(context: Context) {
                 botTarget = botProfile?.initialTarget ?: 0,
                 // Design-timeframe §4.2: the persisted stage resolved to the
                 // "<stage-or-default>" conf value (never empty).
-                timeframeStage = TimeframeStages.confValue(snapshot.timeframeStage),
+                // R1-arch-5/R2-2: the ACTIVE flavor side of the resolution is
+                // this process's Settings-threaded lane (the holder's
+                // selection is :ui-local) - the same lane the data verify
+                // and the overlay binding above resolve, so conf, data, and
+                // overlay can never name different flavors at one start.
+                timeframeStage = TimeframeStages.confValueFor(
+                    snapshot.timeframeStage,
+                    worldLaneFlavor(
+                        "the conf stage resolves the qualified lane",
+                        settingsSnapshot,
+                    ).flavorId,
+                ),
             ),
         )
     }

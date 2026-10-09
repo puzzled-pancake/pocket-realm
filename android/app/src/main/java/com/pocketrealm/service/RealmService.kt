@@ -311,9 +311,14 @@ class RealmService : Service() {
             runBlocking(Dispatchers.IO) { supervisor.worldPresence().toString() }
         // Remote friend accounts (design-remote-accounts): the same AIDL
         // seam carries the new verbs.
-        override fun provisionFriendAccount(username: String, sHex: String, vHex: String): String =
-            runBlocking(Dispatchers.IO) {
-                val result = supervisor.provisionFriendAccount(username, sHex, vHex)
+        override fun provisionFriendAccount(
+            username: String,
+            sHex: String,
+            vHex: String,
+            allowExistingAccount: Boolean,
+        ): String = runBlocking(Dispatchers.IO) {
+                val result = supervisor.provisionFriendAccount(
+                    username, sHex, vHex, allowExistingAccount)
                 AppLog.i(TAG, "friend account code=${result.code} id=${result.accountId}")
                 JSONObject().put("ok", result.ok).put("code", result.code)
                     .put("accountId", result.accountId).put("detail", result.detail).toString()

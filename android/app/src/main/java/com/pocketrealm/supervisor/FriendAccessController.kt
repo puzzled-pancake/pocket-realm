@@ -177,16 +177,32 @@ class FriendAccessController(
      * never punished for a host-side error).
      */
     suspend fun approveInvite(inviteId: String): String = withContext(Dispatchers.IO) {
+        // R2-1 (android-core review round 2, serious): the attempt bookkeeping
+        // IS the retry-vs-collision discriminator. The first approval is this
+        // invite's one provisioning attempt; a re-approval (after
+        // approvalFailed) authorizes the ACCOUNT_EXISTS convergence onto OUR
+        // attempt-1 row. A FIRST approval that lands on an existing account
+        // is an identity COLLISION: refused (REJECTED, no provisioning, no
+        // addon write — the seam refuses without the authorization), which
+        // is the §3.5 contract this controller's own doc records.
+        val allowExistingAccount = store.hasPriorAttempt(inviteId)
         val verifier = store.markApproved(inviteId)
         refresh()
         if (verifier == null) {
             "Approve refused: the request is not inside its decision window."
         } else {
-            val provision = supervisor.provisionFriendAccount(verifier.username, verifier.sHex, verifier.vHex)
+            val provision = supervisor.provisionFriendAccount(
+                verifier.username, verifier.sHex, verifier.vHex, allowExistingAccount,
+            )
             if (provision.ok) {
                 store.markProvisioned(inviteId, provision.accountId)
                 refresh()
                 "Approved: ${verifier.username} is account ${provision.accountId}."
+            } else if (provision.code == "ACCOUNT_EXISTS" && !allowExistingAccount) {
+                store.refuseCollision(inviteId)
+                refresh()
+                "Refused: ${verifier.username} already exists on this realm — " +
+                    "the friend picks another name (the request was not a retry)."
             } else {
                 store.approvalFailed(inviteId, provision.code)
                 refresh()

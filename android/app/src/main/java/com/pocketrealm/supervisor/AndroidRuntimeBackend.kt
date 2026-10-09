@@ -217,7 +217,14 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         if (profileId != DEFAULT_PROFILE) {
             runCatching {
                 PreparedDataStore(File(StorageRoots.get(appContext).content, "o11-server"))
-                    .requireActiveEnvelope()
+                    // R1-arch-5/R2-2: resolve through the persisted Home
+                    // selection (the Settings-threaded form this backend's
+                    // other lanes use) - the ActiveFlavor holder's selection
+                    // is :ui-local and :supervisor never seeds it.
+                    .requireActiveEnvelope(
+                        ActiveFlavorState(Settings(appContext).flow.first().selectedFlavorOrNull())
+                            .resolve(ActiveFlavor.qualifiedFlavors, "prepared data verifies the active lane"),
+                    )
             }
                 .getOrElse { return@withContext RuntimeActionResult(false, "prepared data: ${it.message}") }
         } else {
@@ -597,12 +604,15 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         username: String,
         sHex: String,
         vHex: String,
+        allowExistingAccount: Boolean,
     ): AccountProvisionResult = withContext(Dispatchers.IO) {
         val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
         if (!status.ready) {
             return@withContext AccountProvisionResult(false, "WORLD_NOT_READY")
         }
-        val verdict = json(world.api().createAccountVerifier(username, sHex, vHex))
+        val verdict = json(
+            world.api().createAccountVerifier(username, sHex, vHex, allowExistingAccount),
+        )
         if (!verdict.optBoolean("ok")) {
             AccountProvisionResult(false, verdict.optString("code", "ACCOUNT_REJECTED"))
         } else {

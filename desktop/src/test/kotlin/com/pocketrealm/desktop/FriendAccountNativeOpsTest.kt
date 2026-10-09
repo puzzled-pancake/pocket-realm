@@ -240,7 +240,7 @@ class FriendAccountNativeOpsTest {
                     "sLen=${derivedB.sHex.length} vLen=${derivedB.vHex.length}",
             )
             val backendVerdict = kotlinx.coroutines.runBlocking {
-                backend.provisionAccountVerifier(friendB, derivedB.sHex, derivedB.vHex)
+                backend.provisionAccountVerifier(friendB, derivedB.sHex, derivedB.vHex, false)
             }
             org.junit.Assert.assertTrue(
                 "backend verifier provision must succeed: ${backendVerdict.code} " +
@@ -276,12 +276,19 @@ class FriendAccountNativeOpsTest {
             )
             val twinVerifier = VsrpMath.verifierFor(mixedName.uppercase(), "Friend-Pass-3")
             val twinVerdict = kotlinx.coroutines.runBlocking {
-                backend.provisionAccountVerifier(mixedName.uppercase(), twinVerifier.sHex, twinVerifier.vHex)
+                // R2-1: a first approval (no attempt bookkeeping) landing on
+                // an existing account is a COLLISION — refused with no addon
+                // write on the existing row (the §3.5 contract restored).
+                backend.provisionAccountVerifier(mixedName.uppercase(), twinVerifier.sHex, twinVerifier.vHex, false)
             }
             org.junit.Assert.assertEquals(
                 "the uppercase twin of the stored row collides",
                 "ACCOUNT_EXISTS",
                 twinVerdict.code,
+            )
+            org.junit.Assert.assertFalse(
+                "the collision refusal must not answer ok (the round-2 hole)",
+                twinVerdict.ok,
             )
 
             // A non-loopback bind emits the §4.3/§6.3 lockout keys on this

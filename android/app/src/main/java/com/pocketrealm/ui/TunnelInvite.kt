@@ -1,6 +1,6 @@
 package com.pocketrealm.ui
 
-import com.pocketrealm.client.ClientFlavors
+import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.supervisor.AdvertisedAddress
 import com.pocketrealm.supervisor.RealmEndpoint
 import com.pocketrealm.supervisor.RuntimeLaunchSpec
@@ -29,7 +29,17 @@ object TunnelInvite {
      *  second flavor qualifies, forcing the invite to carry its lane) —
      *  never a hard-coded vanilla identity in multi-flavor surface copy. */
     private fun clientRequirementLine(): String {
-        val flavor = ClientFlavors.qualified().single()
+        // R3-2 (android-core review round 2): the last live
+        // `qualified().single()` in the slice — List.single() throws
+        // NoSuchElementException inside the Compose model at a
+        // multi-qualified flip (a crash, not an actionable error), and it
+        // ignores the holder's selection entirely. Resolve through the same
+        // fail-loud machine every sibling site uses: the holder's persisted
+        // pick in :ui, sole-qualified degrades to it, ambiguous refuses
+        // loud with the machine's message.
+        val flavor = ActiveFlavor.resolve(
+            "the tunnel invite renders the qualified lane's client requirement",
+        )
         val version = flavor.versionResource.substringBeforeLast('.')
         return "2) Client: WoW $version build ${flavor.build} exactly " +
             "(the realm rejects other builds)."

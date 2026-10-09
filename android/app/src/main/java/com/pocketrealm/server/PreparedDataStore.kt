@@ -130,7 +130,7 @@ internal class PreparedDataStore(private val root: File) {
         private const val LEASE_FILE = ".generation-lease"
 
         /** The [ActiveFlavor] lane suffix naming this store's gate. */
-        private const val SERVER_DATA_LANE = "server world data resolves the qualified lane"
+        internal const val SERVER_DATA_LANE = "server world data resolves the qualified lane"
 
         /**
          * The pure data-manifest identity checks of [requireActiveEnvelope]

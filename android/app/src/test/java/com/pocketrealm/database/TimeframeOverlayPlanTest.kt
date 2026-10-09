@@ -7,7 +7,9 @@ import android.database.Cursor
 import android.database.DataSetObserver
 import android.net.Uri
 import android.os.Bundle
+import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.TimeframeStages
+import com.pocketrealm.client.TwoQualifiedFlavors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -37,6 +39,115 @@ class TimeframeOverlayPlanTest {
         assertNotEquals(default, "")
         // A non-final stage of the qualified lane is NOT the default.
         assertTrue(!TimeframeOverlayPlan.isDefaultStage("vanilla-1.5"))
+    }
+
+    @Test
+    fun theOverlayLaneResolvesThroughTheActiveFlavorMachine() {
+        // R2-1/R1-2 (android-core review round 1): the plan's lane used to
+        // be `qualified().singleOrNull() ?: VANILLA` - a silent fallback
+        // that diverged from the ACTIVE lane the conf stage resolves
+        // through at a multi-qualified flip. The plan must never pick a
+        // lane silently: ambiguous (no pick) fails loud...
+        // R1-arch-3/R3-2/R4-1 (review round 1): the pinned SURFACE
+        // (qualifiedLane) must be invoked INSIDE the try - install() only
+        // swaps the qualified registry and cannot throw; the resolver the
+        // plan is bound to is what refuses the ambiguous state.
+        try {
+            TwoQualifiedFlavors.install()
+            TimeframeOverlayPlan.qualifiedLane()
+            fail("two qualified flavors with no pick must fail loud")
+        } catch (expected: IllegalStateException) {
+            assertTrue(
+                "the ambiguity refusal must name the machine's message: ${expected.message}",
+                "expected exactly one qualified flavor" in expected.message!!,
+            )
+        } finally {
+            ActiveFlavor.reset()
+        }
+        // ...and with tbc selected the lane - and therefore the overlay's
+        // world database - follows the ACTIVE flavor, never a vanilla
+        // fallback (the invariant-4 cross-flavor write direction).
+        TwoQualifiedFlavors.install(selection = "tbc")
+        try {
+            assertEquals(TwoQualifiedFlavors.TBC, TimeframeOverlayPlan.qualifiedLane())
+            assertEquals(
+                TwoQualifiedFlavors.TBC.databases.world,
+                TimeframeOverlayPlan.worldDatabase(),
+            )
+            assertTrue(
+                "the overlay must never target the vanilla world DB while " +
+                    "the tbc lane is active",
+                "classicmangos" != TimeframeOverlayPlan.worldDatabase(),
+            )
+            // the default-stage verdict covers tbc's own final patch (the
+            // seed IS the final patch - no overlay at the default stage)
+            assertTrue(
+                TimeframeOverlayPlan.isDefaultStage(
+                    TimeframeStages.defaultStageId("tbc"),
+                ),
+            )
+        } finally {
+            ActiveFlavor.reset()
+        }
+    }
+
+    @Test
+    fun theWorldProcessLaneBindingThreadsThePersistedPick() {
+        // R1-arch-5/R2-2 (android-core review round 1): the :world process
+        // never seeds the in-memory ActiveFlavor holder (the selection is
+        // :ui-local), so a bare holder resolve refuses at a multi-qualified
+        // flip even with a valid persisted pick. WorldRuntimeService
+        // installs the plan's lane binding at :world onCreate, threading the
+        // persisted Home selection as a value (the ActiveFlavorState +
+        // Settings form the :supervisor twins use). This test simulates the
+        // world-process state machine: three qualified flavors, NO holder
+        // pick, persisted pick "tbc" — the bound resolver must resolve tbc
+        // while the default (holder-machine) resolver refuses.
+        val threeQualified = TwoQualifiedFlavors.lanes +
+            com.pocketrealm.client.ClientFlavors.WOTLK.copy(qualified = true)
+        val persistedPick = "tbc"
+        // The binding WorldRuntimeService installs: persisted selection
+        // threaded as a value through the pure state machine.
+        val worldResolver: () -> com.pocketrealm.client.ClientFlavor = {
+            com.pocketrealm.client.ActiveFlavorState(persistedPick)
+                .resolve(threeQualified, "the world lane binding test")
+        }
+        try {
+            // Without the binding, the default (holder machine) refuses the
+            // same state the binding resolves - the reason the seam exists.
+            ActiveFlavor.reset()
+            ActiveFlavor.qualifiedSource = { threeQualified }
+            try {
+                com.pocketrealm.client.ActiveFlavor.resolve(
+                    "the unbound world lane must refuse",
+                )
+                fail("3 qualified flavors with no holder pick must fail loud")
+            } catch (expected: IllegalStateException) {
+                assertTrue(
+                    "expected exactly one qualified flavor" in expected.message!!,
+                )
+            }
+            // With the binding installed (what onCreate does), the plan
+            // resolves the persisted pick.
+            TimeframeOverlayPlan.installLaneResolver(worldResolver)
+            assertEquals(
+                TwoQualifiedFlavors.TBC,
+                TimeframeOverlayPlan.qualifiedLane(),
+            )
+            assertEquals(
+                TwoQualifiedFlavors.TBC.databases.world,
+                TimeframeOverlayPlan.worldDatabase(),
+            )
+        } finally {
+            // Restore the default holder-machine resolver for every other
+            // test in this class.
+            TimeframeOverlayPlan.installLaneResolver {
+                ActiveFlavor.resolve(
+                    "the timeframe overlay plan resolves the qualified lane",
+                )
+            }
+            ActiveFlavor.reset()
+        }
     }
 
     @Test

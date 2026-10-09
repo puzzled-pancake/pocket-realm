@@ -1241,20 +1241,11 @@ internal class WineRuntimeStore(private val context: Context) {
         timeoutSeconds: Long,
         environment: Map<String, String> = emptyMap(),
     ) {
-        val process = ProcessBuilder(command)
-            .directory(workingDirectory)
-            .redirectErrorStream(true)
-            .apply { environment().putAll(environment) }
-            .start()
-        check(process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            "runtime preparation command timed out: ${command.first()}"
-        }
-        val output = process.inputStream.bufferedReader().use { it.readText() }.takeLast(2_000)
-        check(process.exitValue() == 0) {
-            "runtime preparation command failed (${process.exitValue()}): $output"
-        }
+        runProcessCapturingTail(
+            command, workingDirectory, timeoutSeconds, environment,
+        )
     }
+
 
     private fun userRegistry(): UserVulkanDriverRegistry =
         UserVulkanDriverRegistry(UserVulkanDriverRegistry.registryRoot(context.filesDir))
@@ -2485,3 +2476,63 @@ internal class WineRuntimeStore(private val context: Context) {
     }
     private fun writeAtomic(target: File, value: String) = com.pocketrealm.fs.DurableFiles.atomicWrite(target, value)
 }
+
+
+    /**
+     * R4-2 (android-core review round 2): the prep-child run discipline —
+     * the merged stdout+stderr is DRAINED WHILE THE CHILD RUNS (a
+     * dedicated reader thread), never after waitFor. The old
+     * wait-then-drain order deadlocked any child whose output exceeded
+     * the OS pipe buffer (~64 KiB): the child blocked on a full pipe,
+     * waitFor timed out, and a healthy long-running prep failed
+     * spuriously as "runtime preparation command timed out". Pure
+     * java.lang.ProcessBuilder, so the discipline is JVM-testable (a
+     * 1 MiB-emitting child must complete with its tail captured).
+     * Returns the last [tailChars] characters of the merged output.
+     * Throws IllegalStateException on timeout (after destroyForcibly)
+     * or a nonzero exit (with the output tail for diagnosis).
+     */
+    internal fun runProcessCapturingTail(
+        command: List<String>,
+        workingDirectory: File,
+        timeoutSeconds: Long,
+        environment: Map<String, String> = emptyMap(),
+        tailChars: Int = 2_000,
+    ): String {
+        val process = ProcessBuilder(command)
+            .directory(workingDirectory)
+            .redirectErrorStream(true)
+            .apply { environment().putAll(environment) }
+            .start()
+        val captured = java.io.ByteArrayOutputStream()
+        val drain = Thread {
+            runCatching {
+                process.inputStream.use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        captured.write(buffer, 0, count)
+                    }
+                }
+            }
+        }
+        drain.isDaemon = true
+        drain.start()
+        val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+        if (!finished) {
+            process.destroyForcibly()
+            drain.join(1_000)
+            val output = captured.toString().takeLast(tailChars)
+            error(
+                "runtime preparation command timed out: ${command.first()} " +
+                    "(output tail: $output)",
+            )
+        }
+        drain.join(5_000)
+        val output = captured.toString().takeLast(tailChars)
+        check(process.exitValue() == 0) {
+            "runtime preparation command failed (${process.exitValue()}): $output"
+        }
+        return output
+    }
