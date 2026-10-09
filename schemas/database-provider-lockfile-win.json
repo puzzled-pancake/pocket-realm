@@ -2,6 +2,13 @@
   "schema": 1,
   "abi": "windows-x86_64",
   "database_backend": "mariadb",
+  "lane_scope": {
+    "flavors": [
+      "vanilla"
+    ],
+    "decision": "D60",
+    "note": "this shared document + the mariadb-provider staging root are VANILLA-lane inputs: the staged migration manifest is the vanilla ledger golden (migration_manifest_sha256); non-vanilla lanes must not write or re-key it until W1.3 defines per-flavor provider staging"
+  },
   "provider": {
     "id": "mariadb-11.5.2-windows-x86_64",
     "version": "11.5.2"

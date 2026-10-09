@@ -1219,3 +1219,100 @@ def test_vanilla_win_lockfile_carries_no_placeholder_note() -> None:
     )
     assert record.get("flavor") == "vanilla"
     assert "seed_transcripts_provenance" not in record
+
+
+# ---------------------------------------------------------------------------
+# R2-3 (review round 2, medium): the Windows MariaDB provider contract is
+# scoped VANILLA-lane (decision D60) — the shared PROVIDER_STAGING root's
+# staged migration manifest IS the vanilla ledger golden, so a non-vanilla
+# write would either be refused by the desktop verifier against the vanilla
+# pin or silently re-key the committed vanilla provenance. The lockfile
+# records the scope machine-readably (lane_scope) and the writer refuses
+# non-vanilla lanes loud until W1.3 defines per-flavor provider staging.
+# ---------------------------------------------------------------------------
+
+def test_provider_lockfile_is_scoped_to_the_vanilla_lane() -> None:
+    import hashlib
+
+    record = json.loads(
+        (ROOT / "schemas" / "database-provider-lockfile-win.json")
+        .read_text(encoding="utf-8"))
+    scope = record.get("lane_scope") or {}
+    assert scope.get("flavors") == ["vanilla"], scope
+    assert scope.get("decision") == "D60"
+    # the migration pin IS the vanilla ledger golden (the G3-3 bytes —
+    # alias and canonical byte-copies hash identically), never a
+    # tbc/wotlk ledger
+    vanilla_alias = hashlib.sha256(
+        (ROOT / "schemas" / "database-migrations.json")
+        .read_bytes()).hexdigest()
+    vanilla_canonical = hashlib.sha256(
+        (ROOT / "schemas" / "database-migrations-vanilla.json")
+        .read_bytes()).hexdigest()
+    assert vanilla_alias == vanilla_canonical, (
+        "the G3-3 alias/canonical byte-copy invariant broke - fix that "
+        "first, this pin consumes it")
+    assert record["migration_manifest_sha256"] == vanilla_alias
+    assert record["migration_count"] == 414
+    for flavor in ("tbc", "wotlk"):
+        flavor_ledger = hashlib.sha256(
+            (ROOT / "schemas" / f"database-migrations-{flavor}.json")
+            .read_bytes()).hexdigest()
+        assert record["migration_manifest_sha256"] != flavor_ledger, (
+            f"the shared provider pin was re-keyed to the {flavor} ledger "
+            "- the D60 scope was clobbered")
+
+
+def test_write_provider_lockfile_refuses_non_vanilla_lanes(
+        tmp_path, monkeypatch) -> None:
+    """A tbc --write-lockfile run against the shared root fails loud naming
+    the D60 scope decision — never silently re-keying the committed vanilla
+    pin (the lockfile target is redirected to tmp_path so even a broken
+    guard cannot touch the real document)."""
+    import hashlib
+    import build_win_realm_runtime as w
+
+    redirected = tmp_path / "database-provider-lockfile-win.json"
+    monkeypatch.setattr(w, "PROVIDER_LOCKFILE", redirected)
+    monkeypatch.setattr(w, "ROOT", tmp_path)  # the guard's message uses relative_to
+    monkeypatch.setattr(w.o09, "ACTIVE_FLAVOR", "tbc")
+    with pytest.raises(RuntimeError) as excinfo:
+        w.write_provider_lockfile()
+    message = str(excinfo.value)
+    assert "D60" in message and "vanilla" in message
+    assert "W1.3" in message
+    assert not redirected.exists(), "the refused write produced no document"
+    # and the committed document is byte-untouched
+    committed = (ROOT / "schemas" / "database-provider-lockfile-win.json")
+    assert hashlib.sha256(committed.read_bytes()).hexdigest() == \
+        hashlib.sha256(committed.read_bytes()).hexdigest()
+
+
+def test_write_provider_lockfile_records_the_scope_on_vanilla(
+        tmp_path, monkeypatch) -> None:
+    """Control: the vanilla lane writes the document and stamps the
+    machine-readable lane_scope (the guard passes through to the verifier,
+    which is stubbed here — the real verifier ran in the committed lockfile
+    regeneration this wave performed)."""
+    import build_win_realm_runtime as w
+
+    redirected = tmp_path / "database-provider-lockfile-win.json"
+    monkeypatch.setattr(w, "PROVIDER_LOCKFILE", redirected)
+    monkeypatch.setattr(w, "ROOT", tmp_path)  # the write's print uses relative_to
+    monkeypatch.setattr(w.o09, "ACTIVE_FLAVOR", "vanilla")
+    monkeypatch.setattr(
+        w, "verify_mariadb_provider_staging",
+        lambda: {
+            "provider": {"id": "mariadb-11.5.2-windows-x86_64"},
+            "manifest_sha256": "0" * 64,
+            "bootstrap_sha256": "0" * 64,
+            "migration_manifest_sha256": "3" * 64,
+            "migration_count": 414,
+            "staging_root": "native/.build-win-x86_64/mariadb-provider",
+            "artifacts": [],
+            "client_library": {},
+        })
+    record = w.write_provider_lockfile()
+    assert record["lane_scope"]["flavors"] == ["vanilla"]
+    persisted = json.loads(redirected.read_text(encoding="utf-8"))
+    assert persisted["lane_scope"]["decision"] == "D60"

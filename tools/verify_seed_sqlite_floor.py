@@ -59,18 +59,34 @@ import subprocess
 import sys
 import tempfile
 import time
+
 import urllib.request
 import zipfile
 from pathlib import Path
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from tools import common
+
 
 ROOT = Path(__file__).resolve().parent.parent
 SHELL_STORE = ROOT / "build" / "seed-floor-shells"
 
-# version -> (year archive, banner prefix). Immutable upstream URLs.
+# version -> (year archive URL, pinned sha256, banner prefix). Immutable
+# upstream URLs. Review round 2 (R3-2 serious): the archives are EXECUTED
+# (sqlite3.exe replays the production seed SQL), so a banner check alone is
+# not a provenance discipline — the sha256 pins below were measured from
+# fresh sqlite.org downloads 2026-10-09 (and equal the Aug-26 cached
+# archives the pinned banners came from) and are attested in
+# schemas/sources.json (sqlite-tools-win32-3180000 / -3320100); a mismatch
+# deletes the archive and refuses before any extract or execute.
 SHELL_URLS = {
     "3.18": ("https://www.sqlite.org/2017/sqlite-tools-win32-x86-3180000.zip",
+             "b3f633bf69a7992e3fe0344bd681905d5d52bfd5957e37bbcd731d1d516ebc34",
              "3.18.0"),
     "3.32": ("https://www.sqlite.org/2020/sqlite-tools-win32-x86-3320100.zip",
+             "60a9994dec019f97c096b1c813d3f185270cb1815010b15e5ea92ac557f60d17",
              "3.32.1"),
 }
 DEFAULT_FLOORS = ("3.18", "3.32")
@@ -125,14 +141,54 @@ def platform_logic() -> str:
 
 
 def shell_for(version: str) -> Path:
-    """Pinned sqlite3 shell for a floor version, downloading once."""
+    """Pinned sqlite3 shell for a floor version, downloading once.
+
+    NOTHING is trusted on first use alone: the store's OK marker
+    short-circuits nothing (review round 3, R3-r3-1 serious — the marker
+    path used to return the extracted exe with NO digest and NO banner
+    check, so a tampered sqlite3.exe in the untrusted build/ scratch was
+    executed and its verdict printed PREFLIGHT PASS). Every run
+    re-attests: the retained archive is re-hashed against the SHELL_URLS
+    pin before any extract, and the extracted exe must re-state the
+    pinned version banner before it is returned for the replay. A
+    mismatch deletes the archive+marker and refuses; the next run
+    re-fetches the pinned archive (the fetch_provider discipline:
+    re-hash the cached artifact on every use)."""
+    url, expected_sha256, banner = SHELL_URLS[version]
     marker = SHELL_STORE / version / "OK"
     if marker.is_file():
+        # Re-attest the store before trusting it (never TOFU): hash the
+        # retained archive, then re-run the banner check on the extracted
+        # exe. Any mismatch deletes archive+marker and refuses — the next
+        # invocation re-fetches and re-extracts from the pinned archive.
+        archive = SHELL_STORE / f"sqlite-{version}.zip"
         shells = list((SHELL_STORE / version).glob("**/sqlite3.exe"))
         if not shells:
-            raise RuntimeError(f"shell store for {version} lost its exe")
+            marker.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"shell store for {version} lost its exe - marker cleared; "
+                "re-run to re-fetch the pinned archive")
+        digest = (hashlib.sha256(archive.read_bytes()).hexdigest()
+                  if archive.is_file() else None)
+        if digest is not None and digest != expected_sha256:
+            archive.unlink(missing_ok=True)
+            marker.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"FAIL sqlite-tools {version}: the cached shell-store "
+                f"archive hash {digest} != pinned {expected_sha256} - "
+                "archive and marker deleted; the store was untrusted "
+                "scratch and will be re-fetched on the next run")
+        out = run([str(shells[0]), "--version"])
+        if not out.startswith(banner):
+            marker.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"FAIL sqlite-tools {version}: the stored sqlite3.exe no "
+                f"longer states the pinned banner ({out[:40]!r} != "
+                f"{banner!r}) - the extracted executable in the untrusted "
+                "store does not match its pinned archive provenance; "
+                "marker cleared, refusing to execute it - re-run to "
+                "re-extract from the verified archive")
         return shells[0]
-    url, banner = SHELL_URLS[version]
     if platform.system() != "Windows":
         raise RuntimeError(
             f"floor replay needs the win32 sqlite3 shell ({version}); "
@@ -143,6 +199,14 @@ def shell_for(version: str) -> Path:
         print(f"fetching pinned shell {version}: {url}")
         with urllib.request.urlopen(url, timeout=120) as resp:
             archive.write_bytes(resp.read())
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    if digest != expected_sha256:
+        archive.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"FAIL sqlite-tools {version}: downloaded archive hash {digest} "
+            f"!= pinned {expected_sha256} — archive deleted; refusing to "
+            "extract or execute an unverified Windows executable "
+            "(the fetch_provider/stage_mariadb_runtime hash discipline)")
     dest = SHELL_STORE / version
     dest.mkdir(exist_ok=True)
     with zipfile.ZipFile(archive) as zf:
@@ -207,9 +271,26 @@ def verify_apk(apk: Path, floors: tuple[str, ...],
     seeds = apk_seed_assets(apk)
     baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
     baseline_digests = baseline["transcript_digests"]
+    # Review round 2 (R2-4): the lockfile leg is only ever skipped EXPLICITLY.
+    # An APK whose reported ABI is outside LOCKFILES is a lane this tool has
+    # no pin for — refuse loud instead of silently running baseline-only;
+    # a missing-aapt arm (abi None) proceeds but the summary and the PASS
+    # banner must say the lockfile leg was SKIPPED, never claim a bare pass.
     lockfile = None
-    if abi and abi[0] in LOCKFILES:
+    lockfile_leg = "verified"
+    if abi:
+        if abi[0] not in LOCKFILES:
+            raise RuntimeError(
+                f"APK reports ABI {abi[0]} - this preflight has no sqlite "
+                f"lockfile pin for it (pinned: {sorted(LOCKFILES)}); the "
+                "seed hash chain cannot be verified for an unpinned lane - "
+                "refusing rather than printing a pass the lockfile leg "
+                "did not earn")
         lockfile = json.loads(LOCKFILES[abi[0]].read_text(encoding="utf-8"))
+    else:
+        lockfile_leg = "SKIPPED (no aapt for APK statics)"
+        print("WARN: lockfile leg SKIPPED - the baseline digest chain still "
+              "runs, but the summary will say the lockfile leg did not")
     for db, raw in sorted(seeds.items()):
         digest = hashlib.sha256(raw).hexdigest()
         ok_base = digest == baseline_digests.get(db)
@@ -225,7 +306,8 @@ def verify_apk(apk: Path, floors: tuple[str, ...],
             raise RuntimeError(f"{db}: APK seed diverges from baseline")
     durations = replay(seeds, floors, timeout)
     return {"apk": str(apk), "statics": statics, "databases": sorted(seeds),
-            "replay_seconds": durations, "replay_bound_seconds": timeout}
+            "replay_seconds": durations, "replay_bound_seconds": timeout,
+            "lockfile_leg": lockfile_leg}
 
 
 # Transaction-control statements at statement start would collide with
@@ -261,7 +343,7 @@ def replay_shell_args(sql: Path) -> list[str]:
 def replay(seeds: dict[str, bytes], floors: tuple[str, ...],
            timeout: int = DEFAULT_TIMEOUT) -> dict[str, float]:
     durations: dict[str, float] = {}
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(dir=str(common.toolchain_tmpdir())) as tmp:
         for version in floors:
             exe = shell_for(version)
             for db, raw in sorted(seeds.items()):
@@ -320,8 +402,16 @@ def main() -> int:
     print(f"seed-floor replay bound: {args.timeout}s per transcript per "
           f"shell (transactional replay; --timeout to adjust)")
     summary = [verify_apk(t, floors, args.timeout) for t in targets]
-    print("\nPREFLIGHT PASS: seed floor verified host-side; the APK is "
-          "cleared for device staging")
+    skipped = [s["apk"] for s in summary
+               if s.get("lockfile_leg") != "verified"]
+    if skipped:
+        print("\nPREFLIGHT PASS (lockfile leg SKIPPED for: "
+              f"{', '.join(skipped)}): the baseline digest chain is "
+              "verified host-side, but the lockfile pin leg did NOT run - "
+              "re-run on a host with aapt before trusting the lane pins")
+    else:
+        print("\nPREFLIGHT PASS: seed floor verified host-side; the APK is "
+              "cleared for device staging")
     (ROOT / "build" / "seed-floor-verify" / "preflight-last.json").parent \
         .mkdir(parents=True, exist_ok=True)
     (ROOT / "build" / "seed-floor-verify" / "preflight-last.json").write_text(

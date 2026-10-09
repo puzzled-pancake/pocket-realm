@@ -59,6 +59,19 @@ def check_timeframes_gate(errors: list[str]) -> None:
         errors.append(f"timeframes: {error}")
 
 
+def check_conf_matrices(errors: list[str]) -> None:
+    """R3-1 (review round 3): the committed per-flavor conf matrices must
+    regenerate byte-identically from the CURRENT manifest + pinned conf
+    dists (generate_conf_matrix.check) — the binding used to exist only at
+    write time, the exact D57 'bound at write time only = provenance that
+    can rot' class. A flavor whose checkouts are absent is a loud note
+    inside the check, not an error (check_sources owns the PEND posture)."""
+    import generate_conf_matrix
+
+    for error in generate_conf_matrix.check():
+        errors.append(error)
+
+
 def check_flavor_source_structure(errors: list[str]) -> None:
     """Round-3 R3-4/R3-6: the flavor-registry provenance chain is pinned
     structurally, not just content-wise —
@@ -80,6 +93,23 @@ def check_flavor_source_structure(errors: list[str]) -> None:
             errors.append(f"flavor-source structure: {required.name} is missing")
             return
     sources = json.loads(sources_path.read_text(encoding="utf-8"))["sources"]
+    # Review round 2 (R2-2): the by-id dict below silently collapses
+    # duplicate ids (last wins), so the first entry's path/gitlink would go
+    # unverified while a doctored second entry re-points a flavor pin.
+    # Refuse duplicates before the structural legs run.
+    try:
+        from tools import common as _common
+    except ImportError:  # direct execution: python tools/<script>.py
+        import common as _common
+    duplicates = _common.duplicate_source_ids(sources)
+    if duplicates:
+        errors.append(
+            f"flavor-source structure: sources.json carries DUPLICATE id(s) "
+            f"{duplicates} — the by-id binding collapses duplicates (last "
+            "wins), so the first entry's path/gitlink go unverified and a "
+            "doctored second entry can re-point a flavor pin past this "
+            "gate; source ids must be unique"
+        )
     by_id = {
         s.get("id"): s
         for s in sources
@@ -212,27 +242,52 @@ O11_LOCKFILES = (
     "schemas/o11-extractor-lockfile.json",
     "schemas/o11-extractor-lockfile-arm64-v8a.json",
 )
+# R3-2 (review round 1): the PER-FLAVOR o11 extractor lockfiles carry the
+# same provenance duty as the vanilla pair, but the D36 CI covered only the
+# two vanilla files — a flavor core re-pin without an extractor rebuild
+# silently left a stale lockfile (the exact split class D36 closed for
+# vanilla). Every schemas/o11-extractor-lockfile*.json now binds its
+# cmangos_commit to the OWNING flavor's server_core.commit (flavor parsed
+# from the filename through the flavor_layout naming schema; vanilla keeps
+# the four-way check above).
+O11_LOCKFILE_GLOB = "schemas/o11-extractor-lockfile*.json"
 O09_DRIVER = "tools/build_o09_realm_runtime.py"
 DATA_PREP_STORE = (
     "android/app/src/main/java/com/pocketrealm/importer/DataPreparationStore.kt"
 )
 
 
-def check_extractor_provenance(errors: list[str]) -> None:
+def _o11_lockfile_flavor(filename: str) -> str | None:
+    """flavor id from an o11-extractor-lockfile[-<flavor>][-<abi>].json
+    name (the flavor segment precedes the abi segment,
+    docs/FLAVOR-ARTIFACT-NAMING.md §2): '' -> vanilla, '-tbc' -> tbc,
+    '-wotlk' -> wotlk; anything else is None (a loud error, never a guess)."""
+    stem = filename
+    if stem.startswith("o11-extractor-lockfile") and stem.endswith(".json"):
+        stem = stem[len("o11-extractor-lockfile"):-len(".json")]
+    else:
+        return None
+    if stem.endswith("-arm64-v8a"):
+        stem = stem[: -len("-arm64-v8a")]
+    return {"": "vanilla", "-tbc": "tbc", "-wotlk": "wotlk"}.get(stem)
+
+
+def check_extractor_provenance(errors: list[str], root: Path = ROOT) -> None:
     """Fail on any divergence between the o11 extractor lockfile commits, the
     o09 driver's CMANGOS_COMMIT pin, DataPreparationStore.CMANGOS_COMMIT, and
     flavor.json's vanilla server_core.commit (the S1 'can never diverge
-    again' CI)."""
+    again' CI) — plus, per flavor, every per-flavor o11 lockfile's
+    cmangos_commit against its own flavor's server_core.commit (R3-2)."""
     import re as _re
 
     pins: dict[str, str] = {}
     for rel in O11_LOCKFILES:
-        path = ROOT / rel
+        path = root / rel
         if not path.is_file():
             errors.append(f"extractor provenance: {rel} is missing")
             continue
         pins[rel] = json.loads(path.read_text(encoding="utf-8")).get("cmangos_commit", "")
-    driver = ROOT / O09_DRIVER
+    driver = root / O09_DRIVER
     match = _re.search(
         r'^CMANGOS_COMMIT\s*=\s*"([0-9a-f]{40})"',
         driver.read_text(encoding="utf-8"), _re.M,
@@ -241,7 +296,7 @@ def check_extractor_provenance(errors: list[str]) -> None:
         errors.append(f"extractor provenance: {O09_DRIVER} lost its CMANGOS_COMMIT pin")
     else:
         pins[O09_DRIVER] = match.group(1)
-    store = ROOT / DATA_PREP_STORE
+    store = root / DATA_PREP_STORE
     match = _re.search(
         r'CMANGOS_COMMIT\s*=\s*"([0-9a-f]{40})"',
         store.read_text(encoding="utf-8"),
@@ -250,16 +305,16 @@ def check_extractor_provenance(errors: list[str]) -> None:
         errors.append(f"extractor provenance: {DATA_PREP_STORE} lost its CMANGOS_COMMIT constant")
     else:
         pins[DATA_PREP_STORE] = match.group(1)
-    manifest = json.loads(FLAVOR_MANIFEST.read_text(encoding="utf-8"))
-    vanilla = next(
-        (f for f in manifest.get("flavors", []) if f.get("id") == "vanilla"), None
-    )
-    if vanilla is None:
-        errors.append("extractor provenance: flavor.json has no vanilla flavor")
+    manifest = json.loads((root / "schemas" / "flavor.json").read_text(encoding="utf-8"))
+    commit_by_flavor = {
+        str(f.get("id")): ((f.get("server_core") or {}).get("commit") or "")
+        for f in manifest.get("flavors", []) if isinstance(f, dict)
+    }
+    vanilla = commit_by_flavor.get("vanilla")
+    if not vanilla:
+        errors.append("extractor provenance: flavor.json has no vanilla server_core commit")
     else:
-        pins["schemas/flavor.json (vanilla server_core)"] = (
-            (vanilla.get("server_core") or {}).get("commit") or ""
-        )
+        pins["schemas/flavor.json (vanilla server_core)"] = vanilla
     distinct = sorted({pin for pin in pins.values() if pin})
     if len(distinct) > 1:
         detail = "; ".join(f"{name}={pin[:12]}" for name, pin in sorted(pins.items()))
@@ -271,6 +326,56 @@ def check_extractor_provenance(errors: list[str]) -> None:
         )
     elif not distinct:
         errors.append("extractor provenance: no commit pin found in any of the four records")
+    # R3-2: the per-flavor binding — every flavor's EXPECTED o11 lockfiles
+    # (naming resolved through flavor_layout, so the gate can never drift
+    # from the naming schema) must exist and match that flavor's
+    # server_core pin (checked even when the vanilla four-way above is
+    # internally consistent: a stale tbc lockfile next to an updated
+    # manifest is exactly the divergence that never reopens). Unknown-named
+    # files under the glob fail loud too.
+    try:
+        from tools import flavor_layout as _flavor_layout
+    except ImportError:  # direct execution: python tools/<script>.py
+        import flavor_layout as _flavor_layout
+    for flavor_id in _flavor_layout.FLAVOR_IDS:
+        layout = _flavor_layout.resolve(flavor_id)
+        for abi in ("x86_64", "arm64-v8a"):
+            rel = layout.o11_lockfile(abi)
+            path = root / rel
+            if not path.is_file():
+                errors.append(
+                    f"extractor provenance: {rel} is missing — generate it "
+                    "with tools/build_o11_extractors.py --flavor "
+                    f"{flavor_id} (the flavor's extractor provenance must "
+                    "exist and bind its core pin)"
+                )
+                continue
+            expected = commit_by_flavor.get(flavor_id)
+            if not expected:
+                errors.append(
+                    f"extractor provenance: {rel} owns flavor {flavor_id!r} "
+                    "but flavor.json has no server_core commit for it"
+                )
+                continue
+            actual = json.loads(path.read_text(encoding="utf-8")).get(
+                "cmangos_commit", "")
+            if actual != expected:
+                errors.append(
+                    f"extractor provenance: {rel} pins cmangos_commit "
+                    f"{actual[:12] or '<missing>'} but flavor.json's "
+                    f"{flavor_id} server_core commit is {expected[:12]} — a "
+                    "flavor core re-pin without an extractor rebuild leaves "
+                    "a stale provenance lockfile; rebuild the extractors "
+                    "from the pinned core and regenerate the lockfile with "
+                    "tools/build_o11_extractors.py --flavor " + flavor_id
+                )
+    for path in sorted((root / "schemas").glob("o11-extractor-lockfile*.json")):
+        if _o11_lockfile_flavor(path.name) is None:
+            errors.append(
+                f"extractor provenance: {path.name} does not name a known "
+                "flavor (expected "
+                "o11-extractor-lockfile[-<flavor>][-<abi>].json)"
+            )
 
 
 FORBIDDEN_PATTERNS = [
@@ -426,6 +531,7 @@ def main() -> int:
     check_addon_catalog_golden(errors)
     check_extractor_provenance(errors)
     check_timeframes_gate(errors)
+    check_conf_matrices(errors)
     check_flavor_source_structure(errors)
     check_e_drive_gate(errors)
 

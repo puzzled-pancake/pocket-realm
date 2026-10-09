@@ -714,3 +714,125 @@ def test_submodule_gitlink_drift_marker_fails_loud(monkeypatch) -> None:
 
     monkeypatch.setattr(check_sources.subprocess, "run", fake_run_clean)
     assert check_sources.submodule_commit(Path("native/cmangos")) == "3a" * 20
+
+
+# ---------------------------------------------------------------------------
+# R3-2 (review round 1): every per-flavor o11 extractor lockfile binds its
+# cmangos_commit to the OWNING flavor's server_core pin — the D36 CI covered
+# only the two vanilla lockfiles, so a flavor core re-pin without an
+# extractor rebuild silently left a stale provenance lockfile (the exact
+# c096bada<->ce83805d split class D36 closed for vanilla). Doctored-lockfile
+# rotation on a synthetic tree (the D48 two-file-lie pattern).
+# ---------------------------------------------------------------------------
+
+def _synthetic_o11_tree(tmp_path: Path) -> Path:
+    """A minimal tree check_extractor_provenance can consume: the three
+    flavors' server_core commits, all six o11 lockfiles at their own
+    flavor's commit, and the two CMANGOS_COMMIT records (driver + store)."""
+    import check_repo
+
+    VANILLA, TBC, WOTLK = ("a1" * 20, "b2" * 20, "c3" * 20)
+    root = tmp_path / "repo"
+    (root / "schemas").mkdir(parents=True)
+    (root / "tools").mkdir()
+    store = (root / "android/app/src/main/java/com/pocketrealm/importer")
+    store.mkdir(parents=True)
+    (root / "schemas" / "flavor.json").write_text(json.dumps({
+        "flavors": [
+            {"id": "vanilla", "server_core": {"commit": VANILLA}},
+            {"id": "tbc", "server_core": {"commit": TBC}},
+            {"id": "wotlk", "server_core": {"commit": WOTLK}},
+        ]
+    }), encoding="utf-8")
+    for flavor, commit in (("vanilla", VANILLA), ("tbc", TBC), ("wotlk", WOTLK)):
+        suffix = "" if flavor == "vanilla" else f"-{flavor}"
+        for name in (f"o11-extractor-lockfile{suffix}.json",
+                     f"o11-extractor-lockfile{suffix}-arm64-v8a.json"):
+            (root / "schemas" / name).write_text(
+                json.dumps({"cmangos_commit": commit}), encoding="utf-8")
+    (root / "tools" / "build_o09_realm_runtime.py").write_text(
+        f'CMANGOS_COMMIT = "{VANILLA}"\n', encoding="utf-8")
+    (store / "DataPreparationStore.kt").write_text(
+        f'const val CMANGOS_COMMIT = "{VANILLA}"\n', encoding="utf-8")
+    return root
+
+
+def test_o11_per_flavor_lockfiles_bind_to_their_core_pin(tmp_path: Path) -> None:
+    import check_repo
+
+    root = _synthetic_o11_tree(tmp_path)
+    errors: list[str] = []
+    check_repo.check_extractor_provenance(errors, root)
+    assert not errors, errors
+
+
+def test_o11_doctored_flavor_lockfile_rotation_fails_naming_tbc(
+        tmp_path: Path) -> None:
+    """Set the tbc lockfile's cmangos_commit to VANILLA's commit (the
+    re-pin-without-rebuild shape): the gate must fail NAMING tbc and the
+    fix (rebuild + regenerate), not pass silently."""
+    import check_repo
+
+    root = _synthetic_o11_tree(tmp_path)
+    tbc_lockfile = root / "schemas" / "o11-extractor-lockfile-tbc.json"
+    tbc_lockfile.write_text(
+        json.dumps({"cmangos_commit": "a1" * 20}), encoding="utf-8")
+    errors: list[str] = []
+    check_repo.check_extractor_provenance(errors, root)
+    assert any("tbc" in error and "server_core commit is b2" in error
+               for error in errors), errors
+    assert any("build_o11_extractors.py --flavor tbc" in error
+               for error in errors), errors
+    # and the wotlk lockfile at its own pin stays silent about wotlk
+    assert not any("wotlk server_core" in error for error in errors), errors
+
+
+def test_o11_unknown_flavor_lockfile_name_fails_loud(tmp_path: Path) -> None:
+    import check_repo
+
+    root = _synthetic_o11_tree(tmp_path)
+    (root / "schemas" / "o11-extractor-lockfile-mist.json").write_text(
+        json.dumps({"cmangos_commit": "d4" * 20}), encoding="utf-8")
+    errors: list[str] = []
+    check_repo.check_extractor_provenance(errors, root)
+    assert any("does not name a known flavor" in error for error in errors), errors
+
+
+def test_o11_missing_flavor_lockfile_fails_naming_it(tmp_path: Path) -> None:
+    import check_repo
+
+    root = _synthetic_o11_tree(tmp_path)
+    (root / "schemas" / "o11-extractor-lockfile-tbc.json").unlink()
+    errors: list[str] = []
+    check_repo.check_extractor_provenance(errors, root)
+    assert any(
+        "o11-extractor-lockfile-tbc.json" in error
+        and "is missing" in error
+        and "build_o11_extractors.py --flavor tbc" in error
+        for error in errors
+    ), errors
+
+
+def test_real_o11_lockfiles_agree_with_their_flavor_pins() -> None:
+    """The live-tree form of the same binding: all six committed o11
+    lockfiles pin their own flavor's server_core commit today (verified at
+    the review; this keeps the agreement from silently drifting before the
+    gate above ever sees a synthetic tree)."""
+    import check_repo
+    from tools import flavor_layout
+
+    errors: list[str] = []
+    check_repo.check_extractor_provenance(errors, ROOT)
+    assert not errors, errors
+    for flavor in flavor_layout.FLAVOR_IDS:
+        layout = flavor_layout.resolve(flavor)
+        for abi in ("x86_64", "arm64-v8a"):
+            path = ROOT / layout.o11_lockfile(abi)
+            assert path.is_file(), path
+            record = json.loads(path.read_text(encoding="utf-8"))
+            manifest = json.loads(
+                (ROOT / "schemas" / "flavor.json").read_text(encoding="utf-8"))
+            expected = next(
+                (f.get("server_core", {}).get("commit")
+                 for f in manifest["flavors"] if f.get("id") == flavor), None)
+            assert record["cmangos_commit"] == expected, (path, flavor)

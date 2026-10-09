@@ -153,3 +153,7 @@ unsloth_compiled_cache/
 native/win-deps/vcpkg_installed/
 # Windows native build trees
 native/.build-win-x86_64/
+
+# Kotlin daemon session/error debris from Gradle unit-suite runs
+# (kotlin 2.x writes .kotlin/ next to every build; never repo source)
+.kotlin/

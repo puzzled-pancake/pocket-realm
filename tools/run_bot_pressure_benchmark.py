@@ -26,7 +26,14 @@ import json
 import statistics
 import subprocess
 import sys
+
 from pathlib import Path
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from tools import common
+
 
 ROOT = Path(__file__).resolve().parent.parent
 _SPEC = importlib.util.spec_from_file_location(
@@ -79,7 +86,9 @@ def stage_o11_run_as(base: str) -> None:
     if cache.is_file() and cache.stat().st_size > 0:
         archive = cache
     else:
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as handle:
+        with tempfile.NamedTemporaryFile(
+                suffix=".tar.gz", delete=False,
+                dir=str(common.toolchain_tmpdir())) as handle:
             archive = Path(handle.name)
         with tarfile.open(archive, "w:gz") as tar:
             for item in sorted(O11_STORE.iterdir()):

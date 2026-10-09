@@ -2,7 +2,7 @@
  "schema": 1,
  "reference_document": "docs/wiki/README.md",
  "description": "Pinned upstream source manifest for the Pocket Realm offline build. Every active entry has an exact commit, license, and redistribution verdict. This file governs source selection only.",
- "updated": "2026-10-06 (S4: cmangos-db-tbc/cmangos-db-wotlk master-head pins registered — checkouts native/classic-db-tbc + native/classic-db-wotlk at the pins)",
+ "updated": "2026-10-06 (S4: cmangos-db-tbc/cmangos-db-wotlk master-head pins registered — checkouts native/classic-db-tbc + native/classic-db-wotlk at the pins) | 2026-10-09 (R2: sqlite-tools-win32 3.18/3.32 floor shells registered with sha256 pins — the seed preflight now hash-verifies them before extract/execute)",
  "toolchain": {
   "android_sdk_root_env": "ANDROID_SDK_ROOT / ANDROID_HOME (machine-local; not pinned here)",
   "ndk": {
@@ -122,7 +122,7 @@
    "branch": "master",
    "commit": "866723612d93791e442fb1b18d642118fa682edd",
    "commit_date": "2026-10-05",
-   "role": "Pinned TBC-DB schemas/content (port plan S4 item 1); ACID arrives as [ACID]-tagged commits in this repo's history (register §0 C5), not as an acid_*.sql file.",
+   "role": "Pinned TBC-DB schemas/content (port plan S4 item 1); ships its cumulative ACID release as the in-tree ACID/acid_tbc.sql applied by InstallFullDB.sh's apply_acid_data (register §0 C5 corrected at S4: the [ACID]-tagged history premise does not hold against the single-commit squashed checkout — decision D54), digest-recorded in schemas/database-migrations-tbc.json entry 0130-world-acid_tbc.",
    "status_note": "Pin registered (S4): upstream cmangos/tbc-db master head 8667236 (2026-10-05, 'Fix bug with doors/buttons/goobers despawning on use'); submodule checkout native/classic-db-tbc is at the pin.",
    "license": "GPL-3.0-or-later (code); content is Blizzard copyrighted material",
    "license_file": "native/classic-db-tbc/LICENSE.md",
@@ -177,7 +177,7 @@
    "branch": "master",
    "commit": "a69b5554e7bae06f02a384126cb1e7bcd8d1a1f0",
    "commit_date": "2026-09-28",
-   "role": "Pinned WotLK-DB schemas/content (port plan S4 item 1); ACID arrives as [ACID]-tagged commits in this repo's history (register §0 C5), not as an acid_*.sql file.",
+   "role": "Pinned WotLK-DB schemas/content (port plan S4 item 1); ships its cumulative ACID release as the in-tree ACID/acid_wotlk.sql applied by InstallFullDB.sh's apply_acid_data (register §0 C5 corrected at S4: the [ACID]-tagged history premise does not hold against the single-commit squashed checkout — decision D54), digest-recorded in schemas/database-migrations-wotlk.json entry 0217-world-acid_wotlk.",
    "status_note": "Pin registered (S4): upstream cmangos/wotlk-db master head a69b5554 (2026-09-28, '[5878][ACID] Storm Peaks: The Frozen Mine'); submodule checkout native/classic-db-wotlk is at the pin.",
    "license": "GPL-3.0-or-later (code); content is Blizzard copyrighted material",
    "license_file": "native/classic-db-wotlk/LICENSE.md",
@@ -374,6 +374,38 @@
    "artifact_sha256": "cb34e407ee7a6dd7c2fe75530e60089647da74673a70097b0389506c1cf95167",
    "role": "llama.cpp source for the DESKTOP embedded-LLM lane (DESK-9/28): the Windows llama-server sidecar (tools/server) is compiled from this exact pinned tree by tools/build_win_llama_server.py and staged into the jpackage image (packageApp) like the realm DLLs. SAME revision the Android lane vendors (native/llm/README.md @ 6d05498314db1b57f81c271080018aa2d0b89be9, 2026-08-19), so both platforms run one llama.cpp generation; the Windows build is CPU-only (no CUDA/Vulkan/HIP, GGML defaults) per the DESK-9 treatment. Fetched + sha-verified by tools/fetch_provider.py; staged by tools/stage_llama_cpp.py; the built exe's SHA-256 is pinned in native/llm/lockfile-win-x86_64.json.",
    "license": "MIT (llama.cpp); see the upstream LICENSE in the staged tree"
+  },
+  {
+   "id": "sqlite-tools-win32-3180000",
+   "kind": "prebuilt-archive",
+   "role": "Pinned sqlite 3.18 floor shell for the seed preflight (tools/verify_seed_sqlite_floor.py replays the production seed transcripts through it); the executable is hash-verified against artifact_sha256 before extraction and again by version banner (review round 2, R3-2).",
+   "upstream_url": "https://www.sqlite.org/",
+   "artifact": "sqlite-tools-win32-x86-3180000.zip",
+   "artifact_url": "https://www.sqlite.org/2017/sqlite-tools-win32-x86-3180000.zip",
+   "artifact_sha256": "b3f633bf69a7992e3fe0344bd681905d5d52bfd5957e37bbcd731d1d516ebc34",
+   "status": "registered",
+   "license": "public domain (SQLite)",
+   "redistribution": {
+    "verdict": "source-redistributable",
+    "notes": "SQLite is public domain; consumed host-side only, never shipped."
+   },
+   "consumed_by": "tools/verify_seed_sqlite_floor.py (build/seed-floor-shells store)"
+  },
+  {
+   "id": "sqlite-tools-win32-3320100",
+   "kind": "prebuilt-archive",
+   "role": "Pinned sqlite 3.32 floor shell for the seed preflight (tools/verify_seed_sqlite_floor.py); hash-verified against artifact_sha256 before extraction and again by version banner (review round 2, R3-2).",
+   "upstream_url": "https://www.sqlite.org/",
+   "artifact": "sqlite-tools-win32-x86-3320100.zip",
+   "artifact_url": "https://www.sqlite.org/2020/sqlite-tools-win32-x86-3320100.zip",
+   "artifact_sha256": "60a9994dec019f97c096b1c813d3f185270cb1815010b15e5ea92ac557f60d17",
+   "status": "registered",
+   "license": "public domain (SQLite)",
+   "redistribution": {
+    "verdict": "source-redistributable",
+    "notes": "SQLite is public domain; consumed host-side only, never shipped."
+   },
+   "consumed_by": "tools/verify_seed_sqlite_floor.py (build/seed-floor-shells store)"
   },
   {
    "id": "vortek-guest-ab7329c",

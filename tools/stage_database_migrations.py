@@ -315,6 +315,14 @@ def _full_db_seed(flavor_id: str, block: dict) -> str:
             "schemas/flavor.json — the world Full_DB archive is a pinned "
             "input, never a glob"
         )
+    # R2-1 (review round 1, serious): the seed is joined onto the flavor's
+    # db repo root by every caller; a doctored seed that escapes the repo
+    # ("../<other-flavor-db>/...", an absolute path) must refuse here, the
+    # same seam rule seed_realm_db's plan enforces (the shared rule lives in
+    # flavor_layout.db_content_seed_error).
+    seed_error = flavor_layout.db_content_seed_error(flavor_id, seed)
+    if seed_error:
+        raise RuntimeError(seed_error)
     return seed
 
 

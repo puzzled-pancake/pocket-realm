@@ -6,6 +6,7 @@ explicit opt-in and must still count and report the dropped statements.
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -449,3 +450,384 @@ def test_main_no_world_dump_opt_in_seeds_schema_only(monkeypatch, tmp_path) -> N
     assert rc == 0
     assert (tmp_path / "mangos.sqlite").is_file()
     assert (tmp_path / "realmd.sqlite").is_file()
+
+
+# ---------------------------------------------------------------------------
+# Wrong-flavor --world-dump refusal (slice round 1, R5)
+# ---------------------------------------------------------------------------
+
+def test_world_dump_identity_error_names_the_flavors_own_repo(
+        monkeypatch, tmp_path) -> None:
+    """The floors are MINIMUMS — a higher-volume wrong-flavor Full_DB passes
+    every tbc floor table (wotlk: 29919 creature_template > tbc floor 18799;
+    9086 quest_template > 6599; 44613 item_template > 30396; 262
+    areatrigger_teleport > 186) — and the version-table leg is an honest
+    WARN, so the tool itself must refuse an override outside the flavor's
+    own db repo. Measured floor values: schemas/sqlite-seed-baseline{,-tbc,
+    -wotlk}.json."""
+    from tools import flavor_layout
+    try:
+        flavor_layout.require_flavor_pins("tbc",
+                                          groups=("server_core", "db_content"))
+    except flavor_layout.FlavorPinError:
+        pytest.skip("tbc pins not registered/checked out")
+    plan = seed_realm_db._flavor_seed_plan("tbc")
+    # The plan's own pinned archive: no error.
+    assert seed_realm_db._world_dump_identity_error(plan, plan.world_dump) is None
+    # An existing foreign dump (the vanilla corpus, or any path outside the
+    # tbc db repo): refused, naming the flavor's own repo and the world DB.
+    foreign = tmp_path / "ClassicDB_1_12_1_z2815.sql.gz"
+    foreign.write_bytes(b"placeholder")
+    error = seed_realm_db._world_dump_identity_error(plan, foreign)
+    assert error is not None
+    assert "tbcmangos" in error
+    assert str(plan.db_submodule) in error
+
+
+def test_main_foreign_world_dump_refused_before_any_seed(
+        monkeypatch, capsys, tmp_path) -> None:
+    # Vanilla lane, an EXISTING foreign dump: refused rc=2 before a single
+    # database is written — the old behavior seeded the foreign world
+    # content with rc=0 (floors not consulted on the vanilla lane at all).
+    foreign = tmp_path / "ForeignWorldDump.sql.gz"
+    foreign.write_bytes(b"placeholder")
+    monkeypatch.setattr(
+        sys, "argv",
+        ["seed_realm_db.py", "--out", str(tmp_path / "out"),
+         "--world-dump", str(foreign)])
+    rc = seed_realm_db.main()
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert "outside the vanilla db repo" in captured.err
+    assert "native/classic-db" in captured.err
+    assert "SEEDED 4 SQLite databases" not in captured.out
+    assert not (tmp_path / "out" / "mangos.sqlite").exists()
+
+
+def test_main_no_world_dump_skips_the_identity_check(
+        monkeypatch, tmp_path) -> None:
+    # --no-world-dump never reads the dump, so a foreign --world-dump path
+    # stays the sanctioned schema-only opt-in (rc=0), not a new refusal.
+    src = ROOT / "native" / "cmangos" / "sql" / "base" / "mangos.sql"
+    if not src.exists():
+        pytest.skip("pinned mangos.sql base dump not present")
+    foreign = tmp_path / "ForeignWorldDump.sql.gz"
+    foreign.write_bytes(b"placeholder")
+    monkeypatch.setattr(
+        sys, "argv",
+        ["seed_realm_db.py", "--out", str(tmp_path),
+         "--world-dump", str(foreign), "--no-world-dump"])
+    rc = seed_realm_db.main()
+    assert rc == 0
+    assert (tmp_path / "mangos.sqlite").is_file()
+
+
+# ---------------------------------------------------------------------------
+# R2-1 (review round 1, serious): a doctored db_content.seed must not
+# escape the flavor's db repo.
+# ---------------------------------------------------------------------------
+
+def test_manifest_seed_pins_stay_inside_their_db_repo() -> None:
+    """Repo static pin (R2-1a): every registered db_content.seed in
+    schemas/flavor.json is a relative path with no '..' parts whose join
+    with the flavor's db repo root stays INSIDE that repo. Green on the
+    honest schema; the rule is enforced in CI so a doctored manifest fails
+    here before any tool consumes it."""
+    from tools import flavor_layout
+    manifest = flavor_layout.load_flavor_manifest()
+    checked = 0
+    for block in manifest.get("flavors", []):
+        seed = (block.get("db_content") or {}).get("seed")
+        if not (isinstance(seed, str) and seed):
+            continue
+        error = flavor_layout.db_content_seed_error(block["id"], seed)
+        assert error is None, error
+        checked += 1
+    assert checked >= 3, (
+        f"expected the three flavor seed pins to be registered, saw {checked}")
+
+
+def test_doctored_seed_pin_refused_at_plan_resolution(monkeypatch) -> None:
+    """Unit (R2-1b, manifest seam): a manifest whose tbc db_content.seed
+    points at the wotlk archive via '..' must fail plan resolution LOUDLY —
+    never resolve to a foreign dump the minimum-floors cannot catch."""
+    from tools import flavor_layout
+    real_load = flavor_layout.load_flavor_manifest
+    real_manifest = real_load()
+
+    def fake_load(path=None):
+        import copy
+        doctored = copy.deepcopy(real_manifest)
+        for block in doctored["flavors"]:
+            if block.get("id") == "tbc":
+                block["db_content"]["seed"] = (
+                    "../classic-db-wotlk/Full_DB/WoTLKDB_1_9_14092.sql.gz")
+        return doctored
+
+    monkeypatch.setattr(flavor_layout, "load_flavor_manifest", fake_load)
+    if not (ROOT / "native/cmangos-tbc/src/shared/revision_sql.h").is_file():
+        pytest.skip("tbc core checkout not present")
+    with pytest.raises(RuntimeError) as excinfo:
+        seed_realm_db._flavor_seed_plan("tbc")
+    message = str(excinfo.value)
+    assert "db_content.seed" in message
+    assert "native/classic-db-tbc" in message
+    # The absolute/drive class refuses the same way.
+    monkeypatch.setattr(
+        flavor_layout, "load_flavor_manifest",
+        lambda path=None: {**real_manifest,
+                           "flavors": [{**block,
+                                        "db_content": {**block["db_content"],
+                                                       "seed": "Z:/elsewhere/WoTLKDB.sql.gz"}}
+                                       if block.get("id") == "tbc" else block
+                                       for block in real_manifest["flavors"]]})
+    with pytest.raises(RuntimeError) as excinfo:
+        seed_realm_db._flavor_seed_plan("tbc")
+    assert "absolute/drive path" in str(excinfo.value)
+
+
+def test_stage_seed_resolution_refuses_the_same_escape(monkeypatch) -> None:
+    """The stager's seam carries the same rule: _full_db_seed on a doctored
+    block refuses the '..' escape before the join."""
+    import stage_database_migrations
+    from tools import flavor_layout
+    real_load = flavor_layout.load_flavor_manifest
+    real_manifest = real_load()
+    tbc_block = next(b for b in real_manifest["flavors"]
+                     if b.get("id") == "tbc")
+    doctored = {"db_content": dict(tbc_block["db_content"],
+                                   seed="../classic-db/Full_DB/"
+                                        "ClassicDB_1_12_1_z2815.sql.gz")}
+    with pytest.raises(RuntimeError) as excinfo:
+        stage_database_migrations._full_db_seed("tbc", doctored)
+    assert "native/classic-db-tbc" in str(excinfo.value)
+
+
+def test_main_doctored_seed_pin_refused_before_any_seed(
+        monkeypatch, tmp_path) -> None:
+    """End-to-end (R2-1b): main() with a doctored tbc seed pin exits 2 and
+    writes NO database — the refusal happens at plan resolution, before
+    build_one ever runs."""
+    from tools import flavor_layout
+    real_load = flavor_layout.load_flavor_manifest
+    real_manifest = real_load()
+
+    def fake_load(path=None):
+        import copy
+        doctored = copy.deepcopy(real_manifest)
+        for block in doctored["flavors"]:
+            if block.get("id") == "tbc":
+                block["db_content"]["seed"] = (
+                    "../classic-db-wotlk/Full_DB/WoTLKDB_1_9_14092.sql.gz")
+        return doctored
+
+    monkeypatch.setattr(flavor_layout, "load_flavor_manifest", fake_load)
+    # Pin verification is this test's isolation boundary, not its subject
+    # (the doctored manifest still carries the real pins, but scanning the
+    # submodule tree is R2-2's lane): pass it through.
+    monkeypatch.setattr(
+        flavor_layout, "require_flavor_pins",
+        lambda flavor_id, **_: {"server_core": "isolation",
+                                "db_content": "isolation"})
+    out = tmp_path / "out"
+    monkeypatch.setattr(
+        sys, "argv",
+        ["seed_realm_db.py", "--out", str(out), "--flavor", "tbc"])
+    rc = seed_realm_db.main()
+    assert rc == 2
+    assert not (out / "tbcmangos.sqlite").exists()
+    assert not list(out.glob("*.sqlite")) if out.exists() else True
+
+
+# ---------------------------------------------------------------------------
+# R2-2 (review round 1): the vanilla lane verifies the pins it seeds from.
+# ---------------------------------------------------------------------------
+
+def test_vanilla_lane_verifies_its_pins(monkeypatch, tmp_path) -> None:
+    """A failing pin check must refuse the VANILLA seed too (rc=2, nothing
+    seeded) — the guard used to be `if args.flavor != "vanilla"`, so a
+    stale or dirty native/cmangos seeded all four DBs with rc=0 and no
+    attestation."""
+    from tools import flavor_layout
+
+    def refuse(flavor_id, **_):
+        raise flavor_layout.FlavorPinError(
+            f"flavor {flavor_id!r} server_core pin mismatch (test)")
+
+    monkeypatch.setattr(flavor_layout, "require_flavor_pins", refuse)
+    out = tmp_path / "out"
+    monkeypatch.setattr(
+        sys, "argv", ["seed_realm_db.py", "--out", str(out)])
+    rc = seed_realm_db.main()
+    assert rc == 2
+    assert not (out / "mangos.sqlite").exists()
+    # The removal of the guard stays pinned: no flavor is exempt.
+    source = (ROOT / "tools" / "seed_realm_db.py").read_text(encoding="utf-8")
+    assert 'if args.flavor != "vanilla"' not in source
+
+
+# ---------------------------------------------------------------------------
+# R1-3 (review round 1): the world dump must carry the flavor's OWN
+# db_version revision family — the in-repo copy class the path leg cannot
+# see (a tbc Full_DB under native/classic-db still passes the path check).
+# ---------------------------------------------------------------------------
+
+def _gz_with(lines: list[str]) -> bytes:
+    import gzip as _gzip
+    import io
+    buffer = io.BytesIO()
+    with _gzip.GzipFile(fileobj=buffer, mode="wb") as handle:
+        handle.write(("\n".join(lines) + "\n").encode("utf-8"))
+    return buffer.getvalue()
+
+
+FOREIGN_MARKERS = {
+    "vanilla": "INSERT INTO `db_version` VALUES ('required_s2491_01_mangos_spillover_rename');",
+    "tbc": "INSERT INTO `db_version` VALUES ('required_14092_01_mangos_proc_cooldown');",
+    "wotlk": "INSERT INTO `db_version` VALUES ('required_z2815_01_mangos_pursuit');",
+}
+OWN_MARKER = {
+    "vanilla": "INSERT INTO `db_version` VALUES ('required_z2815_01_mangos_pursuit');",
+    "tbc": "INSERT INTO `db_version` VALUES ('required_s2491_01_mangos_spillover_rename');",
+    "wotlk": "INSERT INTO `db_version` VALUES ('required_14092_01_mangos_proc_cooldown');",
+}
+
+
+@pytest.mark.parametrize("flavor", ("vanilla", "tbc", "wotlk"))
+def test_world_dump_content_error_refuses_foreign_family(
+        flavor, tmp_path) -> None:
+    """Unit: a dump whose db_version marker belongs to ANOTHER branch is
+    named and refused; a dump with no recognizable mangos marker at all is
+    refused too (fail-closed); the flavor's own marker passes."""
+    plan = seed_realm_db._flavor_seed_plan(flavor)
+    foreign = tmp_path / "foreign.sql.gz"
+    foreign.write_bytes(_gz_with([FOREIGN_MARKERS[flavor]]))
+    error = seed_realm_db._world_dump_content_error(plan, foreign)
+    assert error is not None
+    assert "foreign branch" in error
+    assert "required_" in error  # the offending marker is named
+    unmarked = tmp_path / "unmarked.sql.gz"
+    unmarked.write_bytes(_gz_with(["-- just noise, no db_version rows"]))
+    error = seed_realm_db._world_dump_content_error(plan, unmarked)
+    assert error is not None and "no " in error and "revision marker" in error
+    own = tmp_path / "own.sql.gz"
+    own.write_bytes(_gz_with([OWN_MARKER[flavor]]))
+    assert seed_realm_db._world_dump_content_error(plan, own) is None
+
+
+@pytest.mark.parametrize("flavor", ("vanilla", "tbc", "wotlk"))
+def test_pinned_dumps_carry_only_their_own_family(flavor) -> None:
+    """The sniff's measured invariant (module comment): each pinned
+    Full_DB's FULL stream carries its own branch's markers and zero foreign
+    ones — the honest archives pass the sniff unchanged (run here against
+    the real default archive)."""
+    plan = seed_realm_db._flavor_seed_plan(flavor)
+    if not plan.world_dump.is_file():
+        pytest.skip(f"{flavor} db repo not checked out")
+    assert seed_realm_db._world_dump_content_error(plan, plan.world_dump) is None
+
+
+# Review round 2 (R2-1 serious): the round-1 sniff classified only the
+# FIRST any-family hit per 1 MiB window, so a composite dump whose first
+# marker is own-family and whose foreign marker sits later in the SAME
+# window (>64 bytes from the end, so the overlap tail cannot save it) was
+# ACCEPTED — seeding foreign world content under the flavor's DB names
+# with rc=0, the exact class D55's "no foreign-family marker may appear
+# anywhere in the stream" contract refuses. Every hit is now classified.
+
+@pytest.mark.parametrize("flavor", ("vanilla", "tbc", "wotlk"))
+def test_mixed_dump_same_window_own_then_foreign_is_refused(
+        flavor, tmp_path) -> None:
+    """The composite-dump geometry: own-family marker first, foreign-family
+    marker later in the same window (>64 chars from the end so the
+    overlap tail alone cannot bridge it). Must return the foreign-branch
+    refusal for every flavor."""
+    plan = seed_realm_db._flavor_seed_plan(flavor)
+    filler = "INSERT INTO `plausible_table` VALUES ('{}');\n"
+    mixed = tmp_path / "mixed.sql.gz"
+    mixed.write_bytes(_gz_with([
+        OWN_MARKER[flavor],
+        *(filler.format(f"pad-{i}") for i in range(200)),
+        FOREIGN_MARKERS[flavor],
+        *(filler.format(f"tail-{i}") for i in range(50)),
+    ]))
+    error = seed_realm_db._world_dump_content_error(plan, mixed)
+    assert error is not None, (
+        "a composite dump (own marker first, foreign marker later in the "
+        "same window) must be refused — D55's contract covers the whole "
+        "stream, not the first hit")
+    assert "foreign branch" in error
+    # the refusal names the offending marker (the sniff names the dialect
+    # prefix any_family matches: required_<rev>_<n>_mangos_)
+    foreign_prefix = re.search(
+        r"required_[a-z0-9]+_\d+_mangos_", FOREIGN_MARKERS[flavor]).group(0)
+    assert foreign_prefix in error
+
+
+@pytest.mark.parametrize("flavor", ("vanilla", "tbc", "wotlk"))
+def test_mixed_dump_foreign_in_later_window_is_refused(
+        flavor, tmp_path) -> None:
+    """Second doctored geometry: the foreign marker lands in a LATER window
+    than the own cluster (the round-1 first-hit rule also passed this)."""
+    plan = seed_realm_db._flavor_seed_plan(flavor)
+    filler = "INSERT INTO `plausible_table` VALUES ('{}');\n"
+    mixed = tmp_path / "mixed-late.sql.gz"
+    # >1 MiB of filler pushes the foreign marker into a later window.
+    mixed.write_bytes(_gz_with(
+        [OWN_MARKER[flavor]]
+        + [filler.format(f"pad-{i:07d}" + "x" * 64) for i in range(20000)]
+        + [FOREIGN_MARKERS[flavor]]))
+    error = seed_realm_db._world_dump_content_error(plan, mixed)
+    assert error is not None and "foreign branch" in error, error
+
+
+def test_inrepo_override_with_gitignored_extension_is_refused(
+        monkeypatch, tmp_path) -> None:
+    """R2-1 serious, arm 2: the db submodules gitignore scratch extensions
+    (*.log *.orig *~ ...), so a doctored dump under one of those names is
+    INVISIBLE to the pin dirty-check while sitting inside the flavor's own
+    repo. The path leg must refuse any world dump without a git-visible
+    .sql/.sql.gz name, so a doctored in-repo dump either carries a foreign
+    marker (sniff) or takes a tracked name (dirty-check)."""
+    plan = seed_realm_db._flavor_seed_plan("vanilla")
+    evil = tmp_path / "evil.log"
+    evil.write_bytes(_gz_with([OWN_MARKER["vanilla"],
+                               FOREIGN_MARKERS["vanilla"]]))
+    error = seed_realm_db._world_dump_identity_error(plan, evil)
+    assert error is not None
+    assert ".sql/.sql.gz" in error and "gitignore" in error
+    # the plain-.sql shape stays a legal world-dump name: a path INSIDE the
+    # flavor's db repo with a git-visible .sql name passes the path leg
+    # (path arithmetic only — the file is never created, so the submodule
+    # stays clean for the other tests)
+    plain = ROOT / "native" / "classic-db" / "Full_DB" / ".tmp-r2-policy.sql"
+    assert not plain.exists()
+    assert seed_realm_db._world_dump_identity_error(plan, plain) is None
+
+
+def test_main_foreign_family_dump_under_own_repo_refused_before_seed(
+        monkeypatch, tmp_path) -> None:
+    """End-to-end (R1-3): a foreign-flavor Full_DB copied INSIDE the
+    flavor's own db repo passes the PATH leg but must be refused rc=2 by
+    the CONTENT leg before any database is written. The pin check is
+    stubbed because the fixture dirties the submodule by construction (it
+    is deleted in finally); the sniff itself is the unit under test."""
+    from tools import flavor_layout
+    monkeypatch.setattr(
+        flavor_layout, "require_flavor_pins",
+        lambda flavor_id, **_: {"server_core": "isolation",
+                                "db_content": "isolation"})
+    planted = (ROOT / "native" / "classic-db" / "Full_DB"
+               / ".tmp-r1-3-foreign-family.sql.gz")
+    planted.write_bytes(_gz_with([FOREIGN_MARKERS["vanilla"]]))
+    try:
+        out = tmp_path / "out"
+        monkeypatch.setattr(
+            sys, "argv",
+            ["seed_realm_db.py", "--out", str(out),
+             "--world-dump", str(planted)])
+        rc = seed_realm_db.main()
+        assert rc == 2
+        assert not (out / "mangos.sqlite").exists()
+    finally:
+        planted.unlink(missing_ok=True)

@@ -41,7 +41,37 @@ def test_flavor_identities_pin_the_registry_builds() -> None:
     """The manifest identity must match ClientFlavor's registry (the
     envelope resolver maps cmangosFamily -> ClientFlavor.serverFamily:
     classic/tbc/wotlk) — a family string the registry does not know would
-    resolve to no flavor at boot even though the manifest published."""
+    resolve to no flavor at boot even though the manifest published.
+
+    R3-2 (review round 3): this pin used to assert only the tool's OWN
+    literals while claiming to mirror the manifest — a flavor.json re-pin
+    left the prep tool stamping a stale clientBuild into published
+    generations. The mirror is now mechanical: every FLAVOR_IDENTITIES
+    entry must equal the manifest's build + the cmangosFamily its branch
+    carries, and the id sets must agree exactly."""
+    from tools import flavor_layout
+    manifest = flavor_layout.load_flavor_manifest()
+    manifest_ids = {f["id"] for f in manifest["flavors"]}
+    assert set(wpd.FLAVOR_IDENTITIES) == manifest_ids, (
+        "FLAVOR_IDENTITIES ids drifted from schemas/flavor.json - the prep "
+        "lane must cover exactly the registered flavors")
+    # the cmangosFamily each flavor's pinned core branch carries, via the
+    # naming schema of record (flavor_layout's submodule paths)
+    family_by_id = {
+        "vanilla": "classic", "tbc": "tbc", "wotlk": "wotlk",
+    }
+    for block in manifest["flavors"]:
+        fid = block["id"]
+        identity = wpd.FLAVOR_IDENTITIES[fid]
+        assert identity["clientBuild"] == block["build"], (
+            f"{fid}: FLAVOR_IDENTITIES clientBuild "
+            f"{identity['clientBuild']} != manifest build {block['build']} "
+            "- the prep tool would stamp a stale client build into "
+            "published data-manifest generations")
+        assert identity["cmangosFamily"] == family_by_id[fid], (
+            f"{fid}: cmangosFamily drifted from the pinned branch family")
+    # and the historical literals stay exact (a registry-side re-pin fails
+    # the manifest leg above; this keeps the known-good values named)
     assert wpd.FLAVOR_IDENTITIES["vanilla"] == {"clientBuild": 5875, "cmangosFamily": "classic"}
     assert wpd.FLAVOR_IDENTITIES["tbc"] == {"clientBuild": 8606, "cmangosFamily": "tbc"}
     assert wpd.FLAVOR_IDENTITIES["wotlk"] == {"clientBuild": 12340, "cmangosFamily": "wotlk"}

@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
@@ -235,6 +237,46 @@ def test_overlay_pins_leg_passes_and_detects_destructive_statements() -> None:
         assert any("destructive" in error for error in errors), errors
 
 
+def test_overlay_statements_must_be_insert_or_ignore_only(tmp_path) -> None:
+    """R2-2 (review round 3): the gate's declared contract is the device
+    applier's per-statement policy (TimeframeOverlayPlan.policyChecked) -
+    EVERY statement must start with INSERT OR IGNORE INTO. The old
+    substring bans accepted UPDATE, INSERT OR REPLACE, and plain INSERT
+    outright; each must now fail the gate naming the stage."""
+    import hashlib
+    import json as _json
+    import tempfile
+
+    pins = _json.loads(
+        (check_timeframes.TIMEFRAMES / "overlay-pins.json").read_text())
+    first_stage = sorted(pins["overlays"])[0]
+    attacks = {
+        "UPDATE": "UPDATE `quest_template` SET RequiredCondition = 1;\n",
+        "INSERT OR REPLACE": (
+            "INSERT OR REPLACE INTO `quest_template` (Entry) VALUES (1);\n"),
+        "plain INSERT": "INSERT INTO `quest_template` (Entry) VALUES (1);\n",
+        "DELETE control": "DELETE FROM game_event;\n",
+    }
+    for label, attack in attacks.items():
+        with tempfile.TemporaryDirectory() as tmp:
+            hostile = (
+                "INSERT OR IGNORE INTO game_event (entry) VALUES (90001);\n"
+                + attack)
+            hostile_path = Path(tmp) / "hostile.sql"
+            hostile_path.write_text(hostile, encoding="utf-8")
+            pins_copy = _json.loads(_json.dumps(pins))
+            pins_copy["overlays"][first_stage]["sql"] = str(hostile_path)
+            pins_copy["overlays"][first_stage]["sha256"] = hashlib.sha256(
+                hostile.encode()).hexdigest()
+            pins_path = Path(tmp) / "overlay-pins.json"
+            pins_path.write_text(_json.dumps(pins_copy), encoding="utf-8")
+            errors = []
+            check_timeframes.validate_overlay_pins(errors, pins_path=pins_path)
+            assert any("INSERT OR IGNORE INTO" in error
+                       and first_stage in error for error in errors), (
+                       label, errors)
+
+
 def test_qualified_flavor_with_pending_era_curation_fails() -> None:
     """R5-1 (code-red round 1): the era-curation-before-qualification rule
     is mechanical — a qualified flavor whose stage era_terms still carries
@@ -274,13 +316,137 @@ def test_qualified_flavor_with_pending_era_curation_fails() -> None:
                 "id": "tbc-2.4.3",
                 "era_terms": {
                     "curation": "curated (W3.1, grounded Outland vocabulary)",
-                    "delta_from_flavor_final": {"always_ban": ["pandaren"]},
+                    # the SUPPORTED delta schema (generate_timeframe_era
+                    # .DELTA_KEYS): a delta the generator actually applies
+                    "delta_from_flavor_final": {"always_ban_add": ["pandaren"]},
                 },
             }
         ],
     }
     check_timeframes.validate_qualified_era_curation({"tbc": True}, curated_manifest, curated)
     assert not curated, "a curated delta satisfies the qualified posture"
+
+
+# ---------------------------------------------------------------------------
+# R5-r1-1 (review round 1): the gate used to bless ANY non-null
+# delta_from_flavor_final as era grounding while the generator silently
+# dropped it — a curated per-stage delta never reached the generated header
+# and the stage inherited the flavor's final baseline. The gate now accepts
+# only the exact shape the generator applies, and the generator folds the
+# delta into a DISTINCT era set.
+# ---------------------------------------------------------------------------
+
+def test_qualified_flavor_delta_of_unknown_shape_fails_naming_the_delta() -> None:
+    """The review's red test: a QUALIFIED flavor whose stage carries a
+    non-null delta with an UNKNOWN key (today's fixture shape
+    {"always_ban": ...}) and no grounded_baseline must FAIL the gate with a
+    message naming the delta — the generator would drop it and serve the
+    unmodified final baseline."""
+    manifest = {
+        "flavor": "tbc",
+        "final_stage_era_baseline": {"stage": "tbc-2.4.3"},
+        "stages": [
+            {
+                "id": "tbc-2.0.1",
+                "era_terms": {
+                    "curation": "curated (W3.1)",
+                    "delta_from_flavor_final": {"always_ban": ["pandaren"]},
+                },
+            }
+        ],
+    }
+    errors: list[str] = []
+    check_timeframes.validate_qualified_era_curation({"tbc": True}, manifest, errors)
+    assert errors, "a delta the generator cannot apply must not qualify"
+    assert any("delta_from_flavor_final" in error and "unknown key" in error
+               for error in errors), errors
+
+
+def test_qualified_flavor_empty_delta_and_grounded_delta_combo_fail() -> None:
+    """The other two unappliable shapes: a delta that curates NOTHING, and
+    a delta stacked on a grounded_baseline (ambiguous: replace vs modify)."""
+    base_stages = lambda delta, grounded=None: [{
+        "id": "tbc-2.0.1",
+        "era_terms": {
+            "curation": "curated (W3.1)",
+            **({"grounded_baseline": grounded} if grounded else {}),
+            "delta_from_flavor_final": delta,
+        },
+    }]
+    errors: list[str] = []
+    check_timeframes.validate_qualified_era_curation(
+        {"tbc": True},
+        {"flavor": "tbc", "final_stage_era_baseline": {"stage": "tbc"},
+         "stages": base_stages({})},
+        errors)
+    assert any("curates NOTHING" in error for error in errors), errors
+
+    errors: list[str] = []
+    check_timeframes.validate_qualified_era_curation(
+        {"tbc": True},
+        {"flavor": "tbc", "final_stage_era_baseline": {"stage": "tbc"},
+         "stages": base_stages({"always_ban_add": ["acherus"]},
+                               grounded={"always_ban_terms": []})},
+        errors)
+    assert any("BOTH grounded_baseline and delta_from_flavor_final" in error
+               for error in errors), errors
+
+
+def test_generator_folds_a_curated_delta_into_a_distinct_era_set() -> None:
+    """Companion generator-side test: era_sets on a delta-only stage folds
+    the delta into a DISTINCT kEraSet over the flavor-final baseline — it
+    never silently aliases the final baseline (the pre-fix behavior: the
+    delta vanished and the inherited baseline was served)."""
+    import generate_timeframe_era
+
+    baseline_stage = {"id": "tbc-2.4.3", "era_terms": {}}
+    delta_stage = {
+        "id": "tbc-2.0.1",
+        "era_terms": {
+            "delta_from_flavor_final": {
+                "always_ban_add": ["acherus", "ebon blade"],
+                "sense_phrases_add": [["dalaran floats", False]],
+            }
+        },
+    }
+    names, bindings = generate_timeframe_era.era_sets([delta_stage, baseline_stage])
+    by_stage = {b["stage"]: b for b in bindings}
+    # the delta stage is its OWN set, distinct from the final-stage set
+    assert by_stage["tbc-2.0.1"]["set"] != by_stage["tbc-2.4.3"]["set"]
+    # the fold: the inherited final baseline PLUS the curated additions
+    inherited = generate_timeframe_era.manifests_baseline("tbc")
+    expected_always = (
+        list(inherited["always_ban_terms"]) + ["acherus", "ebon blade"])
+    assert by_stage["tbc-2.0.1"]["always"] == expected_always
+    expected_senses = [list(p) for p in inherited["sense_phrases"]] + \
+        [["dalaran floats", False]]
+    assert by_stage["tbc-2.0.1"]["senses"] == expected_senses
+    # and the non-delta stage still resolves to the unmodified baseline
+    assert by_stage["tbc-2.4.3"]["always"] == list(inherited["always_ban_terms"])
+
+
+def test_generator_raises_on_malformed_delta_shapes() -> None:
+    """The generator itself refuses the shapes the gate refuses (the
+    chain-check subprocess surfaces the raise as a gate error)."""
+    import generate_timeframe_era
+
+    for delta in (
+        {"always_ban": ["pandaren"]},          # unknown key (typo'd schema)
+        {"always_ban_add": "acherus"},          # not a list
+        {"sense_phrases_add": [["x", "yes"]]},  # non-bool flag
+        {},                                     # curates nothing
+    ):
+        stage = {"id": "tbc-2.0.1",
+                 "era_terms": {"delta_from_flavor_final": delta}}
+        with pytest.raises(ValueError) as excinfo:
+            generate_timeframe_era.era_sets([stage])
+        assert "tbc-2.0.1" in str(excinfo.value)
+    both = {"id": "tbc-2.0.1", "era_terms": {
+        "grounded_baseline": {"always_ban_terms": [], "sense_phrases": []},
+        "delta_from_flavor_final": {"always_ban_add": ["acherus"]}}}
+    with pytest.raises(ValueError) as excinfo:
+        generate_timeframe_era.era_sets([both])
+    assert "BOTH" in str(excinfo.value)
 
 
 def test_real_manifests_pass_the_qualified_era_leg() -> None:

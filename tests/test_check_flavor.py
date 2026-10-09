@@ -617,3 +617,190 @@ def test_wotlk_patch_letter_client_id_stays_consistent():
     (wow-3.3.5a-12340) while the version resource drops it (3.3.5.12340)
     — the consistency rule must keep accepting that pair."""
     assert check_flavor.validate(MANIFEST) == []
+
+
+# ---------------------------------------------------------------------------
+# Review round 2 (R2-2): a duplicated sources.json id defeats the by-id
+# binding — check_flavor's URL-first match binds whichever duplicate carries
+# the doctored URL, check_repo's by-id dict collapses duplicates (last
+# wins), and check_sources verifies each duplicate independently. All three
+# gates now refuse duplicate ids; the reviewer's breaker
+# (cmangos-core-tbc twice: honest first, vanilla URL+commit second, with a
+# flavor.json pinning tbc's server_core at the vanilla commit) must fail.
+# ---------------------------------------------------------------------------
+
+def _doctored_tbc_manifest() -> dict:
+    """The real manifest with tbc's server_core re-pointed at the VANILLA
+    fork URL + vanilla commit (the coordinated two-file lie)."""
+    doctored = load_manifest()
+    vanilla = flavor_by_id(REAL_MANIFEST, "vanilla")
+    tbc = flavor_by_id(doctored, "tbc")
+    tbc["server_core"]["upstream"] = vanilla["server_core"]["upstream"]
+    tbc["server_core"]["commit"] = vanilla["server_core"]["commit"]
+    return doctored
+
+
+def test_duplicate_source_id_refused_before_the_url_first_match(tmp_path):
+    """The doctored duplicate must produce a binding error naming the
+    duplicate id — never a clean pass through the URL-first match."""
+    sources = default_sources(_doctored_tbc_manifest())
+    vanilla = flavor_by_id(REAL_MANIFEST, "vanilla")
+    sources["sources"].append({
+        "id": "cmangos-core-tbc",
+        "upstream_url": vanilla["server_core"]["upstream"],
+        "commit": vanilla["server_core"]["commit"],
+    })
+    errors = validate_manifest(_doctored_tbc_manifest(), tmp_path,
+                               sources=sources)
+    assert any(
+        "DUPLICATE id" in error and "cmangos-core-tbc" in error
+        for error in errors
+    ), errors
+
+
+def test_doctored_pin_with_clean_single_entry_sources_still_refused(tmp_path):
+    """Control (the D48-R2-1b behavior intact): with NO duplicate to bind,
+    the same doctored tbc pin fails the commit comparison against the
+    honest tbc entry — and no duplicate complaint fires."""
+    sources = default_sources(REAL_MANIFEST)  # honest tbc entry
+    errors = validate_manifest(_doctored_tbc_manifest(), tmp_path,
+                               sources=sources)
+    assert errors, "the doctored pin must fail the commit comparison"
+    assert not any("DUPLICATE" in error for error in errors), errors
+    assert any("commit" in error.lower() for error in errors), errors
+
+
+def test_current_manifest_and_single_entry_sources_stay_green():
+    """The honest tree: unique ids, real manifest — validate stays clean."""
+    errors = check_flavor.validate(MANIFEST)
+    assert not errors, errors
+
+
+def test_check_repo_structure_leg_refuses_duplicate_ids(tmp_path, monkeypatch):
+    import check_repo
+
+    root = tmp_path / "repo"
+    (root / "schemas").mkdir(parents=True)
+    honest = {"id": "cmangos-core-tbc", "kind": "git-submodule",
+              "path": "native/cmangos-tbc", "commit": "b2" * 20}
+    doctored = {"id": "cmangos-core-tbc", "kind": "git-submodule",
+                "path": "native/cmangos-tbc", "commit": "a1" * 20}
+    (root / "schemas" / "flavor.json").write_text("{}", encoding="utf-8")
+    (root / ".gitmodules").write_text("", encoding="utf-8")
+    sources_path = root / "schemas" / "sources.json"
+
+    sources_path.write_text(
+        json.dumps({"schema": 1, "sources": [doctored, honest]}),
+        encoding="utf-8")
+    monkeypatch.setattr(check_repo, "ROOT", root)
+    errors: list[str] = []
+    check_repo.check_flavor_source_structure(errors)
+    assert any(
+        "DUPLICATE id" in error and "cmangos-core-tbc" in error
+        for error in errors
+    ), errors
+
+    # control: unique ids -> no duplicate complaint (the bare synthetic
+    # tree may still carry unrelated structural errors; filter them)
+    sources_path.write_text(
+        json.dumps({"schema": 1, "sources": [honest]}), encoding="utf-8")
+    errors = []
+    check_repo.check_flavor_source_structure(errors)
+    assert not any("DUPLICATE" in error for error in errors), errors
+
+
+def test_check_sources_refuses_duplicate_ids(tmp_path, monkeypatch, capsys):
+    import check_sources
+
+    entries = [
+        # a path that does NOT exist on this host: an unresolved pin with
+        # no checkout is the sanctioned PEND shape (a real checkout path
+        # like native/cmangos-tbc would be its own refusal — an unpinned
+        # tree is a provenance lie — independent of this test's subject)
+        {"id": "cmangos-core-tbc", "kind": "git-submodule",
+         "path": "native/.tmp-synthetic-cmangos-tbc", "commit": "b2" * 20,
+         "status": "unresolved"},
+        {"id": "cmangos-core-tbc", "kind": "git-submodule",
+         "path": "native/.tmp-synthetic-cmangos-tbc", "commit": "a1" * 20,
+         "status": "unresolved"},
+    ]
+    sources_path = tmp_path / "sources.json"
+    sources_path.write_text(
+        json.dumps({"schema": 1, "sources": entries}), encoding="utf-8")
+    monkeypatch.setattr(check_sources, "SOURCES", sources_path)
+    rc = check_sources.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "FAIL duplicate id cmangos-core-tbc" in out
+
+    # control: the single-entry tree stays green (unresolved pin = PEND)
+    sources_path.write_text(
+        json.dumps({"schema": 1, "sources": [entries[0]]}), encoding="utf-8")
+    rc = check_sources.main()
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "duplicate id" not in out
+
+
+# ---------------------------------------------------------------------------
+# R2-3 (review round 3): the per-flavor compatibility-constant VALUES were
+# unpinned — check_flavor only requires a non-empty mpq list and an
+# interface number in range, so a qualified lane carrying another flavor's
+# MPQ set or addon interface number validated clean. These are the port
+# plan §3 table constants (addon interfaces 11200/20400/30300) and the C2
+# exact MPQ sets; a change here is a deliberate client-identity decision
+# and must land together with this pin (and the Kotlin ClientFlavor
+# mirrors), never as a silent manifest edit.
+# ---------------------------------------------------------------------------
+
+GOLDEN_ADDON_INTERFACES = {
+    "vanilla": [11200],
+    "tbc": [20400],
+    "wotlk": [30300],
+}
+
+GOLDEN_MPQ_SETS = {
+    "vanilla": [
+        "base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq",
+        "model.mpq", "sound.mpq", "speech.mpq", "terrain.mpq", "texture.mpq",
+        "wmo.mpq",
+    ],
+    "tbc": [
+        "common.mpq", "expansion.mpq", "patch.mpq", "patch-2.mpq",
+        "enus/locale-enus.mpq", "enus/speech-enus.mpq",
+        "enus/expansion-locale-enus.mpq", "enus/expansion-speech-enus.mpq",
+        "enus/patch-enus.mpq", "enus/patch-enus-2.mpq",
+    ],
+    "wotlk": [
+        "common.mpq", "common-2.mpq", "expansion.mpq", "lichking.mpq",
+        "patch.mpq", "patch-2.mpq", "patch-3.mpq",
+        "enus/locale-enus.mpq", "enus/speech-enus.mpq",
+        "enus/expansion-locale-enus.mpq", "enus/expansion-speech-enus.mpq",
+        "enus/lichking-locale-enus.mpq", "enus/lichking-speech-enus.mpq",
+        "enus/patch-enus.mpq", "enus/patch-enus-2.mpq", "enus/patch-enus-3.mpq",
+    ],
+}
+
+
+def test_compatibility_constants_match_the_documented_goldens():
+    """Every flavor's addon_interfaces and mpq_set.required equal the
+    documented per-flavor constants — the reviewer's mutations (vanilla
+    carrying wotlk's 16-entry MPQ list; vanilla addon_interfaces 30300)
+    must be impossible to land without touching this pin."""
+    manifest = load_manifest()
+    for flavor in manifest["flavors"]:
+        fid = flavor["id"]
+        assert flavor["addon_interfaces"] == GOLDEN_ADDON_INTERFACES[fid], (
+            f"{fid}: addon_interfaces drifted from the port-plan §3 constant"
+        )
+        assert flavor["mpq_set"]["required"] == GOLDEN_MPQ_SETS[fid], (
+            f"{fid}: mpq_set.required drifted from the C2 exact set"
+        )
+
+
+def test_golden_tables_cover_every_manifest_flavor():
+    """A new flavor must extend BOTH golden tables in the same change (an
+    uncovered flavor fails here instead of silently escaping the pin)."""
+    manifest = load_manifest()
+    assert (set(GOLDEN_ADDON_INTERFACES) | set(GOLDEN_MPQ_SETS)
+            == {f["id"] for f in manifest["flavors"]})

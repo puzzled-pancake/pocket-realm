@@ -6,9 +6,15 @@ every `tests/...::test` name the doc cites must exist.
 R6-3: the LLM settings guide and runtime submenu must state the SAME
 generation-timeout numbers the shipped Kotlin constants carry
 (MEASURED_COLD_START_TIMEOUT_SEC / MIN/MAX_GENERATION_TIMEOUT_SEC).
+R1-1 (review round 1): the ACID-selection records (port plan S4 item 2,
+the sources.json cmangos-db-tbc/-wotlk roles) must state the in-tree
+acid_*.sql mechanism that stage_database_migrations actually selects —
+never the disproven [ACID]-tagged history grep — and the correcting
+D-entry must exist in docs/DECISIONS-PORT.md.
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -19,6 +25,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 import flavor_layout  # noqa: E402
 
 NAMING_DOC = ROOT / "docs/FLAVOR-ARTIFACT-NAMING.md"
+PORT_PLAN = ROOT / "docs/TBC-WOTLK-MULTI-FLAVOR-PORT-PLAN.md"
+DECISIONS = ROOT / "docs/DECISIONS-PORT.md"
 
 
 def test_every_lockfile_scheme_resolves_to_the_resolver_output():
@@ -97,3 +105,54 @@ def test_llm_timeout_docs_state_the_shipped_constants():
         "the sample conf's generation timeout drifted from the registry constant"
     )
     assert f"clamped {low}-{high} s" in submenu
+
+
+def test_acid_selection_records_name_the_intree_files():
+    """R1-1 (review round 1): correction C5 was corrected IN FACT at S4 —
+    the pinned tbc/wotlk DB repos ship in-tree ACID/acid_<expansion>.sql
+    and tools/stage_database_migrations selects them (ledger entries
+    0130-world-acid_tbc / 0217-world-acid_wotlk) — but the plan, the
+    provenance manifest, and decision D33 kept asserting the disproven
+    history-grep mechanism. The records must now name the real mechanism,
+    and the correcting D-entry (referencing D33) must exist: the gauntlet
+    and future waves consume these records as the truth."""
+    # 1. the provenance manifest roles name the in-tree files
+    sources = json.loads(
+        (ROOT / "schemas" / "sources.json").read_text(encoding="utf-8"))
+    entries = {
+        entry.get("id"): entry
+        for entry in sources.get("sources", [])
+        if isinstance(entry, dict)
+    } if isinstance(sources.get("sources"), list) else {}
+    if not entries:  # tolerate a flat-list schema variant
+        entries = {
+            entry.get("id"): entry
+            for entry in sources.get("entries", [])
+            if isinstance(entry, dict)
+        }
+    for flavor, acid in (("cmangos-db-tbc", "ACID/acid_tbc.sql"),
+                         ("cmangos-db-wotlk", "ACID/acid_wotlk.sql")):
+        role = str(entries[flavor]["role"])
+        assert acid in role, (flavor, role)
+        assert "not as an acid_*.sql file" not in role, flavor
+        assert "[ACID]-tagged commits" not in role, flavor
+        assert "D54" in role, (flavor, role)  # the correcting decision
+    # 2. the port plan's S4 item 2 names the file shape, not history grep
+    plan = PORT_PLAN.read_text(encoding="utf-8")
+    assert "[ACID]`-tagged commits pulled from the flavor DB repo's history" \
+        not in plan, "the disproven history-grep selection is back in the plan"
+    assert "ACID/acid_<expansion>.sql`**" in plan
+    assert "decision D54" in plan
+    # 3. the correcting decision entry exists, references D33, and names
+    #    both files + the ledger entries the selection actually produces
+    decisions = DECISIONS.read_text(encoding="utf-8")
+    correction = re.search(
+        r"^\| (D\d+) \|[^|]*\|\s*Correction of D33's C5 record",
+        decisions, re.M)
+    assert correction, (
+        "the C5 correcting D-entry is missing from docs/DECISIONS-PORT.md "
+        "— D33's false history-grep mechanism must stay superseded by an "
+        "explicit correction, not a silent divergence")
+    for token in ("acid_tbc", "acid_wotlk", "0130-world-acid_tbc",
+                  "0217-world-acid_wotlk"):
+        assert token in decisions, token

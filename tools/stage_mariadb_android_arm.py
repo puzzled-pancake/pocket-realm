@@ -265,7 +265,9 @@ def main() -> int:
             raise RuntimeError(f"package missing or hash mismatch: {package}")
         archives[package] = target
 
-    with tempfile.TemporaryDirectory(prefix="pocket-mariadb-arm-") as temporary:
+    with tempfile.TemporaryDirectory(
+            prefix="pocket-mariadb-arm-",
+            dir=str(common.toolchain_tmpdir())) as temporary:
         root = Path(temporary)
         package_roots: dict[str, Path] = {}
         for package, archive in archives.items():

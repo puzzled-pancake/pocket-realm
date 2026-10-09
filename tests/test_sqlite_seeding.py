@@ -724,7 +724,12 @@ def test_full_corpus_translation_is_deterministic(seed_run, _real_seed_augments)
         per_db.setdefault(entry["database"], []).extend(stmts)
     # The pipeline's seed-augmentation leg (precomputed playerbot caches)
     # is a shared helper so this inline copy cannot drift from seed().
-    seeder.apply_seed_augments(per_db, report)
+    # Round-3 contract: the copy states the manifest it mirrors, bound the
+    # exact way seed() binds it (LF-normalized hash).
+    manifest_sha256 = hashlib.sha256(
+        seeder.MANIFEST.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    seeder.apply_seed_augments(per_db, report,
+                               manifest_sha256=manifest_sha256)
     out_autoinc = sum("".join(per_db[db]).count("AUTOINCREMENT")
                       for db in per_db)
     assert out_autoinc == src_autoinc, (
@@ -970,17 +975,26 @@ def test_apply_seed_augments_guards(tmp_path) -> None:
     report = translator.TranslationReport()
     per_db = {"classiccharacters": []}
 
+    # Round-3 contract: captures REQUIRE their provenance binding, so the
+    # harness writes a fixture PROVENANCE.json and states its hash on every
+    # call (the old sha-less form is now the fail-open class the guard
+    # refuses).
+    fixture_sha = "0" * 64
+
     def run_with(files: dict) -> None:
         for name, content in files.items():
             (tmp_path / name).write_bytes(
                 gzip_mod.compress(content.encode("utf-8"))
                 if name.endswith(".gz") else content.encode("utf-8"))
+        (tmp_path / "PROVENANCE.json").write_text(
+            json.dumps({"manifest_sha256": fixture_sha}), encoding="utf-8")
         monkey = pytest.MonkeyPatch()
         monkey.setattr(seeder, "AUGMENT_DIR", tmp_path)
         try:
             per_db.clear()
             per_db["classiccharacters"] = []
-            seeder.apply_seed_augments(per_db, report)
+            seeder.apply_seed_augments(per_db, report,
+                                       manifest_sha256=fixture_sha)
         finally:
             monkey.undo()
             # cleanup must also run on the RAISING paths or earlier
@@ -1023,6 +1037,56 @@ def test_apply_seed_augments_provenance_guard(tmp_path) -> None:
             manifest_sha256="0" * 64) == 1
     finally:
         monkey.undo()
+
+
+def test_apply_seed_augments_refuses_capture_without_provenance(
+        tmp_path) -> None:
+    """Round-3 R2-1 (serious): the staleness tripwire used to be
+    fail-open - with capture files present but PROVENANCE.json absent,
+    apply_seed_augments silently folded a stale cache capture against a
+    mismatched manifest. Captures present now REQUIRE the provenance
+    binding, on every run."""
+    (tmp_path / "classiccharacters.sql").write_text(
+        "INSERT INTO `t` VALUES (1);", encoding="utf-8")
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(seeder, "AUGMENT_DIR", tmp_path)
+    try:
+        with pytest.raises(RuntimeError,
+                           match="capture present without PROVENANCE.json"):
+            seeder.apply_seed_augments({"classiccharacters": []},
+                                       translator.TranslationReport(),
+                                       manifest_sha256="1" * 64)
+        # and manifest_sha256=None no longer bypasses the check either
+        with pytest.raises(RuntimeError, match="no manifest_sha256"):
+            seeder.apply_seed_augments({"classiccharacters": []},
+                                       translator.TranslationReport(),
+                                       manifest_sha256=None)
+    finally:
+        monkey.undo()
+
+
+def test_apply_seed_augments_allows_an_empty_augment_dir(tmp_path) -> None:
+    """The per-flavor augment lanes (schemas/seed-augment-<flavor>) do not
+    exist until a flavor lane deliberately captures - an absent dir (and a
+    dir with no captures at all) stays a clean zero-append, provenance or
+    not."""
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(seeder, "AUGMENT_DIR", tmp_path / "absent-augment")
+    try:
+        assert seeder.apply_seed_augments(
+            {"classiccharacters": []}, translator.TranslationReport(),
+            manifest_sha256=None) == 0
+    finally:
+        monkey.undo()
+    (tmp_path / "empty-augment").mkdir()
+    monkey2 = pytest.MonkeyPatch()
+    monkey2.setattr(seeder, "AUGMENT_DIR", tmp_path / "empty-augment")
+    try:
+        assert seeder.apply_seed_augments(
+            {"classiccharacters": []}, translator.TranslationReport(),
+            manifest_sha256=None) == 0
+    finally:
+        monkey2.undo()
 
 
 def test_write_baseline_refused_for_foreign_manifest(tmp_path) -> None:

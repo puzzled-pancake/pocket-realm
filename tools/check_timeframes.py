@@ -356,14 +356,37 @@ def validate_overlay_pins(errors: list[str], pins_path: Path | None = None) -> N
         if sha256(sql.read_bytes()) != entry["sha256"]:
             errors.append(f"overlay pins: {entry['sql']} drifted from its pinned sha256")
         text = sql.read_text(encoding="utf-8")
-        for banned in ("DELETE", "DROP ", "ALTER ", "ATTACH "):
-            if banned in text.upper().replace("NEVER DELETE", ""):
+        # R2-2 (review round 3): the declared contract is the DEVICE
+        # applier's own per-statement policy
+        # (TimeframeOverlayPlan.policyChecked: every statement starts with
+        # INSERT OR IGNORE INTO). The old substring bans
+        # (DELETE/DROP/ALTER/ATTACH) accepted UPDATE, INSERT OR REPLACE,
+        # and plain INSERT outright — a doctored overlay that passed this
+        # gate failed only at world start. The statement-level check is
+        # ported here: strip COMMENT LINES FIRST (the honest overlays'
+        # prose carries semicolons), then split on ';' and require EVERY
+        # non-empty fragment to start with INSERT OR IGNORE INTO.
+        code_lines = [line for line in text.splitlines()
+                      if not line.strip().startswith("--")]
+        statements = []
+        for fragment in "\n".join(code_lines).split(";"):
+            body = fragment.strip()
+            if body:
+                statements.append(body)
+        if not statements:
+            errors.append(
+                f"overlay pins: stage {stage}: {entry['sql']} carries no "
+                "statements at all (a comment-only overlay ships nothing)")
+        for body in statements:
+            if not body.upper().startswith("INSERT OR IGNORE INTO"):
+                head = body.splitlines()[0][:80]
                 errors.append(
-                    f"{entry['sql']}: overlay carries a destructive statement "
-                    f"({banned.strip()}) - flag-set statements only (design §2)"
+                    f"overlay pins: stage {stage}: {entry['sql']} carries a "
+                    f"destructive or non-idempotent statement ({head}) - "
+                    "every statement must start with INSERT OR IGNORE INTO "
+                    "(flag-set only, design §2; the device applier's "
+                    "policyChecked rejects the same shape at world start)"
                 )
-        if "INSERT OR IGNORE" not in text.upper():
-            errors.append(f"{entry['sql']}: no idempotent INSERT OR IGNORE statements")
     catalog_entry = pins.get("generated_catalog")
     if not isinstance(catalog_entry, dict):
         errors.append("overlay pins: missing the generated_catalog block")
@@ -444,10 +467,17 @@ def validate_qualified_era_curation(
     either the pending-flavor-qualification MARKER (W3.1 must curate before
     the W4 flip), or — the data-presence invariant the marker check alone
     missed (round-5 R5-5) — any stage carrying NEITHER a grounded_baseline
-    NOR a non-null delta_from_flavor_final. A reworded non-pending
-    curation string with a null delta would otherwise pass while the
-    generated header serves the inherited VANILLA ban list (anachronistic
-    live bans of core expansion vocabulary at exactly the W4 flip)."""
+    NOR a usable delta_from_flavor_final. A reworded non-pending curation
+    string with a null delta would otherwise pass while the generated
+    header serves the inherited VANILLA ban list (anachronistic live bans
+    of core expansion vocabulary at exactly the W4 flip).
+
+    R5-r1-1 (review round 1): a non-null delta counts as grounding ONLY in
+    the exact shape the generator applies (generate_timeframe_era
+    .delta_error: always_ban_add / sense_phrases_add, non-empty, no
+    unknown keys, no grounded_baseline alongside it) — the gate used to
+    bless ANY non-null value while the generator silently dropped it, so
+    the W3.1 curation it blessed never reached the generated header."""
     flavor = manifest.get("flavor")
     if not qualifications.get(str(flavor)):
         return  # unqualified flavors may carry pending curation by design
@@ -477,15 +507,39 @@ def validate_qualified_era_curation(
             continue
         # Round-5 R5-5: the curation STRING is not the contract — the DATA
         # is. A stage is grounded when it embeds its own grounded_baseline,
-        # carries a curated non-null delta_from_flavor_final, or inherits
-        # the flavor's OWN final_stage_era_baseline (the generator's
+        # carries a USABLE curated delta_from_flavor_final, or inherits the
+        # flavor's OWN final_stage_era_baseline (the generator's
         # intra-flavor inheritance). What must NEVER qualify is a flavor
         # with no final_stage_era_baseline of its own: its stages would
         # resolve through the generator's CROSS-FLAVOR fallback and serve
         # the inherited VANILLA ban list (anachronistic live bans of core
         # expansion vocabulary at exactly the W4 flip).
         grounded = isinstance(era.get("grounded_baseline"), dict)
-        delta_present = era.get("delta_from_flavor_final") is not None
+        delta = era.get("delta_from_flavor_final")
+        if grounded and delta is not None:
+            errors.append(
+                f"{flavor}: stage {stage_id!r} era_terms carries BOTH "
+                "grounded_baseline and delta_from_flavor_final — the "
+                "grounded baseline REPLACES the flavor-final baseline while "
+                "the delta MODIFIES it; register exactly one (W3.1) before "
+                "the W4 qualification flip"
+            )
+            continue
+        if delta is not None:
+            try:
+                from generate_timeframe_era import delta_error
+            except ImportError:  # package import (tools.* namespace)
+                from tools.generate_timeframe_era import delta_error
+            delta_problem = delta_error(str(stage_id), delta)
+            if delta_problem:
+                errors.append(
+                    f"{flavor}: {delta_problem} — the generator would drop "
+                    "this curation and serve the UNMODIFIED flavor-final "
+                    "baseline; fix the delta shape (W3.1) before the W4 "
+                    "qualification flip"
+                )
+                continue
+        delta_present = delta is not None
         inherits_own_baseline = isinstance(
             manifest.get("final_stage_era_baseline"), dict)
         if not grounded and not delta_present and not inherits_own_baseline:

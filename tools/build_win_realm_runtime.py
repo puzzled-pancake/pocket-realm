@@ -429,15 +429,24 @@ def write_lockfile(backend: str = "sqlite") -> None:
     this file and refreshes desktop BuildConfig's runtime telltale.
     """
     lockfile = WIN_LOCKFILE if backend == "sqlite" else WIN_MARIADB_LOCKFILE
-    sibling = json.loads(SIBLING_SQLITE_LOCKFILE.read_text(encoding="utf-8"))
+    # Review round 2 (R2-2 medium): the sibling is flavor-resolved with a
+    # fallback — once a flavor's own android sqlite lane has staged, its
+    # lockfile carries the flavor's own seed_transcripts pins; until then
+    # the vanilla sibling is the only source, and the placeholder note
+    # below says exactly that (and names the producing command).
+    flavor_id = o09.ACTIVE_FLAVOR
+    flavor_sibling = (ROOT / "schemas"
+                      / f"realm-runtime-lockfile-sqlite-{flavor_id}.json")
+    sibling_path = (flavor_sibling if flavor_id != "vanilla"
+                    and flavor_sibling.is_file() else SIBLING_SQLITE_LOCKFILE)
+    sibling = json.loads(sibling_path.read_text(encoding="utf-8"))
     seed_pins = sibling.get("seed_transcripts")
     # Round-2 R2-1a: a NON-vanilla flavor's lockfile must never present
     # vanilla transcripts as its own pinned seed state silently. Bind to
     # the flavor's OWN baseline when it carries transcript digests; while
     # it does not (W2/W5 measure them), record an explicit placeholder
-    # note naming the retiring wave — the provenance record says what the
-    # bytes are, not what the lane wishes they were.
-    flavor_id = o09.ACTIVE_FLAVOR
+    # note naming the retiring mechanism — the provenance record says what
+    # the bytes are, not what the lane wishes they were.
     flavor_baseline_path = (
         ROOT / "schemas" / "sqlite-seed-baseline.json" if flavor_id == "vanilla"
         else ROOT / "schemas" / f"sqlite-seed-baseline-{flavor_id}.json"
@@ -514,10 +523,19 @@ def write_lockfile(backend: str = "sqlite") -> None:
             "seed_transcripts_provenance": {
                 "note": (
                     "vanilla-transcripts placeholder: this non-vanilla "
-                    "lane seeds the VANILLA classic* transcripts until "
-                    "its own per-flavor transcripts are measured and "
-                    "pinned in sqlite-seed-baseline-<flavor>.json"),
-                "retires": "W2/W5: per-flavor seed transcripts re-key this block",
+                    "lane seeds the VANILLA classic* transcripts until its "
+                    "own per-flavor transcripts are measured and pinned in "
+                    "sqlite-seed-baseline-<flavor>.json. The supported "
+                    "retire path (decision D59): run `python tools/"
+                    "seed_sqlite_from_manifest.py --flavor <flavor> --out "
+                    "<dir> --transcripts <dir> --write-baseline` (the "
+                    "manifest seeder's merge write — the only tool that "
+                    "can produce those keys), restage the lane "
+                    "(tools/build_o09_realm_runtime.py --flavor <flavor>), "
+                    "then re-key this lockfile; it then binds the "
+                    "flavor's own digests and this placeholder retires."),
+                "retires": "W2/W5: first per-flavor transcript staging "
+                           "re-keys this block (decision D59)",
             },
         } if carrying_vanilla_transcripts else {}),
         "toolchain": {
@@ -748,9 +766,48 @@ def write_provider_lockfile() -> dict:
     """Record the staged provider's reviewed bytes into
     schemas/database-provider-lockfile-win.json — the document the desktop
     engine verifies the staging against at runtime (staged like the realm
-    DLLs with a lockfile)."""
+    DLLs with a lockfile).
+
+    Review round 2 (R2-3 medium, decision D60): this document and the
+    shared PROVIDER_STAGING root are scoped VANILLA-lane inputs. The
+    staged migration manifest inside the shared root is the vanilla ledger
+    golden (the G3-3 bytes), so a non-vanilla lane writing here either
+    gets refused by the desktop verifier against the vanilla pin or
+    silently re-keys the committed vanilla provenance — both wrong. The
+    record carries `lane_scope` so the scope is machine-readable, and a
+    non-vanilla write refuses loud naming the decision until W1.3 defines
+    per-flavor provider staging."""
+    flavor_id = o09.ACTIVE_FLAVOR
+    if flavor_id != "vanilla":
+        raise RuntimeError(
+            f"write_provider_lockfile refuses the {flavor_id!r} lane: "
+            f"schemas/database-provider-lockfile-win.json and "
+            f"native/.build-win-x86_64/mariadb-provider are scoped "
+            "VANILLA-lane inputs (decision D60) — the staged migration "
+            "manifest inside the shared root is the vanilla ledger golden, "
+            "and re-keying this shared pin to a tbc/wotlk migration set "
+            "would clobber the committed vanilla provenance. W1.3 owns "
+            "per-flavor provider staging; until it lands, a non-vanilla "
+            "mariadb lane verifies against its own "
+            "realm-runtime-lockfile-mariadb-win-<flavor>.json and never "
+            "rewrites the shared provider document")
     record = verify_mariadb_provider_staging()
-    record = {"schema": 1, "abi": "windows-x86_64", "database_backend": "mariadb", **record}
+    record = {
+        "schema": 1,
+        "abi": "windows-x86_64",
+        "database_backend": "mariadb",
+        "lane_scope": {
+            "flavors": ["vanilla"],
+            "decision": "D60",
+            "note": (
+                "this shared document + the mariadb-provider staging root "
+                "are VANILLA-lane inputs: the staged migration manifest is "
+                "the vanilla ledger golden (migration_manifest_sha256); "
+                "non-vanilla lanes must not write or re-key it until W1.3 "
+                "defines per-flavor provider staging"),
+        },
+        **record,
+    }
     PROVIDER_LOCKFILE.write_bytes((json.dumps(record, indent=2) + "\n").encode("utf-8"))
     print(f"wrote {PROVIDER_LOCKFILE.relative_to(ROOT)} "
           f"({record['provider']['id']}, {record['migration_count']} pinned migrations)")

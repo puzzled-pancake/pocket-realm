@@ -366,7 +366,9 @@ exit 0
     def write_bytes(self, relative: str, content: bytes) -> None:
         temp_name = ""
         try:
-            with tempfile.NamedTemporaryFile(prefix="pocketrealm-o07-", delete=False) as temp:
+            with tempfile.NamedTemporaryFile(
+                    prefix="pocketrealm-o07-", delete=False,
+                    dir=str(common.toolchain_tmpdir())) as temp:
                 temp.write(content)
                 temp_name = temp.name
             self._push_to_target(Path(temp_name), relative)

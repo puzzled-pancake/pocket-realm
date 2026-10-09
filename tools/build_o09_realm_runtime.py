@@ -7065,14 +7065,30 @@ def package_seed_transcripts(stage_root: Path) -> dict:
     import tempfile
     sys.path.insert(0, str(ROOT / "tools"))
     import seed_sqlite_from_manifest as seeder  # noqa: E402
-    # The baseline is flavor-resolved (flavor_layout is the naming schema of
-    # record): vanilla reads the historical unqualified baseline
-    # byte-for-byte, tbc/wotlk read their own per-flavor baselines. A
-    # per-flavor staging run against a missing baseline fails loud here —
-    # never silently verifying against the vanilla baseline (which pins a
-    # different DB corpus and would either diverge loudly at the digest
-    # check anyway or, worse, pass for an overlapping subset).
-    baseline_path = ROOT / flavor_layout.resolve(ACTIVE_FLAVOR).sqlite_seed_baseline()
+    # The transcript lane is flavor-resolved end-to-end (review round 2,
+    # R2-2 medium): the seeder runs THIS flavor's canonical ledger
+    # (flavor_layout.migration_ledger()[0]) — the old call passed no
+    # manifest_path, so every flavor staged the VANILLA classic*
+    # transcripts and then compared them against a per-flavor baseline that
+    # could never carry transcript_digests (no tool wrote it) — the dead
+    # retire path decision D59 replaces with this supported one. The
+    # baseline is flavor-resolved the same way: vanilla reads the
+    # historical unqualified baseline byte-for-byte, tbc/wotlk their own.
+    # A staging run against a missing baseline or missing transcript keys
+    # fails loud naming the command that produces them — never silently
+    # verifying against the vanilla baseline.
+    layout = flavor_layout.resolve(ACTIVE_FLAVOR)
+    manifest_path = ROOT / layout.migration_ledger()[0]
+    baseline_path = ROOT / layout.sqlite_seed_baseline()
+    # Review round 3 (R3-r3-2): the augment dir is flavor-resolved too —
+    # passing only the ledger (the round-2 fix) still paired a tbc/wotlk
+    # restage with the VANILLA schemas/seed-augment dir whose PROVENANCE
+    # pins the vanilla golden manifest hash, so every per-flavor run died
+    # on the augment provenance guard and the D59 retire path was
+    # dead-on-arrival. A flavor's own augment dir (schemas/seed-augment-
+    # <flavor>) is absent until that lane deliberately captures — a clean
+    # zero-append, never a vanilla capture fold.
+    augment_dir = seeder.lane_paths(ACTIVE_FLAVOR)[2]
     if not baseline_path.is_file():
         raise RuntimeError(
             f"flavor {ACTIVE_FLAVOR!r} has no seed baseline at "
@@ -7081,17 +7097,29 @@ def package_seed_transcripts(stage_root: Path) -> dict:
             "run (port plan S3/S4); refusing to stage transcripts against a "
             "baseline that does not exist")
     baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
-    with tempfile.TemporaryDirectory() as tmp:
+    seeder_cmd = (
+        "python tools/seed_sqlite_from_manifest.py --flavor "
+        f"{ACTIVE_FLAVOR} --out <dir> --transcripts <dir> --write-baseline")
+    if "transcript_digests" not in baseline:
+        raise RuntimeError(
+            f"flavor {ACTIVE_FLAVOR!r} baseline "
+            f"({baseline_path.relative_to(ROOT).as_posix()}) carries no "
+            "transcript_digests - the per-flavor transcript keys are "
+            f"produced by the manifest seeder's merge write: {seeder_cmd} "
+            "(then restage this lane); the old seed-lane --write-baseline "
+            "remedy cannot produce them (decision D59)")
+    with tempfile.TemporaryDirectory(dir=str(common.toolchain_tmpdir())) as tmp:
         rc, summary = seeder.seed(Path(tmp) / "db", Path(tmp) / "tr",
-                                  False, 0)
+                                  False, 0, manifest_path=manifest_path,
+                                  augment_dir=augment_dir)
         if rc != 0:
             raise RuntimeError("seed failed; refusing to stage transcripts")
         digests = summary.get("transcript_digests")
         if digests != baseline.get("transcript_digests"):
             raise RuntimeError(
                 "seed transcript digests diverge from the append-only "
-                "baseline - regenerate the baseline deliberately (clean "
-                "--write-baseline run) before staging")
+                "baseline - re-measure them deliberately with the manifest "
+                f"seeder's merge write ({seeder_cmd}) before staging")
         assets = stage_root / "assets" / "seed"
         assets.mkdir(parents=True, exist_ok=True)
         # a staging dir rewritten across the .gz -> .sqlz rename must

@@ -225,3 +225,208 @@ def test_mangos_floor_reports_honest_behind(flavor: str) -> None:
             conn, "mangos", plan.required_versions) is True
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# R2-2 (review round 2, medium): the per-flavor seed-transcript retirement
+# was a contract dead-end — the only writer of `transcript_digests`
+# (tools/seed_sqlite_from_manifest.py) was hard-wired to the vanilla
+# manifest/baseline, so the win-lockfile placeholder's own retire mechanism
+# (W2/W5 re-keying from sqlite-seed-baseline-<flavor>.json) had no
+# implementing tool, and build_o09's per-flavor transcript staging refused
+# with a remedy that could not work. The lane is now flavor-resolved end to
+# end (decision D59): lane_paths(), the manifest seeder's per-flavor merge
+# write, and package_seed_transcripts passing the flavor's OWN ledger.
+# ---------------------------------------------------------------------------
+
+def test_lane_paths_resolve_per_flavor() -> None:
+    """The seeder's lane resolution: vanilla keeps the historical constants
+    byte-for-byte; tbc resolves its canonical ledger, own baseline, and own
+    augment dir through flavor_layout."""
+    import seed_sqlite_from_manifest as seeder
+    manifest, baseline, augment = seeder.lane_paths("vanilla")
+    assert manifest == seeder.MANIFEST
+    assert baseline == seeder.BASELINE
+    assert augment == seeder.AUGMENT_DIR
+    tbc_manifest, tbc_baseline, tbc_augment = seeder.lane_paths("tbc")
+    assert tbc_manifest == ROOT / "schemas/database-migrations-tbc.json"
+    assert tbc_baseline == ROOT / "schemas/sqlite-seed-baseline-tbc.json"
+    assert tbc_augment == ROOT / "schemas/seed-augment-tbc"
+    assert tbc_manifest != manifest and tbc_baseline != baseline
+
+
+def test_merge_write_adds_transcript_keys_and_preserves_row_floors(
+        tmp_path) -> None:
+    """The seeder's per-flavor --write-baseline MERGES transcript_digests/
+    transcript_sizes into the seed lane's baseline (the row floors survive)
+    — an overwrite here would clobber the seed lane's artifact."""
+    import seed_sqlite_from_manifest as seeder
+    baseline_path = tmp_path / "sqlite-seed-baseline-tbc.json"
+    baseline_path.write_text(json.dumps({
+        "flavor": "tbc",
+        "generated_by": "tools/seed_realm_db.py --flavor tbc --write-baseline",
+        "databases": {"tbcmangos": {"tables": 203, "rows": 1527997}},
+        "floor_tables": {"tbcmangos": {"creature_template": 18799}},
+    }), encoding="utf-8")
+    digests = {"tbcmangos": "ab" * 32}
+    sizes = {"tbcmangos": 1234}
+    seeder.merge_transcript_keys_into_baseline(digests, sizes, baseline_path)
+    merged = json.loads(baseline_path.read_text(encoding="utf-8"))
+    assert merged["transcript_digests"] == digests
+    assert merged["transcript_sizes"] == sizes
+    assert merged["databases"]["tbcmangos"]["rows"] == 1527997, (
+        "the merge must preserve the seed lane's row floors")
+    assert merged["floor_tables"]["tbcmangos"]["creature_template"] == 18799
+    assert "merged into" in merged["transcripts_provenance"]["generator"]
+
+
+def test_merge_write_refuses_missing_or_foreign_baseline(tmp_path) -> None:
+    import seed_sqlite_from_manifest as seeder
+    missing = tmp_path / "nope.json"
+    with pytest.raises(RuntimeError, match="seed_realm_db"):
+        seeder.merge_transcript_keys_into_baseline({}, {}, missing)
+    foreign = tmp_path / "foreign.json"
+    foreign.write_text(json.dumps({"schema": 1}), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="databases block"):
+        seeder.merge_transcript_keys_into_baseline({}, {}, foreign)
+
+
+def _seed_transcripts_staging_env(tmp_path, monkeypatch,
+                                  with_transcript_keys: bool):
+    """Synthetic tree for the package_seed_transcripts seam: tbc flavor,
+    a synthetic per-flavor baseline (carrying transcript_digests when
+    with_transcript_keys), and a stubbed seeder whose per-db transcripts
+    hash exactly to those pinned digests."""
+    import hashlib
+    import build_o09_realm_runtime as o09
+    import seed_sqlite_from_manifest as seeder
+
+    contents = {db: f"CREATE TABLE {db};\n".encode()
+                for db in ("tbcrealmd", "tbccharacters", "tbclogs",
+                           "tbcmangos")}
+    digests = {db: hashlib.sha256(raw).hexdigest()
+               for db, raw in contents.items()}
+    root = tmp_path / "synthetic-root"
+    (root / "schemas").mkdir(parents=True)
+    baseline = {"flavor": "tbc", "databases": {}, "floor_tables": {}}
+    if with_transcript_keys:
+        baseline["transcript_digests"] = dict(digests)
+    (root / "schemas" / "sqlite-seed-baseline-tbc.json").write_text(
+        json.dumps(baseline), encoding="utf-8")
+    stage_root = tmp_path / "stage"
+    expected_manifest = root / "schemas/database-migrations-tbc.json"
+
+    def fake_seed(out_dir, transcripts_dir, write_baseline, max_errors,
+                  manifest_path=None, **_):
+        # the flavor-aware contract: the seeder MUST be handed THIS
+        # flavor's canonical ledger (under the synthetic root), never the
+        # vanilla constant
+        assert manifest_path == expected_manifest, (
+            "package_seed_transcripts must pass the flavor's OWN manifest")
+        transcripts_dir.mkdir(parents=True, exist_ok=True)
+        for db, raw in contents.items():
+            (transcripts_dir / f"{db}.sql").write_bytes(raw)
+        return 0, {"transcript_digests": dict(digests)}
+
+    monkeypatch.setattr(seeder, "seed", fake_seed)
+    monkeypatch.setattr(o09, "ACTIVE_FLAVOR", "tbc")
+    monkeypatch.setattr(o09, "ROOT", root)
+    return o09, digests, stage_root
+
+
+def test_package_seed_transcripts_tbc_stages_own_digests(
+        tmp_path, monkeypatch) -> None:
+    """The retired placeholder's promise, now supported end to end: the tbc
+    staging seam runs the tbc ledger and ships transcripts whose digests
+    equal the per-flavor baseline's transcript_digests (the branch the
+    win-lockfile writer re-keys to its own digests)."""
+    o09, digests, stage_root = _seed_transcripts_staging_env(
+        tmp_path, monkeypatch, with_transcript_keys=True)
+    out = o09.package_seed_transcripts(stage_root)
+    assets = stage_root / "assets" / "seed"
+    assert set(out) == set(digests)
+    import gzip as _gzip
+    import hashlib as _hashlib
+    for db, record in out.items():
+        assert record["sha256"] == digests[db]
+        packed = (assets / f"{db}.sqlz").read_bytes()
+        assert _hashlib.sha256(_gzip.decompress(packed)).hexdigest() == digests[db]
+
+
+def test_package_seed_transcripts_tbc_refuses_missing_transcript_keys(
+        tmp_path, monkeypatch) -> None:
+    """Without transcript_digests the refusal names the mechanism that CAN
+    produce them (the manifest seeder's flavor merge write, decision D59) —
+    never the old seed-lane --write-baseline remedy that could not work."""
+    o09, _digests, stage_root = _seed_transcripts_staging_env(
+        tmp_path, monkeypatch, with_transcript_keys=False)
+    with pytest.raises(RuntimeError) as excinfo:
+        o09.package_seed_transcripts(stage_root)
+    message = str(excinfo.value)
+    assert "transcript_digests" in message
+    assert "seed_sqlite_from_manifest.py --flavor tbc" in message
+    assert "D59" in message
+    assert "clean --write-baseline run" not in message
+
+
+def test_package_seed_transcripts_tbc_real_seeder_no_vanilla_augment_raise(
+        tmp_path, monkeypatch) -> None:
+    """R3-r3-2 (review round 3): the round-2 fix passed the flavor's ledger
+    but NOT its augment dir, so a tbc restage paired the per-flavor ledger
+    with the VANILLA schemas/seed-augment dir whose PROVENANCE pins the
+    vanilla golden hash - every real run died on the augment provenance
+    guard (the fake-seeded tests masked it). This test drives the REAL
+    seeder through the seam against a synthetic tbc tree: the stage must
+    complete on the flavor's OWN (absent) augment lane - no
+    vanilla-augment provenance raise."""
+    import hashlib
+    import gzip as _gzip
+    import build_o09_realm_runtime as o09
+    import seed_sqlite_from_manifest as seeder
+
+    body = b"CREATE TABLE `t` (`v` TEXT);\nINSERT INTO `t` VALUES (1);\n"
+    root = tmp_path / "synthetic-root"
+    (root / "schemas").mkdir(parents=True)
+    (root / "native-synthetic").mkdir()
+    fixture = root / "native-synthetic" / "fixture.sql"
+    fixture.write_bytes(body)
+    ledger = root / "schemas" / "database-migrations-tbc.json"
+    ledger.write_text(json.dumps({"entries": [{
+        "migration_id": "synthetic-0001-world",
+        "source_path": "native-synthetic/fixture.sql",
+        "database": "tbcmangos",
+        "sql_sha256": hashlib.sha256(body).hexdigest(),
+        "sql_size": len(body),
+    }]}), encoding="utf-8")
+
+    # measure the real seeder's transcript digests for the synthetic ledger
+    # (on the flavor's own - absent - augment lane, exactly what the seam
+    # under test must pass)
+    monkeypatch.setattr(seeder, "ROOT", root)
+    first_tr = tmp_path / "measure-tr"
+    flavor_augment = root / "schemas" / "seed-augment-tbc"
+    rc, summary = seeder.seed(tmp_path / "measure-db", first_tr, False, 0,
+                              manifest_path=ledger,
+                              augment_dir=flavor_augment)
+    assert rc == 0
+    digests = summary["transcript_digests"]
+
+    baseline_path = root / "schemas" / "sqlite-seed-baseline-tbc.json"
+    baseline_path.write_text(json.dumps({
+        "flavor": "tbc", "databases": {}, "floor_tables": {},
+        "transcript_digests": digests,
+    }), encoding="utf-8")
+
+    monkeypatch.setattr(o09, "ACTIVE_FLAVOR", "tbc")
+    monkeypatch.setattr(o09, "ROOT", root)
+    stage_root = tmp_path / "stage"
+    out = o09.package_seed_transcripts(stage_root)
+    # the stage completed - no vanilla-augment provenance raise - and the
+    # shipped .sqlz assets carry exactly the flavor's own digests
+    assert set(out) == set(digests)
+    assets = stage_root / "assets" / "seed"
+    for db, record in out.items():
+        assert record["sha256"] == digests[db]
+        packed = (assets / f"{db}.sqlz").read_bytes()
+        assert hashlib.sha256(
+            _gzip.decompress(packed)).hexdigest() == digests[db]

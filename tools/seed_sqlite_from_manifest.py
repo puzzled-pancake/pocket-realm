@@ -37,11 +37,40 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import sqlite_seed_translator as translator  # noqa: E402
 
+try:
+    import flavor_layout
+except ImportError:  # package import (tools.* namespace)
+    from tools import flavor_layout  # noqa: E402
+
 MANIFEST = ROOT / "schemas" / "database-migrations.json"
 # Append-only per-database seed augmentations (see
 # apply_seed_augments); module-level so tests can isolate it.
 AUGMENT_DIR = ROOT / "schemas" / "seed-augment"
 BASELINE = ROOT / "schemas" / "sqlite-seed-baseline.json"
+
+
+def lane_paths(flavor_id: str) -> tuple[Path, Path, Path]:
+    """(manifest, baseline, augment_dir) for one flavor's transcript lane.
+
+    Review round 2 (R2-2 medium): the lane was hard-wired to the vanilla
+    constants, so the per-flavor win-lockfile placeholder's own retire
+    mechanism (W2/W5 re-keying from
+    schemas/sqlite-seed-baseline-<flavor>.json `transcript_digests`) had NO
+    implementing tool — the only writer of that key could never address a
+    per-flavor baseline. Vanilla resolves to the historical constants
+    byte-for-byte; tbc/wotlk resolve their canonical per-flavor ledger
+    (flavor_layout.migration_ledger()[0]), their own baseline
+    (flavor_layout.sqlite_seed_baseline()), and their own augment dir —
+    absent until a flavor lane deliberately captures augmentations (the
+    vanilla capture is PROVENANCE-bound to the vanilla manifest and is a
+    vanilla-lane artifact)."""
+    layout = flavor_layout.resolve(flavor_id)
+    if flavor_id == "vanilla":
+        return MANIFEST, BASELINE, AUGMENT_DIR
+    manifest = ROOT / layout.migration_ledger()[0]
+    baseline = ROOT / layout.sqlite_seed_baseline()
+    augment = ROOT / "schemas" / f"seed-augment-{flavor_id}"
+    return manifest, baseline, augment
 
 
 def entry_bytes(entry: dict) -> bytes:
@@ -75,7 +104,8 @@ def sanitize_summary(summary: dict) -> dict:
 def apply_seed_augments(
         per_db_statements: dict[str, list[str]],
         report: "translator.TranslationReport",
-        manifest_sha256: str | None = None) -> int:
+        manifest_sha256: str | None = None,
+        augment_dir: Path | None = None) -> int:
     """Append the per-database seed augmentations: the world binary
     builds the equipment/random-item
     caches on first boot (~4 minutes of world boot) and persists them
@@ -94,22 +124,46 @@ def apply_seed_augments(
     Returns the number of statements appended. Shared by seed() and
     the test suite's inline pipeline copies so both stay on one code
     path."""
-    augment_dir = AUGMENT_DIR
+    # Resolve the augment dir at CALL time: a frozen default argument would
+    # defeat the tests' AUGMENT_DIR isolation patches (and the fixtures'
+    # module/function scoping) by binding the real dir at import.
+    augment_dir = AUGMENT_DIR if augment_dir is None else augment_dir
     if not augment_dir.is_dir():
         return 0
+    # Review round 3 (R2-1 serious): the staleness tripwire used to be
+    # fail-open — `if provenance.is_file() and manifest_sha256 is not None`
+    # skipped BOTH arms when PROVENANCE.json was absent (or the caller
+    # passed no manifest hash), silently folding a capture whose manifest
+    # binding is the ONLY staleness guard (PROVENANCE.json's own claim).
+    # Captures present now REQUIRE their provenance binding, on every run.
+    capture_files = sorted(list(augment_dir.glob("*.sql"))
+                           + list(augment_dir.glob("*.sql.gz")))
+    if not capture_files:
+        return 0
     provenance = augment_dir / "PROVENANCE.json"
-    if provenance.is_file() and manifest_sha256 is not None:
-        import json
-        pinned = json.loads(provenance.read_text(encoding="utf-8"))
-        if pinned.get("manifest_sha256") != manifest_sha256:
-            raise RuntimeError(
-                "seed-augment/PROVENANCE.json: the capture was taken "
-                f"against manifest {str(pinned.get('manifest_sha256'))[:16]}... "
-                f"but the current manifest is {manifest_sha256[:16]}... - "
-                "the item corpus or build semantics may have changed. "
-                "Re-capture the caches from a fresh first-boot build "
-                "(and update PROVENANCE + --write-baseline) or drop the "
-                "augmentation; never re-fold a stale capture silently.")
+    if manifest_sha256 is None:
+        raise RuntimeError(
+            "seed-augment: capture file(s) present but the caller passed "
+            "no manifest_sha256 - refusing an unbindable stale-foldable "
+            "capture (the seed must state the manifest it seeds from; "
+            "PROVENANCE.json is the only staleness tripwire)")
+    if not provenance.is_file():
+        raise RuntimeError(
+            "seed-augment capture present without PROVENANCE.json - "
+            "refusing a stale-foldable capture (the provenance binds the "
+            "capture to the migrations manifest it was taken against; "
+            "restore PROVENANCE.json or delete the capture)")
+    import json
+    pinned = json.loads(provenance.read_text(encoding="utf-8"))
+    if pinned.get("manifest_sha256") != manifest_sha256:
+        raise RuntimeError(
+            "seed-augment/PROVENANCE.json: the capture was taken "
+            f"against manifest {str(pinned.get('manifest_sha256'))[:16]}... "
+            f"but the current manifest is {manifest_sha256[:16]}... - "
+            "the item corpus or build semantics may have changed. "
+            "Re-capture the caches from a fresh first-boot build "
+            "(and update PROVENANCE + --write-baseline) or drop the "
+            "augmentation; never re-fold a stale capture silently.")
     appended_total = 0
     for augment in sorted(list(augment_dir.glob("*.sql"))
                           + list(augment_dir.glob("*.sql.gz"))):
@@ -151,9 +205,53 @@ def apply_seed_augments(
     return appended_total
 
 
+def merge_transcript_keys_into_baseline(
+        transcript_digests: dict, transcript_sizes: dict,
+        baseline_path: Path) -> Path:
+    """Review round 2 (R2-2 medium): merge the transcript keys into a
+    per-flavor baseline the SEED LANE owns (seed_realm_db --write-baseline
+    wrote its databases/floor_tables row floors). An overwrite would
+    clobber the row floors; a missing file is the loud "run the seed lane
+    first" refusal, never a from-scratch write of a half baseline."""
+    if not baseline_path.is_file():
+        raise RuntimeError(
+            f"--write-baseline refused: {baseline_path} does not "
+            "exist - the per-flavor baseline is created by the "
+            "seed lane (python tools/seed_realm_db.py --flavor "
+            "<flavor> --write-baseline); the transcript digests "
+            "MERGE into that file, they never replace it")
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    if not isinstance(baseline.get("databases"), dict):
+        raise RuntimeError(
+            f"--write-baseline refused: {baseline_path} carries no "
+            "databases block (not a seed-lane baseline) - refusing "
+            "to merge transcript keys into a foreign file")
+    baseline["transcript_digests"] = transcript_digests
+    baseline["transcript_sizes"] = transcript_sizes
+    baseline["transcripts_provenance"] = {
+        "generator": ("tools/seed_sqlite_from_manifest.py "
+                      "--write-baseline (transcript keys merged "
+                      "into the seed lane's row-floor baseline; "
+                      "the digests bind the staging assets and "
+                      "the win-lockfile seed_transcripts block)"),
+    }
+    with baseline_path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(json.dumps(baseline, indent=2) + "\n")
+    return baseline_path
+
+
 def seed(out_dir: Path, transcripts_dir: Path | None,
          write_baseline: bool, max_errors: int,
-         manifest_path: Path = MANIFEST) -> tuple[int, dict]:
+         manifest_path: Path | None = None,
+         baseline_path: Path | None = None,
+         augment_dir: Path | None = None) -> tuple[int, dict]:
+    # Lane paths resolve at CALL time (None sentinels): frozen default
+    # arguments would bind the real dirs at import and silently defeat the
+    # tests' AUGMENT_DIR/MANIFEST isolation patches (the round-3
+    # regression this restores).
+    manifest_path = MANIFEST if manifest_path is None else manifest_path
+    baseline_path = BASELINE if baseline_path is None else baseline_path
+    augment_dir = AUGMENT_DIR if augment_dir is None else augment_dir
     manifest_bytes = manifest_path.read_bytes()
     # Hash-bind the baseline to the exact manifest state it was seeded
     # from: the seed outputs already bind it transitively via per-entry
@@ -188,7 +286,8 @@ def seed(out_dir: Path, transcripts_dir: Path | None,
     # Precomputed playerbot runtime caches: see
     # apply_seed_augments - the shared helper keeps seed() and the test
     # suite's inline pipeline copies on one code path.
-    apply_seed_augments(per_db_statements, report, manifest_sha256)
+    apply_seed_augments(per_db_statements, report, manifest_sha256,
+                        augment_dir=augment_dir)
 
     translate_seconds = time.time() - started
 
@@ -297,22 +396,36 @@ def seed(out_dir: Path, transcripts_dir: Path | None,
           and summary["translation"]["statements"] > 0
           and not summary["variables_unfolded"])
     if write_baseline:
-        if manifest_path != MANIFEST:
-            # a synthetic/foreign manifest must never be able to
-            # overwrite the append-only baseline
+        historical = baseline_path == BASELINE
+        # A synthetic/foreign manifest must never write ANY baseline: only
+        # the repo's own ledger manifests (the vanilla constant + the
+        # per-flavor canonical ledgers) are writable sources.
+        known_manifests = {MANIFEST} | {
+            ROOT / flavor_layout.resolve(fid).migration_ledger()[0]
+            for fid in flavor_layout.FLAVOR_IDS}
+        if manifest_path not in known_manifests:
             raise RuntimeError(
-                "--write-baseline refused: manifest_path is not the "
-                "real migration manifest")
+                "--write-baseline refused: manifest_path is not the real "
+                "migration manifest (not one of the repo's writable "
+                "ledgers - a synthetic manifest must never write a "
+                "baseline)")
         if not ok:
             raise RuntimeError(
                 "--write-baseline refused: seed not clean (a failed run "
                 "must never clobber the append-only baseline)")
-        # newline="\n": the artifact's bytes must not differ
-        # between Windows and Linux regenerations (gotcha #14 class).
-        with BASELINE.open("w", encoding="utf-8", newline="\n") as fh:
-            fh.write(json.dumps(sanitize_summary(summary), indent=2)
-                     + "\n")
-        print(f"baseline written: {BASELINE}")
+        if historical:
+            # newline="\n": the artifact's bytes must not differ
+            # between Windows and Linux regenerations (gotcha #14 class).
+            with baseline_path.open("w", encoding="utf-8", newline="\n") as fh:
+                fh.write(json.dumps(sanitize_summary(summary), indent=2)
+                         + "\n")
+        else:
+            # Review round 2 (R2-2 medium): the per-flavor baseline is the
+            # SEED LANE's artifact — the transcript keys MERGE into it.
+            merge_transcript_keys_into_baseline(
+                summary["transcript_digests"], summary["transcript_sizes"],
+                baseline_path)
+        print(f"baseline written: {baseline_path}")
 
     print("SEED " + ("OK" if ok else "FAILED"))
     return (0 if ok else 1), summary
@@ -322,14 +435,29 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", required=True, help="output directory for the .sqlite files")
     ap.add_argument("--transcripts", help="also write per-database .sql transcripts here")
+    ap.add_argument("--flavor", default="vanilla",
+                    choices=tuple(flavor_layout.FLAVOR_IDS),
+                    help="transcript lane to run (default vanilla: the "
+                         "historical manifest/baseline/augment constants "
+                         "byte-for-byte; tbc/wotlk resolve their own "
+                         "ledger, baseline and augment dir through "
+                         "flavor_layout — the supported per-flavor "
+                         "transcript path the win/android lockfile "
+                         "re-keying consumes)")
     ap.add_argument("--write-baseline", action="store_true",
-                    help="write schemas/sqlite-seed-baseline.json (deterministic)")
+                    help="vanilla: write schemas/sqlite-seed-baseline.json "
+                         "(deterministic); tbc/wotlk: MERGE "
+                         "transcript_digests/transcript_sizes into the "
+                         "seed lane's schemas/sqlite-seed-baseline-<flavor>"
+                         ".json (never an overwrite)")
     ap.add_argument("--max-errors", type=int, default=0,
                     help="abort after N statement errors (default 0: fail on first)")
     args = ap.parse_args()
     transcripts = Path(args.transcripts) if args.transcripts else None
+    manifest, baseline, augment = lane_paths(args.flavor)
     rc, _summary = seed(Path(args.out), transcripts, args.write_baseline,
-                        args.max_errors)
+                        args.max_errors, manifest_path=manifest,
+                        baseline_path=baseline, augment_dir=augment)
     return rc
 
 

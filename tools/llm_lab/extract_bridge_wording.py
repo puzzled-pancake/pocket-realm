@@ -28,6 +28,13 @@ import sys
 import tempfile
 from pathlib import Path
 
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/llm_lab/<script>.py
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from tools import common
+
 ROOT = Path(__file__).resolve().parents[2]
 PATCHES = ROOT / "native" / "patches" / "playerbots"
 
@@ -159,7 +166,7 @@ def composer_user_prompt(persona_lines, event_rows):
 
 def render_constants() -> dict:
     gxx = "g++"
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(dir=str(common.toolchain_tmpdir())) as td:
         tdp = Path(td)
         src = tdp / "host.cpp"
         src.write_text(HOST_SRC, encoding="utf-8", newline="\n")
@@ -234,7 +241,7 @@ def compose_module(constants: dict, composer_check: bool = True) -> str:
     if composer_check:
         # verify the static helper renders byte-exactly vs the C++
         import importlib.util
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory(dir=str(common.toolchain_tmpdir())) as td:
             p = Path(td) / "bw.py"
             p.write_text(module, encoding="utf-8", newline="\n")
             spec = importlib.util.spec_from_file_location("bw", p)

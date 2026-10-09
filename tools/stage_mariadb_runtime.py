@@ -257,7 +257,9 @@ def main() -> int:
     archives = {package: package_archive(metadata, package) for package in sorted(packages)}
     archives["mariadb-glibc"] = mariadb_archive
 
-    with tempfile.TemporaryDirectory(prefix="pocket-mariadb-") as temporary:
+    with tempfile.TemporaryDirectory(
+            prefix="pocket-mariadb-",
+            dir=str(common.toolchain_tmpdir())) as temporary:
         root = Path(temporary)
         extracted = {}
         for package, archive in archives.items():

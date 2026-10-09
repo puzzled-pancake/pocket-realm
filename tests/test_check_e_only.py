@@ -242,6 +242,46 @@ def test_untracked_files_are_swept_for_c_literals(tmp_path):
                for f in findings), findings
 
 
+def test_unreadable_file_is_a_finding_not_a_gap(tmp_path, monkeypatch):
+    """R3-1 (review round 1): a file whose open raises OSError must NOT
+    vanish from the C:-literal sweep — the old `except OSError: continue`
+    in the enumeration made a locked file carrying a C: literal pass with
+    zero findings, contradicting the gate's own fail-closed doctrine. The
+    path stays in coverage and its read produces the <unreadable> E-LITERAL
+    finding (the leak_sweep shape). The lock is simulated by monkeypatching
+    Path.open for the file's name — deterministic on every host, no real
+    machine state."""
+    from pathlib import Path as _Path
+
+    root = _git_repo(tmp_path)
+    _write(root, "tools/evil.py", 'CLIENT = Path("C:/Wow clients/x")\n')
+    _write(root, "tools/locked.txt", "C:/Users/secret/hidden\n")
+    _commit_all(root)
+
+    real_open = _Path.open
+
+    def locked_open(self, *args, **kwargs):
+        if self.name == "locked.txt":
+            raise PermissionError(13, "Permission denied (simulated share lock)")
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(_Path, "open", locked_open)
+    findings, scanned = check_e_only.literal_findings(root)
+    monkeypatch.undo()
+
+    unreadable = [f for f in findings if f["path"] == "tools/locked.txt"]
+    assert unreadable, findings
+    assert unreadable[0]["code"] == "E-LITERAL"
+    assert unreadable[0]["detail"].startswith("<unreadable>")
+    assert "Permission denied" in unreadable[0]["detail"]
+    # the readable C: literal is still found, and BOTH files count as covered
+    assert any(
+        f["code"] == "E-LITERAL" and f["path"] == "tools/evil.py"
+        for f in findings
+    ), findings
+    assert scanned == 2, scanned
+
+
 def test_registry_side_drift_is_a_finding_not_a_note(tmp_path, monkeypatch):
     """Round-3 R3-1a: the persisted REGISTRY pointing at C: while the live
     env points at E: means every NEW shell writes its caches to C: — the

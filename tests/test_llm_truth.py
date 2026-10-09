@@ -342,11 +342,16 @@ def test_vanilla_era_baseline_carries_no_corpus_proven_false_bans() -> None:
         "the vanilla ban lists - the never-ban discipline forbids it "
         "(R5-4-1: bots deflected on real vanilla content)"
     )
-    corpus_proven += sorted(banned & set(KEPT_GUARDS_JUSTIFIED))
 
+    # Slice round 1 (R5): the discipline is now the CODE, not just this
+    # comment — the sweep covers the ENTIRE effective ban list (including
+    # every stage grounded_baseline), so a NEW corpus-hitting term added by
+    # curation without a KEPT_GUARDS_JUSTIFIED entry fails here instead of
+    # shipping a live false ban.
     dump = ROOT / "native/classic-db/Full_DB/ClassicDB_1_12_1_z2815.sql.gz"
     assert dump.is_file(), "the pinned vanilla corpus is missing"
-    needles = [t.encode("utf-8").lower() for t in corpus_proven]
+    needles = sorted(
+        t.encode("utf-8").lower() for t in set(corpus_proven) | banned)
     hits: dict[str, int] = {}
     with gzip.open(dump, "rb") as handle:
         for line in handle:
@@ -363,7 +368,20 @@ def test_vanilla_era_baseline_carries_no_corpus_proven_false_bans() -> None:
                     if before_ok and after_ok:
                         hits[raw_needle.decode()] = hits.get(raw_needle.decode(), 0) + 1
                     start = i + 1
-    missing = [t for t in corpus_proven if hits.get(t, 0) == 0]
+
+    unguarded_hits = sorted(
+        term for term in banned
+        if hits.get(term, 0) > 0 and term not in KEPT_GUARDS_JUSTIFIED
+    )
+    assert not unguarded_hits, (
+        f"ban term(s) {unguarded_hits} hit the shipped vanilla corpus but "
+        "carry no KEPT_GUARDS_JUSTIFIED entry — a corpus-hitting ban is a "
+        "live false ban (R5-4-1: bots deflect on real vanilla content); "
+        "record the deliberate-guard justification or prune the term"
+    )
+
+    missing = [t for t in sorted(set(corpus_proven) | set(KEPT_GUARDS_JUSTIFIED))
+               if hits.get(t, 0) == 0]
     assert not missing, (
         f"corpus regression: {missing} no longer hit the shipped vanilla "
         "dump - the pin's corpus assumptions changed; re-derive before "
@@ -380,3 +398,59 @@ def test_vanilla_era_baseline_carries_no_corpus_proven_false_bans() -> None:
         f"exception-table entries {stale_table} are no longer in the vanilla "
         "ban lists — prune the stale KEPT_GUARDS_JUSTIFIED entries"
     )
+
+
+def test_lore_card_builder_era_lint_consumes_the_manifest_single_source(
+        monkeypatch):
+    """R5-r1-2 (review round 1): tools/llm_lab/build_lore_cards.py's
+    build-time era lint described itself as a 'mirror of the C++ EraScan'
+    but carried a stale inline list — the D50-pruned terms (draenei,
+    pandaren, argus, kul tiras, zandalar, broken isles, burning crusade,
+    ...) that the shipped vanilla baseline no longer bans — so the build
+    lane false-banned vocabulary the shipped game accepts and nothing
+    pinned the two surfaces together. The lint now LOADS the manifest
+    single-source (schemas/timeframes/vanilla.json
+    final_stage_era_baseline); this pin keeps it that way: any future
+    curation must update the manifest (and thereby the generated C++
+    header AND this lint) in one change."""
+    import importlib
+
+    # the module guards corpus access at import (LLM_LAB_LORE_CORPUS);
+    # this test drives only the lint tables, so a placeholder unblocks it
+    monkeypatch.setenv("LLM_LAB_LORE_CORPUS", "unused-by-this-test")
+    root = ROOT
+    sys_path = str(root)
+    import sys as _sys
+    if sys_path not in _sys.path:
+        _sys.path.insert(0, sys_path)
+    builder = importlib.import_module("tools.llm_lab.build_lore_cards")
+
+    terms, phrases = builder.era_lint_tables()
+
+    # equals the manifest baseline — the single-source contract
+    import json as _json
+    manifest = _json.loads(
+        (root / "schemas" / "timeframes" / "vanilla.json").read_text(
+            encoding="utf-8"))
+    baseline = manifest["final_stage_era_baseline"]
+    assert terms == list(baseline["always_ban_terms"])
+    assert phrases == [needle for needle, _flag in baseline["sense_phrases"]]
+
+    # the D50/R5-4-1 pruned terms stay OUT of the lint (the false-ban
+    # drift this fix removes): a re-inline of the old mirror fails here
+    pruned = ["draenei", "pandaren", "argus", "kul tiras", "zandalar",
+              "broken isles", "burning crusade", "cataclysm", "shadowlands",
+              "battle for azeroth", "the war within"]
+    leaked = sorted(set(pruned) & (set(terms) | set(phrases)))
+    assert not leaked, (
+        f"pruned vanilla-legitimate term(s) {leaked} re-entered the "
+        "build-time era lint — the manifest single-source no longer bans "
+        "them (R5-4-1: bots deflect on real vanilla content); do not "
+        "re-inline the old mirror list")
+
+    # and the stale inline mirror is gone from the source: era_lint reads
+    # the loaded tables, never a hardcoded tuple
+    source = (root / "tools" / "llm_lab" / "build_lore_cards.py").read_text(
+        encoding="utf-8")
+    assert '("shattrath", "draenei", "pandaren", "acherus")' not in source
+    assert "lint_terms, lint_phrases = era_lint_tables()" in source

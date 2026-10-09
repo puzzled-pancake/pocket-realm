@@ -12,6 +12,13 @@ import sys
 import tempfile
 import zipfile
 
+try:
+    from tools import common
+except ImportError:  # direct execution: python scripts/<script>.py
+    import sys as _sys
+    _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    from tools import common
+
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "tools" / "install_client_windows.ps1"
 
 MPQS = [
@@ -42,7 +49,7 @@ def main() -> int:
     if sys.platform != "win32":
         print("windows-only smoke test; skipping")
         return 0
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(dir=str(common.toolchain_tmpdir())) as tmp:
         root = pathlib.Path(tmp)
         build_fixtures(root)
         result = subprocess.run(

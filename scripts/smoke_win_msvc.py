@@ -19,6 +19,13 @@ import sys
 import tempfile
 from pathlib import Path
 
+try:
+    from tools import common
+except ImportError:  # direct execution: python scripts/<script>.py
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from tools import common
+
 ROOT = Path(__file__).resolve().parents[1]
 PATCHES = ROOT / "native" / "patches" / "playerbots"
 TOOLS = ROOT / "tools"
@@ -88,7 +95,9 @@ def main() -> int:
         return 2
     vcvars = find_vcvars()
     failures = 0
-    with tempfile.TemporaryDirectory(prefix="pocketrealm-msvc-smoke-") as tmp:
+    with tempfile.TemporaryDirectory(
+            prefix="pocketrealm-msvc-smoke-",
+            dir=str(common.toolchain_tmpdir())) as tmp:
         work = Path(tmp)
         for name, (harness, expected, argv) in BATTERIES.items():
             source = TOOLS / harness

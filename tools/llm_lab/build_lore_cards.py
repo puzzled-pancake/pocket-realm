@@ -109,6 +109,46 @@ CONTEXT_ALLOW = {
 }
 
 
+def era_lint_tables():
+    """The build-time era lint consumes the MANIFEST single-source
+    (R5-r1-2, review round 1): schemas/timeframes/vanilla.json's
+    final_stage_era_baseline — the same always_ban_terms/sense_phrases the
+    generated C++ header serves to EraScan/EraLintCards
+    (PlayerbotLlmTruthCore.h via PlayerbotLlmEraStages.generated.h).
+
+    The old inline mirror ("mirror of the C++ EraScan") carried a stale
+    superseded list — draenei/pandaren as always-ban terms, argus/kul
+    tiras/zandalar/broken isles/burning crusade/cataclysm/shadowlands/
+    battle for azeroth/the war within as phrases — exactly the terms
+    D50/R5-4-1 pruned from the shipped vanilla baseline after they proved
+    to be vanilla-legitimate corpus vocabulary (bots deflected on real
+    content). The two surfaces now cannot drift: curation lands in the
+    manifest and the generated header AND this lint move in one change
+    (pinned by tests/test_llm_truth.py). Matching stays the simple Python
+    form (word-boundary always terms, substring phrases); the SHIPPED file
+    is authoritatively re-linted by the C++ host battery, which reads the
+    same lists from the generated header. The deliberately-stricter
+    LATER_PLACES/LATER_SENSES wiki-scrub tables above are a separate,
+    documented curation and are NOT this lint."""
+    manifest_path = os.path.join(REPO, "schemas", "timeframes", "vanilla.json")
+    with open(manifest_path, encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    baseline = manifest.get("final_stage_era_baseline")
+    if not isinstance(baseline, dict):
+        raise SystemExit(
+            f"{manifest_path}: no final_stage_era_baseline — the era lint "
+            "consumes the manifest single-source; curate the baseline "
+            "there, never inline here")
+    terms = [str(term) for term in baseline.get("always_ban_terms") or []]
+    phrases = [str(needle) for needle, _flag
+               in baseline.get("sense_phrases") or []]
+    if not terms or not phrases:
+        raise SystemExit(
+            f"{manifest_path}: final_stage_era_baseline carries empty ban "
+            "lists — refusing an inert era lint")
+    return terms, phrases
+
+
 def line_is_post_era(line):
     """True when the line carries an unambiguous post-1.12 marker."""
     low = line.lower()
@@ -322,25 +362,17 @@ def main():
             "poi": category in POI_CATEGORIES,
         })
 
-    # era lint (mirror of the C++ EraScan over the shipped content; the
-    # C++ host battery re-checks the file itself)
+    # era lint: the MANIFEST single-source (era_lint_tables) — the same
+    # lists the generated C++ header serves (EraScan/EraLintCards); the
+    # C++ host battery re-checks the shipped file itself
+    lint_terms, lint_phrases = era_lint_tables()
+
     def era_lint(card):
         low = (card["title"] + "\n" + card["text"]).lower()
-        for term in ("shattrath", "draenei", "pandaren", "acherus"):
+        for term in lint_terms:
             if re.search(rf"\b{term}\b", low):
                 return term
-        phrases = [
-            "flying mount", "portal is open", "portals are open",
-            "gilneas opened", "gilneas is open", "playable worgen",
-            "dalaran floats", "sewers of dalaran", "ebon blade",
-            "burning crusade", "wrath of the lich king", "cataclysm",
-            "mists of pandaria", "warlords of draenor", "shadowlands",
-            "battle for azeroth", "the war within",
-            "broken isles", "hellfire peninsula", "nazjatar",
-            "kul tiras", "zandalar", "revendreth", "maldraxxus",
-            "ardenweald", "zereth mortis", "korthia", "argus",
-        ]
-        for p in phrases:
+        for p in lint_phrases:
             if p in low:
                 return p
         return None

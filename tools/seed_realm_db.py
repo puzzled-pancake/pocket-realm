@@ -27,9 +27,15 @@ Flavor parameter (port plan S1 item 6; per-flavor seed execution is S4
 item 3, implemented): every flavor seeds its OWN inputs, resolved through
 tools/flavor_layout.py — the flavor core's sql/base, the flavor DB repo's
 Full_DB content archive, the flavor's DB names, and the revision floors
-parsed from the flavor core's src/shared/revision_sql.h. `--flavor tbc|wotlk`
-refuses loud (rc=2) until the flavor's server_core and db_content pins are
-registered and checked out (never a silent reuse of the classic inputs).
+parsed from the flavor core's src/shared/revision_sql.h. Every flavor
+(vanilla included since review round 1 R2-2) refuses loud (rc=2) unless
+its server_core and db_content pins are registered, checked out at the
+pin, and clean — never a silent reuse of the classic inputs. The world
+dump is refused on two legs before anything is written: PATH (it must
+live under the flavor's own db repo) and CONTENT (its db_version
+revision markers must belong to the flavor's own branch; R1-3), and a
+db_content.seed that leaves the flavor's db repo refuses at plan
+resolution (R2-1).
 
 Inputs (resolved relative to the repo root, per flavor):
     <core>/sql/base/{realmd,characters,logs,mangos}.sql     (schema+base)
@@ -627,6 +633,16 @@ def _flavor_seed_plan(flavor_id: str) -> SeedPlan:
     db_root = ROOT / layout.db_submodule
     seed = (block.get("db_content") or {}).get("seed")
     if isinstance(seed, str) and seed:
+        # R2-1 (review round 1, serious): a doctored db_content.seed
+        # ("../classic-db-wotlk/...", an absolute path) joins onto db_root
+        # uncontained and — because the floors are MINIMUMS and the
+        # version-table leg is a WARN — seeds foreign world content under
+        # this flavor's DB names with rc=0. The containment rule lives in
+        # flavor_layout (shared with stage_database_migrations) and is
+        # enforced BEFORE the join.
+        seed_error = flavor_layout.db_content_seed_error(flavor_id, seed)
+        if seed_error:
+            raise RuntimeError(seed_error)
         world_dump = db_root / seed
     else:
         archives = sorted((db_root / "Full_DB").glob("*.sql.gz"))
@@ -648,6 +664,142 @@ def _flavor_seed_plan(flavor_id: str) -> SeedPlan:
         required_versions=_required_versions_from_core(flavor_id, layout),
         baseline=ROOT / layout.sqlite_seed_baseline(),
     )
+
+
+def _world_dump_identity_error(plan: SeedPlan, world_dump: Path) -> str | None:
+    """Refuse a --world-dump override that leaves the flavor's OWN db repo
+    (the PATH leg of the wrong-flavor refusal; the CONTENT leg is
+    `_world_dump_content_error` below).
+
+    The per-flavor floors are MINIMUMS (a higher-volume wrong-flavor dump —
+    e.g. the wotlk Full_DB measured in schemas/sqlite-seed-baseline-wotlk.json
+    — passes every tbc floor table) and the version-table leg is an honest
+    WARN (BEHIND), so nothing else inside this tool rejects a cross-flavor
+    Full_DB. The path leg alone cannot catch a foreign dump copied INSIDE
+    the flavor's own db repo (the vanilla lane's in-repo copy class) — the
+    content sniff below closes that; the two legs together enforce the
+    docstring's "never classic inputs under another flavor's name"
+    promise. Overrides inside the flavor's own db submodule stay allowed
+    (same repo, same provenance chain as the pinned db_content.seed
+    archive) but must carry the flavor's own revision family."""
+    # Review round 2 (R2-1 serious, arm 2): the db submodules gitignore
+    # scratch names (*.log *.orig *.rej *.swo *.swp *.vi *~ —
+    # native/classic-db/.gitignore), so a doctored dump under one of those
+    # extensions is INVISIBLE to the pin dirty-check while this path leg
+    # would accept anything inside the repo. A world content archive is a
+    # .sql.gz Full_DB (or plain .sql) — a git-VISIBLE name, so a doctored
+    # in-repo dump either carries a foreign marker (refused by the content
+    # sniff) or takes a tracked name the dirty-check sees.
+    name_ok = world_dump.suffix == ".sql" or (
+        world_dump.suffix == ".gz"
+        and world_dump.name.lower().endswith(".sql.gz"))
+    if not name_ok:
+        return (
+            f"--world-dump {world_dump} does not carry a .sql/.sql.gz name "
+            "— the db repos gitignore scratch extensions (*.log, *.orig, "
+            "*~), so a dump under an ignored name would be invisible to "
+            "the pin dirty-check; a world content archive is a Full_DB "
+            ".sql.gz (or plain .sql), never a scratch-named file"
+        )
+    if world_dump.resolve() == plan.world_dump.resolve():
+        return None
+    db_root = (ROOT / plan.db_submodule).resolve()
+    try:
+        world_dump.resolve().relative_to(db_root)
+    except ValueError:
+        return (
+            f"--world-dump {world_dump} is outside the {plan.flavor_id} db "
+            f"repo ({plan.db_submodule}) — a wrong-flavor Full_DB would seed "
+            f"{plan.db_names['mangos']}.sqlite with foreign world content the "
+            "floor check cannot catch (floors are minimums, a higher-volume "
+            "wrong-flavor dump passes them). Pass the flavor's own "
+            "db_content.seed archive or a path under "
+            f"{plan.db_submodule}."
+        )
+    return None
+
+
+# Content identity sniff (review round 1, R1-3): the world-db revision
+# marker dialects are the SAME regexes stage_database_migrations' per-flavor
+# rules use for the cutoff computation — a cmangos Full_DB's db_version
+# INSERT carries required_<rev>_<n>_mangos_<name> rows in exactly its own
+# branch's dialect (measured 2026-10-09 over all three pinned dumps, full
+# streams: vanilla z2815 at 33.5 MB decompressed and ONLY z-markers; tbc
+# s2491 at 50 MB, ONLY s-markers; wotlk 14092 at 67 MB, ONLY 5-digit
+# markers — so "own family present, foreign family absent" is a measured
+# invariant of the honest archives, not a guess).
+def _world_dump_content_error(plan: SeedPlan, world_dump: Path) -> str | None:
+    """Refuse a world dump whose db_version revision markers belong to a
+    DIFFERENT branch than the flavor's own (or that carries no recognizable
+    mangos marker at all). The path leg above cannot see a wrong-flavor
+    Full_DB copied INSIDE the flavor's own db repo; the floors (minimums)
+    and the version-table WARN cannot either. Runs on the pinned default
+    dump too — the honest dumps pass by measurement (module comment)."""
+    # Family classifiers: the same branch dialects
+    # stage_database_migrations._FLAVOR_RULES match for the cutoff
+    # computation, minus the trailing marker-NAME requirement (ownership
+    # classification needs only the dialect prefix; the name-suffix form
+    # cannot re-match the bare any-family hit).
+    family_of = {
+        "vanilla": re.compile(r"required_z\d{4}_\d+_mangos_"),
+        "tbc": re.compile(r"required_s\d{4}_\d+_mangos_"),
+        "wotlk": re.compile(r"required_\d{5}_\d+_mangos_"),
+    }
+    own_family = family_of[plan.flavor_id]
+    any_family = re.compile(r"required_(?:z\d{4}|s\d{4}|\d{5})_\d+_mangos_")
+    opener = (gzip.open(world_dump, "rt", encoding="utf-8", errors="replace")
+              if world_dump.suffix == ".gz"
+              else world_dump.open("rt", encoding="utf-8", errors="replace"))
+    own_seen = False
+    foreign = ""
+    tail = ""
+    try:
+        with opener as handle:
+            # Whole-stream scan (no cap): the wotlk dump's first marker sits
+            # at 67 MB decompressed, so a capped probe would falsely refuse
+            # the honest archive; a full pass costs <1 s (measured) next to
+            # the seed's own full read. EVERY any-family hit in the window
+            # is classified (review round 2, R2-1 serious: the old
+            # first-hit-only `search` accepted a composite dump whose FIRST
+            # marker was own-family and whose foreign marker sat later in
+            # the same window — the D55 contract is that NO foreign marker
+            # appears anywhere in the stream).
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                window = tail + chunk
+                if not own_seen and own_family.search(window):
+                    own_seen = True
+                if not foreign:
+                    for hit in any_family.finditer(window):
+                        if not own_family.match(hit.group(0)):
+                            foreign = hit.group(0)
+                            break
+                tail = window[-64:]
+    except (OSError, EOFError, gzip.BadGzipFile) as exc:
+        return (
+            f"--world-dump {world_dump} could not be read for the content "
+            f"identity sniff: {exc} — refusing to seed world content that "
+            "cannot be attested as this flavor's own"
+        )
+    if foreign:
+        return (
+            f"--world-dump {world_dump} carries a foreign branch's world-db "
+            f"revision marker ({foreign}) — it is not {plan.flavor_id} world "
+            f"content and would seed {plan.db_names['mangos']}.sqlite with "
+            "wrong-flavor data the floor check cannot catch (floors are "
+            "minimums). Pass the flavor's own db_content.seed archive."
+        )
+    if not own_seen:
+        return (
+            f"--world-dump {world_dump} carries no {plan.flavor_id} world-db "
+            "revision marker (db_version required_*_mangos_* rows) — it is "
+            "not recognizable as this flavor's world content; refusing a "
+            "dump that cannot be attested. Pass the flavor's own "
+            "db_content.seed archive."
+        )
+    return None
 
 
 def _measure_db(db_path: Path) -> tuple[int, int, dict]:
@@ -827,7 +979,11 @@ def main() -> int:
     ap.add_argument("--world-dump", default=None,
                     help="path to the flavor's Full_DB .sql.gz (default: the "
                          "flavor's pinned archive; vanilla: "
-                         f"{WORLD_DUMP})")
+                         f"{WORLD_DUMP}). Must live under the flavor's own db "
+                         "repo AND carry the flavor's own world-db revision "
+                         "markers — a foreign Full_DB is refused on both the "
+                         "path and the content legs (the floors are minimums "
+                         "and cannot catch a higher-volume wrong-flavor dump)")
     ap.add_argument("--no-world-dump", action="store_true",
                     help="explicitly opt into a schema-only mangos (world) seed: skip "
                          "the Full_DB content dump. NOT the default because a "
@@ -846,26 +1002,33 @@ def main() -> int:
                     help="log every tolerated translation error")
     args = ap.parse_args()
 
-    if args.flavor != "vanilla":
-        # S4 item 3: the per-flavor seed consumes the flavor's OWN core
-        # sql/base and DB-repo Full_DB archive, so both pins must be
-        # registered AND checked out before anything is seeded (bots is not
-        # a seed input and is not required here). Fail loud rather than
-        # silently seed classic inputs under another flavor's name.
-        try:
-            flavor_layout.require_flavor_pins(
-                args.flavor, groups=("server_core", "db_content"))
-        except flavor_layout.FlavorPinError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            print(
-                f"ERROR: refusing to seed the {args.flavor} lane until its "
-                "server_core and db_content pins are registered and checked "
-                "out — the seed applies the flavor core's sql/base and the "
-                "flavor DB repo's Full_DB archive, never classic inputs "
-                "under another flavor's name",
-                file=sys.stderr,
-            )
-            return 2
+    # R2-2 (review round 1): EVERY flavor verifies its pins before seeding —
+    # vanilla included, like stage_database_migrations.select_inputs ("S1
+    # ran this check only for tbc/wotlk as the pre-S4 stopgap; ... vanilla
+    # is verified like the rest"). The old `!= "vanilla"` guard let a stale
+    # (HEAD != pin) or dirty native/cmangos / native/classic-db checkout
+    # seed all four vanilla DBs with rc=0 and no pin attestation — the
+    # stale-generation class the tbc/wotlk lanes refuse loud. The vanilla
+    # pins resolve on the registered lane, so honest runs are byte-identical;
+    # only the stale class gains its refusal. S4 item 3: the per-flavor seed
+    # consumes the flavor's OWN core sql/base and DB-repo Full_DB archive,
+    # so both pins must be registered AND checked out before anything is
+    # seeded (bots is not a seed input and is not required here). Fail loud
+    # rather than silently seed classic inputs under another flavor's name.
+    try:
+        flavor_layout.require_flavor_pins(
+            args.flavor, groups=("server_core", "db_content"))
+    except flavor_layout.FlavorPinError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        print(
+            f"ERROR: refusing to seed the {args.flavor} lane until its "
+            "server_core and db_content pins are registered and checked "
+            "out at the pin, with a clean tree — the seed applies the "
+            "flavor core's sql/base and the flavor DB repo's Full_DB "
+            "archive, never classic inputs under another flavor's name",
+            file=sys.stderr,
+        )
+        return 2
 
     try:
         plan = _flavor_seed_plan(args.flavor)
@@ -907,6 +1070,26 @@ def main() -> int:
             "fix --world-dump, or pass\n  --no-world-dump for an explicit "
             "schema-only seed.",
             file=sys.stderr)
+        return 2
+
+    # An EXISTING but foreign dump is the wrong-flavor class the floors and
+    # the version-table WARN cannot catch (both checked after the seed):
+    # refuse it here, before any database is written — first by PATH (the
+    # dump must live in the flavor's own db repo), then by CONTENT (its
+    # db_version revision markers must belong to the flavor's own branch;
+    # R1-3: the in-repo copy class the path leg cannot see). --no-world-dump
+    # never reads the dump, so its path is unvalidated by design.
+    identity_error = (
+        None if args.no_world_dump
+        else _world_dump_identity_error(plan, world_dump))
+    if identity_error:
+        print(f"ERROR: {identity_error}", file=sys.stderr)
+        return 2
+    content_error = (
+        None if args.no_world_dump
+        else _world_dump_content_error(plan, world_dump))
+    if content_error:
+        print(f"ERROR: {content_error}", file=sys.stderr)
         return 2
 
     rc = 0

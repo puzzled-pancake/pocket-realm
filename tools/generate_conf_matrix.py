@@ -125,15 +125,19 @@ def flavor_surfaces(layout: flavor_layout.FlavorLayout) -> list[Path]:
     return present
 
 
-def generate(flavor_id: str, out: Path | None = None, list_only: bool = False) -> int:
+def build_record(flavor_id: str) -> dict:
+    """Build one flavor's conf-matrix record from the CURRENT manifest +
+    pinned conf dists, writing nothing. Raises RuntimeError on the
+    fail-loud classes (missing flavor block, missing dists, C9
+    excluded-family violation) so the writer and the freshness check
+    (R3-1, review round 3) share one code path."""
     layout = flavor_layout.resolve(flavor_id)
     manifest = flavor_layout.load_flavor_manifest()
     block = next(
         (f for f in manifest["flavors"] if f.get("id") == flavor_id), None
     )
     if block is None:
-        print(f"ERROR: flavor {flavor_id!r} not in {FLAVOR_MANIFEST}", file=sys.stderr)
-        return 2
+        raise RuntimeError(f"flavor {flavor_id!r} not in {FLAVOR_MANIFEST}")
     excluded_families = [
         entry.get("key_family")
         for entry in (block.get("conf_matrix") or {}).get("excluded_keys", [])
@@ -141,48 +145,100 @@ def generate(flavor_id: str, out: Path | None = None, list_only: bool = False) -
     surfaces = flavor_surfaces(layout)
     missing = [path for path in surfaces if not path.is_file()]
     if not surfaces or missing:
-        print(
-            "ERROR: conf dist files missing for flavor "
-            f"{flavor_id!r} (they arrive with the flavor's S2/S3 submodule "
-            "pins; H1-17 generation executes then):",
-            file=sys.stderr,
-        )
-        for path in missing:
-            print(f"  - {path}", file=sys.stderr)
-        return 2
-    if list_only:
-        for path in surfaces:
-            print(_display(path))
-        return 0
-
+        detail = "\n  ".join(_display(p) for p in missing)
+        raise RuntimeError(
+            f"conf dist files missing for flavor {flavor_id!r} (they arrive "
+            "with the flavor's S2/S3 submodule pins; H1-17 generation "
+            f"executes then):\n  {detail}")
     keys: dict[str, dict] = {}
     for path in surfaces:
         for key, default in parse_dist(path).items():
             family = key.split(".")[0]
             if family in excluded_families:
-                print(
-                    f"ERROR: correction C9 violation — dist {path.name} carries key "
+                raise RuntimeError(
+                    f"correction C9 violation — dist {path.name} carries key "
                     f"{key!r} whose family is excluded for flavor {flavor_id!r} "
                     "(schemas/flavor.json conf_matrix.excluded_keys); the generator "
-                    "must not emit it and staging must not expect it",
-                    file=sys.stderr,
-                )
-                return 2
+                    "must not emit it and staging must not expect it")
             keys[key] = {"file": path.name, "default": default}
-    record = {
+    return {
         "schema": 1,
         "flavor": flavor_id,
         "surfaces": sorted(_display(p) for p in surfaces),
         "keys": dict(sorted(keys.items())),
         "excluded_keys": (block.get("conf_matrix") or {}).get("excluded_keys", []),
     }
+
+
+def generate(flavor_id: str, out: Path | None = None, list_only: bool = False) -> int:
+    layout = flavor_layout.resolve(flavor_id)
+    if list_only:
+        surfaces = flavor_surfaces(layout)
+        missing = [path for path in surfaces if not path.is_file()]
+        if not surfaces or missing:
+            print(
+                "ERROR: conf dist files missing for flavor "
+                f"{flavor_id!r} (they arrive with the flavor's S2/S3 submodule "
+                "pins; H1-17 generation executes then):",
+                file=sys.stderr,
+            )
+            for path in missing:
+                print(f"  - {path}", file=sys.stderr)
+            return 2
+        for path in surfaces:
+            print(_display(path))
+        return 0
+    try:
+        record = build_record(flavor_id)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     encoded = json.dumps(record, indent=2) + "\n"
     if out is None:
         out = ROOT / layout.conf_matrix()
     out.write_bytes(encoded.encode("utf-8"))
-    print(f"conf matrix: {out} ({len(keys)} keys, "
+    print(f"conf matrix: {out} ({len(record['keys'])} keys, "
           f"{len(record['excluded_keys'])} excluded families)")
     return 0
+
+
+def check(flavor_ids=("tbc", "wotlk")) -> list[str]:
+    """Freshness gate (R3-1, review round 3; decision D61): every committed
+    schemas/conf-matrix-<flavor>.json must regenerate BYTE-IDENTICALLY
+    from the current manifest + pinned conf dists — the binding used to
+    exist only at write time (the D57 'provenance that can rot' class), so
+    manifest exclusion edits, submodule re-pins that change dists, or hand
+    edits rotted the matrices silently until W3.4 wires the consumers.
+    Scoped to the COMMITTED per-flavor matrices (tbc/wotlk — the vanilla
+    golden stays the G3-7 CI-run lane and ships no committed matrix;
+    extending the tuple covers a future one). A flavor whose dists are not
+    checked out is a LOUD NOTE, not an error (the pins arrive with S2/S3;
+    check_sources owns that posture)."""
+    errors: list[str] = []
+    for flavor_id in flavor_ids:
+        layout = flavor_layout.resolve(flavor_id)
+        committed = ROOT / layout.conf_matrix()
+        try:
+            record = build_record(flavor_id)
+        except RuntimeError as exc:
+            print(f"NOTE conf-matrix: {flavor_id}: {exc}", file=sys.stderr)
+            continue
+        if not committed.is_file():
+            errors.append(
+                f"conf-matrix: {committed.relative_to(ROOT).as_posix()} is "
+                "missing (regenerate: python tools/generate_conf_matrix.py "
+                f"--flavor {flavor_id})")
+            continue
+        fresh_bytes = json.dumps(record, indent=2) + "\n"
+        if committed.read_text(encoding="utf-8") != fresh_bytes:
+            errors.append(
+                "conf-matrix: "
+                f"{committed.relative_to(ROOT).as_posix()} is STALE - it no "
+                "longer regenerates from the current manifest + pinned conf "
+                "dists (regenerate: python tools/generate_conf_matrix.py "
+                f"--flavor {flavor_id}; a deliberate exclusion-set change "
+                "lands with its parity pin in the same change)")
+    return errors
 
 
 def main() -> int:
@@ -194,7 +250,20 @@ def main() -> int:
                              "schemas/conf-matrix-{flavor}.json")
     parser.add_argument("--list-surfaces", action="store_true",
                         help="print the dist files the flavor's pins carry and exit")
+    parser.add_argument("--check", action="store_true",
+                        help="verify every committed conf matrix regenerates "
+                             "byte-identically from the current manifest + "
+                             "pinned dists (R3-1 freshness gate; 0 = in sync, "
+                             "1 = stale/missing)")
     args = parser.parse_args()
+    if args.check:
+        errors = check()
+        for error in errors:
+            print(f"ERROR {error}", file=sys.stderr)
+        print("conf-matrix check: OK (all committed matrices regenerate "
+              "identically)" if not errors
+              else f"conf-matrix check: FAILED ({len(errors)} stale/missing)")
+        return 1 if errors else 0
     return generate(args.flavor, args.out, args.list_surfaces)
 
 

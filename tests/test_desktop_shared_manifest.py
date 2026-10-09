@@ -129,6 +129,34 @@ def test_desktop_twins_exist():
         assert (ROOT / twin).is_file(), f"missing desktop twin for {label}: {twin}"
 
 
+# R1-2 (review round 1, schemas-tools slice): the two JVM tests that parse
+# schemas/flavor.json and pin it against the shared registries are the
+# manifest-parity GATES. They live in the shared Android test tree, compile
+# unmodified on the desktop JVM (org.json:json is a desktop dependency, and
+# locateManifest() walks up from user.dir), and MUST stay in shared_tests:
+# desktop compiles ClientFlavor.kt and BotPopulationPolicy.kt, so a
+# flavor.json <-> registry drift that ships green through the desktop suite
+# is exactly the drift the parity gates exist to catch at the lane that
+# compiled the code.
+MANIFEST_PARITY_TESTS = (
+    "client/FlavorManifestParityTest.kt",
+    "bots/BotPopulationPolicyFlavorRowsTest.kt",
+)
+
+
+def test_manifest_parity_gates_stay_shared():
+    shared_tests = _manifest()["shared_tests"]
+    for entry in MANIFEST_PARITY_TESTS:
+        assert entry in shared_tests, (
+            f"{entry} left desktop/shared-sources.json shared_tests — the "
+            "desktop lane would compile the shared registries with no "
+            "flavor.json parity gate (a manifest/registry drift ships "
+            "green on desktop)"
+        )
+        # and the test source itself stays in the shared Android tree
+        assert (ROOT / ANDROID_TEST_TREE_ROOT / entry).is_file(), entry
+
+
 def test_desktop_build_consumes_the_manifest():
     text = DESKTOP_BUILD_FILE.read_text(encoding="utf-8")
     assert "shared-sources.json" in text, (

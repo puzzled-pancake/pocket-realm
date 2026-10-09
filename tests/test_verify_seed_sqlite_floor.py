@@ -163,3 +163,195 @@ def test_replay_bound_is_recorded_and_configurable(tmp_path, monkeypatch):
     assert set(summary["replay_seconds"]) == {
         f"3.18/{db}" for db in floor.DATABASES}
     assert all(v > 0.0 for v in summary["replay_seconds"].values())
+
+
+# ---------------------------------------------------------------------------
+# Review round 2:
+# R3-2 (serious): the sqlite-tools archives are EXECUTED (sqlite3.exe
+# replays the production seed SQL), so the download path must enforce the
+# repo's hash-pin discipline BEFORE any extract or execute — the banner
+# check alone is not provenance.
+# R2-4 (medium): the lockfile leg is only ever skipped EXPLICITLY — an
+# unknown reported ABI refuses loud, and the no-aapt arm marks the summary
+# (and the banner) lockfile-leg-SKIPPED instead of claiming a bare pass.
+# ---------------------------------------------------------------------------
+
+def _fake_apk(tmp_path: Path, raws: dict[str, bytes]) -> tuple[Path, Path]:
+    apk_path = tmp_path / "tiny-server.apk"
+    with zipfile.ZipFile(apk_path, "w") as zf:
+        for db, raw in raws.items():
+            zf.writestr(f"{floor.SQLZ_PREFIX}{db}.sqlz", gzip.compress(raw))
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps({
+        "transcript_digests": {db: hashlib.sha256(raw).hexdigest()
+                               for db, raw in raws.items()},
+    }), encoding="utf-8")
+    return apk_path, baseline
+
+
+def test_shell_archive_digest_enforced_before_extract_or_execute(
+        tmp_path, monkeypatch):
+    """A cached archive whose digest mismatches the SHELL_URLS pin is
+    deleted and refused — the error is the hash mismatch, raised BEFORE the
+    zip is extracted or any exe runs (the store holds no sqlite3.exe
+    afterwards)."""
+    store = tmp_path / "shells"
+    store.mkdir()
+    archive = store / "sqlite-3.18.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("sqlite3.exe", b"tampered")  # valid zip, wrong digest
+    monkeypatch.setattr(floor, "SHELL_STORE", store)
+    monkeypatch.setattr(
+        floor, "SHELL_URLS",
+        {"3.18": ("https://sqlite.org.example/not-fetched.zip",
+                  "b" * 64, "3.18.0")})
+    with pytest.raises(RuntimeError, match="!= pinned"):
+        floor.shell_for("3.18")
+    assert not archive.exists(), "the mismatched archive must be deleted"
+    assert not (store / "3.18").exists(), (
+        "nothing may be extracted before the digest verifies")
+
+
+def test_matching_hash_proceeds_past_the_digest_leg(tmp_path, monkeypatch):
+    """A hash-honest archive gets past the digest leg (the failure that
+    fires next is the extraction stage's no-sqlite3.exe complaint — never
+    the hash mismatch). No executable is shipped in the fixture, so the
+    banner/execute stage is never reached here."""
+    import io
+    store = tmp_path / "shells"
+    store.mkdir()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr("README.txt", "hash-honest but exe-less")
+    archive = store / "sqlite-3.18.zip"
+    archive.write_bytes(buffer.getvalue())
+    honest_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    monkeypatch.setattr(floor, "SHELL_STORE", store)
+    monkeypatch.setattr(
+        floor, "SHELL_URLS",
+        {"3.18": ("https://sqlite.org.example/not-fetched.zip",
+                  honest_digest, "3.18.0")})
+    with pytest.raises(RuntimeError) as excinfo:
+        floor.shell_for("3.18")
+    assert "no sqlite3.exe" in str(excinfo.value)
+    assert "!= pinned" not in str(excinfo.value)
+    assert (store / "3.18").is_dir(), "the honest archive was extracted"
+
+
+def test_shell_urls_all_carry_pinned_digests():
+    """The pin shape itself: every SHELL_URLS entry carries a 64-hex digest
+    (the R3-2 fix) — a future floor addition cannot reintroduce the
+    unpinned-download class."""
+    for version, entry in floor.SHELL_URLS.items():
+        assert len(entry) == 3, (version, entry)
+        url, digest, banner = entry
+        assert len(digest) == 64 and all(c in "0123456789abcdef" for c in digest), (
+            version, digest)
+        assert url.startswith("https://"), url
+
+
+def test_unknown_reported_abi_refuses_loud(tmp_path, monkeypatch):
+    """R2-4: an APK reporting an ABI outside LOCKFILES is a lane this tool
+    has no sqlite lockfile pin for — refuse loud naming the ABI and the
+    pinned set, never baseline-only with a pass banner."""
+    raws = {db: CLEAN_TX for db in floor.DATABASES}
+    apk_path, baseline = _fake_apk(tmp_path, raws)
+    monkeypatch.setattr(floor, "BASELINE", baseline)
+    monkeypatch.setattr(
+        floor, "apk_statics",
+        lambda apk: {"abi": ["armeabi-v7a"], "minSdk": "26",
+                     "package": "com.pocketrealm.test"})
+    with pytest.raises(RuntimeError) as excinfo:
+        floor.verify_apk(apk_path, ("3.18",))
+    message = str(excinfo.value)
+    assert "armeabi-v7a" in message
+    assert "x86_64" in message and "arm64-v8a" in message, (
+        "the pinned ABI set is named in the refusal")
+
+
+def test_missing_statics_marks_the_lockfile_leg_skipped(
+        tmp_path, monkeypatch):
+    """R2-4: the no-aapt arm still works (the baseline digest chain runs)
+    but the summary explicitly marks the lockfile leg SKIPPED — and main's
+    banner branch keys on that marker, so the bare 'PREFLIGHT PASS' banner
+    can never claim the lockfile leg ran."""
+    raws = {db: CLEAN_TX for db in floor.DATABASES}
+    apk_path, baseline = _fake_apk(tmp_path, raws)
+    monkeypatch.setattr(floor, "BASELINE", baseline)
+    monkeypatch.setattr(
+        floor, "apk_statics",
+        lambda apk: {"abi": None, "minSdk": None, "package": None})
+    monkeypatch.setattr(floor, "replay", lambda seeds, floors, timeout:
+                        {f"{floors[0]}/{db}": 0.1 for db in seeds})
+    summary = floor.verify_apk(apk_path, ("3.18",))
+    assert summary["lockfile_leg"].startswith("SKIPPED"), summary
+    # and the main() banner branch is keyed on the same marker
+    source = (ROOT / "tools" / "verify_seed_sqlite_floor.py").read_text(
+        encoding="utf-8")
+    assert 's.get("lockfile_leg") != "verified"' in source
+    assert "lockfile leg SKIPPED" in source
+
+
+# ------------------------------------------------- store trust (R3-r3-1)
+
+def _honest_store(tmp_path: Path, version: str) -> tuple[Path, Path, Path]:
+    """A store shaped like the live one: extracted exe + OK marker + the
+    retained pin-digest-honest archive. Skips when the real pinned store
+    has not been fetched (tests never download)."""
+    real_archive = floor.SHELL_STORE / f"sqlite-{version}.zip"
+    real_exes = list((floor.SHELL_STORE / version).glob("**/sqlite3.exe"))
+    if not real_archive.is_file() or not real_exes:
+        pytest.skip(f"pinned shell store not fetched ({version})")
+    store = tmp_path / "shells"
+    dest = store / version / "sqlite-tools-win32-x86-3180000"
+    dest.mkdir(parents=True)
+    exe = dest / "sqlite3.exe"
+    exe.write_bytes(real_exes[0].read_bytes())
+    archive = store / f"sqlite-{version}.zip"
+    archive.write_bytes(real_archive.read_bytes())
+    (store / version / "OK").write_text("3.18.0\n", encoding="utf-8")
+    return store, exe, archive
+
+
+def test_marker_path_re_attests_and_returns_honest_exe(
+        tmp_path, monkeypatch):
+    """The OK marker no longer short-circuits the attestation: an honest
+    store (pin-digest archive + banner-stating exe) still passes BOTH
+    checks on the marker path and returns the exe."""
+    version = floor.DEFAULT_FLOORS[0]
+    store, exe, _archive = _honest_store(tmp_path, version)
+    monkeypatch.setattr(floor, "SHELL_STORE", store)
+    assert floor.shell_for(version) == exe
+
+
+def test_tampered_extracted_exe_is_never_served(tmp_path, monkeypatch):
+    """The reviewer's PoC, mirrored: OK marker + pin-digest-honest archive
+    + a TAMPERED extracted sqlite3.exe. The marker path must re-run the
+    banner attestation, refuse the exe, clear the marker, and never return
+    the tampered path (the tampered exe's output is simulated by stubbing
+    run() — no forged executable is executed)."""
+    version = floor.DEFAULT_FLOORS[0]
+    store, exe, _archive = _honest_store(tmp_path, version)
+    exe.write_bytes(b"MZ tampered - not the pinned shell")
+    monkeypatch.setattr(floor, "SHELL_STORE", store)
+    monkeypatch.setattr(floor, "run", lambda cmd, **_: "9.99.0")
+    with pytest.raises(RuntimeError,
+                       match="no longer states the pinned banner"):
+        floor.shell_for(version)
+    assert not (store / version / "OK").exists(), (
+        "the trust marker must be cleared on a failed attestation")
+    assert exe.exists()  # refusal, not silent self-repair mid-call
+
+
+def test_tampered_cached_archive_on_marker_path_refuses(
+        tmp_path, monkeypatch):
+    """A corrupted retained archive behind a live OK marker is caught by
+    the marker path's re-hash: archive+marker deleted, loud refusal naming
+    the pinned digest (the next run re-fetches)."""
+    version = floor.DEFAULT_FLOORS[0]
+    store, _exe, archive = _honest_store(tmp_path, version)
+    archive.write_bytes(b"corrupted archive bytes")
+    monkeypatch.setattr(floor, "SHELL_STORE", store)
+    with pytest.raises(RuntimeError, match="!= pinned"):
+        floor.shell_for(version)
+    assert not archive.exists() and not (store / version / "OK").exists()

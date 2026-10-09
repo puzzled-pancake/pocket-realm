@@ -231,6 +231,19 @@ def main() -> int:
     drift = False
     unknown_kinds = False
     pending = 0
+    # Review round 2 (R2-2): a duplicated id makes the per-entry loop below
+    # verify each duplicate independently (both can print OK) while the
+    # by-id consumers collapse or mis-bind — refuse the shape outright.
+    duplicates = common.duplicate_source_ids(entries)
+    for eid in duplicates:
+        print(
+            f"FAIL duplicate id {eid}: sources.json carries more than one "
+            "entry with this id — the flavor binding resolves by id and the "
+            "structural by-id dict collapses duplicates (last wins), so a "
+            "second entry can re-point a pin past both gates; ids must be "
+            "unique"
+        )
+        drift = True
     for entry in entries:
         kind = entry.get("kind")
         eid = entry["id"]

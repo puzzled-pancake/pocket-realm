@@ -65,6 +65,11 @@ import re
 import sys
 from pathlib import Path
 
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
+
 DEFAULT_MANIFEST = Path(__file__).resolve().parent.parent / "schemas" / "flavor.json"
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -475,7 +480,21 @@ def _load_sources(sources_path: Path) -> tuple[list[dict] | None, str | None]:
     sources = data.get("sources") if isinstance(data, dict) else None
     if not isinstance(sources, list):
         return None, f"sources manifest has no sources array: {sources_path}"
-    return [source for source in sources if isinstance(source, dict)], None
+    entries = [source for source in sources if isinstance(source, dict)]
+    # Review round 2 (R2-2): the flavor->sources binding resolves by ID —
+    # a second entry sharing cmangos-core-tbc's id but carrying the vanilla
+    # upstream_url + commit would win the URL-first match and the commit
+    # comparison would PASS on the doctored pin (the coordinated two-file
+    # lie this gate exists to refuse). Duplicate ids are refused at load
+    # time, before any resolution can bind a lie.
+    duplicates = common.duplicate_source_ids(entries)
+    if duplicates:
+        return None, (
+            f"sources manifest carries DUPLICATE id(s) {duplicates} — the "
+            "flavor pin binding resolves by id, so a second entry under an "
+            "existing id lets a doctored pin win the URL-first match and "
+            "pass the commit comparison; source ids must be unique")
+    return entries, None
 
 
 def _resolve_source(group: dict, fallback_ids: list[str], sources: list[dict]) -> dict | None:

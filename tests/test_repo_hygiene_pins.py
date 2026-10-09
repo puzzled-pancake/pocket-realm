@@ -407,3 +407,83 @@ def test_counts_pin_vintage_rule_unit(tmp_path, capsys):
 
     # (c) empty tree → skip (kept behavior)
     assert not [f for f in glob.glob(str(tmp_path / "none" / "*.xml"))]
+
+
+# ---------------------------------------------------------------------------
+# R3-3 (review round 1): every tracked project writer routes its tempfile
+# scratch through tools/common.toolchain_tmpdir() — OS %TEMP% resolves on
+# the system drive on the canonical host, and the D50(c) exception
+# ("OS-level tools outside the project still use it") is only honest while
+# the PROJECT's own writers are redirected. A new default-tempdir producer
+# fails here until it passes dir=str(common.toolchain_tmpdir()) (or is
+# allowlisted below with an owning surface and a reason).
+# ---------------------------------------------------------------------------
+
+TEMPDIR_CALL_RE = re.compile(
+    r"\btempfile\.(TemporaryDirectory|NamedTemporaryFile|mkdtemp)\(")
+
+
+def _balanced_call_span(text: str, open_paren: int, limit: int = 2000) -> int:
+    """Index of the closing paren of a call, or -1."""
+    depth = 0
+    for index in range(open_paren, min(len(text), open_paren + limit)):
+        if text[index] == "(":
+            depth += 1
+        elif text[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+
+# Owning surfaces allowed to use the OS default tempdir, with the reason.
+# Entries: path -> reason. Keep this EMPTY on the canonical host: every
+# known project writer is redirected through toolchain_tmpdir().
+DEFAULT_TEMPDIR_ALLOWLIST: dict[str, str] = {}
+
+
+def test_tracked_python_writers_redirect_tempfile_scratch_to_e():
+    """Static pin over tracked tools/ + scripts/ .py sources: every
+    tempfile.TemporaryDirectory(/NamedTemporaryFile(/mkdtemp( call must
+    carry a dir= argument routed to tools/common.toolchain_tmpdir() (any
+    dir= argument passes this static leg; a dir= pointing anywhere but the
+    helper is the author's explicit choice and shows up in review)."""
+    out = subprocess.run(
+        ["git", "ls-files", "tools/*.py", "tools/**/*.py", "scripts/*.py",
+         "scripts/**/*.py"],
+        cwd=ROOT, capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    offenders: list[str] = []
+    for rel in out:
+        if rel in DEFAULT_TEMPDIR_ALLOWLIST:
+            continue
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        for match in TEMPDIR_CALL_RE.finditer(text):
+            open_paren = match.end() - 1
+            close = _balanced_call_span(text, open_paren)
+            args = text[open_paren + 1:close if close != -1 else open_paren + 1]
+            if not re.search(r"\bdir\s*=", args):
+                line = text.count("\n", 0, match.start()) + 1
+                offenders.append(f"{rel}:{line} {match.group(0)}...)")
+    assert not offenders, (
+        "tempfile scratch without a dir= lands in the OS %TEMP% on C: "
+        "(hard rule 1; the E-TEMP note's 'project writers are redirected' "
+        "claim must stay true). Route through "
+        "common.toolchain_tmpdir() or add a documented "
+        "DEFAULT_TEMPDIR_ALLOWLIST entry:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_toolchain_tmpdir_helper_resolves_and_creates(monkeypatch, tmp_path):
+    """The helper honors POCKET_REALM_TOOLCHAIN_TMP and creates the root;
+    an unwritable root fails loud with the env-var recipe (never a silent
+    fallback onto the OS tempdir)."""
+    from tools import common
+
+    monkeypatch.setenv(common.TOOLCHAIN_TMPDIR_ENV, str(tmp_path / "scratch"))
+    resolved = common.toolchain_tmpdir()
+    assert resolved == tmp_path / "scratch"
+    assert resolved.is_dir()
+    # the canonical default is on E: (hard rule 1), never the OS tempdir
+    assert str(common.TOOLCHAIN_TMPDIR).lower().startswith("e:")
+    assert "temp" not in str(common.TOOLCHAIN_TMPDIR).lower()

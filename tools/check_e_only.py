@@ -462,11 +462,16 @@ def configured_cache_root_findings() -> tuple[list[dict[str, object]], list[str]
     if on_c:
         notes.append(
             "note E-TEMP: " + ", ".join(on_c) + " resolve on C:\\ — "
-            "the PROJECT redirects every writer it launches (gradle daemon "
-            "jvmargs, forked Test-worker systemProperty, pytest basetemp "
-            "all pin E:/pocket_realm_toolchain/tmp); only OS-level tools "
-            "outside the project still use it until the owner rules a "
-            "machine-wide TEMP/TMP move"
+            "the PROJECT's own writers are redirected: the gradle daemon "
+            "jvmargs, the forked Test-worker systemProperty, pytest's "
+            "PYTEST_DEBUG_TEMPROOT (conftest.py), and every tracked Python "
+            "tool's tempfile scratch via tools/common.toolchain_tmpdir() "
+            "(all pin E:/pocket_realm_toolchain/tmp; a new default-tempdir "
+            "producer fails the repo-hygiene pin until it routes through "
+            "the helper). The remaining %TEMP% users are OS-level tools "
+            "OUTSIDE the project — the D50(c) disclosed exception class "
+            "(decision D56) — until the owner rules a machine-wide "
+            "TEMP/TMP move"
         )
     return findings, notes
 
@@ -479,7 +484,11 @@ def _tracked_text_files(root: Path) -> list[Path] | None:
     exactly the files a finalize commit sweeps in, so the enumeration is
     `--cached --others --exclude-standard` — tracked, plus untracked files
     git would actually add. R2-1/R3-2: a failed/absent git is a LOUD
-    E-SCAN-FAILED finding (returned as None), never a silent 0-file pass."""
+    E-SCAN-FAILED finding (returned as None), never a silent 0-file pass.
+    R3-1 (review round 1): a file whose 8 KB head probe raises OSError
+    STAYS in the returned list (fail-closed) — the caller's read of it
+    produces the <unreadable> E-LITERAL finding, mirroring leak_sweep's
+    handling; dropping it here made locked files invisible to the sweep."""
     try:
         result = subprocess.run(
             ["git", "-C", str(root), "ls-files",
@@ -505,6 +514,12 @@ def _tracked_text_files(root: Path) -> list[Path] | None:
             with head:
                 head_bytes = head.read(8192)
         except OSError:
+            # R3-1 (review round 1): an unreadable file must NOT vanish from
+            # the sweep — the old `continue` silently dropped it, so a
+            # locked file carrying a C: literal passed with zero findings.
+            # Keep the path; literal_findings' read of it raises and lands
+            # the <unreadable> E-LITERAL finding (the leak_sweep shape).
+            paths.append(path)
             continue
         # Round-3 R3-2: UTF-16/32 text (a real class — PowerShell 5.1's
         # Out-File default) carries NUL bytes but is NOT binary: decode via

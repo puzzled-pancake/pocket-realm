@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 ROOT = Path(__file__).resolve().parents[1]
 FLAVOR_MANIFEST = ROOT / "schemas" / "flavor.json"
@@ -155,6 +155,58 @@ def resolve(flavor_id: str) -> FlavorLayout:
 
 def load_flavor_manifest(path: Path = FLAVOR_MANIFEST) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def db_content_seed_error(flavor_id: str, seed: str,
+                          db_submodule: str | None = None) -> str | None:
+    """Containment rule for a flavor manifest's `db_content.seed` (review
+    round 1, R2-1 — serious): the seed must name the world-content archive
+    INSIDE the flavor's own db repo. Every consumer joins the seed onto the
+    db repo root (seed_realm_db's `_flavor_seed_plan`,
+    stage_database_migrations' `_full_db_seed`), and nothing downstream
+    catches a wrong-flavor archive (the floors are MINIMUMS — a
+    higher-volume foreign Full_DB clears them — and the version-table leg
+    is an honest WARN), so a doctored seed like
+    "../classic-db-wotlk/Full_DB/..." (or an absolute / drive path) would
+    seed foreign world content under the flavor's DB names with rc=0.
+
+    The rule is data-shaped and enforced here, once, for both consumers:
+    the seed is a relative path with no '..' parts and no Windows drive,
+    and its join with the flavor's db repo root resolves INSIDE that root.
+    Returns None when the seed is contained; an actionable error string
+    otherwise. Missing/empty seeds are the caller's policy (the vanilla
+    glob fallback / stage's registered-pin refusal), not this check's."""
+    layout = resolve(flavor_id)
+    db_submodule = db_submodule or layout.db_submodule
+    db_root = (ROOT / db_submodule).resolve()
+    if Path(seed).is_absolute() or PureWindowsPath(seed).drive:
+        return (
+            f"flavor {flavor_id!r} db_content.seed {seed!r} is an absolute/"
+            f"drive path — it must be relative to its own db repo "
+            f"({db_submodule}); a foreign absolute seed would seed "
+            "wrong-flavor world content the floor check cannot catch "
+            "(floors are minimums)"
+        )
+    parts = PureWindowsPath(seed.replace("\\", "/")).parts
+    if ".." in parts:
+        return (
+            f"flavor {flavor_id!r} db_content.seed {seed!r} escapes its own "
+            f"db repo ({db_submodule}) via '..' — a doctored seed pointing "
+            "at another flavor's Full_DB would seed wrong-flavor world "
+            "content under this flavor's DB names (the floors are minimums "
+            "and cannot catch it); register THIS flavor's own archive"
+        )
+    joined = (db_root / seed).resolve()
+    try:
+        joined.relative_to(db_root)
+    except ValueError:
+        return (
+            f"flavor {flavor_id!r} db_content.seed {seed!r} resolves to "
+            f"{joined}, outside its own db repo ({db_root}) — a seed that "
+            "leaves the flavor's db repo breaks the provenance chain "
+            "(sources.json pin -> checkout -> Full_DB archive)"
+        )
+    return None
 
 
 def _flavor_block(manifest: dict, flavor_id: str) -> dict:

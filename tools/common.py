@@ -37,6 +37,64 @@ ROOT = Path(__file__).resolve().parents[1]
 # centralizing the tag keeps a future Linux CI lane a one-line change.
 HOST_TAG = "windows-x86_64"
 
+# R3-3 (review round 1): the transient-scratch root for every project tool
+# surface. OS %TEMP% resolves on C:\ on the canonical host (the check_e_only
+# E-TEMP note), and hard rule 1 puts toolchain state on E: — the same root
+# the Gradle daemons/test workers and pytest's PYTEST_DEBUG_TEMPROOT pin
+# (conftest.py). POCKET_REALM_TOOLCHAIN_TMP relocates it on a non-canonical
+# host; an unset variable on a host without E: fails loud with the recipe,
+# never a silent fallback onto C:.
+TOOLCHAIN_TMPDIR = Path("E:/pocket_realm_toolchain/tmp")
+TOOLCHAIN_TMPDIR_ENV = "POCKET_REALM_TOOLCHAIN_TMP"
+
+
+def toolchain_tmpdir() -> Path:
+    """The project's transient-scratch root (E:/pocket_realm_toolchain/tmp,
+    or POCKET_REALM_TOOLCHAIN_TMP), created on first use.
+
+    Every tools//scripts/ TemporaryDirectory/NamedTemporaryFile/mkdtemp
+    call routes its `dir=` through THIS function (pinned by
+    tests/test_repo_hygiene_pins.py), so project scratch never lands in the
+    OS %TEMP% on C:. Transient self-cleaning scratch is D50(c)'s disclosed
+    exception class for OS-level tools outside the project — project
+    writers themselves are redirected, which is the ruling's stated
+    condition."""
+    override = os.environ.get(TOOLCHAIN_TMPDIR_ENV, "").strip()
+    root = Path(override) if override else TOOLCHAIN_TMPDIR
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError(
+            f"cannot create the toolchain scratch root {root} ({exc}); set "
+            f"{TOOLCHAIN_TMPDIR_ENV} to a writable directory on the "
+            "toolchain drive (never the OS %TEMP% on C:)"
+        ) from exc
+    return root
+
+
+def duplicate_source_ids(sources: object) -> list[str]:
+    """Sorted ids appearing MORE THAN ONCE in a sources.json entries list.
+
+    Review round 2 (R2-2): a duplicated id defeats every by-id binding —
+    check_flavor's flavor->sources resolution filters candidates by id only
+    (a second entry sharing cmangos-core-tbc's id but carrying the vanilla
+    URL + commit wins the URL-first match and the commit comparison
+    PASSES), check_repo's by-id dict collapses duplicates (last wins, so
+    the first entry's path/gitlink go unverified), and check_sources checks
+    each duplicate independently. All three gates refuse on this helper's
+    answer; ids must be unique. Non-dict entries and non-string ids are
+    ignored here (each gate's structural legs already refuse those)."""
+    if not isinstance(sources, list):
+        return []
+    counts: dict[str, int] = {}
+    for entry in sources:
+        if not isinstance(entry, dict):
+            continue
+        sid = entry.get("id")
+        if isinstance(sid, str) and sid:
+            counts[sid] = counts.get(sid, 0) + 1
+    return sorted(sid for sid, count in counts.items() if count > 1)
+
 
 # Round-5 R5-1: THE single Python resolver for the desktop product's data
 # root (D50): POCKET_REALM_DATA_ROOT wins when set (the same override
