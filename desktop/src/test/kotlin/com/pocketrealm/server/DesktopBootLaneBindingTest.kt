@@ -7,6 +7,7 @@ import com.pocketrealm.desktop.DesktopStorageRoots
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.RealmEndpoint
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -285,6 +286,17 @@ class DesktopBootLaneBindingTest {
             "backend.isMariadbLane()" in gate &&
                 "seedSrpVerifierRow(account, srp.vHex, srp.sHex)" in gate,
         )
+    }
+
+    @Test
+    fun theMariaDbEngineCarriesTheW12BootstrapGuardAndRouting() {
+        // R4-r4-1 (code-red round 4): split out of
+        // theHarnessSeamsConsumeThePinnedBootLaneToo, whose round-1 growth
+        // pushed it over detekt's LongMethod threshold — the engine guard +
+        // bootstrap-routing pins are their own seam.
+        val root = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
+            .firstOrNull { File(it, "schemas/flavor.json").isFile }
+            ?: error("repo root not found")
         val engine = File(
             root,
             "desktop/src/main/kotlin/com/pocketrealm/database/DesktopMariaDbEngine.kt",
@@ -293,9 +305,42 @@ class DesktopBootLaneBindingTest {
             "the desktop engine must carry the android realmdDatabaseName " +
                 "guard's twin (the machine's fail-loud resolution, then the " +
                 "W1.2 vanilla-only requirement before any SQL crosses) — and " +
-                "corrects D63's 'verified in place' claim",
+                "corrects D63's 'verified in place' claim. W1.2: the guard " +
+                "renamed to bootstrapDatabaseNames and the bootstrap's CREATE " +
+                "DATABASE literals route through it (MariaDbBootstrap)",
             "com.pocketrealm.server.ServerRuntimeFiles.serverFlavor()" in engine &&
-                "the realmlist projection resolves only the vanilla lane (the " in engine,
+                "the MariaDB bootstrap resolves only the vanilla lane (the " in engine &&
+                "MariaDbBootstrap.initialAuthSql(" in engine &&
+                "bootstrapDatabaseNames()" in engine,
+        )
+        // R1-1 (code-red round 1): the desktop twin of the android
+        // RealmBuildsProjectionContractTest bootstrap-leg pin — the W1.2 fix
+        // and the leak_sweep owning-table entry must move in the SAME change,
+        // so a bare vanilla CREATE DATABASE literal can never quietly return
+        // to the initial-auth leg while the allowlist reason has moved on.
+        val bootstrapLeg = engine.substringAfter("runFixedSql(")
+            .substringBefore("DB-INIT: credential/grant setup failed")
+        assertTrue(
+            "the desktop initial-auth leg must compose from MariaDbBootstrap " +
+                "over the resolved lane's names",
+            "MariaDbBootstrap.initialAuthSql(" in bootstrapLeg &&
+                "bootstrapDatabaseNames()" in bootstrapLeg,
+        )
+        assertFalse(
+            "the bare vanilla CREATE DATABASE literal must be gone from the " +
+                "desktop bootstrap leg (the owning table is the shared " +
+                "MariaDbBootstrapFlavorRoutingTest byte-equivalence pin)",
+            "CREATE DATABASE IF NOT EXISTS classic" in bootstrapLeg,
+        )
+        // R2-r5-1 (code-red round 5): the desktop readSecrets validates the
+        // record on every read (the android twin's DatabaseGenerationSeal
+        // contract) — a corrupted or hand-edited secrets.json refuses loud
+        // instead of flowing verbatim into root-context bootstrap SQL.
+        assertTrue(
+            "the desktop readSecrets must validate the credential record on " +
+                "every read (the android twin's DatabaseGenerationSeal contract)",
+            "DatabaseGenerationSeal.validSecrets(text)" in engine &&
+                "DB-SECRET: credential record is invalid" in engine,
         )
     }
 }

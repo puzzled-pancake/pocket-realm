@@ -389,6 +389,20 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         ),
         "retires": "S4 retires (DB names); 5875/12340 retire at S8",
     },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/database/MariaDbBootstrapFlavorRoutingTest.kt",
+        "literals": VANILLA_DB_NAMES,
+        "reason": (
+            "W1.2 (DECISIONS-PORT D74): this shared test OWNS the legacy "
+            "vanilla initial-auth SQL bytes — its vanilla-composition pin is "
+            "byte-equivalent to the CREATE DATABASE / GRANT literals the two "
+            "engine twins shipped before the flavor routing moved the NAMES' "
+            "SOURCE to the registry (the vanilla-lane no-byte-change guard), "
+            "and the per-flavor name-set pin spells the vanilla set once; the "
+            "tbc/wotlk sets need no entry (not protected literals)"
+        ),
+        "retires": "W4 retires: the multi-qualified flip owns the lanes natively",
+    },
     # S6 (extractor manifest provenance) currently owns nothing: the extractor
     # lanes (build_o11_extractors.py, build_o09_realm_runtime.py) sweep clean.
     # Retire at S7 (vanilla client datasets & UX copy): capture-sourced vanilla
@@ -887,12 +901,14 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "path": "desktop/src/main/kotlin/com/pocketrealm/database/DesktopMariaDbEngine.kt",
         "literals": VANILLA_DB_NAMES + ("5875",) + ("6005", "6141",),
         "reason": (
-            "KNOWN DEFECT (port plan section 3(b), W1 item 2): the desktop "
-            "MariaDB bootstrap CREATE DATABASE literals still name the "
-            "classic* set and the 5875 build stamp - flavor routing through "
-            "the resolver is W1's first work item, both engine twins"
+            "desktop database engine: migrates/verifies the vanilla databases "
+            "by name (the DB-REVISION mismatch negative test and the "
+            "verifyExpectedRevisions migration-staging Triples) and the KDoc "
+            "cites the accepted-builds example; the W1.2 bootstrap CREATE "
+            "DATABASE literals moved to MariaDbBootstrap routing "
+            "(DECISIONS-PORT D74) — mirrors the android DatabaseEngine entry"
         ),
-        "retires": "W1 retires: flavor-routed bootstrap CREATE DATABASE",
+        "retires": "S4 retires: per-flavor DB routing through ClientFlavors",
     },
     {
         "path": "desktop/src/main/kotlin/com/pocketrealm/desktop/NativeRuntimeFence.kt",

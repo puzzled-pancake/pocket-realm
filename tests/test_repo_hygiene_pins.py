@@ -600,3 +600,35 @@ def test_desktop_main_produces_no_tmpdir_writers():
         "a launch lane carries a -Djava.io.tmpdir band-aid (rpHost jvmArgs "
         "or jpackage java-options) — the app must resolve its own roots"
     )
+
+
+def test_wave_exit_cited_fix_mechanisms_are_index_tracked():
+    """R5-r4-2 (W1 code-red round 4): a tools/*.py or tests/*.py path cited
+    in the active wave's WAVE-EXIT.md as a merged fix's mechanism must be
+    INDEX-TRACKED — the checkpoint commit at convergence otherwise silently
+    drops the wave's own fix product (the round-3 fence covers only test
+    source sets, so nothing else holds a tools/ file). Untracked new sources
+    are staged the moment they are cited."""
+    import re
+    import subprocess
+
+    wave_exit = ROOT / "out/completion/w1/WAVE-EXIT.md"
+    if not wave_exit.is_file():
+        return  # no W1 exit record in this tree
+    text = wave_exit.read_text(encoding="utf-8", errors="replace")
+    cited = sorted({
+        match
+        for match in re.findall(r"(?m)(?:tools|tests)/[\w./-]+\.(?:py|kts)\b", text)
+    })
+    assert cited, "WAVE-EXIT.md cites no tools/tests mechanisms to track"
+    untracked = []
+    for rel in cited:
+        if subprocess.run(
+            ["git", "ls-files", "--error-unmatch", rel],
+            cwd=ROOT, capture_output=True,
+        ).returncode != 0:
+            untracked.append(rel)
+    assert not untracked, (
+        f"WAVE-EXIT.md cites fix mechanisms that are NOT index-tracked: "
+        f"{untracked} — git add them (the convergence commit would drop "
+        "the wave's own fix products, R5-r4-2)")

@@ -1,5 +1,6 @@
 package com.pocketrealm.database
 
+import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.desktop.DesktopStorageRoots
 import java.io.File
 import java.util.UUID
@@ -393,28 +394,17 @@ internal class DesktopMariaDbEngine(    private val roots: DesktopStorageRoots,
             // GRANT ALL password included), so no copy of it may outlive
             // the verb that consumed it — secrets.json stays the only
             // at-rest copy (the migration/overlay transcript delete law).
+            // W1.2: the database names route through the flavor resolver
+            // (bootstrapDatabaseNames -> MariaDbBootstrap.initialAuthSql),
+            // never a bare vanilla literal; the exactly-one-qualified +
+            // vanilla-only law refuses BEFORE any SQL crosses (DECISIONS-PORT
+            // D72's W1.2 deferral).
             val auth = runFixedSql(
                 "root", "",
                 "initial-auth",
-                """
-                CREATE USER IF NOT EXISTS 'pocket_admin'@'localhost' IDENTIFIED BY '${secrets.admin}';
-                ALTER USER 'pocket_admin'@'localhost' IDENTIFIED BY '${secrets.admin}';
-                GRANT ALL PRIVILEGES ON *.* TO 'pocket_admin'@'localhost' WITH GRANT OPTION;
-                CREATE DATABASE IF NOT EXISTS classicrealmd CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-                CREATE DATABASE IF NOT EXISTS classiccharacters CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-                CREATE DATABASE IF NOT EXISTS classiclogs CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-                CREATE DATABASE IF NOT EXISTS classicmangos CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-                CREATE DATABASE IF NOT EXISTS pocketrealm_meta CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-                CREATE USER IF NOT EXISTS 'pocket_core'@'localhost' IDENTIFIED BY '${secrets.core}';
-                ALTER USER 'pocket_core'@'localhost' IDENTIFIED BY '${secrets.core}';
-                GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,LOCK TABLES,CREATE TEMPORARY TABLES ON classicrealmd.* TO 'pocket_core'@'localhost';
-                GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,LOCK TABLES,CREATE TEMPORARY TABLES ON classiccharacters.* TO 'pocket_core'@'localhost';
-                GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,LOCK TABLES,CREATE TEMPORARY TABLES ON classiclogs.* TO 'pocket_core'@'localhost';
-                GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,LOCK TABLES,CREATE TEMPORARY TABLES,EXECUTE,CREATE ROUTINE,ALTER ROUTINE ON classicmangos.* TO 'pocket_core'@'localhost';
-                GRANT SELECT ON pocketrealm_meta.* TO 'pocket_core'@'localhost';
-                ALTER USER 'root'@'localhost' IDENTIFIED BY '${secrets.admin}';
-                FLUSH PRIVILEGES;
-                """.trimIndent(),
+                MariaDbBootstrap.initialAuthSql(
+                    bootstrapDatabaseNames(), secrets.admin, secrets.core,
+                ),
             )
             check(auth.ok) { "DB-INIT: credential/grant setup failed: ${auth.stderr.takeLast(1200)}" }
             val health = queryHealthLocked()
@@ -534,22 +524,30 @@ internal class DesktopMariaDbEngine(    private val roots: DesktopStorageRoots,
      * multi-qualified flip the projection/seeding refuses loud instead of
      * mutating the wrong lane's row). ALSO corrects D63's "verified in
      * place" claim: the android guard is projection-only and the desktop
-     * had none — both engines now gate their own SQL. */
-    private fun realmdDatabaseName(): String {
-        // the machine's own fail-loud resolution (exactly-one-qualified or
-        // an explicit selection), then the W1.2 vanilla-only requirement:
-        // the seeded realmd databases are the vanilla family ONLY, so a
-        // non-vanilla resolution refuses BEFORE any SQL crosses instead of
-        // mutating the wrong lane's row. (The android
-        // DatabaseEngine.realmdDatabaseName guard's desktop twin; D63's
-        // "verified in place" claim was projection-only on android and
-        // absent here — both engines now gate their own SQL.)
+     * had none — both engines now gate their own SQL. W1.2: the bootstrap's
+     * CREATE DATABASE literals route through THIS one resolver too
+     * ([bootstrapDatabaseNames] -> MariaDbBootstrap), so the projection row
+     * and the seeded databases can never disagree. */
+    private fun realmdDatabaseName(): String = bootstrapDatabaseNames().realmd
+
+    /**
+     * The bootstrap's flavor-routed database names (W1.2): the machine's own
+     * fail-loud resolution ([com.pocketrealm.server.ServerRuntimeFiles.serverFlavor]
+     * — exactly-one-qualified or an explicit selection), then the W1.2
+     * vanilla-only requirement (the recorded W1.2 per-flavor-seeding
+     * deferral: the seeded realmd databases are the vanilla family ONLY, so
+     * a non-vanilla resolution refuses BEFORE any SQL crosses instead of
+     * mutating the wrong lane's row), then the shared shape guard
+     * ([MariaDbBootstrap.databaseNames]). The initial-auth bootstrap and the
+     * realmlist projection resolve through THIS one law.
+     */
+    private fun bootstrapDatabaseNames(): ClientFlavor.DatabaseNames {
         val flavor = com.pocketrealm.server.ServerRuntimeFiles.serverFlavor()
         require(flavor.flavorId == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
-            "the realmlist projection resolves only the vanilla lane (the " +
+            "the MariaDB bootstrap resolves only the vanilla lane (the " +
                 "W1.2 per-flavor-seeding deferral); got " + flavor.flavorId
         }
-        return flavor.databases.realmd
+        return MariaDbBootstrap.databaseNames(flavor)
     }
 
     /** R1-r3-5 (desktop-twin round 3): the harness SRP verifier seeding
@@ -1464,7 +1462,17 @@ internal class DesktopMariaDbEngine(    private val roots: DesktopStorageRoots,
 
     private fun readSecrets(): Secrets {
         check(secretFile.isFile) { "DB-SECRET: credential record is missing" }
-        val record = JSONObject(secretFile.readText())
+        val text = secretFile.readText()
+        // R2-r5-1 (code-red round 5): the android twin validates the record
+        // on every read (DatabaseGenerationSeal.validSecrets) — the desktop
+        // lane now does too, so a corrupted or hand-edited secrets.json
+        // refuses loud here instead of flowing verbatim into root-context
+        // bootstrap SQL.
+        check(DatabaseGenerationSeal.validSecrets(text)) {
+            "DB-SECRET: credential record is invalid (expected schema 1 with " +
+                "two distinct hex-48 secrets)"
+        }
+        val record = JSONObject(text)
         return Secrets(admin = record.getString("admin"), core = record.getString("core"))
     }
 

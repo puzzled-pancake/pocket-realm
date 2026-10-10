@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteStatement
 import android.os.Build
 import android.os.Process
+import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.server.ServerRuntimeContract
 import com.pocketrealm.storage.Settings
@@ -291,25 +292,20 @@ internal class DatabaseEngine(private val context: Context) {
             atomicWrite(File(datadir, "mariadb_upgrade_info"), "$providerVersion-MariaDB")
             val secrets = createSecrets()
             startDaemon(allowUnsealedBootstrap = true, allowedTransactionKind = "INIT")
-            val setup = fixedSql("initial-auth", """
-                CREATE USER IF NOT EXISTS 'pocket_admin'@'localhost' IDENTIFIED BY '${secrets.admin}';
-                ALTER USER 'pocket_admin'@'localhost' IDENTIFIED BY '${secrets.admin}';
-                GRANT ALL PRIVILEGES ON *.* TO 'pocket_admin'@'localhost' WITH GRANT OPTION;
-                CREATE DATABASE IF NOT EXISTS classicrealmd CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-                CREATE DATABASE IF NOT EXISTS classiccharacters CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-                CREATE DATABASE IF NOT EXISTS classiclogs CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-                CREATE DATABASE IF NOT EXISTS classicmangos CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-                CREATE DATABASE IF NOT EXISTS pocketrealm_meta CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-                CREATE USER IF NOT EXISTS 'pocket_core'@'localhost' IDENTIFIED BY '${secrets.core}';
-                ALTER USER 'pocket_core'@'localhost' IDENTIFIED BY '${secrets.core}';
-                GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,LOCK TABLES,CREATE TEMPORARY TABLES ON classicrealmd.* TO 'pocket_core'@'localhost';
-                GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,LOCK TABLES,CREATE TEMPORARY TABLES ON classiccharacters.* TO 'pocket_core'@'localhost';
-                GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,LOCK TABLES,CREATE TEMPORARY TABLES ON classiclogs.* TO 'pocket_core'@'localhost';
-                GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,LOCK TABLES,CREATE TEMPORARY TABLES,EXECUTE,CREATE ROUTINE,ALTER ROUTINE ON classicmangos.* TO 'pocket_core'@'localhost';
-                GRANT SELECT ON pocketrealm_meta.* TO 'pocket_core'@'localhost';
-                ALTER USER 'root'@'localhost' IDENTIFIED BY '${secrets.admin}';
-                FLUSH PRIVILEGES;
-            """.trimIndent())
+            // W1.2: the bootstrap's CREATE DATABASE / GRANT database names
+            // compose from the RESOLVED lane's registry names
+            // (MariaDbBootstrap.initialAuthSql over bootstrapDatabaseNames())
+            // — never a bare vanilla literal. The exactly-one-qualified +
+            // vanilla-only law below refuses BEFORE any SQL crosses (the
+            // recorded W1.2 per-flavor-seeding deferral, DECISIONS-PORT D72),
+            // so the wrong lane can never be seeded; lifting the deferral at
+            // the qualification flip changes the RESOLVER, not this SQL.
+            val setup = fixedSql(
+                "initial-auth",
+                MariaDbBootstrap.initialAuthSql(
+                    bootstrapDatabaseNames(), secrets.admin, secrets.core,
+                ),
+            )
             val auth = runClient("root", "", setup)
             check(auth.ok) { "DB-INIT: credential/grant setup failed: ${auth.stderr.takeLast(1200)}" }
             verifyLeastPrivilegePrivileges(secrets)
@@ -541,25 +537,36 @@ internal class DatabaseEngine(private val context: Context) {
             .put("address", advertised.value).put("worldPort", RealmEndpoint.WORLD_PORT)
     }
 
-    /** The realmd database name the MariaDB projection targets — the
-     * ServerRuntimeFiles.serverDatabases() gate's twin (the desktop leg's
-     * flavor-registry routing), resolved from static registry state that is
-     * byte-identical in every process: exactly one qualified flavor, and
-     * that flavor the vanilla lane the conf templates seed, or a loud
-     * refusal BEFORE any SQL crosses the client. */
-    private fun realmdDatabaseName(): String {
+    /**
+     * The bootstrap's flavor-routed database names (W1.2): resolved from
+     * static registry state that is byte-identical in every process —
+     * exactly one qualified flavor, and that flavor the vanilla lane (the
+     * recorded W1.2 per-flavor-seeding deferral, DECISIONS-PORT D72: a
+     * multi-qualified flip refuses loud here instead of seeding the wrong
+     * lane) — then shape-guarded by [MariaDbBootstrap.databaseNames] before
+     * any name is interpolated into SQL. The realmlist projection and the
+     * initial-auth bootstrap resolve through THIS one law, so the projection
+     * row and the CREATE DATABASE literals can never disagree.
+     */
+    private fun bootstrapDatabaseNames(): ClientFlavor.DatabaseNames {
         val qualified = ClientFlavors.qualified()
         require(qualified.size == 1) {
             "expected exactly one qualified flavor, found ${qualified.size} — " +
-                "the realmlist projection targets the qualified lane's realmd database"
+                "the MariaDB bootstrap seeds the qualified lane's databases"
         }
         val flavor = qualified.single()
         require(flavor.flavorId == ClientFlavors.VANILLA.flavorId) {
-            "the realmlist projection resolves only the vanilla lane; " +
-                "pass its ClientFlavor explicitly"
+            "the MariaDB bootstrap resolves only the vanilla lane (the " +
+                "W1.2 per-flavor-seeding deferral); got " + flavor.flavorId
         }
-        return flavor.databases.realmd
+        return MariaDbBootstrap.databaseNames(flavor)
     }
+
+    /** The realmd database name the MariaDB projection targets — the
+     * ServerRuntimeFiles.serverDatabases() gate's twin (the desktop leg's
+     * flavor-registry routing), routed through the bootstrap's one resolver
+     * ([bootstrapDatabaseNames]) since W1.2. */
+    private fun realmdDatabaseName(): String = bootstrapDatabaseNames().realmd
 
     fun stop(): JSONObject = when (providerModeLocked()) {
         DatabaseDurableState.ProviderMode.SQLITE -> sqliteStop()

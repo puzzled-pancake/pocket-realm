@@ -802,4 +802,23 @@ fun applyLongPathAwareManifest(exe: File) {
 tasks.withType<Test>().configureEach {
     // Every forked test worker keeps its temp tree on E: (round-2 R2-4-2).
     systemProperty("java.io.tmpdir", "E:/pocket_realm_toolchain/tmp")
+    // R6-1/R2-r4-1 (W1 code-red round 4): a §2.4-sanctioned FOCUSED run
+    // (`-Ppocket.focus=<label>` + --tests ...) writes its JUnit XML under
+    // build/focused-test-results-<label>/ instead of the canonical
+    // build/test-results/ tree — a focused run can no longer hollow the
+    // canonical evidence the counts artifacts and the wave-evidence tree
+    // pin reconcile against. Canonical runs (no property) keep the
+    // historical location, so the canonical trees only ever change via
+    // canonical runs. The set MUST be at configuration time (R5-r5-1/
+    // R5-R1-1: Gradle finalizes task properties at execution start, so the
+    // round-4 doFirst form threw "outputLocation is final" on this lane —
+    // the desktop lane has plain Gradle Test tasks and no AGP re-setting
+    // report locations; that rationale belonged to the android lane alone).
+    val pocketFocusedResults = providers.gradleProperty("pocket.focus")
+        .map { "focused-test-results-${it.trim()}/test-results" }
+        .flatMap { layout.buildDirectory.dir(it) }
+    if (!providers.gradleProperty("pocket.focus").orNull.isNullOrBlank()) {
+        reports.junitXml.outputLocation.set(pocketFocusedResults)
+    }
 }
+

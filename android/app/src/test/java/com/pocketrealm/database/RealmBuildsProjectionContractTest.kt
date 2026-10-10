@@ -217,7 +217,11 @@ class RealmBuildsProjectionContractTest {
         // process — NOT the UI-local selection the r2/r3 pins keep out of
         // this process), loud at zero or several qualified flavors, and
         // vanilla-only while the conf templates seed only that lane.
-        val gate = engine.substringAfter("private fun realmdDatabaseName")
+        // W1.2: the law moved into bootstrapDatabaseNames() and the MariaDB
+        // bootstrap's CREATE DATABASE literals route through the same
+        // resolver (MariaDbBootstrap.initialAuthSql), so the gate pin slices
+        // the law's new home and the bootstrap leg must consume it.
+        val gate = engine.substringAfter("private fun bootstrapDatabaseNames")
             .substringBefore("\n    }")
         assertTrue(
             "the gate resolves the registry's qualified lane",
@@ -230,6 +234,22 @@ class RealmBuildsProjectionContractTest {
         assertTrue(
             "the gate keeps the vanilla-only lane the conf templates seed",
             "flavorId == ClientFlavors.VANILLA.flavorId" in gate,
+        )
+        assertTrue(
+            "the projection must route through the one bootstrap resolver (W1.2)",
+            "private fun realmdDatabaseName(): String = bootstrapDatabaseNames().realmd" in engine,
+        )
+        val bootstrapLeg = engine.substringAfter("val setup = fixedSql(")
+            .substringBefore("runClient(\"root\"")
+        assertTrue(
+            "the initial-auth bootstrap must compose from MariaDbBootstrap " +
+                "over the resolved lane's names",
+            "MariaDbBootstrap.initialAuthSql(" in bootstrapLeg &&
+                "bootstrapDatabaseNames()" in bootstrapLeg,
+        )
+        assertFalse(
+            "the bare vanilla CREATE DATABASE literal must be gone from the bootstrap leg",
+            "CREATE DATABASE IF NOT EXISTS classicrealmd" in bootstrapLeg,
         )
     }
 

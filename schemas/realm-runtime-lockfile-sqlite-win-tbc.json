@@ -303,7 +303,7 @@
     {
       "path": "native/.build-win-x86_64-tbc/pocket-runtime-build/pocket_realmd_runtime.dll",
       "size": 5736960,
-      "sha256": "8270cc03c1fdd5d4f55194bc7d582663e14cad464d08e12aa0e813b0d00addb5",
+      "sha256": "98f6f26078caa80d8153b39c601268698cbb5b12f3ffe51985a3f51dba3b6d72",
       "pe_machine": "0x8664",
       "pe_imports": [
         "ADVAPI32.dll",
@@ -330,7 +330,7 @@
     {
       "path": "native/.build-win-x86_64-tbc/pocket-runtime-build/pocket_world_runtime.dll",
       "size": 26765312,
-      "sha256": "e99adbe0cf8f653426281564d132764e150f84a8801494c1bf5d6e806a45a22f",
+      "sha256": "193370bf287f12282567ba488190121929dafd2a7d3a48da421bb50c7c78c9a9",
       "pe_machine": "0x8664",
       "pe_imports": [
         "ADVAPI32.dll",

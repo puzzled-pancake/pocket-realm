@@ -2243,3 +2243,16 @@ dependencies {
 tasks.withType<Test>().configureEach {
     systemProperty("java.io.tmpdir", "E:/pocket_realm_toolchain/tmp")
 }
+
+// AGP 9 replaced the android unit-test task with AndroidUnitTest, which is
+// NOT an org.gradle.api.tasks.testing.Test subtype (the block above matches
+// nothing on this lane — discovered live in W1 round 4) and its
+// reports.junitXml.outputLocation is FINALIZED at task creation, so the
+// desktop lane's -Ppocket.focus redirect is impossible here. The android
+// focused-run lane therefore uses tools/focused_android_unit_test.py: it
+// snapshots the canonical results tree, runs the filtered --tests selection,
+// and restores the snapshot — a focused android run can never hollow the
+// canonical evidence (R6-1/R2-r4-1). The tmpdir systemProperty above does
+// not reach AndroidUnitTest either; that gap is recorded as an
+// owner-visible residual (worker %TEMP% risk, hard rule 1) in
+// out/completion/w1/WAVE-EXIT.md.
