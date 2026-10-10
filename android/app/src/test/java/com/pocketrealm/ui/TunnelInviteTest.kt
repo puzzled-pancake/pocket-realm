@@ -30,6 +30,31 @@ class TunnelInviteTest {
     }
 
     @Test
+    fun inviteCopyNeverNamesTheDesktopGuestsCard() {
+        // R1-2 (android-ui-tests review round 1): the invite is rendered by
+        // the ANDROID host's LanScreen — a surface family that has a Guest
+        // LOGIN card, never the desktop-only "Guests card". The credential
+        // handoff line must stay platform-neutral (D50(4) forbid-Guests
+        // precedent, mirrored from FriendInviteStatusCopyTest).
+        for (kind in listOf(TunnelInvite.TunnelKind.TAILSCALE, TunnelInvite.TunnelKind.CLOUDFLARED)) {
+            val invite = TunnelInvite.inviteText(
+                realmName = "Whispering Pines",
+                advertised = "100.64.12.34",
+                kind = kind,
+            )
+            assertFalse(
+                "kind=$kind: the invite must not name the desktop-only Guests card:\n$invite",
+                "Guests" in invite,
+            )
+        }
+        val lan = TunnelInvite.lanInviteText(
+            realmName = "Whispering Pines",
+            lanAddress = "192.168.1.20",
+        )
+        assertFalse("the LAN invite must not name the Guests card", "Guests" in lan)
+    }
+
+    @Test
     fun inviteNeverCarriesACredential() {
         // The §6 hard rule: no working username+password inside the pasted
         // artifact — delivery of the secret is a separate sensitive step.

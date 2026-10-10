@@ -110,13 +110,13 @@ object TunnelInvite {
                 append(
                     "   This lane plays through the client's realmlist only: the app's Join " +
                         "pane takes LAN or tunnel (CGNAT) addresses, not a 127.0.0.1 forwarder. " +
-                        "The host sets your login up on the Guests card.",
+                        "The host sets your guest login up on their side of the app.",
                 )
             } else {
                 append(
                     "   …or, if you use the Pocket Realm app: paste $advertised into the Join pane. " +
                         "(In the app, the request-a-login card only reaches the host over a shared " +
-                        "LAN — over this tunnel, the host sets your login up on the Guests card " +
+                        "LAN — over this tunnel, the host sets your guest login up on their side " +
                         "instead.)",
                 )
             }

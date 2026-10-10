@@ -147,6 +147,15 @@ class AddonCatalog private constructor(
             val addonsJson = root.getJSONArray("addons")
             val addons = List(addonsJson.length()) { index ->
                 val item = addonsJson.getJSONObject(index)
+                // R2UI-1/R6-r2-1 (android-ui-tests review round 2): the same
+                // load-time negation guard as the Android twin — research
+                // text that names a client line inside a negation clause
+                // ("explicitly NOT for 2.4.3") is rejected at parse, never
+                // silently matched as SUPPORT by the flavor projection.
+                val clientTarget = item.getString("clientTarget")
+                AddonFlavorCatalog.requirePositiveClientTarget(
+                    clientTarget, item.optString("name"),
+                )
                 CatalogAddon(
                     matrixId = item.getString("matrixId"),
                     name = item.getString("name"),
@@ -155,7 +164,7 @@ class AddonCatalog private constructor(
                     githubUrl = item.optString("githubUrl").takeIf { !item.isNull("githubUrl") && it.isNotBlank() },
                     builtinId = item.optString("builtinId").takeIf { !item.isNull("builtinId") && it.isNotBlank() },
                     assetPath = item.optString("assetPath").takeIf { !item.isNull("assetPath") && it.isNotBlank() },
-                    clientTarget = item.getString("clientTarget"),
+                    clientTarget = clientTarget,
                     version = item.getString("version"),
                     verifiedUpdate = item.getString("verifiedUpdate"),
                     dateConfidence = item.getString("dateConfidence"),

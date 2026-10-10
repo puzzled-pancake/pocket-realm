@@ -157,3 +157,7 @@ native/.build-win-x86_64/
 # Kotlin daemon session/error debris from Gradle unit-suite runs
 # (kotlin 2.x writes .kotlin/ next to every build; never repo source)
 .kotlin/
+# Win32 reserved-name debris: MSYS shells redirecting `> nul` create a real
+# 0..N-byte `nul` file at the cwd (D49/D65 recurrence). The hygiene tripwire
+# catches it; the ignore entry keeps a sweeping `git add` from committing it.
+nul

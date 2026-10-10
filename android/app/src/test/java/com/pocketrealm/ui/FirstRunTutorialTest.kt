@@ -41,6 +41,45 @@ class FirstRunTutorialTest {
     }
 
     @Test
+    fun aTbcOnlyImportRegistersAsImportedAndHidesTheTutorialOnceSealed() {
+        // R3-r2-1 (android-ui-tests review round 2): the probe enumerates
+        // EVERY registered flavor's canonical pointer (active-tbc.json /
+        // active-wotlk.json live beside active-vanilla.json) — a tbc-only
+        // or wotlk-only import registers, the tutorial hides, and the
+        // setupComplete seal can fire. Source contract: the probe's file
+        // set is the ENUMERATION (every ClientFlavors.ALL flavor through
+        // GenerationPointers.activePointerName), never a hard-coded
+        // vanilla pair.
+        assertTrue(
+            "a tbc-pointer import registers as imported",
+            managedClientImported(pointerFileExists = true, legacyDirExists = false),
+        )
+        // the seal writes once settings emitted (setupComplete == false,
+        // meaning "no prepared client") AND the friend dismissed the guide
+        assertTrue(tutorialSealWrite(setupComplete = false, dismissed = true))
+        val source = locateSource(
+            "android/app/src/main/java/com/pocketrealm/ui/PocketRealmApp.kt",
+        )
+        assertTrue(
+            "the probe must enumerate every registered flavor's canonical " +
+                "pointer (GenerationPointers.activePointerName over " +
+                "ClientFlavors.ALL), never a hard-coded vanilla pair",
+            "ClientFlavors.ALL.any" in source &&
+                "GenerationPointers.activePointerName(flavor.flavorId)" in source,
+        )
+    }
+
+    private fun locateSource(repoRelative: String): String {
+        var dir: java.io.File? = java.io.File(System.getProperty("user.dir") ?: ".")
+        repeat(6) {
+            val candidate = dir?.let { java.io.File(it, repoRelative) }
+            if (candidate != null && candidate.isFile) return candidate.readText()
+            dir = dir?.parentFile
+        }
+        error("source not found walking up from ${System.getProperty("user.dir")}: $repoRelative")
+    }
+
+    @Test
     fun sealWriteRequiresResolvedUnsealedSettingsAndADismissal() {
         assertFalse(tutorialSealWrite(null, true))
         assertFalse(tutorialSealWrite(null, false))

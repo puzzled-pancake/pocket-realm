@@ -1,10 +1,12 @@
 package com.pocketrealm.addons
 
+import com.pocketrealm.addons.AddonCatalog
 import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.client.ClientFlavors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /**
@@ -79,6 +81,158 @@ class AddonFlavorCatalogTest {
         assertEquals(
             listOf("AtlasLoot", "QuestHelper", "pfUI"),
             all.map { it.name },
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // R2-1 (android-ui-tests review round 1): research text that names a
+    // client line inside a NEGATION clause ("explicitly NOT for 2.4.3",
+    // "broken since 3.3.5") must never read as SUPPORT — bare substring
+    // matching listed such add-ons on the wrong-flavor lane.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun negatedClientTargetsNeverListOnTheWrongFlavorLane() {
+        assertFalse(
+            "explicitly NOT for 2.4.3 must not read as tbc support",
+            AddonFlavorCatalog.supportsFlavor(
+                addon("stable on 1.12; explicitly NOT for 2.4.3"),
+                ClientFlavors.TBC,
+            ),
+        )
+        assertFalse(
+            "broken since 3.3.5 must not read as wotlk support",
+            AddonFlavorCatalog.supportsFlavor(
+                addon("broken since 3.3.5, do not use"),
+                ClientFlavors.WOTLK,
+            ),
+        )
+        // the positive reads are untouched
+        assertTrue(
+            AddonFlavorCatalog.supportsFlavor(
+                addon("stable on 1.12"),
+                ClientFlavors.VANILLA,
+            ),
+        )
+        assertTrue(
+            AddonFlavorCatalog.supportsFlavor(
+                addon("1.12 + 2.4.3"),
+                ClientFlavors.TBC,
+            ),
+        )
+    }
+
+    @Test
+    fun negationPhrasingCorpusNeverReadsAsSupport() {
+        // R2UI-2/R2-1/R6-r2-2 (android-ui-tests review round 2): the round-1
+        // 8-cue regex missed every phrasing below (each returned true — the
+        // add-on listed on the wrong-flavor lane). The widened window/cue
+        // model must refuse them ALL, including the canonical suffixed
+        // wotlk spelling and cue-AFTER-token negations.
+        val probes = listOf(
+            "incompatible with 2.4.3" to ClientFlavors.TBC,
+            "unsupported on 3.3.5" to ClientFlavors.WOTLK,
+            "won't load on 2.4.3" to ClientFlavors.TBC,
+            "doesn't work on 3.3.5" to ClientFlavors.WOTLK,
+            "crashes on 3.3.5" to ClientFlavors.WOTLK,
+            "unusable on 2.4.3" to ClientFlavors.TBC,
+            "No longer supported. 2.4.3 broke it." to ClientFlavors.TBC,
+            "explicitly NOT for 3.3.5a" to ClientFlavors.WOTLK,
+            "broken since 3.3.5a" to ClientFlavors.WOTLK,
+            "2.4.3 not supported" to ClientFlavors.TBC,
+            "3.3.5 not supported" to ClientFlavors.WOTLK,
+        )
+        for ((text, flavor) in probes) {
+            assertFalse(
+                "negation phrasing \"$text\" must not read as ${flavor.flavorId} support",
+                AddonFlavorCatalog.supportsFlavor(addon(text), flavor),
+            )
+        }
+        // positive controls unchanged
+        assertTrue(AddonFlavorCatalog.supportsFlavor(addon("stable on 1.12"), ClientFlavors.VANILLA))
+        assertTrue(AddonFlavorCatalog.supportsFlavor(addon("1.12 + 2.4.3"), ClientFlavors.TBC))
+    }
+
+    @Test
+    fun theSuffixedWotlkSpellingIsTheSameClientLine() {
+        // "3.3.5a" (wow-3.3.5a-12340) is the canonical wotlk spelling: the
+        // boundary match must treat the suffixed form as the 3.3.5 line.
+        assertTrue(
+            AddonFlavorCatalog.versionTokenMatches("3.3.5a hotfix", "3.3.5"),
+        )
+        assertFalse(
+            AddonFlavorCatalog.versionTokenMatches("13.3.5 hotfix", "3.3.5"),
+        )
+    }
+
+    @Test
+    fun aNegatedButOtherwiseValidGithubEntryIsRefusedOnBothTwins() {
+        // R2UI-1/R6-r2-1 (android-ui-tests review round 2): the negated
+        // fixture must be GITHUB-shaped and otherwise fully valid, so the
+        // ONLY thing that can reject it is the negation guard — on BOTH
+        // twins (the desktop parse lacks the guard == IAE masking shape).
+        val githubEntry = """
+            {"schema": 1, "addons": [{
+                "matrixId": "m-1", "name": "Negation Probe Github",
+                "category": "Test", "description": "probe",
+                "githubUrl": "https://github.com/owner/probe",
+                "installSource": "GITHUB",
+                "clientTarget": "stable on 1.12; explicitly NOT for 2.4.3",
+                "version": "v1", "verifiedUpdate": "2026-01-01",
+                "dateConfidence": "Verified exact", "communitySignal": "test",
+                "maintenance": "maintained", "compatibilityNotes": "",
+                "researchSources": [], "compatibilityRole": "standalone",
+                "handheldScore": 8.0, "handheldVerdict": "good"
+            }]}
+        """.trimIndent()
+        val failure = assertThrows(IllegalStateException::class.java) {
+            AddonCatalog.parse(githubEntry)
+        }
+        assertTrue(
+            "the refusal must name the negation-clause contract: " + failure.message,
+            "negation" in failure.message!!,
+        )
+    }
+
+    @Test
+    fun negationClausesAreRejectedAtCatalogParse() {
+        val text = """
+            {"schema": 1, "addons": [{
+                "matrixId": "m-1", "name": "Negation Probe",
+                "category": "Test", "description": "probe",
+                "clientTarget": "stable on 1.12; explicitly NOT for 2.4.3",
+                "version": "v1", "verifiedUpdate": "2026-01-01",
+                "dateConfidence": "Verified exact", "communitySignal": "test",
+                "maintenance": "maintained", "compatibilityNotes": "",
+                "researchSources": [], "compatibilityRole": "standalone",
+                "handheldScore": 8.0, "handheldVerdict": "good",
+                "installSource": "BUILTIN"
+            }]}
+        """.trimIndent()
+        val failure = assertThrows(IllegalStateException::class.java) {
+            AddonCatalog.parse(text)
+        }
+        assertTrue(
+            "the parse refusal must name the negation-clause contract: " +
+                failure.message,
+            "negation" in failure.message!!,
+        )
+    }
+
+    @Test
+    fun versionTokensNeverMatchInsideALongerVersion() {
+        // boundary discipline: 2.4.3 must not match inside 2.4.35
+        assertFalse(
+            AddonFlavorCatalog.supportsFlavor(
+                addon("2.4.35 hotfix"),
+                ClientFlavors.TBC,
+            ),
+        )
+        assertTrue(
+            AddonFlavorCatalog.supportsFlavor(
+                addon("2.4.3 hotfix"),
+                ClientFlavors.TBC,
+            ),
         )
     }
 

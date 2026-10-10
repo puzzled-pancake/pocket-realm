@@ -555,3 +555,60 @@ def test_zero_file_scan_is_a_loud_degraded_scan(tmp_path):
     assert not report["ok"]
     assert any("<degraded-scan>" in f["literals"]
                for f in report["findings"])
+
+# ---------------------------------------------------------------------------
+# R2UI-3 (android-ui-tests review round 2): the §4.6 lane tokens joined the
+# banned set — the per-flavor addon interface numbers (11200/20400/30300),
+# the realmbuilds-adjacent builds (6005/6141), and the per-flavor expansion
+# MPQ names. A planted token in a NON-owning Kotlin file must fail the
+# sweep; the owning surfaces stay green.
+# ---------------------------------------------------------------------------
+
+
+def test_planted_interface_number_in_a_non_owning_kotlin_file_fails_the_sweep(tmp_path):
+    import subprocess
+    (tmp_path / "ui").mkdir()
+    (tmp_path / "ui" / "SomeScreen.kt").write_text(
+        'val metadata = "requires Interface 30300 metadata"\n', encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    findings, _allowlisted, _files = leak_sweep.sweep(tmp_path)
+    assert any(
+        f.get("path", "").endswith("SomeScreen.kt") and "30300" in str(f.get("literals", ""))
+        for f in findings
+    ), findings
+
+
+def test_planted_bare_client_line_is_deliberately_not_banned(tmp_path):
+    # SCOPE NOTE (deviation from the round-2 proposed test): the bare
+    # client-line tokens ("1.12", "2.4.3", "3.3.5") are the repo's client-
+    # LINE families, named by design in catalog-v1.json, the era research
+    # and the per-flavor projection on 100+ owning files — a substring ban
+    # would exempt the whole repo and defeat the sweep. The mechanically
+    # banned §4.6 tokens are the interface numbers (11200/20400/30300), the
+    # realmbuilds-adjacent builds (6005/6141) and the expansion MPQ names;
+    # the client-line research surfaces are gated by the AddonCatalog parse
+    # guard and the AddonFlavorCatalog projection pins instead.
+    (tmp_path / "ui").mkdir()
+    (tmp_path / "ui" / "Chip.kt").write_text('Text("· Vanilla client 1.12")\n', encoding="utf-8")
+    import subprocess
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    findings, _allowlisted, _files = leak_sweep.sweep(tmp_path)
+    assert not [
+        f for f in findings if "1.12" in str(f.get("literals", ""))
+    ], "the bare client line must stay unbanned (see the scope note)"
+
+
+
+
+def test_owning_surfaces_stay_green_with_the_widened_token_set():
+    # the ClientFlavor registry / AddonFlavorCatalog projection / realmbuilds
+    # data are the OWNING surfaces: their tokens are allowlisted.
+    findings, _allowlisted, _files = leak_sweep.sweep(ROOT)
+    owning = [
+        f for f in findings
+        if str(f.get("path", "")).startswith(("schemas/", "tools/leak_sweep"))
+        or "AddonFlavorCatalog" in str(f.get("path", ""))
+    ]
+    assert not owning, owning

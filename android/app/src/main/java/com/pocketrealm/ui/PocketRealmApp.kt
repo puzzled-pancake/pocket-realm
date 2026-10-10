@@ -69,6 +69,8 @@ import androidx.navigation.navArgument
 import androidx.navigation.navigation
 import com.pocketrealm.ingame.WowSettingSection
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.client.ClientFlavors
+import com.pocketrealm.importer.GenerationPointers
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
@@ -112,11 +114,21 @@ fun PocketRealmApp() {
     val settingsSnapshot by settings.flow.collectAsState(initial = null)
     val hasImportedClient by produceState<Boolean?>(initialValue = null, context) {
         value = withContext(Dispatchers.IO) {
+            val clientRoot = File(context.noBackupFilesDir, "client")
+            // R3-r2-1 (android-ui-tests review round 2): the probe must
+            // enumerate EVERY registered flavor's canonical pointer
+            // (GenerationPointers.activePointerName — active-tbc.json /
+            // active-wotlk.json live beside the vanilla one) plus the
+            // pre-flavor un-namespaced name (adopted on the stores' first
+            // read). Probing only the vanilla pair left a tbc/wotlk-only
+            // import invisible: the first-run tutorial re-showed on every
+            // launch and the setupComplete seal never fired.
+            val pointerFileExists = ClientFlavors.ALL.any { flavor ->
+                File(clientRoot, GenerationPointers.activePointerName(flavor.flavorId)).isFile
+            } || File(clientRoot, "active.json").isFile ||
+                File(clientRoot, GenerationPointers.LEGACY_ACTIVE).isFile
             managedClientImported(
-                // G3-5: the vanilla pointer namespace plus the pre-flavor
-                // un-namespaced name (adopted on the stores' first read).
-                pointerFileExists = File(context.noBackupFilesDir, "client/active.json").isFile ||
-                    File(context.noBackupFilesDir, "client/active-vanilla.json").isFile,
+                pointerFileExists = pointerFileExists,
                 legacyDirExists = File(context.noBackupFilesDir, "client/active").isDirectory,
             )
         }

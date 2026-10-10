@@ -367,3 +367,25 @@ if __name__ == "__main__":
     if _failed:
         raise SystemExit(f"{_failed} of {len(_CHECKS)} checks failed")
     print(f"OK: all {len(_CHECKS)} manifest checks passed")
+# ---------------------------------------------------------------------------
+# R2UI-1/R6-r2-1 (android-ui-tests review round 2): the AddonCatalog parse
+# twins must carry the SAME load-time negation guard — the round-1 guard
+# landed only on the android twin while the shared AddonFlavorCatalogTest
+# (shared_tests) ran red on the desktop lane. Any future guard/shape change
+# to either parse must land on both in the same change.
+# ---------------------------------------------------------------------------
+
+ADDON_CATALOG_TWINS = (
+    ROOT / "android/app/src/main/java/com/pocketrealm/addons/AddonCatalog.kt",
+    ROOT / "desktop/src/main/kotlin/com/pocketrealm/addons/AddonCatalog.kt",
+)
+
+
+def test_addon_catalog_twins_carry_the_negation_guard():
+    for twin in ADDON_CATALOG_TWINS:
+        text = twin.read_text(encoding="utf-8")
+        assert (
+            "AddonFlavorCatalog.requirePositiveClientTarget(" in text
+        ), f"{twin.name}: the desktop/android AddonCatalog parse twin lost the "            "load-time negation guard (the shared AddonFlavorCatalogTest's "            "negationClausesAreRejectedAtCatalogParse would go red on one lane)"
+        assert "clientTarget" in text
+

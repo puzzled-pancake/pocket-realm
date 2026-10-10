@@ -69,6 +69,11 @@ BANNED_STRINGS = (
     "classicmangos",
     "classiccharacters",
     "classiclogs",
+    # R2UI-3 (android-ui-tests review round 2): the per-flavor expansion MPQ
+    # names join the banned set (§4.6: expansion.mpq / lichking.mpq outside
+    # their owning client-shape and addon-asset tables).
+    "expansion.mpq",
+    "lichking.mpq",
 )
 
 # Banned build numbers, matched as standalone integer literals after
@@ -78,7 +83,7 @@ BANNED_STRINGS = (
 # client id reports once, under its own label), and matched value-wise —
 # digit separators and the hex/binary/octal forms decode first (`5_875`,
 # `0x16F3`, `0b1011011110011`, and `013363` all report as 5875).
-BANNED_NUMBERS = (5875, 8606, 12340)
+BANNED_NUMBERS = (5875, 8606, 12340, 6005, 6141, 11200, 20400, 30300)
 _BANNED_NUMBER_SET = frozenset(BANNED_NUMBERS)
 _NUMBER_TOKEN_RE = re.compile(
     r"(?<![0-9A-Za-z_.])"
@@ -159,7 +164,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "tools/check_flavor.py",
-        "literals": VANILLA_DB_NAMES + ("wow-1.12.1-5875", "5875"),
+        "literals": VANILLA_DB_NAMES + ("wow-1.12.1-5875", "5875") + ("6005", "6141",),
         "reason": (
             "manifest validator: pins the vanilla DB-name provenance lock and "
             "cites the canonical client id in its error messages"
@@ -280,7 +285,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     # validate/stage the genuine 1.12.1.5875 client during bring-up.
     {
         "path": "tools/stage_o07_client.py",
-        "literals": ("wow-1.12.1-5875", "5875", "1.12.1.5875"),
+        "literals": ("wow-1.12.1-5875", "5875", "1.12.1.5875", "6005", "6141"),
         "reason": "host staging: validates and stages the user-owned 1.12.1 build 5875 client",
         "retires": "S5 retires: client identity qualification via the flavor registry",
     },
@@ -298,7 +303,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "tools/win_prepare_data.py",
-        "literals": ("5875", "8606", "12340", "2.4.3.8606"),
+        "literals": ("5875", "8606", "12340", "2.4.3.8606", "expansion.mpq", "lichking.mpq"),
         "reason": (
             "host lane: Windows data preparation carries the per-flavor "
             "FLAVOR_IDENTITIES table (DESK-128) — the host mirror of the "
@@ -352,7 +357,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopRuntimeBackendTest.kt",
-        "literals": ("5875", "classicrealmd") + VANILLA_DB_NAMES,
+        "literals": ("5875", "classicrealmd", "6005", "6141") + VANILLA_DB_NAMES,
         "reason": (
             "desktop backend fixture pins the vanilla realmd DB name and the "
             "DESK-108 bootstrap fixture replays one synthetic transcript per "
@@ -469,7 +474,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     # today; anything new in these files still fails the sweep.
     {
         "path": "android/app/src/debug/java/com/pocketrealm/importer/ImportFixtureProvider.java",
-        "literals": ("5875",),
+        "literals": ("5875", "6005"),
         "reason": "synthetic vanilla test fixture",
         "retires": "S5 retires: per-flavor fixtures",
     },
@@ -487,7 +492,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "android/app/src/androidTest/java/com/pocketrealm/client/SafClientScannerTest.kt",
-        "literals": ("5875",),
+        "literals": ("5875", "6005"),
         "reason": "synthetic vanilla test fixture",
         "retires": "S5 retires: per-flavor fixtures",
     },
@@ -523,10 +528,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "android/app/src/test/java/com/pocketrealm/client/ClientFlavorTest.kt",
-        "literals": (
-            "5875", "8606", "12340",
-            "1.12.1.5875", "2.4.3.8606", "3.3.5.12340",
-        ) + VANILLA_DB_NAMES,
+        "literals": ("5875", "8606", "12340", "1.12.1.5875", "2.4.3.8606", "3.3.5.12340", "11200", "20400", "30300", "6005", "6141", "expansion.mpq", "lichking.mpq") + VANILLA_DB_NAMES,
         "reason": "synthetic vanilla test fixture",
         "retires": "S5 retires: per-flavor fixtures",
     },
@@ -574,7 +576,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "android/app/src/test/java/com/pocketrealm/importer/ArchiveDetectionTest.kt",
-        "literals": ("1.12.1.5875",),
+        "literals": ("1.12.1.5875", "6005"),
         "reason": "synthetic vanilla test fixture",
         "retires": "S5 retires: per-flavor fixtures",
     },
@@ -653,13 +655,13 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "schemas/database-migrations.json",
-        "literals": VANILLA_DB_NAMES,
+        "literals": VANILLA_DB_NAMES + ("6005",),
         "reason": "the vanilla migration ledger names the classic* databases it seeds",
         "retires": "S9 retires: the deprecation-window alias file is deleted once no consumer reads it (G3-3 item 2 / D35); this entry retires with it",
     },
     {
         "path": "schemas/database-migrations-vanilla.json",
-        "literals": VANILLA_DB_NAMES,
+        "literals": VANILLA_DB_NAMES + ("6005",),
         "reason": "the canonical per-flavor vanilla ledger (byte copy of the alias) names the classic* databases it seeds",
         "retires": "never while the vanilla lane seeds classic* (the alias entry above retires first)",
     },
@@ -705,7 +707,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "android/app/detekt-baseline.xml",
-        "literals": ("5875",),
+        "literals": ("5875", "11200", "6005"),
         "reason": "static-analysis baseline signatures reference the vanilla identity",
         "retires": "S7 retires: vanilla client datasets",
     },
@@ -871,7 +873,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     # android entries).
     {
         "path": "desktop/src/main/kotlin/com/pocketrealm/database/DesktopMariaDbEngine.kt",
-        "literals": VANILLA_DB_NAMES + ("5875",),
+        "literals": VANILLA_DB_NAMES + ("5875",) + ("6005", "6141",),
         "reason": (
             "KNOWN DEFECT (port plan section 3(b), W1 item 2): the desktop "
             "MariaDB bootstrap CREATE DATABASE literals still name the "
@@ -891,7 +893,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "desktop/src/main/kotlin/com/pocketrealm/client/ClientTweaksRuntime.kt",
-        "literals": ("5875",),
+        "literals": ("5875", "6005", "6141"),
         "reason": "desktop runtime applies byte-addressed vanilla tweaks pinned to the build-5875 image",
         "retires": "S7 retires: per-flavor client datasets",
     },
@@ -949,7 +951,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     # Synthetic per-flavor test fixtures (android + desktop).
     {
         "path": "android/app/src/test/java/com/pocketrealm/client/ActiveFlavorTest.kt",
-        "literals": ("5875",),
+        "literals": ("5875", "11200"),
         "reason": "synthetic vanilla-lane fixture proving ActiveFlavor resolution",
         "retires": "S5 retires: per-flavor fixtures",
     },
@@ -961,7 +963,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "android/app/src/test/java/com/pocketrealm/client/MultiQualifiedLaneResolutionTest.kt",
-        "literals": ("5875", "8606"),
+        "literals": ("5875", "8606", "6005", "6141"),
         "reason": "synthetic two-qualified-flavor fixture proving lane-scoped resolution",
         "retires": "S5 retires: per-flavor fixtures",
     },
@@ -997,13 +999,13 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "desktop/src/test/kotlin/com/pocketrealm/database/DesktopDatabaseServiceTest.kt",
-        "literals": ("5875",),
+        "literals": ("5875", "6005", "6141"),
         "reason": "synthetic vanilla identity fixture",
         "retires": "S5 retires: per-flavor fixtures",
     },
     {
         "path": "desktop/src/test/kotlin/com/pocketrealm/database/DesktopMariaDbEngineTest.kt",
-        "literals": ("5875", "12340", "classicmangos", "classicrealmd"),
+        "literals": ("5875", "12340", "classicmangos", "classicrealmd", "6005", "6141"),
         "reason": (
             "desktop engine fixtures: vanilla bootstrap rows (the W1-routing "
             "defect's own test surface) plus a 12340-flavored row proving "
@@ -1055,7 +1057,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopTunnelBackendTest.kt",
-        "literals": ("5875",),
+        "literals": ("5875", "6005", "6141"),
         "reason": "synthetic vanilla tunnel-lane identity fixture",
         "retires": "S5 retires: per-flavor fixtures",
     },
@@ -1112,45 +1114,310 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "tests/test_win_prepare_data_flavors.py",
-        "literals": ("5875", "8606", "12340"),
+        "literals": ("5875", "8606", "12340", "expansion.mpq", "lichking.mpq"),
         "reason": "per-flavor prep tests pin the FLAVOR_IDENTITIES build numbers (owning-table pins)",
         "retires": "S5 retires: client identity qualification via the registry",
+    },
+
+    # ------------------------------------------------------------------
+    # R2UI-3 (android-ui-tests review round 2): the §4.6 lane tokens
+    # (realmbuilds-adjacent builds 6005/6141, the per-flavor addon
+    # interface numbers 11200/20400/30300, the expansion MPQ names) joined
+    # the banned set; these owning surfaces legitimately carry them.
+    # ------------------------------------------------------------------
+    {
+        "path": "android/app/detekt-baseline.xml",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/androidTest/java/com/pocketrealm/addons/AddonRuntimeProjectorTest.kt",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/androidTest/java/com/pocketrealm/client/SafClientScannerTest.kt",
+        "literals": ("6005",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/debug/java/com/pocketrealm/importer/ImportFixtureProvider.java",
+        "literals": ("6005",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/main/assets/addons/android-port/AndroidPort/ActionBars.lua",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/main/assets/addons/android-port/AndroidPort/AndroidPort.toc",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/main/assets/addons/android-port/AndroidPort/Bags.lua",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/main/assets/addons/android-port/AndroidPort/Core.lua",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/main/assets/addons/android-port/AndroidPort/FrameMover.lua",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/main/assets/addons/android-port/AndroidPort/Hud.lua",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/main/assets/addons/android-port/AndroidPort/Talk.lua",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/main/assets/addons/catalog-v1.json",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/main/java/com/pocketrealm/addons/AddonArchiveValidator.kt",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/main/java/com/pocketrealm/addons/AddonRepository.kt",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/main/java/com/pocketrealm/addons/AddonRuntimeProjector.kt",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/addons/AddonArchiveValidatorTest.kt",
+        "literals": ("11200", "20400", "30300",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/addons/AddonFlavorCatalogTest.kt",
+        "literals": ("wow-3.3.5a-12340",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/addons/AddonOperationSafetyTest.kt",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/addons/AndroidPortAssetTest.kt",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/addons/VanillaAddonPinTest.kt",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/client/ActiveFlavorTest.kt",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/client/ClientFlavorTest.kt",
+        "literals": ("11200", "20400", "30300", "6005", "6141", "expansion.mpq", "lichking.mpq",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {
         "path": "android/app/src/test/java/com/pocketrealm/client/MpqSetKeyFormTripwireTest.kt",
         "literals": ("5875",),
-        "reason": "R2-1 tripwire builds the synthetic vanilla 5875 client its positive control validates (owning-surface fixture)",
-        "retires": "S5 retires: per-flavor fixtures",
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/client/MultiQualifiedLaneResolutionTest.kt",
+        "literals": ("6005", "6141",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {
         "path": "android/app/src/test/java/com/pocketrealm/client/R2DoctoredMpqScannerTest.kt",
-        "literals": ("1.12.1.5875", "2.4.3.8606", "3.3.5.12340", "wow-1.12.1-5875"),
-        "reason": "R2 doctored-manifest matrix exercises the scanner against the registered per-flavor client ids (owning-surface negative fixtures)",
-        "retires": "S5 retires: per-flavor fixtures",
+        "literals": ("1.12.1.5875", "2.4.3.8606", "3.3.5.12340", "wow-1.12.1-5875",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {
         "path": "android/app/src/test/java/com/pocketrealm/database/TimeframeOverlayPlanTest.kt",
-        "literals": VANILLA_DB_NAMES,
-        "reason": "R2-1 overlay-lane pin asserts the plan never targets the vanilla world DB while the tbc lane is active (the banned literal is the negative assertion)",
-        "retires": "S4 retires: per-flavor DB routing",
+        "literals": ("classicmangos",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/importer/ArchiveDetectionTest.kt",
+        "literals": ("6005",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {
         "path": "android/app/src/test/java/com/pocketrealm/server/PreparedDataVerifyWalkTest.kt",
         "literals": ("5875",),
-        "reason": "R4-4 verify-walk pins plant the synthetic vanilla 5875 generation the requireActive walk validates (owning-surface fixture)",
-        "retires": "S5 retires: per-flavor fixtures",
-    },
-    {
-        "path": "android/app/src/test/java/com/pocketrealm/server/R3BreakerNegativeTest.kt",
-        "literals": ("5875", "1.12.1.5875", "wow-1.12.1-5875"),
-        "reason": "R3 breaker probes build the synthetic vanilla 5875 client and the adjacent-build 6005 manifest cell (owning-surface negative fixtures)",
-        "retires": "S5 retires: per-flavor fixtures",
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {
         "path": "android/app/src/test/java/com/pocketrealm/server/R2WrongFlavorManifestMatrixTest.kt",
-        "literals": ("5875", "8606", "12340", "wow-1.12.1-5875", "wow-2.4.3-8606"),
-        "reason": "R2 wrong-flavor manifest matrix drives the real reader against every registered per-flavor client id (owning-surface negative fixtures)",
-        "retires": "S5 retires: per-flavor fixtures",
+        "literals": ("12340", "5875", "8606", "wow-1.12.1-5875", "wow-2.4.3-8606",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/server/R3BreakerNegativeTest.kt",
+        "literals": ("1.12.1.5875", "5875", "6005", "6141", "expansion.mpq", "lichking.mpq", "wow-1.12.1-5875",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/main/kotlin/com/pocketrealm/addons/DesktopAddonRepository.kt",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/main/kotlin/com/pocketrealm/addons/DesktopAddonRuntimeProjector.kt",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/main/kotlin/com/pocketrealm/database/DesktopMariaDbEngine.kt",
+        "literals": ("6005", "6141",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/addons/DesktopAddonRuntimeProjectorTest.kt",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/addons/DesktopAddonValidatorFlavorSeamTest.kt",
+        "literals": ("11200",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/client/DesktopClientScannerTest.kt",
+        "literals": ("6005",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/database/DesktopDatabaseServiceTest.kt",
+        "literals": ("6005", "6141",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/database/DesktopMariaDbEngineTest.kt",
+        "literals": ("6005", "6141",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopClientIdentityGateTest.kt",
+        "literals": ("6005",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopClientSelectionStateTest.kt",
+        "literals": ("6005",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopRuntimeBackendTest.kt",
+        "literals": ("6005", "6141",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopTunnelBackendTest.kt",
+        "literals": ("6005", "6141",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/importer/ManagedClientImporterArchiveTest.kt",
+        "literals": ("6005",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/importer/ManagedClientImporterTest.kt",
+        "literals": ("6005",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "schemas/database-migrations-vanilla.json",
+        "literals": ("6005",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "schemas/database-migrations.json",
+        "literals": ("6005",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "tests/test_win_prepare_data_flavors.py",
+        "literals": ("expansion.mpq", "lichking.mpq",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "tools/check_flavor.py",
+        "literals": ("6005", "6141",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "tools/win_prepare_data.py",
+        "literals": ("expansion.mpq", "lichking.mpq",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
 )
 

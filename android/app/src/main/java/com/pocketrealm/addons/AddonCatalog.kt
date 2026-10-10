@@ -124,6 +124,17 @@ class AddonCatalog private constructor(
             val addonsJson = root.getJSONArray("addons")
             val addons = List(addonsJson.length()) { index ->
                 val item = addonsJson.getJSONObject(index)
+                val clientTarget = item.getString("clientTarget")
+                // R2-1 (android-ui-tests review round 1): research text that
+                // names a client line inside a NEGATION clause ("explicitly
+                // NOT for 2.4.3", "broken since 3.3.5") must be rejected at
+                // load — the flavor projection matches version tokens by
+                // substring, so a negated mention would list the add-on on
+                // the wrong-flavor lane. Fail loud at parse; the research
+                // text must positively list supported client lines.
+                AddonFlavorCatalog.requirePositiveClientTarget(
+                    clientTarget, item.optString("name"),
+                )
                 CatalogAddon(
                     matrixId = item.getString("matrixId"),
                     name = item.getString("name"),
@@ -132,7 +143,7 @@ class AddonCatalog private constructor(
                     githubUrl = item.optString("githubUrl").takeIf { !item.isNull("githubUrl") && it.isNotBlank() },
                     builtinId = item.optString("builtinId").takeIf { !item.isNull("builtinId") && it.isNotBlank() },
                     assetPath = item.optString("assetPath").takeIf { !item.isNull("assetPath") && it.isNotBlank() },
-                    clientTarget = item.getString("clientTarget"),
+                    clientTarget = clientTarget,
                     version = item.getString("version"),
                     verifiedUpdate = item.getString("verifiedUpdate"),
                     dateConfidence = item.getString("dateConfidence"),

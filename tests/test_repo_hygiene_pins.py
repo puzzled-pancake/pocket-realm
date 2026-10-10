@@ -510,3 +510,23 @@ def test_toolchain_tmpdir_helper_resolves_and_creates(monkeypatch, tmp_path):
     # the canonical default is on E: (hard rule 1), never the OS tempdir
     assert str(common.TOOLCHAIN_TMPDIR).lower().startswith("e:")
     assert "temp" not in str(common.TOOLCHAIN_TMPDIR).lower()
+# ---------------------------------------------------------------------------
+# R2-2 (android-ui-tests review round 2): the installed-add-on detail copy
+# claimed "Vanilla interface metadata" while the validator it fronts accepts
+# the ACTIVE flavor's interfaces — wrong-copy at the qualification flip (the
+# D50(4) class, copy flavor). The ui/ tree must derive the flavor word from
+# the active ClientFlavor; the literal is retired here.
+# ---------------------------------------------------------------------------
+
+
+def test_no_hardcoded_vanilla_interface_copy_in_ui():
+    offenders = []
+    for path in (ROOT / "android/app/src/main/java/com/pocketrealm/ui").rglob("*.kt"):
+        if "Vanilla interface" in path.read_text(encoding="utf-8", errors="replace"):
+            offenders.append(path.relative_to(ROOT).as_posix())
+    assert not offenders, (
+        "hard-coded 'Vanilla interface' copy in the ui/ tree (the detail "
+        "screen must derive the flavor word from the active ClientFlavor): "
+        + repr(offenders)
+    )
+
