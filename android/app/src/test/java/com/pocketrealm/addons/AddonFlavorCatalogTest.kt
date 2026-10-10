@@ -154,6 +154,39 @@ class AddonFlavorCatalogTest {
     }
 
     @Test
+    fun outOfWindowAndExclusionNegationsNeverReadAsSupport() {
+        // R3-R2-1 (android-ui-tests review round 3): the round-2 window
+        // (80 before / 40 after) accepted wrong-lane listings when the cue
+        // sat beyond it, and the cue list lacked the exclusion family. The
+        // whole-text scan + the exclusion cues close both bypasses.
+        val probes = listOf(
+            "compatible with every release from the 1.12 line except 2.4.3"
+                to ClientFlavors.TBC,
+            "other than 3.3.5" to ClientFlavors.WOTLK,
+            "excluding 2.4.3" to ClientFlavors.TBC,
+            // far-cue phrasings: the cue sits >80 chars before / >40 after
+            "tested extensively across every Blizzard Classic patch cycle and " +
+                "explicitly not for 2.4.3" to ClientFlavors.TBC,
+            "works on the classic line; 3.3.5 was never tested by the author and " +
+                "stayed untested on that client through every later patch" to
+                ClientFlavors.WOTLK,
+        )
+        for ((text, flavor) in probes) {
+            assertFalse(
+                "negation phrasing \"$text\" must not read as ${flavor.flavorId} support",
+                AddonFlavorCatalog.supportsFlavor(addon(text), flavor),
+            )
+        }
+        // honest positives unchanged
+        assertTrue(
+            AddonFlavorCatalog.supportsFlavor(
+                addon("1.12 + 2.4.3"),
+                ClientFlavors.TBC,
+            ),
+        )
+    }
+
+    @Test
     fun theSuffixedWotlkSpellingIsTheSameClientLine() {
         // "3.3.5a" (wow-3.3.5a-12340) is the canonical wotlk spelling: the
         // boundary match must treat the suffixed form as the 3.3.5 line.

@@ -2,6 +2,7 @@ package com.pocketrealm.addons
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.apache.commons.compress.archivers.zip.UnixStat
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
@@ -16,6 +17,57 @@ class AddonArchiveValidatorTest {
         assertThrows(IllegalArgumentException::class.java) { GitHubRepoRef.parse("http://github.com/owner/repo") }
         assertThrows(IllegalArgumentException::class.java) { GitHubRepoRef.parse("https://example.com/owner/repo") }
         assertThrows(IllegalArgumentException::class.java) { GitHubRepoRef.parse("https://github.com/owner/repo/issues") }
+    }
+
+    @Test fun `a tbc-lane interface refusal names the tbc interface and never Vanilla`() {
+        // R3-1 (android-ui-tests review round 3): the accepted set is
+        // flavor-routed (the default Policy resolves the active lane), so a
+        // 11200-only archive on a tbc lane must be refused with the TBC
+        // interface named — never the hard-coded Vanilla lane copy.
+        com.pocketrealm.client.TwoQualifiedFlavors.install(selection = "tbc")
+        try {
+            val archive = zip(
+                "owner-addon-abc/Example.toc" to "## Interface: 11200\nExample.lua\n",
+                "owner-addon-abc/Example.lua" to "print('ok')\n",
+            )
+            val failure = assertThrows(IllegalArgumentException::class.java) {
+                AddonArchiveValidator().validate(archive, "DifferentRepositoryName")
+            }
+            val message = failure.message ?: ""
+            assertTrue(
+                "the refusal must be the interface-mismatch one naming the lane's set",
+                "declaring a supported addon interface" in message,
+            )
+            assertTrue(
+                "the refusal must name the active lane's interface (20400): $message",
+                "20400" in message,
+            )
+            assertTrue(
+                "the refusal must not name the Vanilla lane: $message",
+                "Vanilla" !in message && "vanilla" !in message,
+            )
+        } finally {
+            com.pocketrealm.client.ActiveFlavor.reset()
+        }
+    }
+
+    @Test fun `the refusal copy never hard-codes the Vanilla lane`() {
+        // R3-1 source pin: both refusal strings are flavor-routed (the
+        // policy's accepted set), never hard-coded lane copy.
+        val source = java.io.File(
+            System.getProperty("user.dir") ?: "."
+        ).let { dir ->
+            generateSequence(dir) { it.parentFile }
+                .firstOrNull { java.io.File(it, "android/app/src/main/java/com/pocketrealm/addons/AddonArchiveValidator.kt").isFile() }
+        }?.let { java.io.File(it, "android/app/src/main/java/com/pocketrealm/addons/AddonArchiveValidator.kt").readText() } ?: ""
+        assertTrue(
+            "the toc refusal must not hard-code the Vanilla lane",
+            "No Vanilla addon .toc file" !in source,
+        )
+        assertTrue(
+            "the interface refusal must not hard-code the Vanilla lane",
+            "supported Vanilla interface" !in source,
+        )
     }
 
     @Test fun `valid repository root addon is accepted and wrapped`() {

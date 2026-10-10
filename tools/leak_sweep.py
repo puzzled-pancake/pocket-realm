@@ -1300,6 +1300,12 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {
+        "path": "tests/test_addons_wiki_pin.py",
+        "literals": ("11200", "20400", "30300"),
+        "reason": "the Add-ons wiki doc-pin asserts the wiki's interface-number line covers all three lanes' accepted interfaces (owning fixture)",
+        "retires": "S5 retires: per-flavor fixtures",
+    },
+    {
         "path": "android/app/src/test/java/com/pocketrealm/server/R3BreakerNegativeTest.kt",
         "literals": ("1.12.1.5875", "5875", "6005", "6141", "expansion.mpq", "lichking.mpq", "wow-1.12.1-5875",),
         "reason": "owning surface (see ALLOWLIST_CORE family note)",

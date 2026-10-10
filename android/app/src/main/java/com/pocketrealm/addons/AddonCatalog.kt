@@ -106,7 +106,11 @@ class AddonCatalog private constructor(
         private val RECOMMENDATION_REASONS = mapOf(
             "151" to "Optional Vanilla 1.12.1 Android Port UI with 6-inch handheld defaults; Pocket Realm supplies its matching 1-8 face/D-pad, target/use shoulder and LT/RT Winlator control map.",
             "002" to "Standalone quest database that reduces map-search and keyboard friction on a 5.5-inch display.",
-            "059" to "Special two-part install: the player plus about 1.2 GB of Vanilla voice data for less small-screen reading.",
+            // R3-2 (android-ui-tests review round 3): flavor-neutral — the
+            // researched 059 entry covers multiple client lines, so the copy
+            // must not claim a Vanilla-only download on projected tbc/wotlk
+            // lanes (S7.6 owns the per-line resolver extension).
+            "059" to "Special two-part install: the player plus a large voice-data download, so you read less on a small screen.",
         )
 
         @Volatile private var cached: AddonCatalog? = null

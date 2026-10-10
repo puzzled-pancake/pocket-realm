@@ -115,7 +115,7 @@ internal class AddonArchiveValidator {
             require(relative.keys.none { it.isBlank() }) { "Archive wrapper contains no addon files" }
 
             val tocFiles = relative.filterKeys { it.endsWith(".toc") }
-            require(tocFiles.isNotEmpty()) { "No Vanilla addon .toc file was found" }
+            require(tocFiles.isNotEmpty()) { "No addon .toc file was found in the archive" }
             val rootTocs = tocFiles.values.filter { (_, path) -> '/' !in path }
             val rootToc = if (policy.preferredRootToc != null) {
                 rootTocs.filter { (_, path) -> path.equals(policy.preferredRootToc, ignoreCase = true) }
@@ -146,7 +146,13 @@ internal class AddonArchiveValidator {
                 }.distinctBy { it.lowercase(Locale.ROOT) }
             }
             require(addonFolders.isNotEmpty()) {
-                "Each addon must contain Folder/Folder.toc or a repository-root .toc"
+                // R3-1 (android-ui-tests review round 3): when the projection
+                // is empty because no root toc declared an interface the
+                // active lane accepts, the refusal names the lane's own
+                // interface set — never a hard-coded Vanilla lane copy.
+                "Each addon must contain Folder/Folder.toc or a repository-root .toc " +
+                    "declaring a supported addon interface (the active lane accepts: " +
+                    policy.acceptedInterfaces.sorted().joinToString() + ")"
             }
             require(addonFolders.size <= MAX_ADDONS) { "Archive contains too many addons" }
             policy.expectedFolders?.let { expected ->
@@ -185,7 +191,13 @@ internal class AddonArchiveValidator {
         val text = readToc(zip, entry, path)
         val interfaceValues = declaredInterfaces(text)
         require(interfaceValues.any { it in policy.acceptedInterfaces }) {
-            "$path does not declare a supported Vanilla interface"
+            // R3-1 (android-ui-tests review round 3): the accepted set is
+            // flavor-routed (the default policy resolves the active lane),
+            // so the refusal must not hard-code a lane name — it names the
+            // interface numbers the ACTIVE flavor accepts.
+            "$path does not declare a supported addon interface " +
+                "(the active lane accepts: " +
+                policy.acceptedInterfaces.sorted().joinToString() + ")"
         }
         policy.requiredTocFields.forEach { (field, expected) ->
             val value = Regex("(?im)^##\\s*${Regex.escape(field)}\\s*:\\s*(.+?)\\s*$")

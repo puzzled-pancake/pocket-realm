@@ -6,7 +6,7 @@ The Add-ons area manages optional changes to the game interface. Nothing is inst
 
 ### Recommended for Pocket Realm
 
-These are the add-ons tested on Pocket Realm hardware: the built-in **Android Port**, **pfQuest**, and **WoW VoiceOver**. Each item can be opened and reviewed before installation. The list is not a required pack.
+This is the add-on set researched for the **active flavor** you picked on Home (vanilla shows three tested add-ons; other flavors show their own researched set). Each item can be opened and reviewed before installation. The list is not a required pack.
 
 ### My add-ons
 
@@ -14,13 +14,13 @@ This shows what is installed for the next game launch. It can also show availabl
 
 ### Browse all
 
-This opens the larger Vanilla 1.12 add-on catalogue. Search and detail pages help the player find an add-on by name or purpose.
+This opens the researched add-on catalogue. Search and detail pages help the player find an add-on by name or purpose.
 
 The catalogue itself is packaged with the app.
 
 ### Install from GitHub
 
-This is the advanced path for a public Vanilla-compatible repository that is not already listed. Pocket Realm checks the downloaded archive and the add-on's interface version before it becomes an installed generation.
+This is the advanced path for a public add-on repository that matches the active flavor's client line and is not already listed. Pocket Realm checks the downloaded archive and the add-on's interface version before it becomes an installed generation.
 
 ## When changes take effect
 
@@ -41,7 +41,7 @@ Before a downloaded add-on can become active, Pocket Realm checks:
 - There are no links, executable payloads, duplicate paths, or dangerous path names.
 - The archive does not expand to an unreasonable size.
 - The add-on has a valid table-of-contents file.
-- The table-of-contents file declares the Vanilla interface number 11200.
+- The table-of-contents file declares the interface number the active flavor accepts (11200 on vanilla; 20400/30300 on tbc/wotlk).
 - Every file declared by that table of contents exists in the archive.
 
 Custom GitHub installs are resolved to one exact source revision. Downloads and extraction happen in a temporary area. The installed registry changes only after the complete new generation has been verified.

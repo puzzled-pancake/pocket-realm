@@ -49,11 +49,10 @@ object AddonFlavorCatalog {
             "hasn't|haven't|hadn't|" +
             "don't|does not|do not|did not|will not|won't|would not|" +
             "cannot|can't|could not|couldn't|should not|shouldn't|shall not|" +
-            "is not|are not|was not|were not|has not|have not|had not)\\b",
+            "is not|are not|was not|were not|has not|have not|had not|" +
+            "except|other than|excluding|excluded|aside from)\\b",
         RegexOption.IGNORE_CASE,
     )
-    private const val NEGATION_WINDOW_BEFORE = 80
-    private const val NEGATION_WINDOW_AFTER = 40
 
     /** R2-1/R6-r2-1 (android-ui-tests review rounds 1-2): load-time guard
      * for the catalog parse — a `clientTarget` that names a client line
@@ -110,31 +109,34 @@ object AddonFlavorCatalog {
      * catalog-v1.json verified clean under the widened model. */
     internal fun negationCovers(text: String, token: String): Boolean {
         if (text.isBlank()) return false
+        // R3-R2-1 (android-ui-tests review round 3): the WHOLE clientTarget
+        // is scanned — no distance window. The round-2 80/40-char window let
+        // a cue beyond the window ("compatible with every release from the
+        // 1.12 line except 2.4.3" with the cue 132 chars before) accept a
+        // wrong-lane listing; a clientTarget that negation-covers ANY lane
+        // is research text that must be rewritten positively, so the
+        // conservative whole-text scan is the correct direction.
         val lower = text.lowercase(Locale.ROOT)
         // suffix-tolerant variants: the canonical letter-suffixed spellings
         // ("3.3.5a") name the same client line.
         val variants = listOf(token, "${token}a", "${token}b", "${token}c")
-        var any = false
-        for (variant in variants) {
-            var at = lower.indexOf(variant)
-            while (at >= 0) {
-                val end = at + variant.length
-                // digit neighbours are a DIFFERENT version (2.4.35 / 12.4.3)
-                val beforeOk = at == 0 || !lower[at - 1].isDigit()
-                val afterIsDigit = end < lower.length && lower[end].isDigit()
-                if (beforeOk && !afterIsDigit) {
-                    val windowStart = maxOf(0, at - NEGATION_WINDOW_BEFORE)
-                    val windowEnd = minOf(lower.length, end + NEGATION_WINDOW_AFTER)
-                    if (NEGATION_CUES.containsMatchIn(lower.substring(windowStart, windowEnd))) {
-                        return true
-                    }
-                    any = true
-                }
-                at = lower.indexOf(variant, end)
+        return variants.any { variant -> negationCoversVariant(lower, variant) }
+    }
+
+    private fun negationCoversVariant(lowerText: String, variant: String): Boolean {
+        var at = lowerText.indexOf(variant)
+        while (at >= 0) {
+            val end = at + variant.length
+            // digit neighbours are a DIFFERENT version (2.4.35 / 12.4.3)
+            val beforeOk = at == 0 || !lowerText[at - 1].isDigit()
+            val afterIsDigit = end < lowerText.length && lowerText[end].isDigit()
+            if (beforeOk && !afterIsDigit &&
+                NEGATION_CUES.containsMatchIn(lowerText)
+            ) {
+                return true
             }
+            at = lowerText.indexOf(variant, end)
         }
-        // no boundary-valid occurrence carried a cue in its window: the
-        // mention is positive support (or absent entirely)
         return false
     }
 
