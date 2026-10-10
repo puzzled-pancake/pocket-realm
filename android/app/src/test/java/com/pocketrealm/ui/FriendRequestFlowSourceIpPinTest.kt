@@ -10,6 +10,11 @@ import java.io.File
  * both platforms; this pin (shared, runs on both suites) fails if the
  * request-row copy ever interpolates the source address again. The host's
  * audit trail keeps the address; the user-facing surfaces name accounts.
+ *
+ * R3-1/R5-4 (native-server round 1): the same rule now covers the roster
+ * — the account_list payload dropped the last-logon ADDRESS member, the
+ * shared [com.pocketrealm.supervisor.FriendRosterJson] parser dropped the
+ * field, and the desktop Friends card renders only the logon TIMESTAMP.
  */
 class FriendRequestFlowSourceIpPinTest {
 
@@ -23,6 +28,8 @@ class FriendRequestFlowSourceIpPinTest {
     private fun androidFile(rel: String) = File(repoRoot(), "android/app/src/main/java/com/pocketrealm/$rel")
 
     private fun desktopFile(rel: String) = File(repoRoot(), "desktop/src/main/kotlin/com/pocketrealm/$rel")
+
+    private fun nativeFile(rel: String) = File(repoRoot(), "native/$rel")
 
     @Test
     fun `friend-request rows never interpolate the source address`() {
@@ -41,6 +48,39 @@ class FriendRequestFlowSourceIpPinTest {
             "FriendRequestFlow.kt lost the never-displayed contract marker",
             FriendRequestFlowSourceIpPinTest::class.java
                 .let { "NEVER" in flow && "sourceIp" in flow },
+        )
+    }
+
+    @Test
+    fun `roster surfaces never carry the last-logon address`() {
+        // the producer: the payload emits no address member at all
+        val world = nativeFile("realm-runtime/src/world_runtime.cpp").readText()
+        assertTrue(
+            "world_runtime.cpp still emits a lastLogonIp roster member " +
+                "(plan §1 rule 7: peer addresses are never displayed)",
+            "lastLogonIp" !in world,
+        )
+        assertTrue(
+            "world_runtime.cpp account_list still selects l.ip from account_logons",
+            !Regex("SELECT\\s+l\\.ip", RegexOption.IGNORE_CASE).containsMatchIn(world) &&
+                !Regex("\"SELECT l\\.ip").containsMatchIn(world) &&
+                !Regex("l\\.ip FROM account_logons").containsMatchIn(world),
+        )
+        // the shared consumer model: the field is gone, not merely unread
+        val rosterJson = androidFile("supervisor/FriendRosterJson.kt").readText()
+        assertTrue(
+            "FriendRosterJson.AccountRow still carries a lastLogonIp field",
+            "lastLogonIp" !in rosterJson,
+        )
+        // the display: the Friends card copy never interpolates it
+        val playersScreen = desktopFile("desktop/ui/PlayersScreen.kt").readText()
+        assertTrue(
+            "PlayersScreen.kt still references lastLogonIp (plan §1 rule 7)",
+            "lastLogonIp" !in playersScreen,
+        )
+        assertTrue(
+            "PlayersScreen.kt renders an address after the logon timestamp",
+            !Regex("\" from \\\$").containsMatchIn(playersScreen),
         )
     }
 }

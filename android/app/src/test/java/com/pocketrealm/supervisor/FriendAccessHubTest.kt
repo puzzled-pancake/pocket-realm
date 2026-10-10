@@ -81,7 +81,7 @@ class FriendAccessHubTest {
         }
         override suspend fun accountRoster(): RosterRead = RosterRead(
             null,
-            listOf(FriendRosterJson.AccountRow(42L, "Dave", 0, 0, banned = false, "", "", online = false)),
+            listOf(FriendRosterJson.AccountRow(42L, "Dave", 0, 0, banned = false, bot = false, lastLogon = "", online = false)),
         )
         override suspend fun banFriendAccount(username: String, duration: String, reason: String): ModerationResult {
             actions += "ban:$username/$duration"

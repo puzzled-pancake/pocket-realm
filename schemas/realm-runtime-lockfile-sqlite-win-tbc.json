@@ -267,6 +267,8 @@
   "patches_content": {
     "native/patches/cmangos/DatabaseSqlite.cpp": "8086ae1fedb5d536e8a33e997b9ec2f752c468d49f777560a3c5891c23f060a7",
     "native/patches/cmangos/DatabaseSqlite.h": "46e6953dda3d28cc380280a3f15a22b30a1af1dcdc7882d4c3173ecec581b0f6",
+    "native/patches/cmangos/PocketRealmInteraction-tbc.cpp": "659eb57ad8bc96e374111d4d95a3e0ff108b536459f863adadb0d4dd58e33d53",
+    "native/patches/cmangos/PocketRealmInteraction-wotlk.cpp": "e5a34a42f59a7e208773f057bebbff1716cd7bf0b62658ef94a8f15b8ddf4fe2",
     "native/patches/cmangos/PocketRealmInteraction.cpp": "985b257079e62a7483537cdea4e1ada29103771be5e505000d3a93f54bd67916",
     "native/patches/cmangos/QueryResultSqlite.cpp": "c7f84c1b7e5e6ea70671a4ab2d7912b50f412916ac131201e35087bded0709b5",
     "native/patches/cmangos/QueryResultSqlite.h": "122ecdabfafd5492df2ed313e2b6eaf6eb82c25c84930d3c4b7bcf2f9976d810",
@@ -301,7 +303,7 @@
     {
       "path": "native/.build-win-x86_64-tbc/pocket-runtime-build/pocket_realmd_runtime.dll",
       "size": 5736960,
-      "sha256": "324fe239eac17ebcdb53e1564dd2ac28d37056d618348ebfe002349cdd1dfc2a",
+      "sha256": "8270cc03c1fdd5d4f55194bc7d582663e14cad464d08e12aa0e813b0d00addb5",
       "pe_machine": "0x8664",
       "pe_imports": [
         "ADVAPI32.dll",
@@ -327,8 +329,8 @@
     },
     {
       "path": "native/.build-win-x86_64-tbc/pocket-runtime-build/pocket_world_runtime.dll",
-      "size": 26766848,
-      "sha256": "e42f3c9aff1d11e478544237c9bc8138d8ebd7ee0f17d5e36f48aa4481a9c4dd",
+      "size": 26765312,
+      "sha256": "e99adbe0cf8f653426281564d132764e150f84a8801494c1bf5d6e806a45a22f",
       "pe_machine": "0x8664",
       "pe_imports": [
         "ADVAPI32.dll",
@@ -399,8 +401,8 @@
     }
   },
   "seed_transcripts_provenance": {
-    "note": "vanilla-transcripts placeholder: this non-vanilla lane seeds the VANILLA classic* transcripts until its own per-flavor transcripts are measured and pinned in sqlite-seed-baseline-<flavor>.json",
-    "retires": "W2/W5: per-flavor seed transcripts re-key this block"
+    "note": "vanilla-transcripts placeholder: this non-vanilla lane seeds the VANILLA classic* transcripts until its own per-flavor transcripts are measured and pinned in sqlite-seed-baseline-<flavor>.json. The supported retire path (decision D59): run `python tools/seed_sqlite_from_manifest.py --flavor <flavor> --out <dir> --transcripts <dir> --write-baseline` (the manifest seeder's merge write \u2014 the only tool that can produce those keys), restage the lane (tools/build_o09_realm_runtime.py --flavor <flavor>), then re-key this lockfile; it then binds the flavor's own digests and this placeholder retires.",
+    "retires": "W2/W5: first per-flavor transcript staging re-keys this block (decision D59)"
   },
   "toolchain": {
     "generator": "Ninja",

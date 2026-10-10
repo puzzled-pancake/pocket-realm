@@ -530,3 +530,43 @@ def test_no_hardcoded_vanilla_interface_copy_in_ui():
         + repr(offenders)
     )
 
+
+
+def test_interact_overlay_variants_are_tracked_for_every_flavor():
+    """R5-1 (native-server round 3): pocket_interact_source() builds the
+    per-flavor overlay path DYNAMICALLY (f"PocketRealmInteraction-"
+    f"{flavor_id}.cpp"), so the literal-expression scan above cannot see
+    it — the exact D52(7) fresh-clone class through a dynamic path. Every
+    variant the build tool can select for a registered flavor must be
+    tracked or gitignored."""
+    import sys
+
+    sys.path.insert(0, str(ROOT / "tools"))
+    from tools import build_o09_realm_runtime as driver
+    from tools import flavor_layout
+
+    offenders: list[str] = []
+    for flavor_id in flavor_layout.FLAVOR_IDS:
+        try:
+            candidate = driver.pocket_interact_source(flavor_id)
+        except RuntimeError:
+            continue  # an unmaterialized per-flavor variant is the
+            # resolver's own fail-loud, exercised by its contract test
+        if not candidate.is_file():
+            continue
+        rel = candidate.relative_to(ROOT).as_posix()
+        tracked = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", rel],
+            cwd=ROOT, capture_output=True,
+        )
+        ignored = subprocess.run(
+            ["git", "check-ignore", "-q", rel],
+            cwd=ROOT,
+        )
+        if tracked.returncode != 0 and ignored.returncode != 0:
+            offenders.append(rel)
+    assert not offenders, (
+        "the interact overlay selects UNTRACKED per-flavor sources (a "
+        "fresh clone breaks the next expansion lane build): "
+        + "; ".join(offenders) + " — track them in the finalize add"
+    )

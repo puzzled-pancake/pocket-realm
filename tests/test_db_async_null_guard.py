@@ -264,24 +264,29 @@ def test_lockfiles_pin_patches_content() -> None:
     """Every committed lockfile (mysql lanes AND the sqlite sibling)
     pins the sha256 of every native/patches/ file compiled into its
     build. Any patches edit makes the committed lockfile mechanically
-    stale - this pin is what catches that drift."""
+    stale - this pin is what catches that drift.
+
+    R1-r3-2 (native-server round 3): the set is the FULL committed
+    realm-runtime lockfile family — the two expansion win lanes
+    (sqlite-win-tbc/-wotlk) previously had NO standing freshness pin,
+    so a native/patches edit landing without the --write-lockfiles
+    refresh left exactly those lanes' provenance silently stale (the
+    lanes whose per-flavor patch variants are the likeliest edit
+    targets). Globbed so a future lane cannot silently join unpinned."""
     import json
     expected = driver.patches_content_digests()
     assert expected, "no patch files found under native/patches/"
-    names = ("realm-runtime-lockfile.json",
-             "realm-runtime-lockfile-arm64-v8a.json",
-             "realm-runtime-lockfile-arm64-v8a-sqlite.json",
-             "realm-runtime-lockfile-sqlite-win.json")
-    for name in names:
-        path = ROOT / "schemas" / name
-        assert path.is_file(), f"{name} missing (rebuild that lane)"
+    lockfiles = sorted((ROOT / "schemas").glob("realm-runtime-lockfile*.json"))
+    assert lockfiles, "no committed realm-runtime lockfiles found"
+    for path in lockfiles:
+        assert path.is_file(), f"{path.name} missing (rebuild that lane)"
         record = json.loads(path.read_text(encoding="utf-8"))
         pinned = record.get("patches_content")
         assert isinstance(pinned, dict) and pinned, (
-            f"{name} predates patches-content pinning - rebuild that "
+            f"{path.name} predates patches-content pinning - rebuild that "
             "lane with the current driver")
         assert pinned == expected, (
-            f"{name} patches content is stale vs the working tree: "
+            f"{path.name} patches content is stale vs the working tree: "
             f"changed={sorted(set(expected) ^ set(pinned))[:6]}... - "
             "a native/patches edit landed without its lockfile refresh; run "
             "python tools/build_o09_realm_runtime.py --write-lockfiles and "

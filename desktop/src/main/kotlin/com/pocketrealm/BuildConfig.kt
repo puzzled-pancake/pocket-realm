@@ -17,7 +17,7 @@ package com.pocketrealm
  */
 object BuildConfig {
     const val NATIVE_RUNTIME_BUILD_ID: String =
-        "win-x86_64-mariadb-cmangos-ce83805d-playerbots-7e2cd2fb-784c94131fbf"
+        "win-x86_64-mariadb-cmangos-ce83805d-playerbots-7e2cd2fb-9ac45a78db47"
 
     const val NATIVE_CMANGOS_COMMIT: String =
         "ce83805d48f9c98b2af617096be5347acb8a1f17"

@@ -194,9 +194,12 @@ RELAY_NATIVE_GUARDS = [
     ("bool verify_account_password(const std::string& username, const std::string& password)",
      "if (m_state.state() != POCKET_SERVER_READY",
      "return false;", "account_info(username)"),
+    # R2-1 (round 2): create_account no longer rides issue_command — the
+    # credential must never enter the echoed console lane — so its first
+    # world deref is the direct non-echoed AccountMgr write
     ("int create_account(const std::string& username, const std::string& password, uint64_t timeout_ms)",
      "if (m_state.state() != POCKET_SERVER_READY) return POCKET_SERVER_WRONG_STATE;",
-     None, "issue_command"),
+     None, "sAccountMgr.CreateAccount"),
     ("int set_account_gmlevel(const std::string& username, int level, uint64_t timeout_ms)",
      "if (m_state.state() != POCKET_SERVER_READY) return POCKET_SERVER_WRONG_STATE;",
      None, "issue_command"),
@@ -561,8 +564,15 @@ def test_set_account_addon_is_gmlevel_shaped_with_the_expansion_domain():
     # before a console command exists
     assert "username.empty() || username.size() > 16 || expansion < 0 || expansion > 2" in body
     assert 'return std::isalnum(c);' in body
-    # the core's own console verb, name-first like the gmlevel sibling
-    assert '"account set addon " + username + " " + std::to_string(expansion)' in body
+    # R3-1 (round 3): the verb carries the RESOLVED numeric account id —
+    # ExtractAccountId's numeric branch reinterprets a digit-string
+    # argument as an ACCOUNT ID, so the raw username never enters the CLI
+    # string (a digits-named guest was rejected forever on an expansion
+    # lane, or another row received the write on an id collision)
+    assert "account_info(username)" in body
+    assert '"account set addon " + std::to_string(account.first) +' in body
+    assert '" " + std::to_string(expansion);' in body
+    assert "if (account.first == 0) return POCKET_SERVER_ACCOUNT_REJECTED" in body
     assert "issue_command(command, timeout_ms, nullptr)" in body
     # same verdict mapping as set_account_gmlevel: OK, TIMEOUT verbatim,
     # everything else ACCOUNT_REJECTED

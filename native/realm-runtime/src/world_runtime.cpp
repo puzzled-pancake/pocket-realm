@@ -279,16 +279,41 @@ public:
         };
         if (!is_account_token(username) || !is_account_token(password))
             return POCKET_SERVER_INVALID_ARGUMENT;
-        std::string output;
-        const std::string command = "account create " + username + " " + password;
-        const int result = issue_command(command, timeout_ms, &output);
-        if (result == POCKET_SERVER_OK) return result;
-        std::transform(output.begin(), output.end(), output.begin(), [](unsigned char c) { return std::tolower(c); });
-        if (output.find("already") != std::string::npos || output.find("exist") != std::string::npos)
-            return POCKET_SERVER_ACCOUNT_EXISTS;
-        return result == POCKET_SERVER_TIMEOUT ? result : POCKET_SERVER_ACCOUNT_REJECTED;
+        // R2-1 (round 2, serious): the credential must NEVER enter the CLI
+        // command string. SEC_CONSOLE commands are echoed to world.log by
+        // Chat.cpp's LogCommand whenever LogFileLevel >= LOG_LVL_DETAIL
+        // (the product's debug-logs mode stages level 3), and world.log
+        // rides the shareable desktop support bundle — an account made
+        // under debug logs leaked its plaintext password to whoever reads
+        // the bundle. The write therefore routes through the SAME
+        // AccountMgr::CreateAccount the console handler itself calls
+        // (CliRunnable.cpp:495 — identical normalize/SRP/INSERT
+        // semantics), so no echoed line ever carries the password and the
+        // verdict mapping below is the core's own AccountOpResult. The
+        // timeout parameter stays for call-site stability; the direct
+        // write is synchronous like verify_account_password's
+        // CheckPassword read on the same thread.
+        (void)timeout_ms;
+        const AccountOpResult result = sAccountMgr.CreateAccount(username, password);
+        switch (result)
+        {
+            case AOR_OK:                 return POCKET_SERVER_OK;
+            case AOR_NAME_ALREADY_EXIST: return POCKET_SERVER_ACCOUNT_EXISTS;
+            case AOR_NAME_TOO_LONG:
+            case AOR_PASS_TOO_LONG:      return POCKET_SERVER_INVALID_ARGUMENT;
+            default:                     return POCKET_SERVER_ACCOUNT_REJECTED;
+        }
     }
 
+    // R3-1 (round 3): the `account set` handlers resolve their argument
+    // through ChatHandler::ExtractAccountId, whose NUMERIC branch treats a
+    // digit string as an ACCOUNT ID (Chat.cpp:3420-3425) — passing a
+    // digits-named USERNAME verbatim either rejects a real account forever
+    // (LANG_ACCOUNT_NOT_EXIST) or writes the level/expansion onto ANOTHER
+    // row whose id collides. Both ops therefore resolve the account id
+    // NATIVE-SIDE first (account_info — the same account table the core
+    // reads) and pass the numeric id, whose interpretation is unambiguous.
+    // An unknown account keeps the console path's verdict (rejected).
     int set_account_gmlevel(const std::string& username, int level, uint64_t timeout_ms)
     {
         if (m_state.state() != POCKET_SERVER_READY) return POCKET_SERVER_WRONG_STATE;
@@ -297,7 +322,10 @@ public:
         if (!std::all_of(username.begin(), username.end(),
                 [](unsigned char c) { return std::isalnum(c); }))
             return POCKET_SERVER_INVALID_ARGUMENT;
-        const std::string command = "account set gmlevel " + username + " " + std::to_string(level);
+        const auto account = account_info(username);
+        if (account.first == 0) return POCKET_SERVER_ACCOUNT_REJECTED;
+        const std::string command = "account set gmlevel " + std::to_string(account.first) +
+            " " + std::to_string(level);
         const int result = issue_command(command, timeout_ms, nullptr);
         return result == POCKET_SERVER_OK ? result :
             (result == POCKET_SERVER_TIMEOUT ? result : POCKET_SERVER_ACCOUNT_REJECTED);
@@ -321,7 +349,16 @@ public:
         if (!std::all_of(username.begin(), username.end(),
                 [](unsigned char c) { return std::isalnum(c); }))
             return POCKET_SERVER_INVALID_ARGUMENT;
-        const std::string command = "account set addon " + username + " " + std::to_string(expansion);
+        // R3-1: the id is resolved above the CLI string — a digits-named
+        // guest (LanScreen accepts [A-Za-z0-9]{1,16}) would otherwise be
+        // reinterpreted as an ACCOUNT ID by ExtractAccountId: rejected
+        // forever on a tbc/wotlk provisioning lane, or the expansion write
+        // lands on a colliding row (HandleAccountSetAddonCommand's
+        // `WHERE id='%u'`).
+        const auto account = account_info(username);
+        if (account.first == 0) return POCKET_SERVER_ACCOUNT_REJECTED;
+        const std::string command = "account set addon " + std::to_string(account.first) +
+            " " + std::to_string(expansion);
         const int result = issue_command(command, timeout_ms, nullptr);
         return result == POCKET_SERVER_OK ? result :
             (result == POCKET_SERVER_TIMEOUT ? result : POCKET_SERVER_ACCOUNT_REJECTED);
@@ -560,7 +597,10 @@ public:
             // predicate to the Guests list).
             "(SELECT COUNT(*) FROM account_banned b WHERE b.account_id=a.id AND b.active=1"
             " AND (b.expires_at > " _UNIXTIME_ " OR b.expires_at = b.banned_at)),"
-            "(SELECT l.ip FROM account_logons l WHERE l.accountId=a.id ORDER BY l.id DESC LIMIT 1),"
+            // The last-logon ADDRESS is deliberately NOT selected: plan §1
+            // rule 7 — peer addresses are never displayed. The audit trail
+            // stays in account_logons for the host's database access; the
+            // roster payload carries only the timestamp (R3-1/R5-4).
             "(SELECT l.loginTime FROM account_logons l WHERE l.accountId=a.id ORDER BY l.id DESC LIMIT 1),"
             "(a.active_realm_id <> 0) "
             "FROM account a ORDER BY a.id");
@@ -568,6 +608,28 @@ public:
         // error) - an account-less database is an empty roster, not a
         // failure.
         if (!result) return "{\"ok\":true,\"accounts\":[]}";
+        // R5-5 + R2-1 (round 2): bot rows are labeled in the payload, never
+        // silently padded into the friends roster. The markers are the bot
+        // admission's account prefixes — EVERY profile's accountPrefix in
+        // BotProfiles.kt (the owning table), not one literal: the single-
+        // prefix compare covered only the non-selectable soak profile and
+        // left the preset/launch-day profiles' accounts rendering bot:false.
+        // The set is pinned against BotProfiles.kt by
+        // tests/test_native_roster_payload.py, which enumerates EVERY
+        // accountPrefix literal and fails on any profile this table does
+        // not cover (or any stale table row).
+        static const char* const BOT_ACCOUNT_PREFIXES[] = {
+            "PRAR320", "PRB100", "PRB13", "PRB600", "PRBW240", "PRC400",
+            "PRCR400", "PRF240", "PRFR500", "PRL160", "PRL700", "PRLP80",
+            "PRLV160", "PRMR1K", "PRMR600", "PRP250", "PRQ25", "PRS6",
+            "PRT50",
+        };
+        const auto is_bot_account = [](const std::string& value) {
+            for (const char* prefix : BOT_ACCOUNT_PREFIXES)
+                if (value.compare(0, std::strlen(prefix), prefix) == 0)
+                    return true;
+            return false;
+        };
         std::ostringstream json;
         json << "{\"ok\":true,\"accounts\":[";
         bool first = true;
@@ -576,14 +638,16 @@ public:
             Field* fields = result->Fetch();
             if (!first) json << ",";
             first = false;
+            const std::string username = fields[1].GetCppString();
+            const bool bot = is_bot_account(username);
             json << "{\"id\":" << fields[0].GetUInt32()
-                 << ",\"username\":\"" << json_escape(fields[1].GetCppString()) << "\""
+                 << ",\"username\":\"" << json_escape(username) << "\""
                  << ",\"gmlevel\":" << fields[2].GetInt32()
                  << ",\"failedLogins\":" << fields[3].GetUInt32()
                  << ",\"banned\":" << (fields[4].GetUInt32() != 0 ? "true" : "false")
-                 << ",\"lastLogonIp\":\"" << json_escape(fields[5].GetCppString()) << "\""
-                 << ",\"lastLogon\":\"" << json_escape(fields[6].GetCppString()) << "\""
-                 << ",\"online\":" << (fields[7].GetUInt32() != 0 ? "true" : "false")
+                 << ",\"bot\":" << (bot ? "true" : "false")
+                 << ",\"lastLogon\":\"" << json_escape(fields[5].GetCppString()) << "\""
+                 << ",\"online\":" << (fields[6].GetUInt32() != 0 ? "true" : "false")
                  << "}";
         } while (result->NextRow());
         json << "]}";
@@ -651,7 +715,7 @@ public:
         if (duration.empty() || duration.size() > 8 ||
             !std::all_of(duration.begin(), duration.end(),
                 [](unsigned char c) { return (c >= '0' && c <= '9') || c == 's' || c == 'm' ||
-                    c == 'h' || c == 'd' || c == 'w' || c == 'M' || c == 'y'; }))
+                    c == 'h' || c == 'd'; }))
             return "{\"ok\":false,\"reason\":\"invalid-duration\"}";
         std::string sanitized;
         sanitized.reserve(reason.size());

@@ -261,6 +261,8 @@
   "patches_content": {
     "native/patches/cmangos/DatabaseSqlite.cpp": "8086ae1fedb5d536e8a33e997b9ec2f752c468d49f777560a3c5891c23f060a7",
     "native/patches/cmangos/DatabaseSqlite.h": "46e6953dda3d28cc380280a3f15a22b30a1af1dcdc7882d4c3173ecec581b0f6",
+    "native/patches/cmangos/PocketRealmInteraction-tbc.cpp": "659eb57ad8bc96e374111d4d95a3e0ff108b536459f863adadb0d4dd58e33d53",
+    "native/patches/cmangos/PocketRealmInteraction-wotlk.cpp": "e5a34a42f59a7e208773f057bebbff1716cd7bf0b62658ef94a8f15b8ddf4fe2",
     "native/patches/cmangos/PocketRealmInteraction.cpp": "985b257079e62a7483537cdea4e1ada29103771be5e505000d3a93f54bd67916",
     "native/patches/cmangos/QueryResultSqlite.cpp": "c7f84c1b7e5e6ea70671a4ab2d7912b50f412916ac131201e35087bded0709b5",
     "native/patches/cmangos/QueryResultSqlite.h": "122ecdabfafd5492df2ed313e2b6eaf6eb82c25c84930d3c4b7bcf2f9976d810",
@@ -295,7 +297,7 @@
     {
       "path": "native/.build-win-x86_64-mariadb/pocket-runtime-build/pocket_realmd_runtime.dll",
       "size": 4694016,
-      "sha256": "980c64c85fc4def245447e109a0a621483e56e07bab1a323f45deb3202670be5",
+      "sha256": "82cd0e66b76d44ea0a3d8ef1d0a3625a59655c143571ac8ab4168cff196f4dda",
       "pe_machine": "0x8664",
       "pe_imports": [
         "ADVAPI32.dll",
@@ -322,8 +324,8 @@
     },
     {
       "path": "native/.build-win-x86_64-mariadb/pocket-runtime-build/pocket_world_runtime.dll",
-      "size": 23208448,
-      "sha256": "784c94131fbfb504bc5cc6336515bd49d5a8fd2adfc4860538e77ccde8da9752",
+      "size": 23206912,
+      "sha256": "9ac45a78db47d3254fbb2717aec18c3bf0f299a52f49b383ef9ebc9b7deec54d",
       "pe_machine": "0x8664",
       "pe_imports": [
         "ADVAPI32.dll",
@@ -430,6 +432,13 @@
     "schema": 1,
     "abi": "windows-x86_64",
     "database_backend": "mariadb",
+    "lane_scope": {
+      "flavors": [
+        "vanilla"
+      ],
+      "decision": "D60",
+      "note": "this shared document + the mariadb-provider staging root are VANILLA-lane inputs: the staged migration manifest is the vanilla ledger golden (migration_manifest_sha256); non-vanilla lanes must not write or re-key it until W1.3 defines per-flavor provider staging"
+    },
     "provider": {
       "id": "mariadb-11.5.2-windows-x86_64",
       "version": "11.5.2"

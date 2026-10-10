@@ -681,12 +681,27 @@ def _env_indirection_hit(rel_path: str) -> bool:
 
 def _code_half(line: str) -> str:
     """The code half of a line (KDoc/doc-comment mentions of the
-    %LOCALAPPDATA% root are prose, not producers)."""
-    for marker in ("//", "*", "#"):
+    %LOCALAPPDATA% root are prose, not producers).
+
+    R3-4/R5-2: a ``*`` truncates only in COMMENT POSITION — the ``/*``
+    opener, or a ``*`` at line start preceded by whitespace alone (the
+    block-comment continuation convention). A pointer DECLARATOR's ``*``
+    is code: truncating ``const char* base = std::getenv("LOCALAPPDATA");``
+    at the ``*`` hid the exact producer this gate exists for. Fail-closed
+    consequence: a ``LOCALAPPDATA`` mention inside a mid-line block
+    comment AFTER code on the same line now flags (a reviewable false
+    positive beats a blind gate)."""
+    cut = len(line)
+    for marker in ("//", "#", "/*"):
         idx = line.find(marker)
-        if idx != -1:
-            return line[:idx]
-    return line
+        if idx != -1 and idx < cut:
+            cut = idx
+    for idx, ch in enumerate(line):
+        if ch == "*" and not line[:idx].strip():
+            if idx < cut:
+                cut = idx
+            break
+    return line[:cut]
 
 
 # Round-4 R2-1: the DESIGNED producers of the desktop product's
@@ -699,9 +714,14 @@ def _code_half(line: str) -> str:
 # the same contract). Every other surface resolves through them, so the
 # D50 override relocates the WHOLE product; any NEW LOCALAPPDATA producer
 # fails the gate until it routes through a resolver.
+# R3-2/R5-1 (native-server round 1): a THIRD owning resolver joins them -
+# the native crash tracer (win_exception_shim.cpp pocket_crash_file), the
+# native twin of the same contract (override root first, LOCALAPPDATA
+# fallback), pinned byte-shared with both by tests/test_crash_trace_root.py.
 ENV_INDIRECTION_ALLOWLIST: frozenset[str] = frozenset({
     "desktop/src/main/kotlin/com/pocketrealm/desktop/DesktopStorageRoots.kt",
     "tools/common.py",
+    "native/realm-runtime/src/win_exception_shim.cpp",
     # defaultLocalDumpsDir READS Windows Error Reporting's own dump
     # location (an OS-provided location Windows itself writes); the
     # product-root override does not govern it.

@@ -522,6 +522,25 @@ def overlays_for(flavor_id: str, backend: str) -> list[dict]:
         )
     return selected
 POCKET_INTERACT_SOURCE = NATIVE / "patches" / "cmangos" / "PocketRealmInteraction.cpp"
+
+
+def pocket_interact_source(flavor_id: str) -> Path:
+    """R1-1 (native-server round 2): the nearby-interact overlay source is
+    PER-FLAVOR — the chest path's opening-spell derivation is client-
+    specific (vanilla emulates the client's own fixed Opening cast;
+    tbc/wotlk consult the player's own qualifying spell through the core's
+    lock store, PocketRealmInteraction-<flavor>.cpp). Port plan S2.3's
+    per-client re-derivation: an expansion flavor WITHOUT its variant is a
+    fail-loud, never a silent vanilla byte ride."""
+    scoped = NATIVE / "patches" / "cmangos" / f"PocketRealmInteraction-{flavor_id}.cpp"
+    if scoped.is_file():
+        return scoped
+    if flavor_id == "vanilla":
+        return POCKET_INTERACT_SOURCE
+    raise RuntimeError(
+        f"missing per-flavor nearby-interact source {scoped.name} — port "
+        "plan S2.3 requires the chest path re-derived per client (the "
+        "shared vanilla source must not ride an expansion build)")
 AHBOT_UPDATE_GATE_UPSTREAM = """void AhBot::Update()
 {
     if (sWorld.IsShutdowning())
@@ -6307,7 +6326,7 @@ def prepare_cmangos_source() -> None:
     interaction = cmangos / "src" / "game" / "Chat" / "PocketRealmInteraction.cpp"
     if interaction.exists():
         raise RuntimeError(f"source overlay target unexpectedly exists: {interaction}")
-    interaction.write_bytes(POCKET_INTERACT_SOURCE.read_bytes())
+    interaction.write_bytes(pocket_interact_source(ACTIVE_FLAVOR).read_bytes())
     bot_root = mirror / "playerbot"
     # LVF-bot-actors-003+008: the random-bot provisioning/allowlist repair
     # ships as tracked full-file overlays under native/patches/playerbots/
@@ -6550,7 +6569,7 @@ def restore_cmangos_source() -> None:
     cmangos = NATIVE / ACTIVE_CORE_SUBMODULE.removeprefix("native/")
     interaction = cmangos / "src" / "game" / "Chat" / "PocketRealmInteraction.cpp"
     if interaction.exists():
-        if interaction.read_bytes() != POCKET_INTERACT_SOURCE.read_bytes():
+        if interaction.read_bytes() != pocket_interact_source(ACTIVE_FLAVOR).read_bytes():
             raise RuntimeError(f"source overlay cleanup content drift: {interaction}")
         interaction.unlink()
     restore_anchor(cmangos / "src" / "game" / "Chat" / "ChatHandler.cpp", *core_anchor_restore_pair(

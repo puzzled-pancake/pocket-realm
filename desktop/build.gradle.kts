@@ -18,6 +18,7 @@
  * 9.5.0 wrapper is NOT reused for that reason).
  */
 import groovy.json.JsonSlurper
+import java.security.MessageDigest
 
 plugins {
     kotlin("jvm") version "2.0.21"
@@ -577,6 +578,27 @@ tasks.register("packageApp") {
         val llamaServerBinary = llamaStaging.resolve("llama-server.exe")
         val llamaGgufDir = llamaStaging.resolve("gguf")
         if (llamaServerBinary.isFile) {
+            // R3-2 (native-server round 1): a PRESENT sidecar rides the
+            // image only when it byte-matches the lane lockfile the build
+            // tool wrote (native/llm/lockfile-win-x86_64.json) — the pin
+            // existed but nothing enforced it, so a stale or foreign
+            // llama-server.exe shipped silently. Same discipline the
+            // vanilla-tweaks patcher and the arm64 vendored-llama libs
+            // already enforce at packaging. ABSENT stays optional (the
+            // honest ERR_NO_SIDECAR_BINARY degrade below).
+            val llamaLock = rootProject.projectDir.resolve("../native/llm/lockfile-win-x86_64.json")
+            check(llamaLock.isFile) {
+                "Missing llama-server lockfile $llamaLock — " +
+                    "build the sidecar: python tools/build_win_llama_server.py"
+            }
+            val llamaArtifact = (JsonSlurper().parse(llamaLock) as Map<*, *>)["artifact"] as Map<*, *>
+            check(
+                (llamaArtifact["bytes"] as Number).toLong() == llamaServerBinary.length() &&
+                    llamaArtifact["sha256"] == sha256Hex(llamaServerBinary),
+            ) {
+                "llama-server.exe differs from its pinned size/SHA-256 " +
+                    "($llamaLock) — rebuild it: python tools/build_win_llama_server.py"
+            }
             llamaServerBinary.copyTo(imageInput.resolve(llamaServerBinary.name), overwrite = true)
             if (llamaGgufDir.isDirectory) {
                 llamaGgufDir.copyRecursively(imageInput.resolve("gguf"), overwrite = true)
@@ -674,6 +696,22 @@ tasks.register("packageApp") {
     }
 }
 
+
+/** Lowercase hex SHA-256 of [file] (the lockfile verification helper —
+ * R3-2's llama-server sidecar gate; the same discipline the app module's
+ * packaging applies to vanilla-tweaks and the vendored llama libs). */
+fun sha256Hex(file: File): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().use { input ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
 
 /**
  * The VC runtime DLLs the realm DLLs import (MSVCP140/VCRUNTIME140[_1]) —

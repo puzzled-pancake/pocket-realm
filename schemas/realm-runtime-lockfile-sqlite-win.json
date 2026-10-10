@@ -267,6 +267,8 @@
   "patches_content": {
     "native/patches/cmangos/DatabaseSqlite.cpp": "8086ae1fedb5d536e8a33e997b9ec2f752c468d49f777560a3c5891c23f060a7",
     "native/patches/cmangos/DatabaseSqlite.h": "46e6953dda3d28cc380280a3f15a22b30a1af1dcdc7882d4c3173ecec581b0f6",
+    "native/patches/cmangos/PocketRealmInteraction-tbc.cpp": "659eb57ad8bc96e374111d4d95a3e0ff108b536459f863adadb0d4dd58e33d53",
+    "native/patches/cmangos/PocketRealmInteraction-wotlk.cpp": "e5a34a42f59a7e208773f057bebbff1716cd7bf0b62658ef94a8f15b8ddf4fe2",
     "native/patches/cmangos/PocketRealmInteraction.cpp": "985b257079e62a7483537cdea4e1ada29103771be5e505000d3a93f54bd67916",
     "native/patches/cmangos/QueryResultSqlite.cpp": "c7f84c1b7e5e6ea70671a4ab2d7912b50f412916ac131201e35087bded0709b5",
     "native/patches/cmangos/QueryResultSqlite.h": "122ecdabfafd5492df2ed313e2b6eaf6eb82c25c84930d3c4b7bcf2f9976d810",
@@ -301,7 +303,7 @@
     {
       "path": "native/.build-win-x86_64/pocket-runtime-build/pocket_realmd_runtime.dll",
       "size": 5738496,
-      "sha256": "f5b69f0bb1aa2b9e783c9b747c8524c6ae2e75f7a8fd480b6ede1761781baa13",
+      "sha256": "2e0723de81e7c8dd86d9f944d9b3eab29f5d7711e753f92697a29b04a7224bdd",
       "pe_machine": "0x8664",
       "pe_imports": [
         "ADVAPI32.dll",
@@ -327,8 +329,8 @@
     },
     {
       "path": "native/.build-win-x86_64/pocket-runtime-build/pocket_world_runtime.dll",
-      "size": 23745536,
-      "sha256": "8a53ac685ef8be85aed6bea5fe42b2455d03fcbf4f380d95060a8b29ba930a4b",
+      "size": 23744000,
+      "sha256": "73f39568b68703a40bff47c4d60f1385d81b8c42995c89fd6d06d2caa522aead",
       "pe_machine": "0x8664",
       "pe_imports": [
         "ADVAPI32.dll",

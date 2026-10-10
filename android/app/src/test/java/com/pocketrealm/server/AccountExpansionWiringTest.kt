@@ -291,4 +291,50 @@ class AccountExpansionWiringTest {
             supervisor.contains("setAccountAddonNative"),
         )
     }
+    /**
+     * R3-1 (native-server review round 3): an all-digit username passes
+     * every token validator, but the core's `account set` handlers resolve
+     * their argument through ExtractAccountId, whose NUMERIC branch
+     * reinterprets a digit string as an ACCOUNT ID — the digits-named
+     * guest was either rejected forever on an expansion provisioning lane
+     * or received another account's expansion write on an id collision,
+     * answering with a code wrong about the world state. The native ops
+     * now resolve the id native-side and pass the NUMERIC id (pinned by
+     * tests/test_native_roster_payload.py, the C++ contract's home). This
+     * pin holds the SERVICE half of the same invariant: the provisioning
+     * answer's `ok` is CONJUNCTIVE with the addon verdict whenever the
+     * expansion write runs — so a failed or misrouted addon op can never
+     * answer ok with a row created (the "row-created +
+     * addonCode=ACCOUNT_REJECTED" shape is structurally impossible), and a
+     * digits-named guest on a tbc/wotlk lane now converges: the addon
+     * write lands on the resolved row and the answer is accepted.
+     * (A live tbc boot lane is not drivable in JVM unit tests — the same
+     * reason this seam's other invariants are source-pinned here.)
+     */
+    @Test
+    fun provisioningAnswerIsNeverOkWithAFailedExpansionWrite() {
+        val source = serviceSource()
+        val create = methodBody(source, "override fun createAccount(username: String, password: String)")
+        // the expansion write runs exactly when shouldWriteExpansion(rc, accountExists)
+        assertTrue(
+            "the addon write must stay gated on shouldWriteExpansion(rc, accountExists)",
+            create.contains("if (ServerRuntimeContract.shouldWriteExpansion(rc, accountExists) && identityProven)"),
+        )
+        // the accepted verdict CONSUMES the addon verdict — never rc alone
+        assertTrue(
+            "the accepted leg must be conjunctive with the addon verdict " +
+                "(addonRc == 0 && identityProven) when the expansion write runs",
+            create.contains("addonRc == 0 && identityProven"),
+        )
+        // the answer surfaces the addon verdict by name, never "SKIPPED"
+        // for a lane that owed the write
+        assertTrue(
+            "the answer code must map the addon verdict (errorName(addonRc ?: rc))",
+            create.contains("ServerRuntimeContract.errorName(addonRc?.toLong() ?: rc.toLong())"),
+        )
+        assertTrue(
+            "the answer must carry addonCode for the surface copy",
+            create.contains("\"addonCode\""),
+        )
+    }
 }

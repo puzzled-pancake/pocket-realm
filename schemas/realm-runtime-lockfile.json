@@ -264,6 +264,8 @@
   "patches_content": {
     "native/patches/cmangos/DatabaseSqlite.cpp": "8086ae1fedb5d536e8a33e997b9ec2f752c468d49f777560a3c5891c23f060a7",
     "native/patches/cmangos/DatabaseSqlite.h": "46e6953dda3d28cc380280a3f15a22b30a1af1dcdc7882d4c3173ecec581b0f6",
+    "native/patches/cmangos/PocketRealmInteraction-tbc.cpp": "659eb57ad8bc96e374111d4d95a3e0ff108b536459f863adadb0d4dd58e33d53",
+    "native/patches/cmangos/PocketRealmInteraction-wotlk.cpp": "e5a34a42f59a7e208773f057bebbff1716cd7bf0b62658ef94a8f15b8ddf4fe2",
     "native/patches/cmangos/PocketRealmInteraction.cpp": "985b257079e62a7483537cdea4e1ada29103771be5e505000d3a93f54bd67916",
     "native/patches/cmangos/QueryResultSqlite.cpp": "c7f84c1b7e5e6ea70671a4ab2d7912b50f412916ac131201e35087bded0709b5",
     "native/patches/cmangos/QueryResultSqlite.h": "122ecdabfafd5492df2ed313e2b6eaf6eb82c25c84930d3c4b7bcf2f9976d810",
@@ -303,7 +305,7 @@
     {
       "path": "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/libpocket_realmd_runtime.so",
       "size": 5409176,
-      "sha256": "d556837dc1b9ea81dc30db62fef9fb598d6c0154f677bceb49fb4faf6c401385",
+      "sha256": "de485628397be32670606cc902c09a766770d507648ab73e8f5adcf2d3f3b453",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -318,8 +320,8 @@
     },
     {
       "path": "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/libpocket_world_runtime.so",
-      "size": 34120808,
-      "sha256": "e15a175bda5bb2133a3f8b486f3fc1efcb353ed143046ea20d6b202b7ec55836",
+      "size": 34180272,
+      "sha256": "6e643d5aca24432c5e9d9d9ee9288b2a0e6b02fbdc74cba720a724d4252ec625",
       "needed": [
         "libc.so",
         "libdl.so",

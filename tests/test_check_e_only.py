@@ -389,9 +389,10 @@ def test_indirection_allowlist_files_pass(tmp_path):
 def test_no_new_localappdata_producers_outside_the_resolvers(tmp_path):
     """Round-5 R5-1: the D50 override (POCKET_REALM_DATA_ROOT) must
     relocate the WHOLE product — a sibling surface constructing the root
-    from LOCALAPPDATA/user.home directly (outside the two owning
-    resolvers: DesktopStorageRoots.kt and tools/common.py) silently
-    disagrees with the app's root and boots/publishes onto C:."""
+    from LOCALAPPDATA/user.home directly (outside the owning resolvers:
+    DesktopStorageRoots.kt, tools/common.py and the native crash-tracer
+    twin) silently disagrees with the app's root and boots/publishes onto
+    C:."""
     import subprocess
 
     root = _git_repo(tmp_path)
@@ -407,6 +408,59 @@ def test_no_new_localappdata_producers_outside_the_resolvers(tmp_path):
     assert any(
         f["code"] == "E-ENV-INDIRECTION"
         and f["path"].endswith("desktop_newlane.py")
+        for f in findings
+    ), findings
+
+
+# ---- R3-4/R5-2 (native-server round 1): the scanner's comment-marker
+# split must not truncate at a pointer DECLARATOR's `*` — that blinded
+# the gate to exactly `const char* base = std::getenv("LOCALAPPDATA");`,
+# the shape its own third owning resolver shipped in.
+
+
+def test_code_half_treats_a_pointer_declarator_star_as_code():
+    line = '    const char* base = std::getenv("LOCALAPPDATA");'
+    half = check_e_only._code_half(line)
+    assert "LOCALAPPDATA" in half, half
+
+
+def test_code_half_still_strips_comment_continuations():
+    for prose in (
+        " * %LOCALAPPDATA%\\PocketRealm is the documented root",
+        " * LOCALAPPDATA prose in a block comment",
+        "/* mid-line * block comment mentioning LOCALAPPDATA */",
+        "// LOCALAPPDATA line comment",
+        "    # LOCALAPPDATA shell/py comment",
+    ):
+        assert "LOCALAPPDATA" not in check_e_only._code_half(prose), prose
+
+
+def test_pointer_declarator_indirection_is_flagged(tmp_path):
+    """The regression the fix exists for: a tracked C++ producer building
+    a crash-trace path through a pointer-declarator LOCALAPPDATA read
+    must fire E-ENV-INDIRECTION (the old _code_half truncated the line at
+    the declarator's `*`, so the gate reported clean with the producer
+    in-tree — a fail-open leg on a security gate)."""
+    import subprocess
+
+    root = _git_repo(tmp_path)
+    producer = root / "native/realm-runtime/src/crash_shim.cpp"
+    producer.parent.mkdir(parents=True)
+    producer.write_text(
+        "HANDLE pocket_crash_file()" + chr(10)
+        + "{" + chr(10)
+        + '    char path[MAX_PATH];' + chr(10)
+        + '    const char* base = std::getenv("LOCALAPPDATA");' + chr(10)
+        + '    std::snprintf(path, sizeof(path), "%s\\\\PocketRealm\\\\trace.txt", base);' + chr(10)
+        + "    return CreateFileA(path, FILE_APPEND_DATA, 0, nullptr, OPEN_ALWAYS, 0, nullptr);" + chr(10)
+        + "}" + chr(10),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    findings, _scanned = check_e_only.literal_findings(root)
+    assert any(
+        f["code"] == "E-ENV-INDIRECTION"
+        and f["path"].endswith("crash_shim.cpp")
         for f in findings
     ), findings
 

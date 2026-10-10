@@ -48,6 +48,7 @@ import com.pocketrealm.importer.importWorkerLabel
 import com.pocketrealm.importer.stageTitle
 import com.pocketrealm.importer.watchdogRestartNotice
 import com.pocketrealm.importer.workerStoppedNotice
+import com.pocketrealm.client.ActiveFlavor
 import kotlinx.coroutines.delay
 
 // Terminal phases that stop the status poller once the current epoch has
@@ -73,6 +74,17 @@ private val ARCHIVE_MIME_TYPES = arrayOf(
     "*/*",
 )
 
+/** R2-1 (native-server round 1): the screen's client-identity copy
+ * resolves the ACTIVE lane's version from the flavor registry — the
+ * TunnelInvite.clientRequirementLine precedent (D9). A hard-coded
+ * "WoW 1.12.1 client" line on a TBC/WotLK lane was factually wrong copy
+ * AND evaded the leak sweep (no version token match). Fails loud with the
+ * machine's message on an ambiguous registry, like every sibling site. */
+private fun activeClientVersion(): String =
+    ActiveFlavor.resolve("the client import screen names the active lane's client")
+        .versionResource
+        .substringBeforeLast('.')
+
 /**
  * Managed client import, server-data generation, and the import benchmark.
  * Picking the client folder again after a completed import starts a fresh
@@ -82,6 +94,9 @@ private val ARCHIVE_MIME_TYPES = arrayOf(
 @Composable
 fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValues) {
     val context = LocalContext.current
+    // R2-1: resolved per composition from the live registry — a flavor flip
+    // is honored on the next recomposition, never frozen at first composition.
+    val clientVersion = activeClientVersion()
     val ui = remember { ImportUiState(context) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) ui.onFolderPicked(context, uri)
@@ -108,7 +123,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                     if (pending.isArchive) {
                         val gigabytes = pending.expectedBytes / 1_000_000_000.0
                         "Pocket Realm copies the ${"%.1f".format(gigabytes)} GB archive into app storage, " +
-                            "detects the WoW 1.12.1 client inside, extracts and verifies it, then builds " +
+                            "detects the WoW $clientVersion client inside, extracts and verifies it, then builds " +
                             "the server's maps, collision and navmesh data. Original installer archives " +
                             "(containing setup.exe + setup-*.bin) are unpacked on device too — plan for " +
                             "well over 30 minutes (an hour or more for a ~5 GB installer archive) and " +
@@ -117,12 +132,12 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                             "awake. The archive itself is only read, never modified, and the staged " +
                             "copy is deleted after the client is published."
                     } else {
-                        "This copies and verifies the WoW 1.12.1 client, then builds the " +
+                        "This copies and verifies the WoW $clientVersion client, then builds the " +
                             "server's maps, collision and navmesh data. Depending on the " +
                             "device this can take over 30 minutes. Keep the device plugged " +
                             "in and awake. The selected folder is only read, never modified. " +
                             "The folder must be the plain, already-extracted (uncompressed) " +
-                            "WoW 1.12.1 client itself — not an installer or launcher."
+                            "WoW $clientVersion client itself — not an installer or launcher."
                     },
                 )
             },
@@ -163,7 +178,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text("Game setup", style = MaterialTheme.typography.headlineSmall)
-        Text("Import the WoW 1.12.1 client and generate the server's world data")
+        Text("Import the WoW $clientVersion client and generate the server's world data")
         OutlinedButton(onClick = { archivePicker.launch(ARCHIVE_MIME_TYPES) }) {
             Text("Import from archive (.zip / .7z / .rar)")
         }

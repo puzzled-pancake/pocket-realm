@@ -8,6 +8,7 @@ config error."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -612,3 +613,33 @@ def test_owning_surfaces_stay_green_with_the_widened_token_set():
         or "AddonFlavorCatalog" in str(f.get("path", ""))
     ]
     assert not owning, owning
+
+
+# ---------------------------------------------------------------------------
+# R2-1 (native-server round 1): multi-flavor UX copy must DERIVE its client
+# identity from the flavor registry, not hard-code a lane's version line —
+# a hard-coded "WoW 1.12.1 client" on a TBC/WotLK lane was factually wrong
+# copy AND slipped past the sweep (the bare version line is deliberately
+# not a banned token — see the scope note above). The sweep stays
+# token-scoped; this pin is the UX-copy CLASS gate for the screen class.
+# ---------------------------------------------------------------------------
+
+
+def test_multi_flavor_screen_copy_derives_the_client_identity():
+    """ClientScreen's copy names the ACTIVE lane's client, resolved through
+    the fail-loud flavor machine (the TunnelInvite.clientRequirementLine
+    precedent) — never a hard-coded "WoW <version> client" literal."""
+    source = (ROOT / "android/app/src/main/java/com/pocketrealm/ui/ClientScreen.kt").read_text(
+        encoding="utf-8")
+    # comment-stripped: the CONTRACT marker names the old literal; only
+    # copy in string position counts
+    stripped = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    stripped = re.sub(r"//[^\n]*", "", stripped)
+    hard_coded = re.findall(r"WoW \d+\.\d+", stripped)
+    assert not hard_coded, (
+        f"ClientScreen hard-codes a lane's client identity in user copy "
+        f"({hard_coded[:2]}) — derive it from ActiveFlavor (R2-1)"
+    )
+    assert "ActiveFlavor.resolve(" in source, (
+        "ClientScreen lost the active-lane resolution its copy derives from"
+    )

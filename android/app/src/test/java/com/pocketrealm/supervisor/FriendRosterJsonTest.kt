@@ -15,9 +15,9 @@ class FriendRosterJsonTest {
         val json = """
             {"ok":true,"accounts":[
                 {"id":1,"username":"HOST","gmlevel":3,"failedLogins":0,"banned":false,
-                 "lastLogonIp":"127.0.0.1","lastLogon":"2026-10-01 10:00:00","online":true},
+                 "bot":false,"lastLogon":"2026-10-01 10:00:00","online":true},
                 {"id":2,"username":"Dave","gmlevel":0,"failedLogins":4,"banned":true,
-                 "lastLogonIp":"192.168.1.77","lastLogon":"2026-09-30 21:14:00","online":false}
+                 "bot":false,"lastLogon":"2026-09-30 21:14:00","online":false}
             ]}
         """.trimIndent()
         val (reason, rows) = FriendRosterJson.parseAccounts(json)
@@ -29,10 +29,35 @@ class FriendRosterJsonTest {
         assertEquals(0, dave.gmLevel)
         assertEquals(4L, dave.failedLogins)
         assertTrue(dave.banned)
-        assertEquals("192.168.1.77", dave.lastLogonIp)
         assertEquals("2026-09-30 21:14:00", dave.lastLogon)
         assertEquals(false, dave.online)
         assertTrue(rows[0].online)
+    }
+
+    /** R5-5 (native-server round 1): the payload labels bot rows (the
+     * PRB13 admission prefix) — a mixed friends+bot roster projects every
+     * row with its bot marker, so a surface can render or filter honestly
+     * instead of padding the friends list with unlabeled bots. */
+    @Test
+    fun mixedFriendAndBotRosterProjectsTheBotLabelPerRow() {
+        val json = """
+            {"ok":true,"accounts":[
+                {"id":1,"username":"HOST","gmlevel":3,"failedLogins":0,"banned":false,
+                 "bot":false,"lastLogon":"2026-10-01 10:00:00","online":true},
+                {"id":2,"username":"Dave","gmlevel":0,"failedLogins":1,"banned":false,
+                 "bot":false,"lastLogon":"2026-09-30 21:14:00","online":false},
+                {"id":3,"username":"PRB13AAAAA","gmlevel":0,"failedLogins":0,"banned":false,
+                 "bot":true,"lastLogon":"","online":true},
+                {"id":4,"username":"PRB13BBBBB","gmlevel":0,"failedLogins":0,"banned":false,
+                 "bot":true,"lastLogon":"","online":false}
+            ]}
+        """.trimIndent()
+        val (reason, rows) = FriendRosterJson.parseAccounts(json)
+        assertNull(reason)
+        assertEquals(4, rows.size)
+        assertEquals(listOf(false, false, true, true), rows.map { it.bot })
+        assertTrue("bot rows keep their identity for labeling", rows[2].username.startsWith("PRB13"))
+        assertTrue("friends are never labeled bot", rows.none { it.username == "Dave" && it.bot })
     }
 
     @Test

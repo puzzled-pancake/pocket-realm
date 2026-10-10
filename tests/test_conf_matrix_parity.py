@@ -75,3 +75,44 @@ def test_check_flag_runs_green_cli() -> None:
         f"rc={result.returncode}\nstdout: {result.stdout[-400:]}\n"
         f"stderr: {result.stderr[-400:]}")
     assert "conf-matrix check: OK" in result.stdout
+
+
+# ---- R4-1 (native-server round 1): the expansion trees ship a
+# FLAVOR-SUFFIXED aiplayerbot dist (aiplayerbot.conf.dist.in.tbc/.wotlk)
+# and the build stages THAT variant as the shipped aiplayerbot.conf.dist
+# (PlayerBots/CMakeLists.txt:182-186 — the base dist is the Classic leg
+# only). The matrix recorded the base dist's values (RandomBotMaxLevel 60)
+# while the runtime ships 70/80: every expansion-valued key disagreed
+# with the shipped conf.
+
+
+@pytest.mark.parametrize("flavor,expected_max_level", (("tbc", "70"), ("wotlk", "80")))
+def test_expansion_matrix_matches_the_staged_suffixed_bot_dist(
+    flavor: str, expected_max_level: str
+) -> None:
+    """The matrix's bot values equal the flavor-suffixed dist's (the one
+    configure_file stages), never the base dist's Classic values."""
+    record = _record_or_skip(flavor)
+    level = record["keys"].get("AiPlayerbot.RandomBotMaxLevel")
+    assert level is not None, "RandomBotMaxLevel vanished from the matrix"
+    assert level["default"] == expected_max_level, (
+        f"{flavor} matrix records AiPlayerbot.RandomBotMaxLevel="
+        f"{level['default']!r} but the staged {flavor} dist ships "
+        f"{expected_max_level!r} (the flavor-suffixed aiplayerbot dist is "
+        "the surface CMake stages — R4-1)"
+    )
+    assert level["file"] == f"aiplayerbot.conf.dist.in.{flavor}", (
+        f"the matrix must record the staged suffixed dist as provenance, "
+        f"got {level['file']!r}"
+    )
+    # and every recorded AiPlayerbot key comes from the suffixed surface
+    wrong = [
+        key
+        for key, entry in record["keys"].items()
+        if key.startswith("AiPlayerbot.") and entry["file"] != f"aiplayerbot.conf.dist.in.{flavor}"
+    ]
+    assert not wrong, (
+        f"{len(wrong)} AiPlayerbot keys still provenance the base dist "
+        f"(e.g. {wrong[:3]}) — the staged conf is the suffixed one"
+    )
+

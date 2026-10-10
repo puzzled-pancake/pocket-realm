@@ -71,5 +71,52 @@ class PocketRealmNearbyInteractSourceContractTest(unittest.TestCase):
         self.assertIn("GO_FLAG_IN_USE", self.source)
 
 
+class FlavorScopedChestPathContractTest(unittest.TestCase):
+    """R1-1 (native-server round 2): the nearby-interact overlay is
+    PER-FLAVOR. The shared source is vanilla-scoped — its Opening 3365
+    emulation is the vanilla client's own chest cast, and port plan S2.3
+    demands the Interact Target semantics re-derived per client. The tbc/
+    wotlk variants derive the chest-opening spell from the core's OWN lock
+    store (GameObject::GetSpellForLock — the same per-flavor authority
+    CMSG_GAMEOBJ_USE refuses spell-locked objects with), so no vanilla-era
+    single-flavor constant rides an expansion build."""
+
+    @classmethod
+    def setUpClass(cls):
+        patches = ROOT / "native" / "patches" / "cmangos"
+        cls.vanilla = (patches / "PocketRealmInteraction.cpp").read_text(encoding="utf-8")
+        cls.variants = {
+            flavor: (patches / f"PocketRealmInteraction-{flavor}.cpp").read_text(encoding="utf-8")
+            for flavor in ("tbc", "wotlk")
+        }
+        cls.build = BUILD.read_text(encoding="utf-8")
+
+    def test_the_opening_constant_is_vanilla_scoped(self):
+        self.assertIn("LookupEntry<SpellEntry>(3365)", self.vanilla)
+        for flavor, text in self.variants.items():
+            self.assertNotIn(
+                "3365", text,
+                f"{flavor} variant carries the vanilla-era Opening constant — "
+                "the chest path must derive from this client's lock store")
+
+    def test_expansion_chest_paths_consult_the_core_lock_store(self):
+        for flavor, text in self.variants.items():
+            self.assertIn("object->GetSpellForLock(player)", text, flavor)
+            self.assertIn("gameObject->GetSpellForLock(player)", text, flavor)
+            # the core's own spell validator still gates both sites
+            self.assertIn("CheckCast(true) == SPELL_CAST_OK", text, flavor)
+            self.assertIn("spell->SpellStart(&targets)", text, flavor)
+            self.assertIn("new Spell(player, opening, TRIGGERED_NONE)", text, flavor)
+
+    def test_build_stages_the_per_flavor_variant_and_fails_loud_without_it(self):
+        # both the staging write and the restore-verify leg resolve the
+        # ACTIVE flavor's variant
+        self.assertEqual(self.build.count("pocket_interact_source(ACTIVE_FLAVOR)"), 2, (
+            "the interact staging and restore-verify legs must both route "
+            "through the per-flavor source resolver"))
+        self.assertIn("PocketRealmInteraction-{flavor_id}.cpp", self.build)
+        self.assertIn("shared vanilla source must not ride", self.build)
+
+
 if __name__ == "__main__":
     unittest.main()

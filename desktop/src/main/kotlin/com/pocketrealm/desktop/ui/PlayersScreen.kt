@@ -51,11 +51,13 @@ import kotlinx.coroutines.launch
  *    token is never stored, §5), open invites with Revoke, and the
  *    pending-request cards (requested username, source IP, note, age) with
  *    Approve / Reject.
- *  - Friends card: the roster — username, accountId, gmlevel, online, ban
- *    state, last logon, failed attempts since that logon (the LIVE
- *    failed_logins counter, labeled as such, §12) — with per-row gmlevel
- *    (§10; level 3 labeled "full console" honestly), Ban (1h/24h/permanent
- *    + reason) and Unban (§9), and the per-friend character list (§8).
+ *  - Friends card: the roster — username, accountId, bot label (R5-5),
+ *    gmlevel, online, ban state, last logon (the TIMESTAMP only — the
+ *    address is never displayed, plan §1 rule 7), failed attempts since
+ *    that logon (the LIVE failed_logins counter, labeled as such, §12) —
+ *    with per-row gmlevel (§10; level 3 labeled "full console" honestly),
+ *    Ban (1h/24h/permanent + reason) and Unban (§9), and the per-friend
+ *    character list (§8).
  *
  * The host's OWN account stays the Home "Local account" card — Players
  * never creates or edits the host identity (§7).
@@ -387,14 +389,18 @@ private fun FriendRowCard(
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                "${account.username} · account ${account.id} · " +
+                "${account.username} · account ${account.id}" +
+                    (if (account.bot) " · bot" else "") + " · " +
                     (if (account.online) "online now" else "offline") + " · " +
                     (if (account.banned) "BANNED" else "not banned"),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
+                // R3-1/R5-4 (rule 7): the last-logon ADDRESS is never
+                // rendered — the payload dropped it and this card names
+                // only the timestamp. Bot rows carry an explicit "bot"
+                // label above (R5-5), never padding the friends roster.
                 "Last logon: " + account.lastLogon.ifEmpty { "never" } +
-                    account.lastLogonIp.takeIf { it.isNotEmpty() }?.let { " from $it" }.orEmpty() +
                     " · failed attempts since then: ${account.failedLogins} (live counter, resets on logon)",
                 style = MaterialTheme.typography.bodySmall,
             )

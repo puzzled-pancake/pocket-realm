@@ -104,6 +104,19 @@ def _display(path: Path) -> str:
         return str(path)
 
 
+def _flavor_variant(path: Path, flavor_id: str) -> Path:
+    """The FLAVOR-SUFFIXED dist sibling when one exists (R4-1): the
+    expansion trees ship ``aiplayerbot.conf.dist.in.tbc``/``.wotlk`` and
+    the build's configure_file stages THAT variant as the shipped
+    aiplayerbot.conf.dist (PlayerBots/CMakeLists.txt:182-186 — the base
+    dist is the Classic leg only). The matrix must record the surface the
+    runtime actually consumes, so a ``.tbc`` tree records 70 where the
+    base dist says 60. Vanilla has no suffixed siblings and stays on the
+    base dist."""
+    variant = path.with_name(path.name + "." + flavor_id)
+    return variant if variant.is_file() else path
+
+
 def flavor_surfaces(layout: flavor_layout.FlavorLayout) -> list[Path]:
     """The dist files a flavor's pinned trees carry; missing files are a
     fail-loud (they arrive with the flavor's S2/S3 submodule pins)."""
@@ -111,9 +124,9 @@ def flavor_surfaces(layout: flavor_layout.FlavorLayout) -> list[Path]:
     core = ROOT / layout.core_submodule
     bots = ROOT / layout.bots_submodule
     for rel in (*CORE_SURFACES, *CORE_GAME_SURFACES, *BOTS_SURFACES):
-        surfaces.append(core / rel)
+        surfaces.append(_flavor_variant(core / rel, layout.flavor_id))
     for rel in BOTS_SURFACES:
-        surfaces.append(bots / rel)
+        surfaces.append(_flavor_variant(bots / rel, layout.flavor_id))
     # Realmd dist layout differs between branches; accept either location.
     present = [path for path in surfaces if path.is_file()]
     if not any(path.name.startswith("realmd.conf") for path in present):

@@ -13,14 +13,18 @@ import org.json.JSONObject
 // refused op) — the honest-refusal shape the backend surfaces verbatim.
 @Suppress("ReturnCount")
 object FriendRosterJson {
-    /** One account row: identity + moderation surfaces (§7/§12). */
+    /** One account row: identity + moderation surfaces (§7/§12). The
+     * last-logon ADDRESS is deliberately absent (plan §1 rule 7: peer
+     * addresses are never displayed — the payload dropped it, R3-1/R5-4);
+     * [bot] is the payload's explicit bot label (R5-5), so bot rows are
+     * surfaced honestly instead of padding the friends roster. */
     data class AccountRow(
         val id: Long,
         val username: String,
         val gmLevel: Int,
         val failedLogins: Long,
         val banned: Boolean,
-        val lastLogonIp: String,
+        val bot: Boolean,
         val lastLogon: String,
         val online: Boolean,
     )
@@ -50,7 +54,7 @@ object FriendRosterJson {
                     gmLevel = row.optInt("gmlevel"),
                     failedLogins = row.optLong("failedLogins"),
                     banned = row.optBoolean("banned"),
-                    lastLogonIp = row.optString("lastLogonIp"),
+                    bot = row.optBoolean("bot"),
                     lastLogon = row.optString("lastLogon"),
                     online = row.optBoolean("online"),
                 )

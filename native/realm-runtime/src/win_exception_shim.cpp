@@ -17,10 +17,12 @@
  *    world kills the host JVM silently - no hs_err (that is JVM-fatal
  *    only), no C++ exception, nothing on stderr that survives the gradle
  *    pipe. The handlers below append a diagnosis line (kind, thread,
- *    exception code, stack frames as module!offset) to
- *    %LOCALAPPDATA%\PocketRealm\crash-trace.txt so a repro run names the
- *    failing module. Diagnosis tooling, not recovery: every handler
- *    terminates the process exactly as it would have.
+ *    exception code, stack frames as module!offset) to the product's
+ *    resolved data root (POCKET_REALM_DATA_ROOT, else
+ *    %LOCALAPPDATA%\PocketRealm — the owning resolvers' contract,
+ *    R3-2/R5-1) at crash-trace.txt so a repro run names the failing
+ *    module. Diagnosis tooling, not recovery: every handler terminates
+ *    the process exactly as it would have.
  */
 
 #define BOOST_NO_EXCEPTIONS 1
@@ -129,10 +131,40 @@ void pocket_resolve_frame(void* address, char* nameOut, size_t nameCap,
 HANDLE pocket_crash_file()
 {
     char path[MAX_PATH];
-    const char* base = std::getenv("LOCALAPPDATA");
+    // R3-2/R5-1: the tracer resolves the SAME data root the whole product
+    // resolves (DesktopStorageRoots.defaultRoot and
+    // tools/common.product_data_root are the two owning resolvers this
+    // file mirrors): POCKET_REALM_DATA_ROOT, when set, IS the PocketRealm
+    // root itself; only when it is unset does the shipped
+    // %LOCALAPPDATA%\PocketRealm default apply. The D50 override therefore
+    // relocates the crash tracer with the product instead of stranding
+    // the trace on C:. tests/test_crash_trace_root.py pins this ordering
+    // byte-shared with the owning resolvers.
+    const char* override_root = std::getenv("POCKET_REALM_DATA_ROOT");
+    const bool have_override = override_root && override_root[0] != '\0';
+    const char* base = have_override ? override_root : std::getenv("LOCALAPPDATA");
     if (!base || std::strlen(base) + 64 >= MAX_PATH)
         return INVALID_HANDLE_VALUE;
-    std::snprintf(path, sizeof(path), "%s\\PocketRealm\\crash-trace.txt", base);
+    if (have_override)
+        std::snprintf(path, sizeof(path), "%s\\crash-trace.txt", base);
+    else
+        std::snprintf(path, sizeof(path), "%s\\PocketRealm\\crash-trace.txt", base);
+    // OPEN_ALWAYS never creates parent directories: the relocated root's
+    // FIRST crash must still land (the mkdir is a no-op when the
+    // directory already exists; a failed mkdir leaves the create to
+    // fail into the existing stderr-only degrade).
+    const char* slash = std::strrchr(path, '\\');
+    if (slash)
+    {
+        char dir[MAX_PATH];
+        const size_t dirLen = static_cast<size_t>(slash - path);
+        if (dirLen > 0 && dirLen < sizeof(dir))
+        {
+            std::memcpy(dir, path, dirLen);
+            dir[dirLen] = '\0';
+            CreateDirectoryA(dir, nullptr);
+        }
+    }
     return CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
                        nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 }
