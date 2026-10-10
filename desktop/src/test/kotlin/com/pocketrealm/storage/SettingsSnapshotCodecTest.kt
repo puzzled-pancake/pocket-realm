@@ -342,4 +342,34 @@ class SettingsSnapshotCodecTest {
             !Settings.Snapshot(timeframeStage = "tbc-2.4.3").toJson().contains("tbc-2.4.3"),
         )
     }
+
+    // ---- R1-1 (desktop-twin round 1): the flavor pick persists ----------
+
+    @Test
+    fun flavorSelectionRoundTripsThroughThePersistedJson() {
+        val picked = Settings.Snapshot(selectedFlavorId = "tbc")
+        val decoded = Settings.Snapshot.fromJson(picked.toJson())
+        assertEquals("tbc", decoded.selectedFlavorId)
+        assertEquals("tbc", decoded.selectedFlavorOrNull())
+    }
+
+    @Test
+    fun absentFlavorKeyDecodesEmptyAndExistingFilesStayByteStable() {
+        val legacy = Settings.Snapshot(botProfileId = "", autoLoginOnLaunch = false)
+        val text = legacy.toJson()
+        val decoded = Settings.Snapshot.fromJson(text)
+        assertEquals("", decoded.selectedFlavorId)
+        assertEquals(null, decoded.selectedFlavorOrNull())
+        // and the round trip of a decoded-legacy snapshot re-serializes the
+        // same persisted JSON bytes (a pre-R1-1 file never grows a lane)
+        assertEquals(text, Settings.Snapshot.fromJson(text).toJson())
+    }
+
+    @Test
+    fun emptyPersistedPickReadsAsNoPick() {
+        val snapshot = Settings.Snapshot.fromJson(
+            Settings.Snapshot(selectedFlavorId = "").toJson(),
+        )
+        assertEquals(null, snapshot.selectedFlavorOrNull())
+    }
 }

@@ -5,8 +5,11 @@ import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.client.TwoQualifiedFlavors
 import com.pocketrealm.desktop.DesktopAppModel
 import com.pocketrealm.desktop.DesktopStorageRoots
+import com.pocketrealm.desktop.withBootLane
+import com.pocketrealm.supervisor.RuntimeSnapshot
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
@@ -100,5 +103,36 @@ class RealmStatusFlavorLaneTest {
                 controller.pageFlavorId(running, worldUp = false),
             )
         }
+    }
+    /** R1-r3-2 (desktop-twin round 3): the production WRITER leg — the
+     * model folds the backend's pinned boot lane into every observed
+     * snapshot (the journal field G3-4 defined but nothing produced). The
+     * pure half is pinned here; the wiring (state = combine(supervisor,
+     * bootLaneFlow) :: withBootLane) is a source contract on the model. */
+    @Test
+    fun thePinnedBootLaneWritesTheSnapshotFlavor() {
+        val snapshot = com.pocketrealm.supervisor.RuntimeSnapshot()
+        assertEquals(
+            "no world running keeps the supervisor's own flavor",
+            ClientFlavors.VANILLA.flavorId,
+            snapshot.withBootLane(null).flavor,
+        )
+        val tbc = ClientFlavors.TBC.copy(qualified = true)
+        assertEquals(
+            "a pinned boot lane REPLACES the snapshot flavor (the running " +
+                "world's lane is the truth about what is RUNNING)",
+            "tbc",
+            snapshot.withBootLane(tbc).flavor,
+        )
+        val source = java.io.File(
+            generateSequence(java.io.File(System.getProperty("user.dir"))) { it.parentFile }
+                .firstOrNull { java.io.File(it, "schemas/flavor.json").isFile }
+                ?: error("repo root not found"),
+            "desktop/src/main/kotlin/com/pocketrealm/desktop/DesktopAppModel.kt",
+        ).readText()
+        assertTrue(
+            "the model's state must fold the boot lane into the snapshot",
+            "combine(" in source && "snapshot.withBootLane(lane)" in source,
+        )
     }
 }

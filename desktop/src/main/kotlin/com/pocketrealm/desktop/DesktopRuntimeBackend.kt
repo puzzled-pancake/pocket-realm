@@ -32,6 +32,7 @@ import com.pocketrealm.supervisor.CharactersRead
 import com.pocketrealm.supervisor.ComponentOwner
 import com.pocketrealm.supervisor.FriendRosterJson
 import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.client.DesktopClientScanner
 import com.pocketrealm.client.DesktopRealmlist
 import com.pocketrealm.client.DesktopVanillaTweaksPatcher
@@ -188,6 +189,30 @@ class DesktopRuntimeBackend(
     /** The MariaDB engine lane's service, created on FIRST MARIADB use
      * only (the engine's constructor resolves the provider staging; a
      * SQLite-only session must never pay for it). Closed in [close]. */
+    // R1-r2-1 (desktop-twin round 2): the lane the RUNNING world booted on —
+    // pinned by startWorld from the persisted selection and consumed by the
+    // provisioning seams, so a Home switch after start can never re-lane the
+    // expansion write onto another flavor's world database (the D63 R2-2m
+    // android twin, which the desktop boot path had never received).
+    // R1-r2-1 + R1-r3-2: the boot lane is observable — the model derives
+    // the supervisor snapshot's flavor field from it (the journal field
+    // G3-4 defined but nothing produced until now).
+    private val _bootLane = kotlinx.coroutines.flow.MutableStateFlow<ClientFlavor?>(null)
+
+    /** The lane the RUNNING world booted on (null = no world). The four
+     * provision seams consume this through the [bootLane] getter. */
+    val bootLaneFlow: kotlinx.coroutines.flow.StateFlow<ClientFlavor?> = _bootLane
+
+    /** The pinned boot lane (the getter keeps every consumer's shape). */
+    val bootLane: ClientFlavor?
+        get() = _bootLane.value
+
+    /** R3-1 (round 3): the snapshot bootLane was pinned FROM — the realm
+     * and world conf writers consume the same one, so a persisted write
+     * landing between the two component starts cannot straddle the boot. */
+    @Volatile
+    private var bootLaneSnapshot: Settings.Snapshot? = null
+
     @Volatile
     private var mariaDbService: DesktopDatabaseService? = null
 
@@ -198,6 +223,14 @@ class DesktopRuntimeBackend(
      * module-internal — a public constructor parameter cannot name it. */
     @Volatile
     internal var mariaDbEngineOverride: DesktopMariaDbEngine? = null
+
+    /** R1-r3-5: the harness gates' provider routing — the shipped-default
+     * MariaDB lane routes verifier seeding through the engine; the sqlite
+     * datadir leg stays the dev opt-in lane's. */
+    internal fun isMariadbLane(): Boolean =
+        selectedDatabaseProvider() == Settings.DatabaseProvider.MARIADB
+
+    internal fun mariadbVerifierSeeding(): DesktopDatabaseService = mariaDbLane()
 
     private fun mariaDbLane(): DesktopDatabaseService =
         mariaDbService ?: synchronized(this) {
@@ -945,6 +978,16 @@ class DesktopRuntimeBackend(
     ): ComponentObservation = withContext(Dispatchers.IO) {
         val slot = ownership.getValue(component)
         slot.claim(owner)
+        // R3-1 (round 3): the WHOLE start transition resolves ONE lane —
+        // pinned BEFORE any component leg (realmd.conf, the projection,
+        // world.conf, the overlay and the provisioning writes all read
+        // this pin), so a Home tap during the up-to-25s realm READY window
+        // cannot tear one boot across two flavor lanes.
+        run {
+            val startSnapshot = DesktopSettingsStore(roots.settingsFile).load()
+            _bootLane.value = files.bootLaneFlavor(startSnapshot)
+            bootLaneSnapshot = startSnapshot
+        }
         when (component) {
             RuntimeComponent.DATABASE ->
                 if (selectedDatabaseProvider() == Settings.DatabaseProvider.MARIADB) {
@@ -1044,7 +1087,9 @@ class DesktopRuntimeBackend(
             // realmd serves a logon. Resolved through the flavor registry
             // like the projected database name below (DESK-93), never a
             // hard-coded build list.
-            val builds = ServerRuntimeFiles.serverFlavor().realmdAcceptedBuilds
+            // R3-1: the pinned boot lane, never the live machine a
+            // mid-window switch would flip.
+            val builds = (bootLane ?: ServerRuntimeFiles.serverFlavor()).realmdAcceptedBuilds
             check(builds.length <= REALMBUILD_LIST_MAX_CHARS && REALMBUILD_LIST.matches(builds)) {
                 "realmlist projection refuses a non-build-list advertisement: $builds"
             }
@@ -1084,7 +1129,9 @@ class DesktopRuntimeBackend(
             // registry (ServerRuntimeFiles.serverDatabases), never a
             // hard-coded vanilla name — the conf's LoginDatabaseInfo and
             // this row land in the same database by construction.
-            val realmdName = ServerRuntimeFiles.serverDatabases().realmd
+            val realmdName = ServerRuntimeFiles.serverDatabases(
+                bootLane ?: ServerRuntimeFiles.serverFlavor(),
+            ).realmd
             val realmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, realmdName)
             check(realmd.isFile) { "$realmdName is not seeded" }
             DesktopSqliteConnection(realmd.absolutePath).use { db ->
@@ -1120,7 +1167,9 @@ class DesktopRuntimeBackend(
      * not yet seeded) — never a throw into the UI poll path.
      */
     fun projectedRealmAddress(): String? = runCatching {
-        val realmdName = ServerRuntimeFiles.serverDatabases().realmd
+        val realmdName = ServerRuntimeFiles.serverDatabases(
+                bootLane ?: ServerRuntimeFiles.serverFlavor(),
+            ).realmd
         val realmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, realmdName)
         if (!realmd.isFile) return@runCatching null
         DesktopSqliteConnection(realmd.absolutePath).use { db ->
@@ -1135,7 +1184,9 @@ class DesktopRuntimeBackend(
      * Fail-soft null exactly like [projectedRealmAddress].
      */
     fun projectedRealmName(): String? = runCatching {
-        val realmdName = ServerRuntimeFiles.serverDatabases().realmd
+        val realmdName = ServerRuntimeFiles.serverDatabases(
+                bootLane ?: ServerRuntimeFiles.serverFlavor(),
+            ).realmd
         val realmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, realmdName)
         if (!realmd.isFile) return@runCatching null
         DesktopSqliteConnection(realmd.absolutePath).use { db ->
@@ -1560,7 +1611,10 @@ class DesktopRuntimeBackend(
                         // a retried provisioning always converges to the
                         // active flavor's expansion (never a silently
                         // classic friend on a tbc/wotlk host).
-                        val expansion = ServerRuntimeFiles.serverFlavor().accountExpansion
+                        // R1-r2-1: the BOOT lane's expansion — a Home switch
+                        // after world start must not re-lane the write onto
+                        // another flavor's world database.
+                        val expansion = (bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion
                         val addon = WorldNative.setAccountAddonNative(
                             username, expansion, ServerRuntimeContract.CONTROL_TIMEOUT_MS,
                         )
@@ -1588,7 +1642,8 @@ class DesktopRuntimeBackend(
                     // stays 0) — resolved through the same serverFlavor()
                     // gate every per-flavor identity on this backend uses,
                     // and fail-loud like the gmlevel leg below it.
-                    val expansion = ServerRuntimeFiles.serverFlavor().accountExpansion
+                    // R1-r2-1: the BOOT lane's expansion, never the live machine.
+                    val expansion = (bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion
                     val addon = WorldNative.setAccountAddonNative(
                         username, expansion, ServerRuntimeContract.CONTROL_TIMEOUT_MS,
                     )
@@ -1725,7 +1780,10 @@ class DesktopRuntimeBackend(
                     if (!exists) {
                         AccountProvisionResult(ok = false, code = "ACCOUNT_EXISTS")
                     } else {
-                        val expansion = ServerRuntimeFiles.serverFlavor().accountExpansion
+                        // R1-r2-1: the BOOT lane's expansion — a Home switch
+                        // after world start must not re-lane the write onto
+                        // another flavor's world database.
+                        val expansion = (bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion
                         val addon = WorldNative.setAccountAddonNative(
                             username, expansion, ServerRuntimeContract.CONTROL_TIMEOUT_MS,
                         )
@@ -1752,7 +1810,8 @@ class DesktopRuntimeBackend(
                     // seam — the ACTIVE flavor's level is written before
                     // first login, fail-loud on refusal (never a silently
                     // classic provisioned friend).
-                    val expansion = ServerRuntimeFiles.serverFlavor().accountExpansion
+                    // R1-r2-1: the BOOT lane's expansion, never the live machine.
+                    val expansion = (bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion
                     val addon = WorldNative.setAccountAddonNative(
                         username, expansion, ServerRuntimeContract.CONTROL_TIMEOUT_MS,
                     )
@@ -3127,7 +3186,9 @@ class DesktopRuntimeBackend(
     private fun startRealm(bindAddress: String): ComponentObservation = synchronized(transitionLock) {
         files.prepareRealmLogsForStart(currentRealmState())
         files.writeLifecycle("realm", false, "start", bindAddress)
-        val rc = RealmNative.startNative(files.realmdConfig(bindAddress).absolutePath)
+        val rc = RealmNative.startNative(
+            files.realmdConfig(bindAddress, bootLaneSnapshot).absolutePath,
+        )
         if (rc != 0) {
             files.writeLifecycle("realm", false, "start-failed", ServerRuntimeContract.errorName(rc.toLong()))
             error("realm start failed: ${ServerRuntimeContract.errorName(rc.toLong())} (rc=$rc)")
@@ -3154,9 +3215,18 @@ class DesktopRuntimeBackend(
             // One blocking settings read feeds the nearby debounce leg and
             // the lifecycle-recorded timeframe stage (design §8: the active
             // stage rides the lifecycle/support evidence).
-            val snapshot = DesktopSettingsStore(roots.settingsFile).load()
-            timeframeStageForLifecycle = com.pocketrealm.client.TimeframeStages.confValue(
+            // R3-1: the PINNED snapshot (pinned at start() entry before the
+            // realm leg) — never a fresh disk load a mid-window write could
+            // straddle. The fallback covers direct startWorld calls in tests.
+            val snapshot = bootLaneSnapshot ?: DesktopSettingsStore(roots.settingsFile).load()
+            // R1-r3-1: the stage resolves through the PINNED boot lane
+            // (confValueFor — the android D47-10 twin); the bare confValue(
+            // delegates to the LIVE holder machine and tears the stage leg
+            // (conf emission, overlay desiredStage, lifecycle record) off
+            // the boot lane at a multi-qualified flip.
+            timeframeStageForLifecycle = com.pocketrealm.client.TimeframeStages.confValueFor(
                 snapshot.timeframeStage,
+                checkNotNull(bootLane) { "the boot lane must be pinned before the world leg" }.flavorId,
             )
             files.worldConfig(
                 bindAddress,
@@ -3320,6 +3390,9 @@ class DesktopRuntimeBackend(
         val rc = WorldNative.stopNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
         runCatching { worldDataLease?.close() }
         worldDataLease = null
+        // R1-r2-1: the boot-lane pin dies with the world it served.
+        _bootLane.value = null
+        bootLaneSnapshot = null
         // The embedded-LLM lane's sidecar stops with the world it served
         // (DESK-48/80/103; the Android supervisor's :llm stop contract).
         files.stopLlmSidecar()

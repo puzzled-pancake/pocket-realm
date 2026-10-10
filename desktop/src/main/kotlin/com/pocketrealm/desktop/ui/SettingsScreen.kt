@@ -1153,7 +1153,7 @@ private fun UpdatesDownloadRow(
         }
     } else {
         InstallConfirmRow(
-            stage, scope,
+            stage, manifest.sha256, scope,
             onArmed = { installArmed = it },
             onOutcome = { outcome = it },
         )
@@ -1209,6 +1209,7 @@ private fun DownloadControls(
 @Composable
 private fun InstallConfirmRow(
     stagedPackage: java.io.File,
+    expectedSha256: String?,
     scope: kotlinx.coroutines.CoroutineScope,
     onArmed: (Boolean) -> Unit,
     onOutcome: (com.pocketrealm.desktop.UpdateApply.ApplyOutcome) -> Unit,
@@ -1222,13 +1223,28 @@ private fun InstallConfirmRow(
         OutlinedButton(onClick = {
             onArmed(false)
             scope.launch {
+                // R4-1 (desktop-twin round 1, serious): the apply folds ANY
+                // escape into the honest Failed outcome — the same guard
+                // posture the download click above carries — so an IO
+                // failure mid-swap can never kill the coroutine (the app)
+                // instead of landing the copy.
                 val applied = kotlinx.coroutines.withContext(
                     kotlinx.coroutines.Dispatchers.IO,
                 ) {
-                    com.pocketrealm.desktop.UpdateApply.applyDownloadedUpdate(
-                        stagedPackage = stagedPackage,
-                        currentImage = com.pocketrealm.desktop.UpdateApply.currentAppImageDir(),
-                        consent = true,
+                    runCatching {
+                        com.pocketrealm.desktop.UpdateApply.applyDownloadedUpdate(
+                            stagedPackage = stagedPackage,
+                            currentImage = com.pocketrealm.desktop.UpdateApply.currentAppImageDir(),
+                            consent = true,
+                            // R3-r2-2: the hash gate re-runs AT APPLY — the
+                            // download-finalize verification ran long before
+                            // this click and the staged file is mutable.
+                            expectedSha256 = expectedSha256,
+                        )
+                    }
+                }.getOrElse { failure ->
+                    com.pocketrealm.desktop.UpdateApply.ApplyOutcome.Failed(
+                        "Install failed: ${failure.message}; nothing else was changed.",
                     )
                 }
                 onOutcome(applied)

@@ -510,6 +510,51 @@ def check_pii(
                 warnings.append(f"personal-path literal {marker!r} present in {norm}")
 
 
+
+
+def check_untracked_test_sources(errors: list[str]) -> None:
+    """R3-r2-3 (desktop-twin round 2): an untracked *.kt/*.java under a
+    test source set compiles into EVERY lane's Gradle run — one seat's
+    in-progress breaker probe blocks every other seat's test runs (three
+    observed live this round) and its concurrent :test run clobbers the
+    shared JUnit results tree (the D52(8) class, by seat concurrency).
+    Probes land as TRACKED files or in a gitignored scratch dir excluded
+    from the source sets — never as loose untracked sources under
+    desktop/src/test or the android test sets."""
+    import subprocess
+
+    offenders: list[str] = []
+    for root in (
+        "desktop/src/test",
+        "android/app/src/test",
+        "android/app/src/androidTest",
+    ):
+        directory = ROOT / root
+        if not directory.is_dir():
+            continue
+        for path in directory.rglob("*"):
+            if path.suffix not in (".kt", ".java") or not path.is_file():
+                continue
+            rel = path.relative_to(ROOT).as_posix()
+            # R3-2 (round 3): inside a test source set ONLY being tracked
+            # exempts a source — Gradle compiles gitignored sources exactly
+            # the same, so the fence's old ignore-accept arm left the
+            # "compiles into every lane" harm one .gitignore pattern away.
+            tracked = subprocess.run(
+                ["git", "ls-files", "--error-unmatch", rel],
+                cwd=ROOT, capture_output=True,
+            )
+            if tracked.returncode != 0:
+                offenders.append(rel)
+    for offender in offenders:
+        errors.append(
+            f"untracked test source compiles into every lane (blocks other "
+            f"seats' runs; gitignored does NOT exempt a source-set file — "
+            f"Gradle compiles it all the same): {offender} — land it tracked "
+            "or move it to a gitignored scratch dir OUTSIDE the source sets"
+        )
+
+
 def main() -> int:
     # Strict is the default: WARN-tier findings fail. --no-strict downgrades
     # personal-path literals to warnings for history work.
@@ -534,6 +579,7 @@ def main() -> int:
     check_conf_matrices(errors)
     check_flavor_source_structure(errors)
     check_e_drive_gate(errors)
+    check_untracked_test_sources(errors)
 
     for warning in sorted(set(warnings)):
         print(f"WARN {warning}")

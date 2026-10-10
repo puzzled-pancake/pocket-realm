@@ -227,11 +227,32 @@ fun HomeScreen(
         // The flavor switcher (the multi-flavor lift): the active lane drives
         // per-flavor import, prepared-data resolution and bot populations.
         var flavorChips by remember { mutableStateOf(ActiveFlavor.switcherChips()) }
+        // R1-1 (desktop-twin round 1): the PERSISTED selection is the source
+        // of truth across restarts — re-apply the persisted pick once the
+        // settings snapshot arrives. Never overrides an explicit in-session
+        // pick, and a persisted id that stopped being qualified stays
+        // refused (select throws; the machine fails loud rather than
+        // silently downgrading the lane) — the Android HomeScreen
+        // LaunchedEffect twin.
+        LaunchedEffect(settings) {
+            val persisted = settings.selectedFlavorOrNull() ?: return@LaunchedEffect
+            if (ActiveFlavor.selectedId == null) {
+                runCatching { ActiveFlavor.select(persisted) }.onSuccess {
+                    flavorChips = ActiveFlavor.switcherChips()
+                }
+            }
+        }
         FlavorSwitcherCard(
             chips = flavorChips,
             onSelect = { chip ->
                 ActiveFlavor.select(chip.flavor.flavorId)
                 flavorChips = ActiveFlavor.switcherChips()
+                // R1-1: the pick must outlive this process — at the W4
+                // multi-qualified flip a restart without the persisted key
+                // lands every fail-loud resolver in a refusal until a
+                // re-pick. The write rides the same tap (the Android twin's
+                // settings.update leg).
+                model.updateSettings { it.copy(selectedFlavorId = chip.flavor.flavorId) }
             },
         )
         RealmControlCard(

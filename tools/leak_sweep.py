@@ -350,6 +350,18 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/importer/DataPreparationSourceQuarantineTest.kt",
+        "literals": ("wow-1.12.1-5875",),
+        "reason": "R2r3-1 data-prep source quarantine: the refuse leg asserts the refusal names the vanilla source generation's verified clientId while the active lane is tbc",
+        "retires": "W4 retires: the multi-qualified flip owns the lanes natively",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/server/DesktopBootLaneBindingTest.kt",
+        "literals": ("classicmangos", "tbcmangos"),
+        "reason": "R1-r2-1 desktop boot-lane binding: the behavioral mid-start-switch truth table asserts the BOOT lane's conf database names vs the live machine's (the vanilla/TBC owning name sets, ClientFlavor.kt)",
+        "retires": "W4 retires: the multi-qualified flip owns the lanes natively",
+    },
+    {
         "path": "desktop/src/test/kotlin/com/pocketrealm/database/DesktopSqliteSeederTest.kt",
         "literals": VANILLA_DB_NAMES,
         "reason": "desktop sqlite seeder fixture pins the vanilla DB names",

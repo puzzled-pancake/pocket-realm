@@ -323,6 +323,13 @@ object Settings {
          * default, now the desktop's too). One unknown enum value must not
          * throw (the audioMode posture). */
         val databaseProvider: DatabaseProvider = DatabaseProvider.MARIADB,
+        /** R1-1 (desktop-twin round 1): the persisted flavor-switcher pick —
+         * the Android storage twin's field (android storage/Settings.kt), so
+         * the desktop lane survives a restart at the W4 multi-qualified flip
+         * instead of every fail-loud resolver refusing until a re-pick. ""
+         * = no persisted pick (the sole-qualified default resolution still
+         * answers; the absent-key decode stays "" byte-stably). */
+        val selectedFlavorId: String = "",
         /** DESK-132: the nearby-use debounce, normalized on load and on write
          * through the shared NearbyInteractPolicy (the Android :801/:1077
          * twin) and threaded into the world conf's
@@ -410,6 +417,11 @@ object Settings {
          * set, normalized into the supported bounds (the desktop has no
          * separate advanced toggle — the surface is always live). */
         fun effectiveAutoLoginTimings(): AutoLoginTimings = autoLoginTimings.normalized()
+
+        /** R1-1: the persisted pick as the resolver seam reads it — null
+         * when nothing was ever persisted (the Android storage twin's
+         * helper). */
+        fun selectedFlavorOrNull(): String? = selectedFlavorId.takeIf { it.isNotEmpty() }
 
         companion object {
             /**
@@ -500,6 +512,9 @@ object Settings {
                             value.optString("databaseProvider", DatabaseProvider.MARIADB.name),
                         )
                     }.getOrDefault(DatabaseProvider.MARIADB),
+                    // R1-1: absent key decodes "" (byte-stable for existing
+                    // files; the sole-qualified default resolution answers).
+                    selectedFlavorId = value.optString("selectedFlavorId", ""),
                     // DESK-132: normalized exactly like the Android :801 load leg.
                     nearbyInteractTriggerGuardMs = NearbyInteractPolicy.normalizeTriggerGuardMs(
                         value.optInt(
@@ -655,6 +670,9 @@ object Settings {
             .put("tweaksSchema", TWEAKS_SCHEMA_VERSION)
             .put("audioMode", audioMode.name)
             .put("databaseProvider", databaseProvider.name)
+            // R1-1: the flavor-switcher pick outlives the process (the
+            // Android storage twin's key).
+            .put("selectedFlavorId", selectedFlavorId)
             .put(
                 "nearbyInteractTriggerGuardMs",
                 NearbyInteractPolicy.normalizeTriggerGuardMs(nearbyInteractTriggerGuardMs),

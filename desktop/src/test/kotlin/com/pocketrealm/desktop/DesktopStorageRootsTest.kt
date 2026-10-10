@@ -130,4 +130,70 @@ class DesktopStorageRootsTest {
             DesktopStorageRoots.defaultRoot().path,
         )
     }
+    // ---- R2-1 (desktop-twin round 2): the override arm fails loud ------
+
+    @Test
+    fun `an override pointing at a regular file fails loud naming the override`() {
+        val impostor = folder.newFile("pocket-realm-root-impostor")
+        System.setProperty(DesktopStorageRoots.ENV_DATA_ROOT, impostor.absolutePath)
+        try {
+            val roots = DesktopStorageRoots()
+            val thrown = runCatching { roots.ensureDirectories() }.exceptionOrNull()
+            assertTrue(
+                "the misconfigured override must surface ONE actionable error, got $thrown",
+                thrown is IllegalStateException,
+            )
+            assertTrue(
+                "the error must name the override variable and its value",
+                thrown?.message?.contains("POCKET_REALM_DATA_ROOT") == true &&
+                    thrown?.message?.contains(impostor.absolutePath) == true,
+            )
+            assertFalse(
+                "the impostor file must never become a root",
+                roots.root.isDirectory,
+            )
+        } finally {
+            System.clearProperty(DesktopStorageRoots.ENV_DATA_ROOT)
+        }
+    }
+
+    @Test
+    fun `a blank override still falls through to the shipped default`() {
+        System.setProperty(DesktopStorageRoots.ENV_DATA_ROOT, "")
+        try {
+            val roots = DesktopStorageRoots()
+            assertEquals(
+                "the blank override falls through (the D50 default arm)",
+                java.io.File(
+                    System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home"),
+                    "PocketRealm",
+                ).absolutePath,
+                roots.root.absolutePath,
+            )
+        } finally {
+            System.clearProperty(DesktopStorageRoots.ENV_DATA_ROOT)
+        }
+    }
+    @Test
+    fun `a relative override is rejected as an absolute-path requirement`() {
+        // R2r3-4 (desktop-twin round 3): the fail-open arm of the R2-1 fix —
+        // a relative override resolves per-process CWD (the rpHost harness,
+        // a jpackage install and a dev run would each land the durable tree
+        // somewhere else, and with a CWD on C: the whole tree lands on C:).
+        System.setProperty(DesktopStorageRoots.ENV_DATA_ROOT, "breaker-relative-root")
+        try {
+            val thrown = runCatching { DesktopStorageRoots() }.exceptionOrNull()
+            assertTrue(
+                "a relative override must be rejected at construction, got $thrown",
+                thrown is IllegalStateException,
+            )
+            assertTrue(
+                "the refusal names the variable and the absolute requirement",
+                thrown?.message?.contains("POCKET_REALM_DATA_ROOT") == true &&
+                    thrown?.message?.contains("ABSOLUTE") == true,
+            )
+        } finally {
+            System.clearProperty(DesktopStorageRoots.ENV_DATA_ROOT)
+        }
+    }
 }

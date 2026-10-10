@@ -656,7 +656,9 @@ def test_desktop_provision_chains_the_flavor_expansion_write():
     leg = backend.split(
         "rc != 0 -> AccountProvisionResult(ok = false, code = ServerRuntimeContract.errorName(rc.toLong()))",
     )[1].split("val info = WorldNative.accountInfoNative(username)")[0]
-    assert "ServerRuntimeFiles.serverFlavor().accountExpansion" in leg
+    assert (
+        "(bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion" in leg
+    ), "the provision seam must consume the pinned BOOT lane (R1-r2-1)"
     assert "WorldNative.setAccountAddonNative(" in leg
     assert leg.index("setAccountAddonNative") < leg.index("setAccountGmLevelNative")
     assert "EXPANSION-SET-FAILED" in leg
@@ -668,7 +670,9 @@ def test_rp_host_account_op_chains_the_expansion_write():
     op = host.split('"account" -> {')[1].split('"chat" ->')[0]
     assert "val addon = if (created == 0) {" in op
     assert "WorldNative.setAccountAddonNative(" in op
-    assert "ServerRuntimeFiles.serverFlavor().accountExpansion" in op
+    assert (
+        "(backend.bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion" in op
+    ), "the harness account op must consume the pinned BOOT lane (R2r3-3)"
     # the answer is honest about the chained write: a fresh create whose
     # expansion write refused is NOT ok; an existing account (created 10)
     # keeps the historical adopt verdict
@@ -702,10 +706,18 @@ def test_both_conf_emissions_resolve_through_the_active_flavor_seam():
         "android twin's TimeframeStage conf must resolve through the "
         "persisted-selection machine (worldLaneFlavor + confValueFor)"
     )
-    assert "TimeframeStages.confValue(" in desktop_twin, (
+    # R1-r3-1 (desktop-twin round 3): the desktop start pins bootLane at
+    # the transition and its conf resolves through confValueFor on THAT
+    # lane — the single-process rationale held only while the holder could
+    # never race a start; the stage leg now binds the boot lane like the
+    # android twin (DesktopBootLaneBindingTest pins the backend legs).
+    assert (
+        "TimeframeStages.confValueFor(snapshot.timeframeStage, lane.flavorId)"
+        in desktop_twin
+        and "worldLaneFlavor(" in desktop_twin
+    ), (
         "desktop twin's TimeframeStage conf must resolve through "
-        "TimeframeStages.confValue (single-process: the holder is the "
-        "persisted machine here)"
+        "confValueFor on the PINNED start lane (worldLaneFlavor)"
     )
     # the active-aware core itself: confValue resolves the ACTIVE flavor,
     # never a hard-coded vanilla fallback

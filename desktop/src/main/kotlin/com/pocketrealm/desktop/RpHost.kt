@@ -118,14 +118,17 @@ fun main() {
                     val pass = request.getString("pass")
                     val created = WorldNative.createAccountNative(
                         user, pass, ServerRuntimeContract.CONTROL_TIMEOUT_MS)
-                    // F1-10 (lanes item 12): a fresh row carries the active
-                    // flavor's expansion before first login (vanilla stays
-                    // 0), resolved through the same serverFlavor() gate the
-                    // backend's own provisioning uses; a refused write flips
-                    // ok, never a silently classic flavor account.
+                    // F1-10 (lanes item 12) + R2r3-3 (round 3): a fresh
+                    // row carries the BOOT lane's expansion — the same pin
+                    // the backend's own four provision seams consume —
+                    // never the live holder machine (a headless harness
+                    // holder is empty and would throw, or worse, resolve a
+                    // mid-session switch). A refused write flips ok, never
+                    // a silently classic flavor account.
                     val addon = if (created == 0) {
                         WorldNative.setAccountAddonNative(
-                            user, ServerRuntimeFiles.serverFlavor().accountExpansion,
+                            user,
+                            (backend.bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion,
                             ServerRuntimeContract.CONTROL_TIMEOUT_MS)
                     } else {
                         -1
@@ -219,6 +222,10 @@ fun main() {
                             RealmEndpoint.LOOPBACK_ADDRESS,
                             ServerRuntimeContract.WORLD_PORT.toInt(),
                             user, key,
+                            // R2r3-3: the AUTH_SESSION build rides the
+                            // pinned boot lane, never the live machine.
+                            authBuild = (backend.bootLane
+                                ?: ServerRuntimeFiles.serverFlavor()).build,
                         )
                         val result = conn.auth()
                         worldConn = conn

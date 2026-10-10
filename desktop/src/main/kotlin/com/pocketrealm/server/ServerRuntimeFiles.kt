@@ -1,6 +1,7 @@
 package com.pocketrealm.server
 
 import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.client.ActiveFlavorState
 import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.client.TimeframeStages
 import com.pocketrealm.database.DatabaseDurableState
@@ -115,9 +116,17 @@ internal class ServerRuntimeFiles(
      * conf is regenerated at every start, so the keys take effect on the
      * next hosting start with no migration.
      */
-    fun realmdConfig(bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS): File {
+    fun realmdConfig(
+        bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
+        /** R1-r3-3/R3-1 (round 3): the START's threaded snapshot — the same
+         * one startWorld consumes — so the realm and world legs resolve ONE
+         * lane even when a persisted write lands between the two component
+         * starts (the up-to-25s realm READY window). Null keeps the file's
+         * own load (older callers, tests). */
+        settingsSnapshot: Settings.Snapshot? = null,
+    ): File {
         val bind = resolveBindAddress(bindAddress)
-        val databases = serverDatabases()
+        val databases = serverDatabases(worldLaneFlavor(SERVER_RUNTIME_LANE, settingsSnapshot))
         val wrongPassLockout = if (bind == RealmEndpoint.LOOPBACK_ADDRESS) {
             ""
         } else {
@@ -138,6 +147,34 @@ internal class ServerRuntimeFiles(
             LogFileLevel = 1
         """.trimIndent() + "\n" + wrongPassLockout)
     }
+
+
+    /**
+     * R1-r2-1 (desktop-twin round 2): the START-path lane resolver —
+     * the PERSISTED Home selection (or the threaded settings snapshot
+     * when the start leg carries one), never the :ui-local in-memory
+     * machine a mid-start switch would flip. [ActiveFlavorState]
+     * semantics: a sole qualified flavor degrades to it, the persisted
+     * pick is honored, an ambiguous post-flip state refuses loud —
+     * the Android ServerRuntimeFiles.worldLaneFlavor twin (D62), which
+     * the desktop boot path had never received. The backend pins this
+     * once at world start ([bootLaneFlavor]) and the whole start —
+     * prepared-data generation, conf database names, projection —
+     * binds to that lane.
+     */
+    fun worldLaneFlavor(
+        lane: String,
+        settingsSnapshot: Settings.Snapshot? = null,
+    ): ClientFlavor {
+        val persisted = settingsSnapshot?.selectedFlavorOrNull()
+            ?: settings.load().selectedFlavorOrNull()
+        return ActiveFlavorState(persisted).resolve(ActiveFlavor.qualifiedFlavors, lane)
+    }
+
+    /** The start seam's boot-lane pin (the server-runtime lane over the
+     * persisted selection; see [worldLaneFlavor]). */
+    fun bootLaneFlavor(settingsSnapshot: Settings.Snapshot? = null): ClientFlavor =
+        worldLaneFlavor(SERVER_RUNTIME_LANE, settingsSnapshot)
 
     /** Production entry point; refuses world start unless every import
      * artifact verifies (win_prepare_data.py prepares it; until then this
@@ -167,7 +204,13 @@ internal class ServerRuntimeFiles(
          * file's own load (older callers, tests). */
         settingsSnapshot: Settings.Snapshot? = null,
     ): File {
-        val data = normalData.requireActive().root
+        // R1-r2-1: the whole start resolves ONE lane — the persisted
+        // selection (or the threaded snapshot) read ONCE here — so a
+        // mid-start switch of the :ui-local machine can never tear the
+        // prepared-data generation vs the conf's database names vs the
+        // projection across different lanes in one boot.
+        val lane = worldLaneFlavor(SERVER_RUNTIME_LANE, settingsSnapshot)
+        val data = normalData.requireActive(lane).root
         val snapshot = settingsSnapshot ?: settings.load()
         purgeStaleBotConfSecrets()
         val botConfig = if (botProfile != null) {
@@ -187,7 +230,8 @@ internal class ServerRuntimeFiles(
         """.trimIndent() + "\n")
         }
         val bind = resolveBindAddress(bindAddress)
-        val databases = serverDatabases()
+        // R1-r2-1: the boot lane's database names, never the live machine.
+        val databases = serverDatabases(lane)
         return secureWrite(File(run, "mangosd.conf"), """
             DataDir = "${data.absolutePath}"
             LoginDatabaseInfo = "${databaseInfo(databases.realmd)}"
@@ -236,7 +280,12 @@ internal class ServerRuntimeFiles(
             # qualified flavor ("<stage-or-default>", never empty). The game
             # client stays at its fixed version; this gates world content
             # only. Applied at world start — never mid-session.
-            PocketRealm.TimeframeStage = "${TimeframeStages.confValue(snapshot.timeframeStage)}"
+            // R1-r3-1 (round 3): the stage resolves through the PINNED
+            // start lane (confValueFor — the android D47-10/D62 twin), so
+            // conf, data, and overlay can never name different flavors at
+            // one start. The bare confValue( delegates to the LIVE holder
+            // machine and would tear the stage leg off the boot lane.
+            PocketRealm.TimeframeStage = "${TimeframeStages.confValueFor(snapshot.timeframeStage, lane.flavorId)}"
         """.trimIndent() + "\n")
     }
 
@@ -693,6 +742,7 @@ internal class ServerRuntimeFiles(
         internal fun serverDatabases(
             flavor: ClientFlavor = serverFlavor(),
         ): ClientFlavor.DatabaseNames = flavor.databases
+
 
         /** Chatter power rungs (ChatterPowerMonitor's constants; a desktop
          * is always plugged in so NORMAL is the only on-rung). */

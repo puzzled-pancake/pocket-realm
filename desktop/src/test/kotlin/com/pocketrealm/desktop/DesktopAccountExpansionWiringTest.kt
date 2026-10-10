@@ -19,9 +19,10 @@ import java.io.File
  *    the second attempt lands on ACCOUNT_EXISTS) — the retry must converge
  *    to the active flavor's expansion, never answer ok while the row is
  *    still silently classic;
- *  - the desktop expansion resolves through ServerRuntimeFiles.serverFlavor
- *    (this backend's own fail-loud per-flavor gate — the desktop is
- *    single-process, so the in-memory machine is legitimate here).
+ *  - the desktop expansion resolves through the BOOT lane
+ *    (bootLane ?: ServerRuntimeFiles.serverFlavor — R1-r2-1: the lane is
+ *    pinned at world start from the persisted selection, so a Home switch
+ *    after start can never re-lane the write).
  */
 class DesktopAccountExpansionWiringTest {
 
@@ -69,9 +70,10 @@ class DesktopAccountExpansionWiringTest {
         )
         for ((name, body) in listOf("provisionAccountVerifier" to verifier, "provisionAccount" to create)) {
             assertTrue(
-                "$name: lost the F1-10 expansion resolution " +
-                    "(ServerRuntimeFiles.serverFlavor)",
-                "ServerRuntimeFiles.serverFlavor().accountExpansion" in body,
+                "$name: lost the F1-10 expansion resolution (the BOOT lane " +
+                    "binding — R1-r2-1: a live-machine resolve re-lanes the " +
+                    "write mid-start)",
+                "(bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion" in body,
             )
             assertTrue(
                 "$name: lost the addon write",

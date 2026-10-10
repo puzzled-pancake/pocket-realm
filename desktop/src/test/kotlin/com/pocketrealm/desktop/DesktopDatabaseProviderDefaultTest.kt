@@ -192,7 +192,12 @@ class DesktopDatabaseProviderDefaultTest {
             }
         }
 
-        override fun startDaemon(executable: File, args: List<String>): Long {
+        override fun startDaemon(
+            executable: File,
+            args: List<String>,
+            outputRedirect: File,
+            errorRedirect: File,
+        ): Long {
             daemonRunning = true
             return daemonPid
         }

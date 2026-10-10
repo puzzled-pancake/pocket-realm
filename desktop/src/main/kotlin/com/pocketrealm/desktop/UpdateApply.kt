@@ -24,14 +24,59 @@ object UpdateApply {
      * Applies a verified staged package. [consent] may only be true after an
      * explicit user action in the UI; false refuses without touching disk
      * (never silent, never automatic).
+     *
+     * R4-1 (desktop-twin round 1, serious): an IO failure mid-apply (disk
+     * full during a hundreds-of-MB extraction, locked target, corrupt
+     * read) previously ESCAPED this function — the confirm click's
+     * coroutine had no guard, so the app died instead of landing the
+     * honest copy. Every thrown failure now folds into
+     * [ApplyOutcome.Failed]; the rename-aside happens only AFTER the
+     * extraction completes, so a mid-unzip failure has always left the
+     * running image in place.
      */
     fun applyDownloadedUpdate(
         stagedPackage: File,
         currentImage: File?,
         consent: Boolean,
+        /** R3-r2-2 (desktop-twin round 2): the release manifest's sha256 —
+         * RE-HASHED at apply time, so a staged file swapped on disk in the
+         * window between download and the (possibly hours-later) consent
+         * click is refused instead of applied unverified. The download's
+         * finalize gate is the only other verification point and it ran
+         * long before this call. Null (a digest-less feed) skips the gate,
+         * the same posture the download lane has. */
+        expectedSha256: String? = null,
+    ): ApplyOutcome =
+        runCatching { applyDownloadedUpdateChecked(stagedPackage, currentImage, consent, expectedSha256) }
+            .getOrElse { failure ->
+                ApplyOutcome.Failed(
+                    "The install failed while applying the package " +
+                        "(${failure.javaClass.simpleName}: ${failure.message ?: "I/O error"}); " +
+                        "the running image was left in place. Nothing else was changed.",
+                )
+            }
+
+    private fun applyDownloadedUpdateChecked(
+        stagedPackage: File,
+        currentImage: File?,
+        consent: Boolean,
+        expectedSha256: String?,
     ): ApplyOutcome {
         val refusal = refusalReason(stagedPackage, currentImage, consent)
         if (refusal != null) return ApplyOutcome.Refused(refusal)
+        // R3-r2-2: the hash gate fails closed AT APPLY — the consuming seam
+        // must never trust a mutable staged file whose only verification
+        // happened at download finalize.
+        if (expectedSha256 != null) {
+            val actual = com.pocketrealm.fs.FileDigests.sha256(stagedPackage)
+            if (!actual.equals(expectedSha256, ignoreCase = true)) {
+                return ApplyOutcome.Refused(
+                    "The staged package no longer matches the release's sha256 " +
+                        "(it changed on disk after download) — download it again. " +
+                        "Nothing was changed.",
+                )
+            }
+        }
         return when {
             stagedPackage.name.endsWith(APP_IMAGE_SUFFIX, ignoreCase = true) ->
                 swapAppImage(stagedPackage, currentImage!!)

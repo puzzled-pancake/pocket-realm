@@ -4,6 +4,7 @@ import com.pocketrealm.bots.BotCustomPresets
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.ui.LanJoinProbe
 import com.pocketrealm.ui.TunnelInvite
+import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.supervisor.AccountProvisionResult
 import com.pocketrealm.supervisor.AutoLoginCredentialProof
 import com.pocketrealm.supervisor.AutoLoginPolicy
@@ -28,6 +29,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -265,6 +272,12 @@ sealed interface RestoreGate {
  * the supervisor's operation serialization stays intact.
  */
 @Suppress("TooManyFunctions") // the app-model seam: one verb per supervisor/store operation
+/** R1-r3-2: the snapshot-flavor writer's pure half — a pinned boot lane
+ * REPLACES the snapshot's flavor (vanilla default); no world running keeps
+ * the supervisor's own value. */
+internal fun RuntimeSnapshot.withBootLane(lane: ClientFlavor?): RuntimeSnapshot =
+    lane?.let { copy(flavor = it.flavorId) } ?: this
+
 class DesktopAppModel(
     val roots: DesktopStorageRoots = DesktopStorageRoots(),
     private val clientDirOverride: File? = null,
@@ -349,7 +362,19 @@ class DesktopAppModel(
         backend,
         DesktopSupervisorJournal(roots.supervisorJournalDir),
     )
-    val state: StateFlow<RuntimeSnapshot> = supervisor.state
+    /** R1-r3-2 (desktop-twin round 3): the RUNNING world's flavor rides
+     * the observed snapshot — the backend's pinned boot lane, folded into
+     * every emission (the journal field G3-4 defined but NO code ever
+     * produced: the realm-status worldUp arm, the PUBLIC realm.flavor
+     * payload and auto-login all read a perpetual vanilla default). No
+     * world running keeps the supervisor's own value. */
+    private val modelScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val state: StateFlow<RuntimeSnapshot> = combine(
+        supervisor.state,
+        backend.bootLaneFlow,
+    ) { snapshot, lane -> snapshot.withBootLane(lane) }
+        .stateIn(modelScope, SharingStarted.Eagerly, supervisor.state.value)
 
     /**
      * D9/D2 (design-lan §7): the last interface-loss stop reason (raw
@@ -1963,6 +1988,7 @@ class DesktopAppModel(
     }
 
     override fun close() {
+        modelScope.cancel()
         // The realm-status page dies with the app process (the §1 rule's
         // app-exit leg); only when the controller was ever constructed.
         if (realmStatusLazy.isInitialized()) {

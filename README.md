@@ -103,7 +103,9 @@ whole path with more detail.
 
 The same repo builds a **Windows desktop sibling** of the Android app
 (`desktop/`): one JVM running the shared supervisor, the realm as two
-in-process MSVC DLLs (realmd + mangosd+Playerbots, SQLite provider), and
+in-process MSVC DLLs (realmd + mangosd+Playerbots, MariaDB provider — the
+shipped default per the D19 flip; a SQLite lane exists as dev/compat and
+does not ship), and
 your installed WoW 1.12.1 client launched **natively** — no Wine, no X
 server, no GPU stack. The Android app remains a fully-supported product;
 shared domain sources compile into both builds from one tree (see
@@ -124,7 +126,9 @@ What ships on Windows today:
   app image via `gradlew packageApp` (jpackage; app-local VC runtime,
   longPathAware launcher), auto-login through Win32 SendInput, and the
   Windows lane's own provenance lockfile
-  (`schemas/realm-runtime-lockfile-sqlite-win.json`, PE import tables).
+  (`schemas/realm-runtime-lockfile-mariadb-win.json` — the MariaDB lane
+  the desktop image actually ships, pinned by `BuildConfig` and fenced at
+  packaging; PE import tables).
 - Qualification record and run book: [docs/WINDOWS_QUALIFICATION.md](docs/WINDOWS_QUALIFICATION.md).
 
 Building it needs the MSVC toolchain, vcpkg deps

@@ -570,3 +570,33 @@ def test_interact_overlay_variants_are_tracked_for_every_flavor():
         "fresh clone breaks the next expansion lane build): "
         + "; ".join(offenders) + " — track them in the finalize add"
     )
+
+
+def test_desktop_main_produces_no_tmpdir_writers():
+    """R3-r2-1 (desktop-twin round 2, serious): the mariadbd stdout/stderr
+    capture resolved java.io.tmpdir — the Gradle daemon/test lanes redirect
+    it to E:, but the rpHost harness and any jpackage install resolve
+    %TEMP% ON C: (a project writer on C:, plan §1 hard rule 1;
+    pocket-mariadbd.out/.err were observed in %TEMP%). No desktop main
+    source may produce a tmpdir path, and the launch lanes must not carry
+    tmpdir band-aids — the capture rides the DesktopStorageRoots logs root
+    (override-honoring)."""
+    offenders: list[str] = []
+    for source in (ROOT / "desktop/src/main").rglob("*.kt"):
+        text = source.read_text(encoding="utf-8", errors="replace")
+        if 'System.getProperty("java.io.tmpdir")' in text or '"java.io.tmpdir"' in text:
+            offenders.append(source.relative_to(ROOT).as_posix())
+    assert not offenders, (
+        "desktop main sources resolve java.io.tmpdir (writes %TEMP% on C: "
+        "in the rpHost/jpackage lanes): " + "; ".join(offenders) +
+        " — route the capture under the DesktopStorageRoots logs root"
+    )
+    # the launch lanes (rpHost's JavaExec jvmArgs, jpackage java-options)
+    # must not band-aid tmpdir — the app resolves its own roots. The
+    # tasks.withType<Test> systemProperty redirects stay (the designed
+    # test-lane layers; the app RUNTIME never sees them).
+    gradle = (ROOT / "desktop/build.gradle.kts").read_text(encoding="utf-8")
+    assert "-Djava.io.tmpdir" not in gradle, (
+        "a launch lane carries a -Djava.io.tmpdir band-aid (rpHost jvmArgs "
+        "or jpackage java-options) — the app must resolve its own roots"
+    )

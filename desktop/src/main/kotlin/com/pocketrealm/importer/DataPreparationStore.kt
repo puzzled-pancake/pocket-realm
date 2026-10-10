@@ -71,7 +71,7 @@ internal open class DataPreparationStore(
         clientRoot: File,
         onTick: () -> Unit = {},
     ): PublishedData = withContext(Dispatchers.IO) {
-        recover(importId, onTick)?.let { return@withContext it }
+        recover(importId, clientRoot, onTick)?.let { return@withContext it }
         // The data_stages checkpoints reference the imports table; the
         // desktop data-prep lane anchors its own row (the Android lane
         // reused the client import's row) before the first stage.
@@ -101,7 +101,7 @@ internal open class DataPreparationStore(
             requireCount(File(stageRoot, "vmaps"), ".vmtree", 1)
         }
         prepareMmaps(importId, stageRoot, onTick)
-        publish(importId, stageRoot, onTick)
+        publish(importId, stageRoot, clientRoot, onTick)
     }
 
     /**
@@ -351,8 +351,13 @@ internal open class DataPreparationStore(
         }
     }
 
-    private fun publish(importId: String, stageRoot: File, onTick: () -> Unit): PublishedData {
-        recover(importId, onTick)?.let { return it }
+    private fun publish(
+        importId: String,
+        stageRoot: File,
+        clientRoot: File,
+        onTick: () -> Unit,
+    ): PublishedData {
+        recover(importId, clientRoot, onTick)?.let { return it }
         // Unknown-length like the other finite stages — the full
         // data hash walk would otherwise leave a frozen "0/1" bar for its
         // entire duration.
@@ -378,10 +383,15 @@ internal open class DataPreparationStore(
         // manifest identity and the per-flavor active pointer follow the
         // Home switcher's selection instead of `qualified().single()`
         // refusing data preparation wholesale.
-        // R2-4 (code-red round 2): the stamp is the VERIFIED source
-        // generation identity, never the switcher's selection (android
-        // twin's verifiedSourceFlavor contract).
-        val flavor = ActiveFlavor.resolve(SERVER_DATA_PREPARATION_LANE)
+        // R2-4 (code-red round 2) + R2r3-1 (desktop-twin round 3, serious):
+        // the stamp is the VERIFIED source generation identity, never the
+        // switcher's selection — the desktop twin of the android
+        // verifiedSourceFlavor contract (D48's mid-prep-switch quarantine,
+        // which this file's old comment CLAIMED while line 384 resolved the
+        // live machine). The helper REFUSES when the source generation's
+        // stamped clientId disagrees with the active lane, so a Home switch
+        // during the hours-long prep can never relabel cross-flavor bytes.
+        val flavor = verifiedSourceFlavor(clientRoot)
         val manifest = buildDataManifestJson(
             flavor = flavor,
             counts = counts,
@@ -410,15 +420,20 @@ internal open class DataPreparationStore(
      * and a crash between the generation rename and the MANIFEST checkpoint
      * is cleaned up here instead of leaving a stale RUNNING row.
      */
-    private fun recover(importId: String, onTick: () -> Unit = {}): PublishedData? {
+    private fun recover(
+        importId: String,
+        clientRoot: File,
+        onTick: () -> Unit = {},
+    ): PublishedData? {
         val final = generation(importId)
         val manifestFile = File(final, "data-manifest.json")
         if (!final.isDirectory || !manifestFile.isFile) return null
         val manifest = JSONObject(manifestFile.readText())
-        // GAP-3: recovery resolves the same ACTIVE lane publication did —
-        // the envelope identity gate and the re-activation follow the
-        // selection, never a `.single()` crash at the second qualification.
-        val flavor = ActiveFlavor.resolve(SERVER_DATA_PREPARATION_LANE)
+        // GAP-3 + R2r3-1: recovery resolves the same VERIFIED source
+        // identity publication stamped — the resume path carries the same
+        // quarantine (a mid-prep switch refused at the resume, too), never
+        // a `.single()` crash and never a live-machine relabel.
+        val flavor = verifiedSourceFlavor(clientRoot)
         // The shared envelope validator is the one identity gate (schema,
         // complete, mode, clientBuild, cmangosFamily, optional flavor alias).
         PreparedDataStore.validateDataManifestEnvelope(manifest, flavor)
@@ -715,7 +730,10 @@ internal fun verifiedSourceFlavor(clientRoot: File): ClientFlavor {
         "source client generation identity \"" + clientId + "\" resolves to no registered " +
             "flavor — the verified clientId must name a registered lane"
     }
-    check(verified == active) {
+    // R2r3-1: compare the flavorId — a registry lane compared by data-class
+    // equality against the holder's resolved instance would break on any
+    // qualified-flag copy (the TwoQualifiedFlavors fixture's own shape).
+    check(verified.flavorId == active.flavorId) {
         "data preparation source generation is \"" + clientId + "\" (" + verified.flavorId + ") " +
             "but the active lane is " + active.flavorId + " — a mid-prep flavor switch " +
             "cannot relabel the bytes; re-run preparation from the " +

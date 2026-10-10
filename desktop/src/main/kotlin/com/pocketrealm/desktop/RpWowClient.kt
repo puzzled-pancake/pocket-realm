@@ -186,6 +186,9 @@ internal object RpWowClient {
         worldPort: Int,
         private val account: String,
         sessionKeyHex: String,
+        /** R2r3-3 (round 3): the AUTH_SESSION build rides the pinned boot
+         * lane (threaded by the harness), never the live holder machine. */
+        private val authBuild: Int,
     ) {
         private val socket = Socket()
         private val input: InputStream
@@ -255,9 +258,10 @@ internal object RpWowClient {
             )
             val body = ByteArray(8 + name.size + 1 + 4 + 20 + addonBlock.size)
             var o = 0
-            // DESK-94: the AUTH_SESSION build rides the one qualified
-            // flavor the in-process server lane runs, never a constant.
-            o = writeLe32(body, o, ServerRuntimeFiles.serverFlavor().build)
+            // DESK-94 + R2r3-3: the AUTH_SESSION build rides the pinned
+            // boot lane (threaded), never a constant and never the live
+            // holder machine.
+            o = writeLe32(body, o, authBuild)
             o = writeLe32(body, o, 0)
             System.arraycopy(name, 0, body, o, name.size); o += name.size
             body[o++] = 0

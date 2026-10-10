@@ -86,10 +86,27 @@ class DesktopStorageRoots(baseDir: File? = null) {
         // sqliteDatadir too (the Android twin mkdirs databaseDatadir at
         // construction): an EMPTY datadir is the unseeded state the
         // bootstrap lane seeds — its existence is not a seed proof.
-        listOf(
+        val failed = listOf(
             root, realm, database, sqliteDatadir, mariadbDatadir, content, runtime, settings,
-            supervisorJournalDir, logs, scratch, exports, databaseRun, databaseSnapshots, llm, llm,
-        ).forEach { it.mkdirs() }
+            supervisorJournalDir, logs, scratch, exports, databaseRun, databaseSnapshots, llm,
+        ).filter { !it.mkdirs() && !it.isDirectory }
+        // R2-1 (desktop-twin round 2): a misconfigured D50 override (a
+        // regular file, an un-creatable drive) previously booted into
+        // scattered raw IO failures — mkdirs results were ignored and the
+        // truthful verify().ok was consulted by nothing on the boot path.
+        // ONE actionable error naming the override and the first
+        // un-creatable root is the fail-fast posture instead.
+        if (failed.isNotEmpty()) {
+            val override = System.getProperty(ENV_DATA_ROOT)?.takeIf { it.isNotBlank() }
+                ?: System.getenv(ENV_DATA_ROOT)?.takeIf { it.isNotBlank() }
+                ?: "<unset>"
+            error(
+                "the PocketRealm data root is not usable: cannot create " +
+                    "${failed.first().absolutePath} (${failed.size} root(s) failed). " +
+                    "POCKET_REALM_DATA_ROOT is $override — fix or clear the " +
+                    "override (the D50 relocation), then start again.",
+            )
+        }
         purgeScratch()
     }
 
@@ -156,15 +173,34 @@ class DesktopStorageRoots(baseDir: File? = null) {
             // The system property is the test seam for the same override
             // the env var carries in production (property wins when set).
             System.getProperty(ENV_DATA_ROOT)?.let { configured ->
-                if (configured.isNotBlank()) return File(configured)
+                if (configured.isNotBlank()) return configuredRoot(configured)
             }
             System.getenv(ENV_DATA_ROOT)?.let { configured ->
-                if (configured.isNotBlank()) return File(configured)
+                if (configured.isNotBlank()) return configuredRoot(configured)
             }
             return File(
                 System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home"),
                 "PocketRealm",
             )
+        }
+
+        /** R2r3-4 (desktop-twin round 3): a RELATIVE override resolves
+         * per-process CWD — the same env value yields different physical
+         * roots for the rpHost harness vs a jpackage install vs a dev run,
+         * and with a CWD on C: the whole durable tree lands on C: while
+         * e-gate's env legs only match C-drive-prefixed values. The
+         * override must be an ABSOLUTE path, or the boot fails with the
+         * same actionable shape as the other misconfigured arms. */
+        private fun configuredRoot(configured: String): File {
+            val candidate = File(configured)
+            check(candidate.isAbsolute) {
+                "POCKET_REALM_DATA_ROOT must be an ABSOLUTE path (got " +
+                    "'$configured') — a relative value resolves per-process " +
+                    "CWD, so the rpHost harness, a jpackage install and a dev " +
+                    "run would each land the durable tree somewhere else. " +
+                    "Set an absolute path (the D50 relocation), then start again."
+            }
+            return candidate
         }
     }
 }

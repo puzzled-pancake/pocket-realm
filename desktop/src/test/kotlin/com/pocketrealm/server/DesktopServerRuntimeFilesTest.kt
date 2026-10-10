@@ -1267,14 +1267,18 @@ class DesktopServerRuntimeFilesTest {
         val vanilla = testFlavor("vanilla", qualified = true)
         val wotlk = testFlavor("wotlk", qualified = true, build = 12340)
         ActiveFlavor.qualifiedSource = { listOf(vanilla, wotlk) }
-        ActiveFlavor.select("wotlk")
+        // R1-r2-1: the START path resolves the PERSISTED pick (the D62/D63
+        // binding the desktop never had) — the switcher's tap persists it,
+        // so the fixture persists the pick instead of flipping only the
+        // in-memory machine.
+        com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile).save(Settings.Snapshot(selectedFlavorId = "wotlk"))
         val flipped = files.realmdConfig().readText()
         val wotlkRealmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "wotlkrealmd")
         assertTrue(
             "the active lane's realmd must drive LoginDatabaseInfo:\n$flipped",
             "LoginDatabaseInfo = \"${wotlkRealmd.absolutePath}\"" in flipped,
         )
-        ActiveFlavor.select("vanilla")
+        com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile).save(Settings.Snapshot(selectedFlavorId = "vanilla"))
         val vanillaConf = files.realmdConfig().readText()
         val vanillaRealmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "vanillarealmd")
         assertTrue(

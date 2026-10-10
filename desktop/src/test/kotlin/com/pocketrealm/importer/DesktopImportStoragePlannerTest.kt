@@ -134,4 +134,28 @@ class DesktopImportStoragePlannerTest {
         assertEquals(0L, empty.allocatableBytes)
         assertFalse(empty.canProceed)
     }
+    @Test
+    fun planCountsBothProvidersDatadirsAndTheRealSnapshotStore() {
+        // R4-r2-1 (desktop-twin round 2): the shipped-default MariaDB
+        // datadir and the real snapshot store contribute their bytes —
+        // measuring only the sqlite datadir under-counted the durable
+        // state on the shipped lane (and maxOf(same, same) was a no-op).
+        val root = folder.newFolder("roots-both")
+        val roots = DesktopStorageRoots(root).also { it.ensureDirectories() }
+        fun seed(dir: File, name: String, bytes: Int) {
+            File(dir.apply { mkdirs() }, name).writeText(ByteArray(bytes).decodeToString())
+        }
+        seed(roots.mariadbDatadir, "world-db", 4096)
+        seed(roots.sqliteDatadir, "classicrealmd.sqlite3", 4096)
+        seed(roots.databaseSnapshots, "snapshot.bin", 8192)
+        val plan = ImportStoragePlanner(roots).plan(sourceBytes = 0)
+        assertEquals(
+            "databaseBytes counts BOTH providers' live datadirs",
+            8192L, plan.databaseBytes,
+        )
+        assertTrue(
+            "the snapshot floor reflects the REAL snapshot store",
+            plan.minimumSnapshotBytes >= 8192L,
+        )
+    }
 }

@@ -237,7 +237,12 @@ class DesktopMariaDbEngineTest {
             }
         }
 
-        override fun startDaemon(executable: File, args: List<String>): Long {
+        override fun startDaemon(
+            executable: File,
+            args: List<String>,
+            outputRedirect: File,
+            errorRedirect: File,
+        ): Long {
             check(!failSpawn) { "scripted: daemon spawn refused" }
             daemonRunning = true
             return daemonPid
@@ -1201,6 +1206,7 @@ class DesktopMariaDbEngineTest {
         // crosses the client, and vanilla-only state keeps the exact
         // classicrealmd bytes (the first test above).
         val (lane, engine) = startedLane()
+        var resultOpt: JSONObject? = null
         try {
             val vanilla = testFlavor("vanilla", qualified = true)
             val wotlk = testFlavor("wotlk", qualified = true, build = 12340)
@@ -1213,27 +1219,57 @@ class DesktopMariaDbEngineTest {
                 )
                 fail("two qualified flavors without a selection must refuse, not guess vanilla")
             } catch (expected: IllegalStateException) {
+                // the machine's own ambiguous-registry refusal (ISE), the
+                // shape this seam refused with before the guard existed
                 assertTrue(
                     "the refusal must be the machine's honest one: ${expected.message}",
                     (expected.message ?: "").contains("found 2"),
                 )
             }
+            // R1-r3-4 (round 3): the projection resolves only the VANILLA
+            // lane's realmd database (the W1.2 per-flavor-seeding deferral,
+            // the android DatabaseEngine.realmdDatabaseName guard's desktop
+            // twin): a non-vanilla selection at a multi-qualified flip
+            // REFUSES loud before any SQL crosses — never a wrong-lane row
+            // mutation (the flip's lane threading rides the boot lane on
+            // the backend, not the engine's SQL target).
             ActiveFlavor.select("wotlk")
-            val result = engine.projectRealmEndpoint(
+            val refused = runCatching {
+                engine.projectRealmEndpoint(
+                    "127.0.0.1",
+                    com.pocketrealm.supervisor.RealmEndpoint.WORLD_PORT,
+                    "12340",
+                )
+            }.exceptionOrNull()
+            assertTrue(
+                "a non-vanilla selection at a multi-qualified flip must " +
+                    "refuse loud BEFORE any SQL crosses (the guard's " +
+                    "exactly-one-qualified leg answers first): $refused",
+                refused is IllegalArgumentException,
+            )
+            ActiveFlavor.select("vanilla")
+            val result: JSONObject = engine.projectRealmEndpoint(
                 "127.0.0.1",
                 com.pocketrealm.supervisor.RealmEndpoint.WORLD_PORT,
                 "12340",
             )
-            assertTrue("the active lane's projection must succeed: $result", result.getBoolean("ok"))
+            resultOpt = result
+            assertTrue("the vanilla-selected projection must succeed: $result", result.getBoolean("ok"))
             assertEquals("realm-endpoint-projected", result.getString("operation"))
-            val run = lane.processes.clientRuns.single { it.second.contains("UPDATE wotlkrealmd.realmlist") }
+            // the synthetic vanilla lane's own database name (the fixture's
+            // testFlavor("vanilla") carries vanillarealmd, not the registry
+            // vanilla's classicrealmd)
+            val run = lane.processes.clientRuns
+                .singleOrNull { it.second.contains("UPDATE vanillarealmd.realmlist") }
+                ?: error(
+                    "the vanilla projection never crossed the client; result=" +
+                        (resultOpt?.toString() ?: "<no call>") +
+                        "; runs=" +
+                        lane.processes.clientRuns.map { it.second.lineSequence().firstOrNull() ?: "" },
+                )
             assertTrue(
-                "the verify read must prove the same lane's row: ${run.second}",
-                "SELECT address,port,realmbuilds FROM wotlkrealmd.realmlist WHERE id=1 LIMIT 1;" in run.second,
-            )
-            assertFalse(
-                "the hard-coded vanilla name must be gone from the flipped lane's SQL: ${run.second}",
-                "classicrealmd" in run.second,
+                "the verify read must prove the vanilla lane's row: ${run.second}",
+                "SELECT address,port,realmbuilds FROM vanillarealmd.realmlist WHERE id=1 LIMIT 1;" in run.second,
             )
             assertTrue(
                 "the projection still runs as the least-privileged core user",

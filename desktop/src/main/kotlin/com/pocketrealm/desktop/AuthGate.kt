@@ -73,28 +73,42 @@ fun main() {
     val account = "AUTHGATE"
     val password = "AuthGate-Password-1"
     val srp = VsrpMath.verifierFor(account, password)
-    // DESK-93: the verifier row lands in the same database realmd.conf's
-    // LoginDatabaseInfo points at — one flavor-routed source, never a
-    // second hard-coded vanilla name.
-    val realmd = DatabaseSqliteControlPlane.databaseFile(
-        roots.sqliteDatadir,
-        ServerRuntimeFiles.serverDatabases().realmd,
-    )
-    DesktopSqliteConnection(realmd.absolutePath).use { db ->
-        db.exec("DELETE FROM account WHERE username = '$account';")
-        db.exec(
-            "INSERT INTO account (username, gmlevel, v, s, joindate, lockedIp, last_module, locale, os, platform) " +
-                "VALUES ('$account', 0, '${srp.vHex}', '${srp.sHex}', " +
-                    "'2026-01-01 00:00:00', '0.0.0.0', '', 'enUS', 'Win', 'x86');",
+    // DESK-93 + R1-r3-5 (desktop-twin round 3): the verifier row lands in
+    // the database realmd.conf's LoginDatabaseInfo points at — PROVIDER-
+    // AWARE: the shipped-default MariaDB lane routes through the engine's
+    // owner-gated SQL (seedSrpVerifierRow, the projection's path), so the
+    // proto-login verifier lands where the MariaDB realmd actually reads;
+    // the sqlite datadir leg stays the dev opt-in lane's.
+    var sqliteRealmd: String? = null
+    if (backend.isMariadbLane()) {
+        val seeded = backend.mariadbVerifierSeeding()
+            .seedSrpVerifierRow(account, srp.vHex, srp.sHex)
+        println(
+            "seeded SRP verifier row for $account in ${seeded.getString("database")} " +
+                "(v=${srp.vHex.take(HEX_ECHO_CHARS)}…, s=${srp.sHex.take(HEX_ECHO_CHARS)}…)",
         )
-        check(db.queryLong("SELECT COUNT(*) FROM account WHERE username = '$account';") == 1L) {
-            "verifier row did not land"
+    } else {
+        val realmd = DatabaseSqliteControlPlane.databaseFile(
+            roots.sqliteDatadir,
+            ServerRuntimeFiles.serverDatabases().realmd,
+        )
+        sqliteRealmd = realmd.absolutePath
+        DesktopSqliteConnection(realmd.absolutePath).use { db ->
+            db.exec("DELETE FROM account WHERE username = '$account';")
+            db.exec(
+                "INSERT INTO account (username, gmlevel, v, s, joindate, lockedIp, last_module, locale, os, platform) " +
+                    "VALUES ('$account', 0, '${srp.vHex}', '${srp.sHex}', " +
+                        "'2026-01-01 00:00:00', '0.0.0.0', '', 'enUS', 'Win', 'x86');",
+            )
+            check(db.queryLong("SELECT COUNT(*) FROM account WHERE username = '$account';") == 1L) {
+                "verifier row did not land"
+            }
         }
+        println(
+            "seeded SRP verifier row for $account " +
+                "(v=${srp.vHex.take(HEX_ECHO_CHARS)}…, s=${srp.sHex.take(HEX_ECHO_CHARS)}…)"
+        )
     }
-    println(
-        "seeded SRP verifier row for $account " +
-            "(v=${srp.vHex.take(HEX_ECHO_CHARS)}…, s=${srp.sHex.take(HEX_ECHO_CHARS)}…)"
-    )
 
     kotlinx.coroutines.runBlocking { backend.start(RuntimeComponent.REALM, owner, spec) }
     // Wait for READY (not a connect probe: the probe's instant
@@ -125,9 +139,11 @@ fun main() {
     }
 
     // Proof 3: the server persisted OUR session key on success.
-    val persisted = DesktopSqliteConnection(realmd.absolutePath).use { db ->
-        db.queryText("SELECT sessionkey FROM account WHERE username = '$account';")
-    }
+    val persisted = sqliteRealmd?.let { path ->
+        DesktopSqliteConnection(path).use { db ->
+            db.queryText("SELECT sessionkey FROM account WHERE username = '$account';")
+        }
+    } ?: backend.mariadbVerifierSeeding().readVerifierSessionKey(account)
     if (!persisted.equals(sessionKeyHex, ignoreCase = true)) {
         System.err.println("SESSION KEY MISMATCH: server=$persisted client=$sessionKeyHex")
         kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.REALM, owner) }
@@ -148,11 +164,15 @@ fun main() {
     // landed and the components are stopped, the gate's known-password
     // account row leaves the live realmd database (a failed run leaves it
     // for triage; the next run's seed DELETE replaces it regardless).
-    DesktopSqliteConnection(realmd.absolutePath).use { db ->
-        db.exec("DELETE FROM account WHERE username = '$account';")
-        check(db.queryLong("SELECT COUNT(*) FROM account WHERE username = '$account';") == 0L) {
-            "gate account row survived cleanup"
+    if (sqliteRealmd != null) {
+        DesktopSqliteConnection(sqliteRealmd!!).use { db ->
+            db.exec("DELETE FROM account WHERE username = '$account';")
+            check(db.queryLong("SELECT COUNT(*) FROM account WHERE username = '$account';") == 0L) {
+                "gate account row survived cleanup"
+            }
         }
+    } else {
+        backend.mariadbVerifierSeeding().deleteVerifierRow(account)
     }
     println("removed gate account row ($account) from the realmd database")
     DesktopLog.i("AuthGate", "protocol-auth gate passed")

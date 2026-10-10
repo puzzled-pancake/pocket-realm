@@ -71,7 +71,12 @@ internal class DesktopMariaDbEngine(    private val roots: DesktopStorageRoots,
         ): DatabaseRunResult
 
         /** Launch the long-lived daemon; returns its OS pid. */
-        fun startDaemon(executable: File, args: List<String>): Long
+        fun startDaemon(
+            executable: File,
+            args: List<String>,
+            outputRedirect: File,
+            errorRedirect: File,
+        ): Long
 
         /** Whether the pid is observably alive. */
         fun alive(pid: Long): Boolean
@@ -127,7 +132,12 @@ internal class DesktopMariaDbEngine(    private val roots: DesktopStorageRoots,
                     )
                 }
 
-                override fun startDaemon(executable: File, args: List<String>): Long {
+                override fun startDaemon(
+                    executable: File,
+                    args: List<String>,
+                    outputRedirect: File,
+                    errorRedirect: File,
+                ): Long {
                     val process = ProcessBuilder(
                         buildList {
                             add(executable.absolutePath)
@@ -135,8 +145,18 @@ internal class DesktopMariaDbEngine(    private val roots: DesktopStorageRoots,
                         },
                     ).apply {
                         redirectErrorStream(false)
-                        redirectOutput(File(System.getProperty("java.io.tmpdir"), "pocket-mariadbd.out"))
-                        redirectError(File(System.getProperty("java.io.tmpdir"), "pocket-mariadbd.err"))
+                        // R3-r2-1 (desktop-twin round 2, serious): the
+                        // capture previously resolved java.io.tmpdir — the
+                        // Gradle daemon/test lanes redirect it to E:, but
+                        // the rpHost harness and any jpackage install
+                        // resolve %TEMP% ON C: (a project writer on C:,
+                        // plan §1 hard rule 1; pocket-mariadbd.out/.err were
+                        // observed in %TEMP%). The capture files now ride
+                        // in from the caller: the engine's DesktopStorageRoots
+                        // logs root, which the D50 override relocates with
+                        // the whole product.
+                        redirectOutput(outputRedirect)
+                        redirectError(errorRedirect)
                     }.start()
                     return process.pid().toLong()
                 }
@@ -506,6 +526,100 @@ internal class DesktopMariaDbEngine(    private val roots: DesktopStorageRoots,
      * LoginDatabaseInfo and this row land in the same database by
      * construction, and the ActiveFlavor machine's honesty gates the SQL
      * before any of it crosses the client. */
+    /** R1-r3-4 (desktop-twin round 3): the android
+     * DatabaseEngine.realmdDatabaseName guard's desktop twin — the realmd
+     * database the MariaDB SQL targets is registry-resolved with the
+     * exactly-one-qualified + vanilla-only requirement BEFORE any SQL
+     * crosses the client (the W1.2 per-flavor-seeding deferral: at a
+     * multi-qualified flip the projection/seeding refuses loud instead of
+     * mutating the wrong lane's row). ALSO corrects D63's "verified in
+     * place" claim: the android guard is projection-only and the desktop
+     * had none — both engines now gate their own SQL. */
+    private fun realmdDatabaseName(): String {
+        // the machine's own fail-loud resolution (exactly-one-qualified or
+        // an explicit selection), then the W1.2 vanilla-only requirement:
+        // the seeded realmd databases are the vanilla family ONLY, so a
+        // non-vanilla resolution refuses BEFORE any SQL crosses instead of
+        // mutating the wrong lane's row. (The android
+        // DatabaseEngine.realmdDatabaseName guard's desktop twin; D63's
+        // "verified in place" claim was projection-only on android and
+        // absent here — both engines now gate their own SQL.)
+        val flavor = com.pocketrealm.server.ServerRuntimeFiles.serverFlavor()
+        require(flavor.flavorId == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
+            "the realmlist projection resolves only the vanilla lane (the " +
+                "W1.2 per-flavor-seeding deferral); got " + flavor.flavorId
+        }
+        return flavor.databases.realmd
+    }
+
+    /** R1-r3-5 (desktop-twin round 3): the harness SRP verifier seeding
+     * for the SHIPPED-DEFAULT MariaDB lane — the same owner-gated SQL path
+     * the realmlist projection rides, so AuthGate's proto-login verifier
+     * lands in the database realmd actually reads (it previously went to
+     * the sqlite datadir unconditionally, a store the MariaDB lane's
+     * realmd never opens). */
+    /** R1-r3-5: the persisted session key the protocol gate's proof 3
+     * verifies (the MariaDB lane's realmd account row). */
+    fun readVerifierSessionKey(account: String): String? = synchronized(lock) {
+        check(state == State.RUNNING) { "database is not running" }
+        val realmdDatabase = realmdDatabaseName()
+        val result = runFixedSql(
+            "pocket_core", readSecrets().core,
+            "read-verifier-session-key",
+            "SELECT sessionkey FROM $realmdDatabase.account WHERE username='$account' LIMIT 1;",
+        )
+        check(result.ok) { "session key read failed: ${result.stderr.takeLast(800)}" }
+        result.stdout.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }
+            .lastOrNull()?.takeIf { it.isNotEmpty() && it != "NULL" }
+    }
+
+    /** R1-r3-5: the gate's known-password account row leaves the live
+     * realmd database after every proof landed. */
+    fun deleteVerifierRow(account: String): JSONObject = synchronized(lock) {
+        check(state == State.RUNNING) { "database is not running" }
+        val realmdDatabase = realmdDatabaseName()
+        val result = runFixedSql(
+            "pocket_core", readSecrets().core,
+            "delete-verifier-row",
+            "DELETE FROM $realmdDatabase.account WHERE username='$account';" +
+                "SELECT COUNT(*) FROM $realmdDatabase.account WHERE username='$account' LIMIT 1;",
+        )
+        check(result.ok) { "verifier cleanup failed: ${result.stderr.takeLast(800)}" }
+        val counted = result.stdout.lineSequence().map { it.trim() }
+            .filter { it.isNotEmpty() }.lastOrNull()
+        check(counted == "0") { "gate account row survived cleanup" }
+        JSONObject().put("ok", true).put("operation", "srp-verifier-deleted")
+    }
+
+    fun seedSrpVerifierRow(account: String, vHex: String, sHex: String): JSONObject =
+        synchronized(lock) {
+            check(state == State.RUNNING) { "database is not running" }
+            val realmdDatabase = realmdDatabaseName()
+            check(DATABASE_NAME.matches(account)) {
+                "verifier account is not a plain identifier"
+            }
+            val result = runFixedSql(
+                "pocket_core", readSecrets().core,
+                "seed-srp-verifier",
+                """
+                DELETE FROM $realmdDatabase.account WHERE username='$account';
+                INSERT INTO $realmdDatabase.account
+                    (username, gmlevel, v, s, joindate, lockedIp, last_module, locale, os, platform)
+                VALUES ('$account', 0, '$vHex', '$sHex',
+                        '2026-01-01 00:00:00', '0.0.0.0', '', 'enUS', 'Win', 'x86');
+                SELECT COUNT(*) FROM $realmdDatabase.account WHERE username='$account' LIMIT 1;
+                """.trimIndent(),
+            )
+            check(result.ok) { "verifier seeding failed: ${result.stderr.takeLast(800)}" }
+            val counted = result.stdout.lineSequence().map { it.trim() }
+                .filter { it.isNotEmpty() }.lastOrNull()
+            check(counted == "1") { "verifier row did not land" }
+            JSONObject()
+                .put("ok", true)
+                .put("operation", "srp-verifier-seeded")
+                .put("database", realmdDatabase)
+        }
+
     fun projectRealmEndpoint(address: String, worldPort: Int, realmbuilds: String): JSONObject =
         synchronized(lock) {
         check(state == State.RUNNING) { "database is not running" }
@@ -514,7 +628,7 @@ internal class DesktopMariaDbEngine(    private val roots: DesktopStorageRoots,
         check(realmbuilds.length <= REALMBUILDS_MAX_CHARS && REALMBUILDS.matches(realmbuilds)) {
             "realm builds advertisement is not a build list: $realmbuilds"
         }
-        val realmdDatabase = com.pocketrealm.server.ServerRuntimeFiles.serverDatabases().realmd
+        val realmdDatabase = realmdDatabaseName()
         check(DATABASE_NAME.matches(realmdDatabase)) {
             "realmd database name is not a plain identifier: $realmdDatabase"
         }
@@ -1214,7 +1328,15 @@ internal class DesktopMariaDbEngine(    private val roots: DesktopStorageRoots,
         projectedRealmEndpoint = null
         state = State.STARTING
         val pid = try {
-            processes.startDaemon(providerClosure.mariadbd, serverBaseArgs())
+            // R3-r2-1: the daemon capture rides the logs root —
+            // override-honoring, never java.io.tmpdir (%TEMP% on C: in the
+            // rpHost/jpackage lanes).
+            processes.startDaemon(
+                providerClosure.mariadbd,
+                serverBaseArgs(),
+                outputRedirect = File(roots.logs.apply { mkdirs() }, "pocket-mariadbd.out"),
+                errorRedirect = File(roots.logs.apply { mkdirs() }, "pocket-mariadbd.err"),
+            )
         } catch (failure: Throwable) {
             // The spawn itself died before any pid was tracked: nothing was
             // started, so the verdict is FAILED (every admission reads the

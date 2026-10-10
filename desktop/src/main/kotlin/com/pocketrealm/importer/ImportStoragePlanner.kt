@@ -43,11 +43,16 @@ class ImportStoragePlanner(
         scratchArchiveBytes: Long = 0L,
     ): StoragePlan {
         require(sourceBytes >= 0 && stagedArchiveBytes >= 0 && scratchArchiveBytes >= 0)
-        val database = directoryBytes(roots.sqliteDatadir)
-        // The SQLite provider keeps its live datadir under the database root;
-        // a desktop snapshot store would live beside it, so the snapshot
-        // floor mirrors the datadir (never smaller than what exists).
-        val snapshot = maxOf(directoryBytes(roots.sqliteDatadir), database)
+        // R4-r2-1 (desktop-twin round 2): BOTH providers' live state counts —
+        // the SHIPPED-DEFAULT MariaDB datadir (roots.mariadbDatadir, the
+        // seeded world database) and the SQLite datadir — and the snapshot
+        // floor measures the REAL snapshot store (roots.databaseSnapshots),
+        // maxed over the live databases (the android twin measures
+        // databaseDatadir AND databaseSnapshots). Measuring only the sqlite
+        // datadir under-counted the durable state on the shipped lane, and
+        // maxOf(same, same) was a no-op.
+        val database = directoryBytes(roots.mariadbDatadir) + directoryBytes(roots.sqliteDatadir)
+        val snapshot = maxOf(directoryBytes(roots.databaseSnapshots), database)
         val allocatable = allocatableBytes()
         return calculate(
             sourceBytes, stagedArchiveBytes, scratchArchiveBytes, extractedEstimate,
