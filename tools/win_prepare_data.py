@@ -19,7 +19,12 @@ interrupted ad, vmap assembly, or MoveMapGen run leaves partial output
 behind that fails validation and is wiped and regenerated. MoveMapGen exits 0
 even when individual per-map builds fail, so its stdout is scanned for
 per-map failures and every extracted map must be covered by at least one
-mmtile before the step counts as complete.
+mmtile before the step counts as complete — with one measured exception:
+wotlk's generator additionally emits the alt tile form
+%03u%02i%02i_NN.mmtile (its runtime loads both forms) and silently yields
+zero tiles for a few of the shipped client's maps (605/606 in the 3.3.5a
+enUS set); on the wotlk lane those maps are accepted only when the same
+run's stdout scanned clean of per-map failures.
 
 The client directory is left byte-clean: ad.exe runs with -e 3 (maps+dbc
 only — never the Cameras lane), extractor outputs are moved out to the
@@ -86,22 +91,20 @@ AD_EXTRACT_MASK = "3"
 # read it, so a tbc run is gated by tbc's floors, never vanilla's.
 # vanilla's floors are the historical round numbers below its measured
 # first generation (dbc=158, maps=2429, vmapTrees=43, mmapMaps=43,
-# mmapTiles=1966 — 2026-10). tbc was re-derived the same way from its own
-# first generation (2026-10-08, below). wotlk is NOT measured yet: its prep
-# was cut off mid-mmap (no published generation), so its row is the
-# permissive placeholder — W2 owns the re-derive from wotlk's own first
-# generation. Floors are never copied across flavors as if measured — a
-# floor above a flavor's real yield would brick its lane, and a vanilla
-# floor on a tbc run would let a truncated TBC extraction publish.
+# mmapTiles=1966 — 2026-10). tbc and wotlk were re-derived the same way
+# from their own first generations. Floors are never copied across flavors
+# as if measured — a floor above a flavor's real yield would brick its
+# lane, and a vanilla floor on a tbc run would let a truncated TBC
+# extraction publish.
 # tbc measured (generation 84002584, staged 2.4.3.8606 enUS client):
 # dbc=185, maps=3586, vmapTrees=72, mmapMaps=72, mmapTiles=2748.
-# wotlk PLACEHOLDER pending W2 re-derive (no measured wotlk generation
-# exists; the row mirrors vanilla's permissive floors deliberately and
-# must be replaced by wotlk's own measured round numbers in W2).
+# wotlk measured (generation 09613a74-1b08-4993-9cb0-4dc1e716eb16,
+# desktop-assisted prep, staged 3.3.5a.12340 enUS client, 2026-10-11):
+# dbc=247, maps=5744, vmapTrees=101, mmapMaps=103, mmapTiles=4105.
 FLAVOR_MIN_COUNTS = {
     "vanilla": {"dbc": 100, "maps": 100, "vmapTrees": 1, "mmapMaps": 1, "mmapTiles": 1},
     "tbc": {"dbc": 150, "maps": 3500, "vmapTrees": 60, "mmapMaps": 60, "mmapTiles": 2500},
-    "wotlk": {"dbc": 100, "maps": 100, "vmapTrees": 1, "mmapMaps": 1, "mmapTiles": 1},
+    "wotlk": {"dbc": 200, "maps": 5000, "vmapTrees": 80, "mmapMaps": 80, "mmapTiles": 3500},
 }
 MIN_COUNTS = dict(FLAVOR_MIN_COUNTS["vanilla"])
 
@@ -160,7 +163,7 @@ def select_flavor(flavor_id: str) -> None:
     complete workspace would skip every extractor and publish vanilla
     bytes under a tbc manifest — the same cross-flavor contamination
     DESK-128's per-flavor pointers exist to prevent."""
-    global FLAVOR, EXTRACTORS, WORKSPACE, MIN_COUNTS
+    global FLAVOR, EXTRACTORS, WORKSPACE, MIN_COUNTS, MMTILE_NAME
     if flavor_id not in FLAVOR_IDENTITIES:
         raise StepFailure(
             f"flavor {flavor_id!r} has no qualified manifest identity "
@@ -169,15 +172,65 @@ def select_flavor(flavor_id: str) -> None:
     EXTRACTORS = WIN_BUILD_ROOTS[flavor_id] / "bin/x64_Release/Extractors"
     WORKSPACE = WIN_BUILD_ROOTS[flavor_id] / "data-prep"
     MIN_COUNTS = dict(FLAVOR_MIN_COUNTS[flavor_id])
+    MMTILE_NAME = FLAVOR_MMTILE_NAME[flavor_id]
+
+# The tile-less maps the wotlk clean-stdout waiver may accept — the STABLY
+# measured set: the archived full-stdout probe (W2:
+# out/completion/w2/w2_1_movemapgen_probe_stdout.log, 161,404 bytes =
+# 2,407 LF + 2,945 CR — progress prints are CR-terminated, so a decoded
+# text read's "line count" is newline-translation-inflated; count bytes),
+# zero "Failed"/"FIALED" lines, shows maps 605/606 completing with ZERO
+# tile writes — their per-tile BUILD ATTEMPTS are printed (9 for 605,
+# 2 for 606, MapBuilder.cpp:673's "Building tile [x,y] (i / n)") and all
+# silently skip on the no-vertices branch (cmangos-wotlk
+# MapBuilder.cpp:1042-1050).
+# 616 is deliberately NOT in this set: its emptiness is RUN-NONDETERMINISTIC
+# (the wave's first archived run refused 605/606/616 — zero 616 tiles after
+# a completed clean-stdout MoveMapGen; the official rerun gave 616 exactly
+# one alt tile) — a 616-empty run on a future re-run FAILS CLOSED here and a
+# re-run recovers it (R3-r2-1). The waiver is PINNED to this measurement
+# (R3-r1-1): any OTHER tile-less map — or a wider set than these two —
+# refuses even on a failure-clean stdout, mirroring the floors'
+# measured-provenance discipline (a future generator defect that silently
+# skips maps can never ride the exception wider than its evidence).
+ALLOWED_TILELESS_WOTLK = frozenset({"605", "606"})
+
+# The per-lane refusal copy naming the ACTIVE mmtile contract (R6-1): the
+# wotlk lane accepts the alt form, so its refusal must say so — the flat
+# "expected 7 digits" misstates the accepted shape precisely where the
+# flavor-awareness lives.
+MMTILE_NAME_COPY = {
+    "vanilla": "expected 7 digits",
+    "tbc": "expected 7 digits",
+    "wotlk": "expected 7 digits, or 7 digits + _NN",
+}
 
 # mmtile names are packed digits: %03d map + %02d x + %02d y. A name that
 # does not match (e.g. a future go%04u gameobject tile) must fail loudly
-# instead of polluting the mmapMaps count.
-MMTILE_NAME = re.compile(r"^\d{7}$")
+# instead of polluting the mmapMaps count. wotlk's extractor ALSO emits the
+# alt form %03u%02i%02i_NN.mmtile — the per-building-permutation navmesh
+# tiles its own generator writes (cmangos-wotlk contrib/mmap/src/
+# MapBuilder.cpp:1090) and its own runtime loads (TILE_ALT_FILE_NAME_FORMAT,
+# src/game/MotionGenerators/MoveMap.cpp:28) — so the wotlk lane accepts
+# exactly one _NN suffix. The vanilla/tbc generators carry no alt branch
+# (their MapBuilder sources emit the plain form only), so their lanes keep
+# the strict 7-digit contract: an alt tile in a vanilla/tbc workspace is
+# still cross-flavor contamination and still refuses.
+FLAVOR_MMTILE_NAME = {
+    "vanilla": re.compile(r"^\d{7}$"),
+    "tbc": re.compile(r"^\d{7}$"),
+    "wotlk": re.compile(r"^\d{7}(_\d{2})?$"),
+}
+MMTILE_NAME = FLAVOR_MMTILE_NAME["vanilla"]
 
 # MoveMapGen prints "[Map NNN] Failed creating navmesh!" on per-map build
-# failures while still exiting 0.
-MOVEMAP_FAILURE = re.compile(r"\[Map\s+\d+\].*Failed", re.IGNORECASE)
+# failures while still exiting 0 — and the wotlk generator's allocation
+# failures print the core's own misspelling "FIALED" (native/cmangos-wotlk
+# contrib/mmap/src/MapBuilder.cpp:950 "alloc iv.polyMesh FIALED!" and :961
+# "alloc m_dmesh FIALED!", R5-1): the oracle must catch both spellings or an
+# alloc-failed map scans as "failure-clean" and the tile-less waiver below
+# would accept it as a legitimate empty map.
+MOVEMAP_FAILURE = re.compile(r"\[Map\s+\d+\].*(?:Failed|FIALED)", re.IGNORECASE)
 
 # Directories the extractors may create INSIDE the client root. Anything
 # else appearing (or any of these pre-existing) is an error: the tool
@@ -199,12 +252,16 @@ def run(step: str, cwd: Path, cmd: list[str]) -> str:
     except subprocess.TimeoutExpired as error:
         raise StepFailure(f"{step} timed out after {STEP_TIMEOUT_S}s") from error
     combined = (result.stdout or "") + (result.stderr or "")
-    if result.returncode != 0 or "exit with errors" in (result.stdout or ""):
+    if result.returncode != 0 or "exit with errors" in combined:
         raise StepFailure(f"{step} failed (rc={result.returncode}):\n{combined[-4000:]}")
     if result.stdout:
         print(f"[{step}] {result.stdout[-600:]}", flush=True)
     print(f"[{step}] done in {time.time() - started:.0f}s", flush=True)
-    return result.stdout or ""
+    # R2-r2-2 (W2 code-red round 2): the failure oracle must see BOTH streams
+    # — the generator's per-map write failures go through perror() → stderr
+    # (cmangos-wotlk MapBuilder.cpp:853-854/:1095-1096) while rc stays 0, so
+    # a stdout-only return scanned 'failure-clean' past them.
+    return combined
 
 
 def move_tree_contents(source: Path, target: Path, step: str) -> None:
@@ -278,7 +335,27 @@ def validate_vmaps(workspace: Path) -> list[str]:
     return problems
 
 
-def validate_mmaps(workspace: Path) -> list[str]:
+def validate_mmaps(workspace: Path, movemap_stdout_clean: bool | None = None) -> list[str]:
+    """movemap_stdout_clean: None (the resume-skip context — no run stdout
+    exists to trust) keeps the strict every-map-covered contract; True means
+    the MoveMapGen stdout whose step produced this workspace scanned clean of
+    per-map failure lines. Only the wotlk lane may waive a tile-less map on
+    that basis: its generator silently drops tiles whose mesh data has no
+    vertices (the skip branch at contrib/mmap/src/MapBuilder.cpp:1042-1050 —
+    its printf is deliberately commented out) and whole maps of the shipped
+    client yield zero tiles that way (measured 2026-10-11 on the staged
+    3.3.5a enUS client: the probe shows maps 605/606 completing with zero
+    tile writes — their per-tile build attempts are printed (9 for 605,
+    2 for 606) and all silently skip; the full-stdout probe is archived at
+    out/completion/w2/).
+    The waiver is BOUNDED to that measured set (ALLOWED_TILELESS_WOTLK — any
+    other or wider tile-less set refuses even on a clean stdout; 616's
+    emptiness is run-nondeterministic and refuses BY DESIGN, R3-r2-1), and a
+    hard per-map failure never reaches it: the MOVEMAP_FAILURE scan aborts
+    the step before validation, and the oracle matches BOTH of the generator's
+    failure spellings — "Failed" and the core's own misspelled alloc
+    "FIALED" (MapBuilder.cpp:950/:961, R5-1) — so the waiver accepts exactly
+    the extractor's own documented empty output, never a failed build."""
     problems = []
     tiles = list((workspace / "mmaps").glob("*.mmtile"))
     if not tiles:
@@ -287,17 +364,43 @@ def validate_mmaps(workspace: Path) -> list[str]:
     tile_maps: set[str] = set()
     for path in tiles:
         if not MMTILE_NAME.match(path.stem):
-            problems.append(f"unexpected mmtile name (expected 7 digits): {path.name}")
+            problems.append(
+                f"unexpected mmtile name ({MMTILE_NAME_COPY[FLAVOR]}): {path.name}")
         else:
             tile_maps.add(path.name[:3])
     # Coverage: every extracted map must have at least one navmesh tile.
     # MoveMapGen exits 0 even when per-map builds fail, so a missing map
-    # here is the only signal that the step is incomplete.
+    # here is the only signal that the step is incomplete — except where the
+    # clean-stdout waiver applies, and ONLY for the measured tile-less set
+    # (ALLOWED_TILELESS_WOTLK): a wider missing set refuses even on a
+    # failure-clean stdout, so a future generator defect that silently skips
+    # maps can never ride the exception wider than its measurement.
     missing = sorted(maps_ids(workspace) - tile_maps)
     if missing:
+        if FLAVOR == "wotlk" and movemap_stdout_clean \
+                and set(missing) <= ALLOWED_TILELESS_WOTLK:
+            print(f"[mmaps] {len(missing)} maps yield no navmesh tiles with a "
+                  f"failure-clean MoveMapGen stdout (the measured legitimate "
+                  f"empty maps): {', '.join(missing)}",
+                  flush=True)
+        else:
+            problems.append(
+                f"{len(missing)} maps have no mmtiles (MoveMapGen per-map failures?): "
+                f"{', '.join(missing[:20])}{'…' if len(missing) > 20 else ''}")
+    # R2-r2-2 (W2 code-red round 2): every TILE-BEARING map also requires its
+    # %03u.mmap navmesh header — the runtime loads tiles through it (the
+    # desktop twin's requireCount(mmaps, ".mmap", ...) has always enforced
+    # this side; the official lane did not). A header write lost to a
+    # stderr-printed failure must refuse here, never publish an unloadable
+    # map.
+    missing_headers = sorted(
+        bucket for bucket in tile_maps
+        if not (workspace / "mmaps" / f"{bucket}.mmap").is_file())
+    if missing_headers:
         problems.append(
-            f"{len(missing)} maps have no mmtiles (MoveMapGen per-map failures?): "
-            f"{', '.join(missing[:20])}{'…' if len(missing) > 20 else ''}")
+            f"{len(missing_headers)} tiled maps have no .mmap navmesh header "
+            f"(the runtime cannot load their tiles): "
+            f"{', '.join(missing_headers[:20])}")
     return problems
 
 
@@ -356,24 +459,36 @@ def assert_client_shape(client: Path, flavor: str) -> None:
     # Kotlin import lane's VAL-03 gate enforces).
     exe = client / shape["exe"]
     expected_size, expected_sha = registered_exe_identity(flavor)
-    if expected_size is not None:
-        actual_size = exe.stat().st_size
-        if actual_size != expected_size:
-            raise StepFailure(
-                f"{client} exe identity mismatch: {shape['exe']} is "
-                f"{actual_size} bytes, the registered {flavor} client is "
-                f"{expected_size} — the client set does not match the "
-                f"{flavor} lane's registered identity")
-    if expected_sha:
-        import hashlib
-        digest = hashlib.sha256(exe.read_bytes()).hexdigest()
-        if digest != expected_sha:
-            raise StepFailure(
-                f"{client} exe identity mismatch: {shape['exe']} sha256 "
-                f"{digest[:12]} != the registered {flavor} client "
-                f"{expected_sha[:12]} — the client set does not match the "
-                f"{flavor} lane's registered identity (a doctored or "
-                "wrong-flavor set renamed into this layout)")
+    # R2-6-2 (W2 code-red round 6): the identity gate used to SKIP both legs
+    # for a flavor registered without pins — the fail-closed posture was
+    # keyed to data no pin enforced. A lane without registered identity pins
+    # cannot verify anything and refuses before any extractor runs; the new
+    # registry-coverage pin (tests/test_win_prepare_data_flavors.py) holds
+    # every FLAVOR_IDENTITIES flavor to both schemas/flavor.json pins so the
+    # data cannot silently regress either.
+    if expected_size is None or expected_sha is None:
+        raise StepFailure(
+            f"the {flavor} lane has no registered client identity pins "
+            "(schemas/flavor.json client_binary.known_exe_size_bytes / "
+            "wine.known_exe_sha256) — the identity gate cannot run, so the "
+            "client set cannot be verified (VAL-IDENTITY-PINS-MISSING)")
+    actual_size = exe.stat().st_size
+    if actual_size != expected_size:
+        raise StepFailure(
+            f"{client} exe identity mismatch: {shape['exe']} is "
+            f"{actual_size} bytes, the registered {flavor} client is "
+            f"{expected_size} — the client set does not match the "
+            f"{flavor} lane's registered identity")
+    import hashlib
+    digest = hashlib.sha256(exe.read_bytes()).hexdigest()
+    if digest != expected_sha:
+        raise StepFailure(
+            f"{client} exe identity mismatch: {shape['exe']} sha256 "
+            f"{digest[:12]} != the registered {flavor} client "
+            f"{expected_sha[:12]} — the client set does not match the "
+            f"{flavor} lane's registered identity (a doctored or "
+            "wrong-flavor set renamed into this layout)")
+    return digest
 
 
 def extract(client: Path) -> None:
@@ -382,7 +497,15 @@ def extract(client: Path) -> None:
             raise StepFailure(f"extractor missing: {EXTRACTORS / name} "
                               "(run tools/build_win_realm_runtime.py "
                               f"--flavor {FLAVOR} --extractors)")
-    assert_client_shape(client, FLAVOR)
+    verified_sha = assert_client_shape(client, FLAVOR)
+    # R2-r2-1 (W2 code-red round 2): the workspace records the lane identity
+    # its data was extracted under — publish()/--publish-only refuse any
+    # workspace whose marker is absent or names another lane, so a
+    # wrong-flavor-shaped workspace can never publish under this lane's
+    # manifest identity.
+    marker = {"schema": 1, "flavor": FLAVOR, "exeSha256": verified_sha}
+    (WORKSPACE / "lane-identity.json").write_text(
+        json.dumps(marker, indent=1) + "\n", encoding="utf-8")
     assert_extractor_dirs_absent(client)
 
     # ---- ad: dbc + maps (never Cameras; -e 3) ----
@@ -450,7 +573,7 @@ def extract(client: Path) -> None:
         if failures:
             raise StepFailure(
                 f"MoveMapGen reported per-map failures despite rc=0: {failures[:20]}")
-        problems = validate_mmaps(WORKSPACE)
+        problems = validate_mmaps(WORKSPACE, movemap_stdout_clean=not failures)
         if problems:
             raise StepFailure("mmap generation incomplete: " + "; ".join(problems))
     else:
@@ -517,6 +640,71 @@ def publish(flavor: str) -> None:
         if not source.is_dir():
             raise StepFailure(f"missing prepared data kind: {source}")
 
+    # R2-r2-1 (W2 code-red round 2): the workspace's lane-identity marker —
+    # written by extract() after the client shape + S5.1 exe verification —
+    # gates EVERY publication. Absence (a workspace this tool's extract never
+    # produced, e.g. hand-staged or produced by an older lane) and flavor
+    # mismatch both refuse: a wrong-flavor-shaped workspace can never publish
+    # under this lane's manifest identity. The recorded exe digest must equal
+    # the flavor's registered pin — a digest-less marker attests nothing and
+    # refuses too (R1-r3-1/R2-r3-1/R3-w2r3-1: fail-closed on the sha leg).
+    marker_path = WORKSPACE / "lane-identity.json"
+    if not marker_path.is_file():
+        raise StepFailure(
+            "workspace lane identity missing: no lane-identity.json in "
+            f"{WORKSPACE} — the workspace was not produced by this tool's "
+            "verified extract; re-run the extract (VAL-WORKSPACE-IDENTITY)")
+    try:
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except ValueError as error:
+        raise StepFailure(f"workspace lane identity unreadable: {error} "
+                          "(VAL-WORKSPACE-IDENTITY)") from error
+    # R2-r4-1 (W2 code-red round 4): valid-but-non-object JSON (a bare string,
+    # array, or number) parsed fine and then crashed marker.get() with a raw
+    # AttributeError below — an unactionable traceback instead of the gate's
+    # VAL refusal. Same fail-closed posture, actionable copy.
+    if not isinstance(marker, dict):
+        raise StepFailure(
+            "workspace lane identity unreadable: lane-identity.json must be a "
+            f"JSON object, got {type(marker).__name__} — rewrite it or re-run "
+            "the extract (VAL-WORKSPACE-IDENTITY)")
+    if marker.get("schema") != 1 or marker.get("flavor") != flavor:
+        raise StepFailure(
+            "workspace lane identity mismatch: lane-identity.json records "
+            f"{marker.get('flavor')!r} but this lane publishes {flavor!r} — "
+            "the workspace belongs to another flavor's lane "
+            "(VAL-WORKSPACE-IDENTITY)")
+    marker_sha = marker.get("exeSha256")
+    registered_sha = registered_exe_identity(flavor)[1]
+    # R1-r3-1/R2-r3-1/R3-w2r3-1 (round 3) + R2-6-2 (round 6): FAIL CLOSED on
+    # the sha leg BY CODE, not by data — all three legs refuse:
+    #   1. a lane with no registered exe pin cannot verify anything;
+    #   2. a marker carrying no digest (null/absent/falsy) attests nothing
+    #      about the client it was extracted from;
+    #   3. a digest that differs from the registered pin is an unverified
+    #      client set.
+    # The old `registered_sha and marker_sha != registered_sha` form waved
+    # BOTH (1) and (2) through; extract() always records the verified digest
+    # (assert_client_shape refuses unpinned lanes outright), so none of these
+    # is ever a legitimate product.
+    if not registered_sha:
+        raise StepFailure(
+            f"workspace lane identity unverifiable: the {flavor} lane has no "
+            "registered exe identity pin, so the workspace's recorded digest "
+            "cannot be checked — register the pin in schemas/flavor.json and "
+            "re-run the extract (VAL-WORKSPACE-IDENTITY)")
+    if not marker_sha:
+        raise StepFailure(
+            "workspace lane identity mismatch: lane-identity.json records no "
+            "exe digest — a marker that attests nothing about its client is "
+            "refused; re-run the extract (VAL-WORKSPACE-IDENTITY)")
+    if marker_sha != registered_sha:
+        raise StepFailure(
+            "workspace lane identity mismatch: lane-identity.json records exe "
+            f"sha256 {str(marker_sha)[:12]} but the registered {flavor} client "
+            f"is {registered_sha[:12]} — the workspace was extracted from an "
+            "unverified client set (VAL-WORKSPACE-IDENTITY)")
+
     # The copy runs into a fresh generation dir and validation gates the
     # pointer flip; a failed publication leaves no generation behind.
 
@@ -538,7 +726,9 @@ def publish(flavor: str) -> None:
                 elif kind == "vmaps" and path.suffix == ".vmtree":
                     counts["vmapTrees"] += 1
                 elif kind == "mmaps" and path.suffix == ".mmtile":
-                    # mmtile names are packed digits: %03d map + %02d x + %02d y.
+                    # the ACTIVE flavor's mmtile contract (FLAVOR_MMTILE_NAME;
+                    # packed digits %03d map + %02d x + %02d y, plus wotlk's
+                    # measured _NN alt form).
                     if not MMTILE_NAME.match(path.stem):
                         raise StepFailure(f"unexpected mmtile name: {path.name}")
                     counts["mmapTiles"] += 1
@@ -606,18 +796,40 @@ def prune_stale_generations(active: str, keep: int = 2) -> None:
     others; a failed run otherwise leaks a full generation per attempt.
     Every active-*.json pointer protects its generation: pruning another
     flavor's boot source would silently destroy its lane (the exact
-    one-shared-pointer failure DESK-128 removes)."""
+    one-shared-pointer failure DESK-128 removes). R2-r4-2 (W2 code-red
+    round 4): an UNREADABLE pointer used to be skipped — leaving its
+    generation unprotected for the rmtree below while the corrupt pointer
+    survived dangling. The prune now REFUSES (before deleting anything) when
+    any pointer is unreadable or malformed: pruning is hygiene, a lane's
+    generation is its only copy, and the operator can repair the pointer and
+    re-run the publish."""
     generations = DATADIR / "generations"
     if not generations.is_dir():
         return
     protected = {active}
-    for pointer in generations.parent.glob("active*.json"):
+    for pointer in sorted(generations.parent.glob("active*.json")):
         try:
-            named = json.loads(pointer.read_text(encoding="utf-8")).get("generation")
-        except (OSError, ValueError):
-            continue
-        if isinstance(named, str):
-            protected.add(named)
+            pointer_data = json.loads(pointer.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise StepFailure(
+                "cannot prune: pointer "
+                f"{pointer.name} is unreadable ({error}) — pruning with an "
+                "unreadable per-flavor pointer could delete that lane's only "
+                "generation (data loss). Read/repair or remove the pointer "
+                "manually, then re-run the publish; the newly published "
+                "generation and pointers are intact "
+                "(VAL-POINTER-UNREADABLE)") from error
+        if not isinstance(pointer_data, dict) or \
+                not isinstance(pointer_data.get("generation"), str):
+            raise StepFailure(
+                "cannot prune: pointer "
+                f"{pointer.name} is malformed (no string 'generation' field) — "
+                "pruning with a malformed per-flavor pointer could delete that "
+                "lane's only generation (data loss). Read/repair or remove the "
+                "pointer manually, then re-run the publish; the newly "
+                "published generation and pointers are intact "
+                "(VAL-POINTER-UNREADABLE)")
+        protected.add(pointer_data["generation"])
     def modified(path: Path) -> float:
         return path.stat().st_mtime
     stale = sorted((path for path in generations.iterdir() if path.is_dir()
@@ -671,6 +883,20 @@ def main() -> int:
     try:
         if not args.publish_only:
             extract(args.client)
+        else:
+            # R2-1 (W2 code-red round 1): --publish-only is not a trust
+            # shortcut. The workspace must pass the SAME completeness gates
+            # the extraction path enforces before anything publishes — a
+            # MoveMapGen-truncated workspace used to flip both active
+            # pointers with a complete:true manifest. Strict validation
+            # context: no run stdout exists to trust, so the wotlk
+            # tile-less waiver is unavailable here (exactly like the
+            # resume-skip call).
+            problems = (validate_ad(WORKSPACE) + validate_vmaps(WORKSPACE)
+                        + validate_mmaps(WORKSPACE))
+            if problems:
+                raise StepFailure("workspace fails completeness validation: "
+                                  + "; ".join(problems))
         publish(flavor)
     except StepFailure as failure:
         print(f"PREPARE FAILED: {failure}", file=sys.stderr)

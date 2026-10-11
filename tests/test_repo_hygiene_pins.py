@@ -632,3 +632,67 @@ def test_wave_exit_cited_fix_mechanisms_are_index_tracked():
         f"WAVE-EXIT.md cites fix mechanisms that are NOT index-tracked: "
         f"{untracked} — git add them (the convergence commit would drop "
         "the wave's own fix products, R5-r4-2)")
+
+
+def test_counts_artifact_generated_prose_resolves_into_its_own_suite():
+    """R6-r2-1 (W2 code-red round 2): the counts artifacts' generated prose is
+    citation-bearing too. Every '<lane> counts N/M' tuple must resolve to the
+    NAMED lane's artifact fields, and every test identifier quoted in a
+    GRADUE-lane artifact must be a Kotlin JUnit class in that lane's XML tree
+    — python-side `test_*` identifiers cannot be in a Gradle suite and are
+    refused outright (they belong to the repo-pytest lane's own records).
+    Failed on its first day twice: the android artifact quoted
+    'desktop counts 1633/213' (android's own numbers under the desktop name)
+    and the desktop artifact attributed its +1 to a python test identifier."""
+    import xml.etree.ElementTree as ET
+
+    artifacts = ("android-unit-counts.json", "desktop-test-counts.json")
+    trees = {
+        "android-unit-counts.json": (
+            "android/app/build/test-results/testDebugUnitTest/*.xml",
+            "android/pocketrealm-llm/build/test-results/test/*.xml",
+            "android/pocketrealm-llm/build/test-results/testDebugUnitTest/*.xml",
+        ),
+        "desktop-test-counts.json": ("desktop/build/test-results/test/*.xml",),
+    }
+    fields: dict = {}
+    classes: dict = {}
+    for name in artifacts:
+        path = ROOT / "out/completion/w0" / name
+        if not path.is_file():
+            continue
+        counts = json.loads(path.read_text(encoding="utf-8"))
+        fields[name] = (counts["tests"], counts["classes"])
+        lane_classes: set = set()
+        for f in [f for p in trees[name] for f in glob.glob(str(ROOT / p))]:
+            lane_classes.add(Path(f).stem.removeprefix("TEST-").rsplit(".", 1)[-1])
+        classes[name] = lane_classes
+
+    for name in artifacts:
+        path = ROOT / "out/completion/w0" / name
+        if not path.is_file():
+            continue
+        generated = json.loads(path.read_text(encoding="utf-8")).get("generated", "")
+        # a '<lane> counts N/M' tuple must carry the NAMED lane's own numbers
+        for lane, n, m in re.findall(
+                r"(android|desktop)[ -]counts (\d+)/(\d+)", generated):
+            lane_artifact = fields.get(f"{lane}-unit-counts.json"
+                                       if lane == "android"
+                                       else "desktop-test-counts.json")
+            assert lane_artifact is not None, (name, lane, n, m)
+            assert (int(n), int(m)) == lane_artifact, (
+                f"{name} quotes '{lane} counts {n}/{m}' but the {lane} artifact "
+                f"records {lane_artifact[0]}/{lane_artifact[1]} — prose numbers "
+                "must resolve into the named lane's own structured fields")
+        # python-side test identifiers cannot live in a Gradle suite
+        strays = sorted(set(re.findall(r"\btest_[a-z0-9_]{8,}\b", generated)))
+        assert not strays, (
+            f"{name} quotes python-side test identifier(s) {strays} — a "
+            "repo-pytest test cannot be in the Gradle suite; cite the Kotlin "
+            "pin (its JUnit class) or name the repo-pytest lane's own record")
+        # every quoted Kotlin test class must exist in THIS lane's XML tree
+        for klass in sorted(set(re.findall(r"\b([A-Z]\w+Test)\b", generated))):
+            assert klass in classes[name], (
+                f"{name} quotes '{klass}' but no canonical JUnit XML for that "
+                "class exists in this lane's tree — the citation does not "
+                "resolve into the artifact's own suite")

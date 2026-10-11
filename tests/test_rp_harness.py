@@ -845,6 +845,11 @@ def test_toolprobe_slices_the_live_log_not_a_stale_smoke_snapshot(
     snap_dir.mkdir(parents=True, exist_ok=True)
     try:
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        # W2 finalize: product_data_root() prefers POCKET_REALM_DATA_ROOT
+        # over LOCALAPPDATA — a machine-level override defeated this test's
+        # LOCALAPPDATA fixture; the leg under test is the LOCALAPPDATA
+        # resolution, so the override is cleared.
+        monkeypatch.delenv("POCKET_REALM_DATA_ROOT", raising=False)
         importlib.reload(desktop_toolprobe)
         live = (tmp_path / "PocketRealm" / "runtime" / "server" /
                 "logs" / "world.log")

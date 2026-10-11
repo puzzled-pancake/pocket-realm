@@ -4,6 +4,7 @@ import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.desktop.DesktopStorageRoots
 import com.pocketrealm.server.PreparedDataStore
+import com.pocketrealm.server.publicationMinimums
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
@@ -85,8 +86,11 @@ internal open class DataPreparationStore(
         finiteStage(importId, DataStage.DBC_MAPS, stageRoot, onTick) {
             runTool(importId, DataStage.DBC_MAPS, stageRoot, AD_TOOL,
                 listOf("-i", clientRoot.absolutePath, "-o", stageRoot.absolutePath, "-e", "3"))
-            requireCount(File(stageRoot, "dbc"), ".dbc", MIN_DBC)
-            requireCount(File(stageRoot, "maps"), ".map", MIN_MAP_TILES)
+            // R1-1/R6-3: the stage gate enforces the verified flavor's floors,
+            // the same row the publication gate and the boot envelope use.
+            val minimums = publicationMinimums(verifiedSourceFlavor(clientRoot).flavorId)
+            requireCount(File(stageRoot, "dbc"), ".dbc", minimums.dbc)
+            requireCount(File(stageRoot, "maps"), ".map", minimums.maps)
         }
         finiteStage(importId, DataStage.VMAP_EXTRACT, stageRoot, onTick) {
             runTool(importId, DataStage.VMAP_EXTRACT, stageRoot, VMAP_EXTRACTOR_TOOL,
@@ -100,7 +104,7 @@ internal open class DataPreparationStore(
                 listOf(File(stageRoot, "Buildings").absolutePath, File(stageRoot, "vmaps").absolutePath))
             requireCount(File(stageRoot, "vmaps"), ".vmtree", 1)
         }
-        prepareMmaps(importId, stageRoot, onTick)
+        prepareMmaps(importId, stageRoot, clientRoot, onTick)
         publish(importId, stageRoot, clientRoot, onTick)
     }
 
@@ -172,7 +176,7 @@ internal open class DataPreparationStore(
         }
     }
 
-    private suspend fun prepareMmaps(importId: String, root: File, onTick: () -> Unit) {
+    private suspend fun prepareMmaps(importId: String, root: File, clientRoot: File, onTick: () -> Unit) {
         val mapsDir = File(root, "maps")
         val vmapsDir = File(root, "vmaps")
         val mapIds = derivedMmapMapIds(mapsDir, vmapsDir)
@@ -221,9 +225,9 @@ internal open class DataPreparationStore(
                     directoryBytes(mmaps), mmapCheckpointText(mapId, skipped))
                 onTick()
             }
-            requireCount(mmaps, ".mmap", terrainBacked.size)
-            requireCount(mmaps, ".mmtile", 1)
-            validateMmtileNames(mmaps)
+        requireCount(mmaps, ".mmap", terrainBacked.size)
+        requireCount(mmaps, ".mmtile", 1)
+        validateMmtileNames(mmaps, verifiedSourceFlavor(clientRoot))
             journal.checkpointDataStage(importId, DataStage.MMAPS, mapIds.size, mapIds.size,
                 directoryBytes(mmaps),
                 if (skipped.isEmpty()) "complete"
@@ -255,14 +259,21 @@ internal open class DataPreparationStore(
      * win_prepare_data.py's mmtile name gate: mmtile names are packed digits
      * (%03d map + %02d x + %02d y). A name that does not match (a future
      * go%04u gameobject tile, say) must fail loudly instead of silently
-     * inflating the publication counts.
+     * inflating the publication counts. W2: wotlk's extractor additionally
+     * emits the alt tile form %03u%02i%02i_NN.mmtile (cmangos-wotlk
+     * MapBuilder.cpp:1090; its runtime loads both forms via
+     * TILE_ALT_FILE_NAME_FORMAT, MoveMap.cpp:28), so the wotlk lane accepts
+     * exactly one _NN suffix while the other lanes keep the strict 7-digit
+     * contract (an alt tile there is cross-flavor contamination).
      */
-    private fun validateMmtileNames(mmaps: File) {
+    private fun validateMmtileNames(mmaps: File, flavor: ClientFlavor) {
+        val pattern = mmtileNamePattern(flavor.flavorId)
         val offenders = mmaps.listFiles { file -> file.isFile && file.name.endsWith(".mmtile") }
             .orEmpty()
-            .filter { !MMTILE_NAME.matches(it.nameWithoutExtension) }
+            .filter { !pattern.matches(it.nameWithoutExtension) }
         check(offenders.isEmpty()) {
-            "unexpected mmtile name (expected 7 digits): ${offenders.take(3).joinToString { it.name }}"
+            "unexpected mmtile name (expected ${mmtileExpectedShape(flavor.flavorId)}): " +
+                offenders.take(3).joinToString { it.name }
         }
     }
 
@@ -308,9 +319,12 @@ internal open class DataPreparationStore(
         if (process.exitValue() != 0) {
             throw IllegalStateException(diagnostic(stage, process.exitValue(), stdout, stderr))
         }
-        // vmap_assembler (and friends) report some failures through stdout
-        // while still exiting 0 — win_prepare_data.py's belt-and-braces check.
-        output = stdout.readText()
+        // vmap_assembler (and friends) report some failures through stdout,
+        // and the generators' per-map WRITE failures go through perror() →
+        // stderr (cmangos-wotlk MapBuilder.cpp:853-854/:1095-1096), all while
+        // still exiting 0 — win_prepare_data.py's belt-and-braces check scans
+        // BOTH streams (R2-r2-2).
+        output = stdout.readText() + "\n" + stderr.readText()
         check("exit with errors" !in output) {
             diagnostic(stage, process.exitValue(), stdout, stderr)
         }
@@ -336,10 +350,15 @@ internal open class DataPreparationStore(
         val fromLibraryPath = javaLibraryPath.split(File.pathSeparator)
             .filter { it.isNotBlank() }
             .map { File(File(it), name) }
+        // R1-2 (W2 code-red round 1): the extractors are PER-FLAVOR builds —
+        // the repo walk resolves the ACTIVE lane's build root (the mirror of
+        // win_prepare_data.py's WIN_BUILD_ROOTS), never vanilla's for every
+        // lane.
         val fromRepo = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
             .take(MAX_REPO_WALK_UP)
             .map { repo ->
-                File(repo, "native/.build-win-x86_64/bin/x64_Release/Extractors").resolve(name)
+                extractorToolsDir(repo, ActiveFlavor.resolve(SERVER_DATA_PREPARATION_LANE_TOP_LEVEL).flavorId)
+                    .resolve(name)
             }
         return (fromLibraryPath + fromRepo.toList()).firstOrNull { it.isFile }
             ?: File(name) // surfaced by requireTools()'s check with the honest copy
@@ -396,7 +415,7 @@ internal open class DataPreparationStore(
             flavor = flavor,
             counts = counts,
             files = files,
-            generator = generatorProvenance(),
+            generator = generatorProvenance(flavor),
             importId = importId,
             publishedAtMs = System.currentTimeMillis(),
         )
@@ -405,7 +424,7 @@ internal open class DataPreparationStore(
         // Publication minimums validate BEFORE the pointer is touched so a
         // partial generation can never become the boot source (the shared
         // envelope's own gates run again at every boot).
-        validatePublicationCounts(counts)
+        validatePublicationCounts(counts, flavor)
         val digest = sha256(manifestFile)
         val final = generation(importId)
         check(!final.exists()) { "data generation collision" }
@@ -537,22 +556,30 @@ internal open class DataPreparationStore(
         }
     }
 
-    private fun generatorProvenance(): JSONObject {
+    private fun generatorProvenance(flavor: ClientFlavor): JSONObject {
         val artifacts = TOOL_NAMES.map { name ->
             val file = toolFile(name)
             JSONObject().put("name", name).put("size", file.length()).put("sha256", if (file.isFile) sha256(file) else "")
         }
-        return JSONObject().put("cmangosCommit", CMANGOS_COMMIT)
+        // R1-2 (W2 code-red round 1): the stamp is the VERIFIED flavor's own
+        // core commit — a wotlk run through this lane used to stamp vanilla's
+        // D36 commit over wotlk-core-built extractors.
+        return JSONObject().put("cmangosCommit", cmangosCommitFor(flavor.flavorId))
             .put("artifactSet", JSONArray(artifacts)).put("abi", "windows-x86_64")
     }
 
-    private fun validatePublicationCounts(counts: JSONObject) {
+    private fun validatePublicationCounts(counts: JSONObject, flavor: ClientFlavor) {
+        // R1-1/R6-3 (W2 code-red round 1): the ACTIVE flavor's measured
+        // minimums (shared with the boot envelope through publicationMinimums
+        // — the golden pin holds the rows to tools/win_prepare_data.py's
+        // FLAVOR_MIN_COUNTS), never a vanilla-flat row.
+        val minimums = publicationMinimums(flavor.flavorId)
         val failures = buildList {
-            add("dbc" to MIN_DBC)
-            add("maps" to MIN_MAP_TILES)
-            add("vmapTrees" to 1)
-            add("mmapMaps" to 1)
-            add("mmapTiles" to 1)
+            add("dbc" to minimums.dbc)
+            add("maps" to minimums.maps)
+            add("vmapTrees" to minimums.vmapTrees)
+            add("mmapMaps" to minimums.mmapMaps)
+            add("mmapTiles" to minimums.mmapTiles)
         }.filter { (key, minimum) -> counts.optInt(key) < minimum }
         check(failures.isEmpty()) {
             "prepared data below publication minimums: " +
@@ -626,8 +653,6 @@ internal open class DataPreparationStore(
     data class PublishedData(val id: String, val root: File, val manifestSha256: String)
 
     companion object {
-        private const val MIN_DBC = 100
-        private const val MIN_MAP_TILES = 100
         private const val DIAGNOSTIC_TAIL = 2048
         private const val MAX_REPO_WALK_UP = 6
 
@@ -652,11 +677,11 @@ internal open class DataPreparationStore(
                 "Install the complete Pocket Realm build."
 
         // MoveMapGen prints "[Map NNN] Failed creating navmesh!" on per-map
-        // build failures while still exiting 0 (win_prepare_data.py's pin).
-        private val MOVEMAP_FAILURE = Regex("\\[Map\\s+\\d+\\].*Failed", RegexOption.IGNORE_CASE)
-
-        // mmtile names are packed digits: %03d map + %02d x + %02d y.
-        private val MMTILE_NAME = Regex("\\d{7}")
+        // build failures while still exiting 0 (win_prepare_data.py's pin) —
+        // and the wotlk generator's alloc failures print the core's own
+        // misspelling "FIALED" (cmangos-wotlk MapBuilder.cpp:950/:961, R5-1):
+        // the oracle matches both spellings, mirroring the python lane.
+        internal val MOVEMAP_FAILURE = Regex("\\[Map\\s+\\d+\\].*(?:Failed|FIALED)", RegexOption.IGNORE_CASE)
 
         /**
          * Pure data-manifest composition (the [publish] writer body) so the
@@ -693,6 +718,24 @@ internal open class DataPreparationStore(
         // the same commit, and tools/check_repo.py's divergence check fails
         // the build if these ever disagree again (decision D36).
         private const val CMANGOS_COMMIT = "ce83805d48f9c98b2af617096be5347acb8a1f17"
+
+        /** R1-2 (W2 code-red round 1): the per-flavor core provenance stamp.
+         * Vanilla stays the D36 four-way-pinned [CMANGOS_COMMIT] (the shared
+         * vanilla extractor provenance tools/check_repo.py holds across the
+         * o11 lockfiles, the o09 driver, this constant, and flavor.json);
+         * tbc/wotlk stamp their OWN server_core commit — a wotlk run through
+         * this lane used to stamp vanilla's commit over wotlk-core-built
+         * extractors. The golden pin (DesktopDataPreparationStoreTest) holds
+         * every row to schemas/flavor.json's server_core.commit. */
+        internal val CMANGOS_COMMIT_BY_FLAVOR = mapOf(
+            "vanilla" to CMANGOS_COMMIT,
+            "tbc" to "ffbf97675dc31f845587778f5bb993b232f1b6a2",
+            "wotlk" to "c3a8d86fe4e61c3373eff424eb12cd7e7e8282b5",
+        )
+
+        private fun cmangosCommitFor(flavorId: String): String =
+            CMANGOS_COMMIT_BY_FLAVOR[flavorId]
+                ?: error("flavor \"$flavorId\" carries no registered core provenance stamp")
         private val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
     }
 }
@@ -741,6 +784,41 @@ internal fun verifiedSourceFlavor(clientRoot: File): ClientFlavor {
     }
     return verified
 }
+
+/** The mmtile name contract shared by every lane: packed digits
+ * (%03d map + %02d x + %02d y). */
+private val MMTILE_NAME_ANY_LANE = Regex("\\d{7}")
+
+/** wotlk-only alt tile form %03u%02i%02i_NN.mmtile (cmangos-wotlk
+ * MapBuilder.cpp:1090; its runtime loads both forms, MoveMap.cpp:28) —
+ * accepted on no other lane. */
+private val MMTILE_NAME_WOTLK_LANE = Regex("\\d{7}(_\\d{2})?")
+
+/**
+ * The active lane's mmtile name contract (win_prepare_data.py's
+ * FLAVOR_MMTILE_NAME mirror): packed digits %03d map + %02d x + %02d y on
+ * every lane, plus wotlk's measured alt form with exactly one _NN suffix.
+ */
+internal fun mmtileNamePattern(flavorId: String): Regex =
+    if (flavorId == "wotlk") MMTILE_NAME_WOTLK_LANE else MMTILE_NAME_ANY_LANE
+
+/** The lane's accepted mmtile shape, for refusal copy that states the ACTIVE
+ * contract (R6-2): wotlk's gate accepts the alt form, so its message must say
+ * so rather than the flat "7 digits" the other lanes enforce. */
+internal fun mmtileExpectedShape(flavorId: String): String =
+    if (flavorId == "wotlk") "7 digits, or 7 digits + _NN" else "7 digits"
+
+/** The flavor's extractor home under [repo] — the mirror of
+ * tools/win_prepare_data.py's WIN_BUILD_ROOTS: vanilla keeps the historical
+ * unsuffixed root, tbc/wotlk carry the -{flavor} suffix (R1-2: the twin used
+ * to resolve vanilla's extractors for every lane, driving vanilla-built tools
+ * against a wotlk client). */
+internal fun extractorToolsDir(repo: File, flavorId: String): File =
+    File(
+        repo,
+        "native/.build-win-x86_64" + (if (flavorId == "vanilla") "" else "-$flavorId") +
+            "/bin/x64_Release/Extractors",
+    )
 
 /**
  * Map IDs that can carry a navmesh: terrain-backed maps (extracted .map tiles)

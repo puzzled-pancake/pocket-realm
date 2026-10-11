@@ -48,9 +48,16 @@ internal class PreparedDataStore(private val root: File) {
         val manifest = JSONObject(manifestFile.readText())
         validateDataManifestEnvelope(manifest, flavor)
         val counts = manifest.getJSONObject("counts")
-        check(counts.getInt("dbc") >= 100 && counts.getInt("maps") >= 100 &&
-            counts.getInt("vmapTrees") >= 1 && counts.getInt("mmapMaps") >= 1 &&
-            counts.getInt("mmapTiles") >= 1) {
+        // R1-1/R6-3 (W2 code-red round 1): the counts gate enforces the ACTIVE
+        // flavor's publication minimums (publicationMinimums — the measured
+        // mirror of tools/win_prepare_data.py's FLAVOR_MIN_COUNTS), never a
+        // vanilla-flat row: a truncated tbc/wotlk generation the official
+        // lane refuses must not boot either.
+        val minimums = publicationMinimums(flavor.flavorId)
+        check(counts.getInt("dbc") >= minimums.dbc && counts.getInt("maps") >= minimums.maps &&
+            counts.getInt("vmapTrees") >= minimums.vmapTrees &&
+            counts.getInt("mmapMaps") >= minimums.mmapMaps &&
+            counts.getInt("mmapTiles") >= minimums.mmapTiles) {
             "The prepared server world data is missing maps needed to play. Resume preparation from Game files."
         }
         val files = manifest.getJSONArray("files")
@@ -176,5 +183,40 @@ internal class PreparedDataStore(private val root: File) {
             }
             return GenerationLease(owner, lock)
         }
+    }
+}
+
+/** The active flavor's publication minimum counts (dbc, maps, vmapTrees,
+ * mmapMaps, mmapTiles) — the measured mirror of tools/win_prepare_data.py's
+ * FLAVOR_MIN_COUNTS (W2's re-derive; the desktop golden pin holds these rows
+ * to the python source). Consumers: [PreparedDataStore.requireActiveEnvelope]'s
+ * boot gate (R1-1) and the desktop prep twin's publication gate (R6-3), so a
+ * truncated tbc/wotlk generation the official lane refuses can neither boot
+ * nor publish through the twins. Floors are MINIMUMS measured per flavor —
+ * never copied across flavors as if measured. */
+internal data class PublicationMinimums(
+    val dbc: Int,
+    val maps: Int,
+    val vmapTrees: Int,
+    val mmapMaps: Int,
+    val mmapTiles: Int,
+)
+
+internal fun publicationMinimums(flavorId: String): PublicationMinimums {
+    // R4-r5-2 (W2 code-red round 5): an unregistered flavorId FAILS LOUD —
+    // the python lane's FLAVOR_MIN_COUNTS is a dict (KeyError on unknown), so
+    // a silent vanilla-flat default here would let a future registry-added
+    // flavor boot and publish at permissive floors with no pin catching it.
+    // The golden pin (DesktopDataPreparationStoreTest) holds every row to the
+    // python source and asserts this refusal.
+    val floors = mapOf(
+        "vanilla" to PublicationMinimums(dbc = 100, maps = 100, vmapTrees = 1, mmapMaps = 1, mmapTiles = 1),
+        "tbc" to PublicationMinimums(dbc = 150, maps = 3500, vmapTrees = 60, mmapMaps = 60, mmapTiles = 2500),
+        "wotlk" to PublicationMinimums(dbc = 200, maps = 5000, vmapTrees = 80, mmapMaps = 80, mmapTiles = 3500),
+    )
+    return requireNotNull(floors[flavorId]) {
+        "flavor \"$flavorId\" carries no registered publication floors — " +
+            "add the row here AND to tools/win_prepare_data.py's " +
+            "FLAVOR_MIN_COUNTS together (the golden pin holds the mirrors)"
     }
 }

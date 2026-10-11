@@ -129,6 +129,7 @@ def fake_run(calls: list[str]):
             tiles = cwd / "mmaps"
             tiles.mkdir(parents=True, exist_ok=True)
             for path in (cwd / "maps").glob("*.map"):
+                (tiles / f"{path.name[:3]}.mmap").write_bytes(b"h")
                 (tiles / f"{path.name[:3]}0000.mmtile").write_bytes(b"m")
         return ""
     return run
@@ -181,6 +182,7 @@ def test_extract_skips_all_steps_when_workspace_complete(tmp_path: Path,
     (workspace / "vmaps" / "000.vmtree").write_bytes(b"t")
     (workspace / "mmaps").mkdir()
     for mid in map_ids:
+        (workspace / "mmaps" / f"{mid}.mmap").write_bytes(b"h")
         (workspace / "mmaps" / f"{mid}0000.mmtile").write_bytes(b"m")
     calls: list[str] = []
     monkeypatch.setattr(wpd, "EXTRACTORS", make_extractors(tmp_path))

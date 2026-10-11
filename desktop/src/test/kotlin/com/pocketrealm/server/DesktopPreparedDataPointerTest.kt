@@ -59,7 +59,7 @@ class DesktopPreparedDataPointerTest {
             // manifest without the alias key (optString default — the
             // transition release keeps old publications playable).
             val id = UUID.randomUUID().toString()
-            val manifestSha = stageGeneration(root, ClientFlavors.VANILLA, id, withAlias = false)
+            val manifestSha = stageGeneration(root, ClientFlavors.VANILLA, id, GenerationFixture(withAlias = false))
             File(root, "active.json").writeText(JSONObject().put("schema", 1)
                 .put("mode", "NORMAL").put("generation", id)
                 .put("manifestSha256", manifestSha).toString())
@@ -117,7 +117,9 @@ class DesktopPreparedDataPointerTest {
             // equally refused — the alias check is its own fail-closed gate
             // (validateDataManifestEnvelope), not decoration.
             val vanillaId = UUID.randomUUID().toString()
-            val lyingSha = stageGeneration(root, ClientFlavors.VANILLA, vanillaId, aliasOverride = "tbc")
+            val lyingSha = stageGeneration(
+                root, ClientFlavors.VANILLA, vanillaId,
+                GenerationFixture(aliasOverride = "tbc"))
             File(root, "active-${ClientFlavors.VANILLA.flavorId}.json").writeText(
                 pointerAt(vanillaId, lyingSha))
             val alias = assertThrows(IllegalStateException::class.java) {
@@ -137,12 +139,19 @@ class DesktopPreparedDataPointerTest {
     /** Stage one generation whose manifest mirrors the tool's published
      * shape, with the identity fields taken from the registry itself;
      * returns the manifest sha256. */
+    /** Optional fixture overrides (R2-arch-1): the below-floor pins plant
+     * explicit counts; the alias tests override the flavor alias. */
+    private class GenerationFixture(
+        val withAlias: Boolean = true,
+        val aliasOverride: String? = null,
+        val counts: JSONObject? = null,
+    )
+
     private fun stageGeneration(
         root: File,
         flavor: ClientFlavor,
         id: String,
-        withAlias: Boolean = true,
-        aliasOverride: String? = null,
+        fixture: GenerationFixture = GenerationFixture(),
     ): String {
         val generation = File(root, "generations/$id").apply { mkdirs() }
         val records = listOf(
@@ -155,15 +164,49 @@ class DesktopPreparedDataPointerTest {
         val manifest = JSONObject().put("schema", 1).put("complete", true)
             .put("mode", "NORMAL")
             .put("clientBuild", flavor.build).put("cmangosFamily", flavor.serverFamily)
-            .put("counts", JSONObject().put("dbc", 100).put("maps", 100)
-                .put("vmapTrees", 1).put("mmapMaps", 1).put("mmapTiles", 1))
+            // R1-1/R6-3: the fixture carries the flavor's own publication
+            // minimums (the envelope's counts gate enforces them per flavor —
+            // a small vanilla-shaped count set is refused on tbc/wotlk).
+            .put("counts", fixture.counts ?: JSONObject()
+                .put("dbc", publicationMinimums(flavor.flavorId).dbc)
+                .put("maps", publicationMinimums(flavor.flavorId).maps)
+                .put("vmapTrees", publicationMinimums(flavor.flavorId).vmapTrees)
+                .put("mmapMaps", publicationMinimums(flavor.flavorId).mmapMaps)
+                .put("mmapTiles", publicationMinimums(flavor.flavorId).mmapTiles))
             .put("files", JSONArray(records))
         when {
-            aliasOverride != null -> manifest.put("flavor", aliasOverride)
-            withAlias -> manifest.put("flavor", flavor.flavorId)
+            fixture.aliasOverride != null -> manifest.put("flavor", fixture.aliasOverride)
+            fixture.withAlias -> manifest.put("flavor", flavor.flavorId)
         }
         val manifestFile = File(generation, "data-manifest.json").apply { writeText(manifest.toString()) }
         return sha256(manifestFile)
+    }
+
+    @Test fun belowFloorCountsRefuseTheTbcAndWotlkLanesAtBoot() {
+        // R2-arch-1 (W2 code-red round 2): the flavor-routed counts gate is
+        // pinned BEHAVIORALLY — a tbc/wotlk-identity manifest with the
+        // pre-wave vanilla-flat counts (100/100/1/1/1) is refused with the
+        // missing-maps copy, exactly the regression R1-1's fix closes ("a
+        // truncated tbc/wotlk generation the official lane refuses must not
+        // boot either").
+        val flat = JSONObject().put("dbc", 100).put("maps", 100)
+            .put("vmapTrees", 1).put("mmapMaps", 1).put("mmapTiles", 1)
+        for (flavor in listOf(ClientFlavors.TBC, ClientFlavors.WOTLK)) {
+            val root = Files.createTempDirectory("o11-desk128-flat").toFile()
+            try {
+                val id = UUID.randomUUID().toString()
+                val sha = stageGeneration(root, flavor, id, GenerationFixture(counts = flat))
+                File(root, "active-${flavor.flavorId}.json").writeText(pointerAt(id, sha))
+                val refusal = assertThrows(IllegalStateException::class.java) {
+                    PreparedDataStore(root).requireActiveEnvelope(flavor)
+                }
+                assertTrue(
+                    "${flavor.flavorId}: unexpected refusal ${refusal.message}",
+                    refusal.message.orEmpty().contains("missing maps needed to play"))
+            } finally {
+                root.deleteRecursively()
+            }
+        }
     }
 
     private fun sha256(file: File): String =

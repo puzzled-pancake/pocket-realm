@@ -48,6 +48,14 @@ class R2ProvisioningAdversaryTest {
             // and indistinguishably so.
             val realToken = host.ask(host.request(inviteId, host.token))
             assertEquals(FriendProvisionProtocol.REFUSED_RESPONSE, realToken?.decodeText())
+            // W2: the release runs on the request's daemon thread AFTER the
+            // response above (ProvisioningListener.safelyServe's finally), so
+            // a synchronous sample races it — observed live in the W2
+            // canonical suite under full parallel load (expected:<0> but
+            // was:<1>). The §6 contract is the concurrency CAP, never a
+            // synchronous release, so the wind-down is awaited with a
+            // bounded deadline; zero is still the asserted postcondition.
+            awaitConnectionWindDown(host)
             assertEquals(0, host.limiter.activeConnections())
         }
     }
@@ -192,6 +200,20 @@ class R2ProvisioningAdversaryTest {
     // ------------------------------------------------------------------
 
     private fun tempDir(): File = Files.createTempDirectory("r2-provision").toFile()
+
+    /** Bounded wait for the just-answered request's server thread to run its
+     * [ProvisioningListener] release (safelyServe's finally) — a synchronous
+     * [ProvisionRateLimiter.activeConnections] sample races it under a fully
+     * loaded test JVM. Fails loud on timeout, never silently passes. */
+    private fun awaitConnectionWindDown(host: Host, deadlineMs: Long = 5_000) {
+        val deadline = System.currentTimeMillis() + deadlineMs
+        while (host.limiter.activeConnections() != 0) {
+            check(System.currentTimeMillis() < deadline) {
+                "the refused request's connection never released within ${deadlineMs}ms"
+            }
+            Thread.sleep(20)
+        }
+    }
 
     private class Host(
         dir: File,
