@@ -443,8 +443,12 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "android/app/src/main/java/com/pocketrealm/ingame/InGameSettingsFiles.kt",
-        "literals": ("5875",),
-        "reason": "WTF file layout verified on the build-5875 client",
+        # W3.3 (H4-5/C8): the file OWNS the per-flavor WTF layout strategies —
+        # the TBC (build-8606) and WotLK (build-12340) fail-loud messages and
+        # KDocs name the builds they serve, exactly like the frozen vanilla
+        # build-5875 routes.
+        "literals": ("5875", "8606", "12340",),
+        "reason": "WTF file layout strategies per flavor: build-5875 frozen routes + the W3.3 TBC/WotLK layouts name their builds in the fail-loud refusals",
         "retires": "S7 retires: per-flavor client datasets and UX copy",
     },
     {
@@ -731,11 +735,21 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "desktop seed-verification gate names the classic* databases (surfaced by the v2 sweep)",
         "retires": "S4 retires: per-flavor DB routing",
     },
+    # R5-2 (round 5): the detekt baseline is a DERIVED artifact whose
+    # entries quote the owning sources' signature text verbatim, so it
+    # inherits this consolidated exemption — the matcher resolves a path to
+    # its FIRST entry only, so every literal the file may carry lives in
+    # this one entry (5875/11200/6005 vanilla identity + the tbc/wotlk
+    # addon-interface numbers 20400/30300 + classicrealmd from the
+    # seedTranscriptPin signatures). Retires with the owning surfaces.
     {
         "path": "android/app/detekt-baseline.xml",
-        "literals": ("5875", "11200", "6005"),
-        "reason": "static-analysis baseline signatures reference the vanilla identity",
-        "retires": "S7 retires: vanilla client datasets",
+        "literals": ("5875", "11200", "6005", "20400", "30300", "classicrealmd"),
+        "reason": "static-analysis baseline signatures mirror the owning surfaces",
+        "retires": (
+            "S7/S4/W3.4 retires: vanilla datasets, per-flavor DB routing, "
+            "per-flavor lane surfaces"
+        ),
     },
     {
         "path": "tests/p5_outfile_wire_fixture.txt",
@@ -1153,12 +1167,10 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     # interface numbers 11200/20400/30300, the expansion MPQ names) joined
     # the banned set; these owning surfaces legitimately carry them.
     # ------------------------------------------------------------------
-    {
-        "path": "android/app/detekt-baseline.xml",
-        "literals": ("11200",),
-        "reason": "owning surface (see ALLOWLIST_CORE family note)",
-        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
-    },
+    # (the android/app/detekt-baseline.xml entries for this literal family
+    # are consolidated into the single ALLOWLIST_CORE entry above — the
+    # matcher honors a path's FIRST entry only, so duplicates here would be
+    # silently shadowed dead config)
     {
         "path": "android/app/src/androidTest/java/com/pocketrealm/addons/AddonRuntimeProjectorTest.kt",
         "literals": ("11200",),
@@ -1223,6 +1235,14 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "path": "android/app/src/main/assets/addons/catalog-v1.json",
         "literals": ("11200",),
         "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/main/assets/addons/catalog-tbc.json",
+        "literals": ("20400", "30300",),
+        "reason": "owning surface: the tbc per-flavor catalog's own research data — "
+                  "the 068 compatibility note names the upstream 30300/20400 mismatch "
+                  "(R5-5) and the flavorNote names the lane's accepted interface",
         "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {

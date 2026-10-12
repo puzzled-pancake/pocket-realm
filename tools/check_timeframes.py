@@ -297,6 +297,75 @@ def validate_kotlin_era_sync(
         )
 
 
+def parse_kotlin_named_baselines(
+    text: str,
+) -> dict[str, tuple[list[str], list[tuple[str, bool]]]]:
+    """Parse the per-flavor NAMED era baselines (W3.1): every
+    `val <FLAVOR>_FINAL_ERA_BASELINE: TimeframeStage.EraTermClass = ...`
+    block in the shared registry, keyed by flavor slug. Returns
+    {flavor: (always_ban_terms, [(needle, negatable), ...])}; a registry
+    whose shape this parser cannot read yields a missing flavor and the
+    per-flavor sync leg fails loud (never a silent skip)."""
+    baselines: dict[str, tuple[list[str], list[tuple[str, bool]]]] = {}
+    for match in re.finditer(
+        r"val ([A-Z]+)_FINAL_ERA_BASELINE: TimeframeStage\.EraTermClass = "
+        r"TimeframeStage\.EraTermClass\(",
+        text,
+    ):
+        name = match.group(1).lower()
+        # The block ends where the next `val ` declaration or the function
+        # section begins — the EraTermClass body is the alwaysBanTerms +
+        # sensePhrases lists.
+        tail = text[match.end():]
+        always = re.search(r"alwaysBanTerms = listOf\(([^)]*)\)", tail)
+        senses = re.search(r"sensePhrases = listOf\((.*?)\n        \)", tail, re.DOTALL)
+        if not always or not senses:
+            continue
+        terms = re.findall(r'"([^"]+)"', always.group(1))
+        phrases = [
+            (needle, flag == "true")
+            for needle, flag in re.findall(
+                r'EraSensePhrase\(\s*"([^"]+)",\s*(true|false)\s*\)',
+                senses.group(1),
+            )
+        ]
+        baselines[name] = (terms, phrases)
+    return baselines
+
+
+def validate_kotlin_flavor_baseline_sync(
+    manifests: dict[str, dict], errors: list[str]
+) -> None:
+    """W3.1 per-flavor leg: every manifest that carries a
+    final_stage_era_baseline must have the SAME-NAMED Kotlin registry
+    baseline (`<FLAVOR>_FINAL_ERA_BASELINE`) with identical lists — the
+    vanilla-only era sync (validate_kotlin_era_sync) keeps its first-match
+    shape; this leg extends the mirror contract to every flavor so the
+    TBC/WotLK legitimization moves cannot drift from the shared core."""
+    registry_path = (
+        ROOT / "android/app/src/main/java/com/pocketrealm/client/TimeframeStage.kt"
+    )
+    if not registry_path.is_file():
+        return  # the missing-registry case is another leg's error
+    named = parse_kotlin_named_baselines(registry_path.read_text(encoding="utf-8"))
+    for flavor, manifest in manifests.items():
+        baseline = manifest.get("final_stage_era_baseline")
+        if not isinstance(baseline, dict):
+            continue  # the flavor has no grounded baseline yet (pre-W3.1 shape)
+        kotlin = named.get(flavor)
+        if kotlin is None:
+            errors.append(
+                f"{flavor}: manifest carries final_stage_era_baseline but the kotlin "
+                f"registry has no {flavor.upper()}_FINAL_ERA_BASELINE — the shared "
+                "core must mirror every flavor's grounded baseline (W3.1)"
+            )
+            continue
+        sub_errors: list[str] = []
+        validate_kotlin_era_sync(baseline, kotlin, sub_errors)
+        for error in sub_errors:
+            errors.append(f"{flavor}: {error}")
+
+
 def validate_generated_era_chain(errors: list[str]) -> None:
     """The native consumer chain: the generated era header + its pin must
     regenerate byte-identically from the manifests (tools/
@@ -594,6 +663,7 @@ def run_checks(root: Path, errors: list[str]) -> None:
                     "kotlin registry: could not parse the grounded era baseline "
                     "(alwaysBanTerms / sensePhrases)"
                 )
+            validate_kotlin_flavor_baseline_sync(manifests, errors)
         else:
             errors.append(f"missing shared registry: {registry_path}")
         validate_generated_era_chain(errors)

@@ -162,10 +162,30 @@ internal class ServerRuntimeFiles(context: Context) {
         // world whose conf names a stage the DB/ledger never reached.
         val snapshot = settingsSnapshot ?: Settings(appContext).blockingSnapshot()
         purgeStaleBotConfSecrets()
-        val botConfig = botProfile?.let {
-            secureWrite(File(run, "aiplayerbot-${it.id}.conf"),
-                it.playerbotConfig() + (llmConfigOverrides(it, snapshot) ?: ""))
-        } ?: secureWrite(File(run, "aiplayerbot-disabled.conf"), aiplayerbotDisabledConfText())
+        // W3.4: the boot lane resolves ONCE here — the same resolution the
+        // conf's stage value below carries — so the fail-loud conf staging
+        // and the conf emission can never name different flavors.
+        val laneFlavor = worldLaneFlavor(
+            "the conf staging resolves the qualified lane",
+            settingsSnapshot,
+        )
+        val botConfig = if (botProfile != null) {
+            val botConfText = botProfile.playerbotConfig() +
+                (llmConfigOverrides(botProfile, snapshot) ?: "")
+            // W3.4 fail-loud conf staging: an unknown key for the flavor's
+            // bots build aborts the start instead of being silently dropped
+            // by the core's config parser; excluded families (C9 VoiceChat)
+            // are refused with their own naming.
+            BotConfStaging.requireStagingSafe(laneFlavor.flavorId, botProfile.id, botConfText)
+            secureWrite(File(run, "aiplayerbot-${botProfile.id}.conf"), botConfText)
+        } else {
+            val disabledConfText = aiplayerbotDisabledConfText()
+            // R2-1 (round 5): the disabled staging leg runs the SAME gate —
+            // a drifted or excluded key in the disabled emission fails the
+            // world start exactly like a profile conf would.
+            BotConfStaging.requireStagingSafe(laneFlavor.flavorId, "disabled", disabledConfText)
+            secureWrite(File(run, "aiplayerbot-disabled.conf"), disabledConfText)
+        }
         val databases = serverDatabases()
         return secureWrite(
             File(run, "mangosd.conf"),
@@ -189,14 +209,12 @@ internal class ServerRuntimeFiles(context: Context) {
                 // R1-arch-5/R2-2: the ACTIVE flavor side of the resolution is
                 // this process's Settings-threaded lane (the holder's
                 // selection is :ui-local) - the same lane the data verify
-                // and the overlay binding above resolve, so conf, data, and
-                // overlay can never name different flavors at one start.
+                // and the overlay binding above resolve (W3.4: one hoisted
+                // resolution feeds the conf staging AND the stage value, so
+                // they can never name different flavors).
                 timeframeStage = TimeframeStages.confValueFor(
                     snapshot.timeframeStage,
-                    worldLaneFlavor(
-                        "the conf stage resolves the qualified lane",
-                        settingsSnapshot,
-                    ).flavorId,
+                    laneFlavor.flavorId,
                 ),
             ),
         )
@@ -365,12 +383,13 @@ internal class ServerRuntimeFiles(context: Context) {
      * the entity guard still works.
      */
     private fun stageLoreCards(): File {
-        val target = File(run, LORE_CARDS_FILE_NAME)
-        val assetPath = "lore/$LORE_CARDS_FILE_NAME"
+        val loreCardsFileName = loreCardsFileName()
+        val target = File(run, loreCardsFileName)
+        val assetPath = "lore/$loreCardsFileName"
         val expected = appContext.assets.open(assetPath).use { it.available() }.toLong()
         if (target.isFile && target.length() == expected)
             return target
-        val temp = File(run, ".$LORE_CARDS_FILE_NAME.${android.os.Process.myPid()}.tmp")
+        val temp = File(run, ".$loreCardsFileName.${android.os.Process.myPid()}.tmp")
         appContext.assets.open(assetPath).use { input ->
             FileOutputStream(temp).use { output -> input.copyTo(output) }
         }
@@ -453,6 +472,29 @@ internal class ServerRuntimeFiles(context: Context) {
             "server runtime resolves only the vanilla lane; pass its ClientFlavor explicitly"
         }
         return flavor.databases
+    }
+
+    /**
+     * W3.2 (D15(5) retirement): the staged lore-corpus file name resolves
+     * through the flavor registry's `llm.lore_cards` binding
+     * ([ClientFlavor.loreCardsFile]) instead of a duplicated const — the
+     * manifest is the owner of the filename. The owner decision (completion
+     * plan table #2) binds EVERY flavor to the one shared corpus asset (no
+     * per-flavor jsonl), so the name is shared while the era FILTER is the
+     * native load-time lint (flavor-routed by the active stage's ban
+     * lists). Same exactly-one-qualified posture as [serverDatabases].
+     */
+    private fun loreCardsFileName(): String {
+        val qualified = ClientFlavors.qualified()
+        require(qualified.size == 1) {
+            "expected exactly one qualified flavor, found ${qualified.size} — " +
+                "the server runtime stages the qualified lane's lore corpus"
+        }
+        val flavor = qualified.single()
+        require(flavor.flavorId == ClientFlavors.VANILLA.flavorId) {
+            "server runtime resolves only the vanilla lane; pass its ClientFlavor explicitly"
+        }
+        return flavor.loreCardsFile
     }
 
     /**
@@ -730,8 +772,9 @@ internal class ServerRuntimeFiles(context: Context) {
             PocketRealm.TimeframeStage = "$timeframeStage"
         """.trimIndent() + "\n"
 
-        /** The staged lore card index file (asset: lore/). */
-        private const val LORE_CARDS_FILE_NAME = "lore_cards_v112.jsonl"
+        // W3.2: the staged lore card index file name lives in the flavor
+        // registry (ClientFlavor.loreCardsFile, the llm.lore_cards manifest
+        // binding) — the const was the D15(5) duplication, retired.
 
         /** The staged default prompt-pack file (run dir). */
         private const val PROMPT_PACK_FILE_NAME = "llm_prompt_pack.json"

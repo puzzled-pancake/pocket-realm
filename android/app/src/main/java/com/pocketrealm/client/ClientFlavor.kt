@@ -83,6 +83,44 @@ data class ClientFlavor(
      * 0x0020 LAA bit).
      */
     val largeAddressAware: Boolean?,
+    /**
+     * W3.2 (D15(5) retirement): the lore-corpus asset this flavor's LLM lane
+     * loads — the manifest's `llm.lore_cards` binding. The owner decision
+     * binds every flavor to the ONE shared corpus asset (no per-flavor
+     * jsonl); the per-flavor era filtering is the native load-time lint
+     * against the active stage's ban lists (PlayerbotLlmTruthCore
+     * EraLintCards), so the FILE name is shared while the FILTER is
+     * flavor-routed. ServerRuntimeFiles resolves its staged-file name
+     * through this field instead of a duplicated const.
+     */
+    val loreCardsFile: String,
+    /**
+     * W3.2: the prompt-pack identity line's world title per flavor (the
+     * manifest's `llm.prompt_identity`): "World of Warcraft: Classic" /
+     * "…: The Burning Crusade" / "…: Wrath of the Lich King". Consumed by
+     * the LlmPromptPack editor preview and (via the generated
+     * ExpansionTitleFor selector) the native trained renderer; the vanilla
+     * output stays byte-identical (trained-output freeze).
+     */
+    val promptIdentity: String,
+    /**
+     * W3.6 (D15(4) retirement): the graphics routes the flavor's client is
+     * validated for — the manifest's `wine.graphics_routes`. Vanilla ships
+     * the DXVK + Legacy OpenGL (Gladio) + Mesa VirGL lanes; tbc/wotlk ship
+     * DXVK ONLY (decision D3: the GL lanes are validated against vanilla's
+     * GL usage, never the later clients' D3D9). Consumed by
+     * ClientRuntimeContract.requireFlavorGraphicsRoute at the prepare gate
+     * with the honest per-flavor refusal copy.
+     */
+    val graphicsRoutes: Set<String>,
+    /**
+     * W3.6: whether the vanilla-tweaks feature set is available for the
+     * flavor — the manifest's `wine.vanilla_tweaks` (true for the 1.12.1
+     * lane, false for tbc/wotlk; the tweak set is validated against the
+     * 1.12.1 client only). Surfaces render the honest "not available for
+     * this flavor" copy from ClientRuntimeContract.flavorTweaksCopy.
+     */
+    val vanillaTweaksEnabled: Boolean,
 ) {
     data class DatabaseNames(
         val realmd: String,
@@ -145,6 +183,10 @@ object ClientFlavors {
         knownExeMd5 = null,
         knownExeSizeBytes = 4775986L,
         largeAddressAware = false,
+        loreCardsFile = "lore_cards_v112.jsonl",
+        promptIdentity = "World of Warcraft: Classic",
+        graphicsRoutes = setOf("dxvk", "opengl", "virgl"),
+        vanillaTweaksEnabled = true,
     )
 
     /**
@@ -187,6 +229,10 @@ object ClientFlavors {
         knownExeMd5 = "57c5c03097103e15f9abe2803aebdc3c",
         knownExeSizeBytes = 8272528L,
         largeAddressAware = false,
+        loreCardsFile = "lore_cards_v112.jsonl",
+        promptIdentity = "World of Warcraft: The Burning Crusade",
+        graphicsRoutes = setOf("dxvk"),
+        vanillaTweaksEnabled = false,
     )
 
     /**
@@ -237,6 +283,10 @@ object ClientFlavors {
         knownExeMd5 = "45892bdedd0ad70aed4ccd22d9fb5984",
         knownExeSizeBytes = 7704216L,
         largeAddressAware = false,
+        loreCardsFile = "lore_cards_v112.jsonl",
+        promptIdentity = "World of Warcraft: Wrath of the Lich King",
+        graphicsRoutes = setOf("dxvk"),
+        vanillaTweaksEnabled = false,
     )
 
     val ALL: List<ClientFlavor> = listOf(VANILLA, TBC, WOTLK)

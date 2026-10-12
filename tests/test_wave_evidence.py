@@ -352,11 +352,20 @@ def _live_detekt_count(cwd: Path, args: list[str]) -> int:
     )
     combined = (run.stdout or "") + (run.stderr or "")
     match = re.search(r"Analysis failed with (\d+) weighted issues", combined)
-    assert match is not None and run.returncode != 0, (
-        f"detekt in {cwd} did not fail with a weighted-issues count — the "
-        "lane's detekt posture changed; refresh the pack and this pin "
-        f"(rc={run.returncode})")
-    return int(match.group(1))
+    if match is not None:
+        # The R5-2 posture change (decision D84) made both lanes' detekt
+        # gates GREEN; a weighted-issues failure is a real regression again
+        # — refuse with the actionable state, never re-derive silently.
+        raise AssertionError(
+            f"detekt in {cwd} FAILED with {match.group(1)} weighted issues — "
+            "a post-baseline regression; fix the code (or deliberately "
+            "re-derive the baseline via `detektBaseline` with a reviewed "
+            "delta) and refresh the pack quotes (the D70 rule)")
+    assert run.returncode == 0, (
+        f"detekt in {cwd} failed rc={run.returncode} without a "
+        "weighted-issues line — the lane's build posture changed; refresh "
+        "the pack and this pin")
+    return 0  # the green posture: the baseline carries the reviewed debt
 
 
 def test_w1_evidence_pack_quoted_detekt_counts_match_the_live_lanes():

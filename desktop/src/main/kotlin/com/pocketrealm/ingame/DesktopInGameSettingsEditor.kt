@@ -1,10 +1,14 @@
 package com.pocketrealm.ingame
 
-import com.pocketrealm.client.WowVanillaBindingCatalog
 import com.pocketrealm.desktop.DesktopLog
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
+
+/** The [com.pocketrealm.client.ActiveFlavor] lane suffix naming the desktop
+ * in-game settings editor's catalog/layout resolution (W3.3). */
+private const val DESKTOP_EDITOR_LANE =
+    "the desktop in-game settings editor resolves the active flavor's catalogs"
 
 /**
  * DESK-12/22/41/59/85/96: the desktop twin of the Android in-game settings
@@ -95,6 +99,9 @@ class DesktopInGameSettingsEditor(
     }
 
     fun readUvarValues(account: String): Map<String, SavedVariablesCodec.Value>? = readLocked { root ->
+        // R2-5: a non-vanilla layout has NO single-file uvar route — the
+        // read degrades to empty instead of reaching the fail-loud backstop.
+        if (!InGameSettingsFiles.activeLayout().supportsUvars) return@readLocked emptyMap()
         val file = InGameSettingsFiles.accountSavedVariables(root, account)
         if (file.isFile) SavedVariablesCodec.parse(file.readText(Charsets.UTF_8)) else emptyMap()
     }
@@ -259,11 +266,26 @@ class DesktopInGameSettingsEditor(
     fun enforcedKeysFor(conditions: DesktopConfigWtf.DesktopLaunchConditions): List<ConfigWtfCodec.EnforcedLine> =
         DesktopConfigWtf.enforcedKeys(conditions)
 
+    /**
+     * W3.3: the ACTIVE flavor's catalog lookups (the desktop twin of the
+     * Android editor's routing) — every former vanilla reference resolves
+     * the active flavor's authored catalog through [WowFlavorCatalogs].
+     */
+    private fun activeFlavor(): com.pocketrealm.client.ClientFlavor =
+        com.pocketrealm.client.ActiveFlavor.resolve(DESKTOP_EDITOR_LANE)
+
+    private fun settingsById(): (String) -> WowSettingDefinition? =
+        WowFlavorCatalogs.settingsById(activeFlavor())
+
+    private fun bindingFind(): (String) -> com.pocketrealm.client.WowBindingDefinition? =
+        WowFlavorCatalogs.bindingFind(activeFlavor())
+
     /** Queued cvar entries whose backing key [enforcedKeysFor] owns. */
     fun blockedQueueKeys(conditions: DesktopConfigWtf.DesktopLaunchConditions): Set<String> {
         val enforced = enforcedKeysFor(conditions).map { it.key }.toSet()
+        val byId = settingsById()
         return queue().cvar.keys.filter { id ->
-            WowVanillaSettingsCatalog.byId(id)?.key in enforced
+            byId(id)?.key in enforced
         }.toSet()
     }
 
@@ -299,6 +321,12 @@ class DesktopInGameSettingsEditor(
                 )
             }
             is Edit.UvarSetting -> {
+                // R2-5: the layout gate BEFORE the fail-loud backstop — on a
+                // non-vanilla lane the uvar family refuses with the honest
+                // per-lane message (applyDirect's catch turns it into a
+                // refusal), never a mid-apply IllegalStateException crash.
+                InGameSettingsFiles.activeLayout()
+                    .accountSavedVariables(root, edit.account)
                 val definition = edit.definition
                 val file = InGameSettingsFiles.accountSavedVariables(root, edit.account)
                 check(file.isFile) { "log in once in game to edit saved variables" }
@@ -341,13 +369,17 @@ class DesktopInGameSettingsEditor(
             }
         }
         is Edit.UvarSetting -> {
+            // W3.3: the per-flavor enumeration route (vanilla single file;
+            // tbc/wotlk per-addon SavedVariables directory) — never the
+            // fail-loud single-file route, which is a vanilla-lane family.
+            val layout = InGameSettingsFiles.activeLayout()
             val exists = readLocked { root ->
-                InGameSettingsFiles.accountSavedVariables(root, edit.account).isFile
+                layout.accountHasUvars(root, edit.account)
             } == true
             if (!exists) "log in once in game to edit saved variables" else null
         }
         is Edit.Binding -> {
-            if (WowVanillaBindingCatalog.find(edit.commandId) == null) {
+            if (bindingFind()(edit.commandId) == null) {
                 "unknown binding command: ${edit.commandId}"
             } else {
                 val exists = readLocked { root ->
@@ -371,11 +403,13 @@ class DesktopInGameSettingsEditor(
         }
     }
 
-    private fun uvarNumberForm(queue: WowGameSettingsConfig, uvarName: String): Boolean =
-        queue.uvar.keys.any { id ->
-            val definition = WowVanillaSettingsCatalog.byId(id)
+    private fun uvarNumberForm(queue: WowGameSettingsConfig, uvarName: String): Boolean {
+        val byId = settingsById()
+        return queue.uvar.keys.any { id ->
+            val definition = byId(id)
             definition?.key == uvarName && definition?.uvarValueForm == WowUvarValueForm.NUMBER
         }
+    }
 
     // ------------------------------------------------------- queue record
 

@@ -1,0 +1,210 @@
+{
+  "schema": 1,
+  "flavor": "tbc",
+  "researchedAt": "2026-10-11",
+  "researchNote": "W3.7 era-native research (2026-10-11, GitHub REST API evidence: stars/archived/pushed_at queried live). Carry-over rows are carried from the frozen catalog-v1.json research with per-lane compatibility notes rewritten and per-expansion dates re-verified against the frozen source. Candidates without a well-evidenced GitHub home are deliberately ABSENT. Round 3 (R5-6): VoiceOver 059 demoted to reference on this lane - the upstream TBC & WotLK sound packs are WIP.",
+  "flavorNote": "The built-in AndroidPort controller UI ships for the vanilla 1.12.1 client only and is deliberately absent here (owner decision, completion-plan table #8). Reference-grade rows (WoW VoiceOver, FonzAppraiser) are listed for research but their installs are disabled on this lane \u2014 the upstream artifacts do not match this flavor's accepted interface set or the required per-era data packs are not yet published. Installable add-ons project exactly as on the vanilla lane, and archives whose ## Interface does not match this flavor's accepted set fail closed.",
+  "addons": [
+    {
+      "matrixId": "001",
+      "name": "pfUI",
+      "category": "Full UI",
+      "description": "Full replacement UI: unit frames, action bars, bags, nameplates, cast bars, QoL and extensive configuration.",
+      "githubUrl": "https://github.com/shagu/pfUI",
+      "clientTarget": "1.12.1 + 2.4.3",
+      "version": "No formal GitHub release; use latest master",
+      "verifiedUpdate": "2025-08-28",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "Very high - repeatedly recommended on r/wowservers; 406 GitHub stars",
+      "maintenance": "Archived / feature-complete",
+      "compatibilityNotes": "Repo archived 2026-06-01; the native 1.12 UI ships a first-class 2.4.3 theme - pinned frozen versions, honestly documented as archived upstream.",
+      "researchSources": [
+        "https://github.com/shagu/pfUI"
+      ],
+      "compatibilityRole": "Full UI",
+      "handheldScore": 7.5,
+      "handheldVerdict": "Good",
+      "installSource": "github"
+    },
+    {
+      "matrixId": "002",
+      "name": "pfQuest",
+      "category": "Questing / database",
+      "description": "Quest database with map integration: quest markers, item tooltips, and a searchable database.",
+      "githubUrl": "https://github.com/shagu/pfQuest",
+      "clientTarget": "1.12 + 2.4.3",
+      "version": "No formal GitHub release; use latest master",
+      "verifiedUpdate": "2025-08-25",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "Very high - repeatedly recommended; long-running default quest helper",
+      "maintenance": "Archived / feature-complete",
+      "compatibilityNotes": "Repo archived 2026-06-01; the 2.4.3 database ships in-tree - pinned frozen versions, honestly documented as archived upstream.",
+      "researchSources": [
+        "https://github.com/shagu/pfQuest"
+      ],
+      "compatibilityRole": "Quest database",
+      "handheldScore": 8.3,
+      "handheldVerdict": "Good",
+      "installSource": "github"
+    },
+    {
+      "matrixId": "003",
+      "name": "ShaguTweaks",
+      "category": "QoL / default UI",
+      "description": "QoL tweaks over the stock UI: buff/bar improvements, map keys, chat fixes.",
+      "githubUrl": "https://github.com/shagu/ShaguTweaks",
+      "clientTarget": "1.12.1 + 2.4.3",
+      "version": "Latest master",
+      "verifiedUpdate": "Archive event 2026-06-01",
+      "dateConfidence": "Verified archive date",
+      "communitySignal": "High - repeatedly recommended as an essential QoL bundle",
+      "maintenance": "Archived / superseded",
+      "compatibilityNotes": "Archived upstream; the 2.4.3 module set is included in the frozen repo - pinned frozen versions, honestly documented as archived upstream.",
+      "researchSources": [
+        "https://github.com/shagu/ShaguTweaks"
+      ],
+      "compatibilityRole": "UI QoL suite",
+      "handheldScore": 9.8,
+      "handheldVerdict": "Strong",
+      "installSource": "github"
+    },
+    {
+      "matrixId": "059",
+      "name": "WoW VoiceOver",
+      "category": "Quest immersion / audio",
+      "description": "AI-narrated quest text: the client speaks quest objectives and lore as you accept and progress quests.",
+      "githubUrl": "https://github.com/mrthinger/wow-voiceover",
+      "clientTarget": "1.12 + 2.4.3 + 3.3.5",
+      "version": "1.4.5",
+      "verifiedUpdate": "2026-07-29",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "High / modern project; the TBC & WotLK sound packs are WIP upstream",
+      "maintenance": "Active / maintained",
+      "compatibilityNotes": "R5-6 (code-red round 3): the upstream TBC & WotLK sound packs are marked WIP \u2014 no AI_VoiceOverData_TBC/WotLK asset exists in any release, so the era-routed resolver fails loud. Demoted to reference-grade for this lane until upstream publishes the packs; the era-parameterized resolver and validator are implemented and will accept the packs when they ship.",
+      "researchSources": [
+        "https://github.com/mrthinger/wow-voiceover"
+      ],
+      "compatibilityRole": "Quest presentation",
+      "handheldScore": 9.0,
+      "handheldVerdict": "Strong",
+      "installSource": "reference"
+    },
+    {
+      "matrixId": "068",
+      "name": "FonzAppraiser",
+      "category": "Economy / loot",
+      "description": "Loot valuation: vendor/auction price hints and multi-item appraisal in tooltips.",
+      "githubUrl": "https://github.com/fondlez/FonzAppraiser",
+      "clientTarget": "1.12 + 2.4.3 + 3.3.5",
+      "version": "Latest master",
+      "verifiedUpdate": "2025-12-10",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "Niche but active and GitHub-topic visible",
+      "maintenance": "Active / maintained",
+      "compatibilityNotes": "Active upstream, but the DEFAULT branch declares '## Interface: 30300' only \u2014 this lane's fail-closed validator refuses the default-ref download on a 20400 client (R5-5). Install requires a 2.4.3-era branch or release pinned manually; listed as reference-grade for the tbc lane until an upstream tbc ref exists.",
+      "researchSources": [
+        "https://github.com/fondlez/FonzAppraiser"
+      ],
+      "compatibilityRole": "Loot valuation",
+      "handheldScore": 6.5,
+      "handheldVerdict": "Situational",
+      "installSource": "reference"
+    },
+    {
+      "matrixId": "201",
+      "name": "AtlasLoot Enhanced (TBC)",
+      "category": "Loot / database",
+      "description": "Loot tables for dungeons, raids and PvP: browse every drop from the map or tooltips.",
+      "githubUrl": "https://github.com/Minnona/AtlasLoot-Enhanced",
+      "clientTarget": "2.4.3",
+      "version": "Latest master (frozen 2019-11-24)",
+      "verifiedUpdate": "2019-11-24",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "Niche - GitHub-visible fork of the classic AtlasLoot line",
+      "maintenance": "Frozen / complete",
+      "compatibilityNotes": "Complete TBC 2.4.3 client version; upstream pushed last 2019-11-24 (2 GitHub stars) - a frozen reference database, not a maintained project.",
+      "researchSources": [
+        "https://github.com/Minnona/AtlasLoot-Enhanced"
+      ],
+      "compatibilityRole": "Loot database",
+      "handheldScore": 7.0,
+      "handheldVerdict": "Good",
+      "installSource": "github"
+    },
+    {
+      "matrixId": "202",
+      "name": "Postal (TBC)",
+      "category": "Mail / QoL",
+      "description": "Mailbox tools: open-all, bulk send and inbox summaries.",
+      "githubUrl": "https://github.com/Sattva-108/Postal-TBC",
+      "clientTarget": "2.4.3",
+      "version": "Latest master (frozen 2023-08-10)",
+      "verifiedUpdate": "2023-08-10",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "Niche - dedicated TBC Postal port",
+      "maintenance": "Frozen / complete",
+      "compatibilityNotes": "Dedicated 2.4.3 port of the classic Postal mailbox suite; upstream pushed last 2023-08-10 (1 GitHub star).",
+      "researchSources": [
+        "https://github.com/Sattva-108/Postal-TBC"
+      ],
+      "compatibilityRole": "Mail tools",
+      "handheldScore": 7.2,
+      "handheldVerdict": "Good",
+      "installSource": "github"
+    }
+  ],
+  "expectedAddonCount": 7,
+  "compatibilityPairs": [
+    {
+      "addonA": "001",
+      "addonB": "002",
+      "status": "\u25ce",
+      "meaning": "Complementary",
+      "reason": "The two projects are designed as a UI plus quest-database pair.",
+      "action": "Recommended integrated stack.",
+      "basis": "Same-project ecosystem",
+      "evidenceSources": [
+        "https://github.com/shagu/pfUI",
+        "https://github.com/shagu/pfQuest"
+      ]
+    },
+    {
+      "addonA": "001",
+      "addonB": "003",
+      "status": "\u26a0",
+      "meaning": "Overlap/redundancy",
+      "reason": "pfUI already incorporates many ShaguTweaks-style conveniences.",
+      "action": "Use pfUI alone, or disable duplicate ShaguTweaks modules.",
+      "basis": "Documented ecosystem overlap",
+      "evidenceSources": [
+        "https://github.com/shagu/pfUI",
+        "https://github.com/shagu/ShaguTweaks"
+      ]
+    },
+    {
+      "addonA": "059",
+      "addonB": "002",
+      "status": "\u25ce",
+      "meaning": "Complementary",
+      "reason": "The voice narration reads the quests the database surfaces.",
+      "action": "Recommended pair for questing sessions.",
+      "basis": "Observed complementary feature sets",
+      "evidenceSources": [
+        "https://github.com/mrthinger/wow-voiceover",
+        "https://github.com/shagu/pfQuest"
+      ]
+    }
+  ],
+  "expectedCompatibilityPairCount": 3,
+  "recommendedIds": [
+    "059",
+    "002",
+    "001"
+  ],
+  "gatefix_note": "Code-red round 1 (R5-5): row 068 (FonzAppraiser) demoted to REFERENCE \u2014 the upstream default branch (sole branch 'main') declares '## Interface: 30300' only, so the 20400 lane's fail-closed validator refuses the download; the previous copy promised a working TBC install.",
+  "recommendationReasons": {
+    "059": "Reference-grade on this lane: the era-matching sound pack is WIP upstream. Listed for the lore research value; the install will be enabled when the pack ships.",
+    "002": "Standalone quest database that reduces map-search and keyboard friction on a 5.5-inch display.",
+    "001": "Full replacement UI whose 2.4.3 theme keeps the Blizzard layout while consolidating bars, bags and nameplates for one-hand play."
+  }
+}

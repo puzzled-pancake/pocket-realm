@@ -656,10 +656,6 @@ internal open class DataPreparationStore(
         private const val DIAGNOSTIC_TAIL = 2048
         private const val MAX_REPO_WALK_UP = 6
 
-        /** GAP-3: the [ActiveFlavor] lane suffix naming the data-prep gate. */
-        private const val SERVER_DATA_PREPARATION_LANE =
-            "server data preparation resolves the qualified lane"
-
         private const val AD_TOOL = "ad.exe"
         private const val VMAP_EXTRACTOR_TOOL = "vmap_extractor.exe"
         private const val VMAP_ASSEMBLER_TOOL = "vmap_assembler.exe"

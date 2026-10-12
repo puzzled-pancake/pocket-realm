@@ -7363,6 +7363,30 @@ def write_lockfiles() -> list[str]:
             dict(entry) for entry in overlays_for(flavor, backend)]
         record["playerbots_source_overlays"] = PLAYERBOTS_OVERLAYS
         record["patches_content"] = patches
+        # R1-3/R3-3: the honest staleness marker. A warm-dir refresh moves
+        # the SOURCE pins without rebuilding, so the recorded artifact
+        # bytes correspond to the PREVIOUS patch set until a real build
+        # lands. Derived per lane: any recorded artifact file whose mtime
+        # predates the newest patch input marks the lane
+        # binaries-stale-of-sources; a full build re-hashes the fresh
+        # artifacts and rewrites the field.
+        # The patch-sensitive runtime artifact (the world DLL/.so) is the
+        # freshness witness: copied third-party dependencies (libcrypto,
+        # libmysql, ...) keep their original mtimes and would false-positive.
+        artifact_paths = [a.get("path", "") for a in record.get("artifacts", [])]
+        world = next((ROOT / rel for rel in artifact_paths
+                      if rel.endswith("pocket_world_runtime.dll")
+                      or rel.endswith("pocket_world_runtime.so")
+                      and (ROOT / rel).is_file()), None)
+        witness = world if world is not None and world.is_file() else next(
+            (ROOT / rel for rel in artifact_paths if (ROOT / rel).is_file()), None)
+        newest_patch = max(
+            (f.stat().st_mtime for f in (ROOT / "native/patches").rglob("*") if f.is_file()),
+            default=0.0,
+        )
+        record["binaries_stale_for_patches"] = (
+            witness is not None and witness.stat().st_mtime < newest_patch
+        ) if witness is not None else True
         lock_bytes = (json.dumps(record, indent=2) + "\n").encode("utf-8")
         if path.read_bytes() != lock_bytes:
             path.write_bytes(lock_bytes)

@@ -93,7 +93,7 @@ class VanillaAddonPinTest {
     @Test fun `VoiceOver resolver vanilla install identity stays fixed`() {
         assertEquals("mrthinger__wow-voiceover", VoiceOverReleaseResolver.INSTALL_ID)
         assertEquals("AI_VoiceOver", VoiceOverReleaseResolver.PLAYER_FOLDER)
-        assertEquals("AI_VoiceOverData_Vanilla", VoiceOverReleaseResolver.DATA_FOLDER)
+        assertEquals("AI_VoiceOverData_Vanilla", VoiceOverReleaseResolver.VoiceOverEra.VANILLA.dataFolder)
         assertEquals(128L * 1024 * 1024, VoiceOverReleaseResolver.MAX_PLAYER_BYTES)
         assertEquals(
             AddonArchiveValidator.VOICEOVER_DATA_MAX_ARCHIVE_BYTES,

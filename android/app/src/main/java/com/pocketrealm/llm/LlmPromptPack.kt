@@ -3,6 +3,11 @@ package com.pocketrealm.llm
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** The [com.pocketrealm.client.ActiveFlavor] lane suffix naming the
+ * prompt-pack identity resolution (W3.2). */
+private const val PROMPT_IDENTITY_LANE =
+    "the prompt-pack identity resolves the active flavor's world title"
+
 /**
  * Versioned prompt-pack model: the ordered list of prompt blocks that make up
  * a bot's system prompt, player-visible and player-editable.
@@ -226,14 +231,33 @@ data class LlmPromptPack(
         @Suppress("LongMethod")
         fun defaultBlocks(): List<LlmPromptBlock> = trainedBlocks() + seasoningBlocks()
 
+        /**
+         * W3.2: the identity block's world title follows the ACTIVE flavor's
+         * manifest identity (`llm.prompt_identity` on [com.pocketrealm.client
+         * .ClientFlavor.promptIdentity]) — the same title the native trained
+         * renderer resolves through the generated ExpansionTitleFor selector.
+         * An unresolvable machine state degrades to the frozen vanilla title:
+         * the native default stage renders exactly that string, so the
+         * preview mirrors the trained default instead of crashing the editor
+         * (the trained-output freeze keeps the vanilla rendering
+         * byte-identical either way).
+         */
+        fun identityBody(): String {
+            val title = runCatching {
+                com.pocketrealm.client.ActiveFlavor
+                    .resolve(PROMPT_IDENTITY_LANE).promptIdentity
+            }.getOrNull() ?: "World of Warcraft: Classic"
+            return "You are a roleplaying character in $title. " +
+                "Answer as a roleplaying character. Speak as your character speaks."
+        }
+
         /** The trained-contract blocks, in renderer order (all ship enabled). */
         @Suppress("LongMethod")
         private fun trainedBlocks(): List<LlmPromptBlock> = listOf(
             LlmPromptBlock(
                 id = "identity",
                 title = "Identity",
-                body = "You are a roleplaying character in World of Warcraft: Classic. " +
-                    "Answer as a roleplaying character. Speak as your character speaks.",
+                body = identityBody(),
                 help = "Who the bot is in the scene. Trained shape — edit wording, " +
                     "not the role it plays.",
             ),

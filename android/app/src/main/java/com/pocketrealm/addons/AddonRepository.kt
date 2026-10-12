@@ -93,7 +93,13 @@ class AddonRepository private constructor(context: Context) {
         if (registry.isFile) return
         launchOperation(errorTitle = "Could not install the built-in Android Port") { token ->
             if (registry.isFile) return@launchOperation
-            val addon = checkNotNull(AddonCatalog.load(appContext).addon("151"))
+            // W3.7 (owner decision, completion-plan table #8): the AndroidPort
+            // built-in ships for the VANILLA lane only — the per-flavor
+            // catalogs exclude it, so a tbc/wotlk fresh install skips the
+            // seed deliberately (the honest exclusion copy renders on the
+            // add-ons screen via the catalog's flavorNote).
+            val addon = AddonCatalog.load(appContext).addon("151")
+                ?: return@launchOperation
             installBuiltInLocked(addon, token)
         }
     }
@@ -111,7 +117,10 @@ class AddonRepository private constructor(context: Context) {
                 ?: return@launchOperation
             val assetDigest = sha256AssetTree(AndroidPortPackage.ASSET_PATH, token)
             if (assetDigest.equals(current.archiveSha256, ignoreCase = true)) return@launchOperation
-            val addon = checkNotNull(AddonCatalog.load(appContext).addon("151"))
+            // W3.7: same per-flavor exclusion — a vanilla-era registry carried
+            // to a non-vanilla lane stops refreshing rather than crashing.
+            val addon = AddonCatalog.load(appContext).addon("151")
+                ?: return@launchOperation
             installBuiltInLocked(addon, token)
         }
     }
@@ -471,6 +480,14 @@ class AddonRepository private constructor(context: Context) {
     }
 
     private fun installVoiceOverLocked(resolved: ResolvedGitHub, token: AddonOperationToken) {
+        // R5-3/R6-r2-2/R6-r2-3: the era resolves ONCE and routes the
+        // artifacts AND the user-facing copy — no hard-coded vanilla labels
+        // on the era-aware flow.
+        val era = VoiceOverReleaseResolver.eraFor(
+            com.pocketrealm.client.ActiveFlavor.resolve(
+                "the VoiceOver install resolves the active lane",
+            ).flavorId,
+        )
         val assets = resolveVoiceOverAssets(resolved, token)
         ensureVoiceOverStorage(assets.player.size + assets.data.size)
 
@@ -481,7 +498,7 @@ class AddonRepository private constructor(context: Context) {
             download(
                 assets.player.url,
                 playerArchive,
-                "${resolved.ref.slug} (1.12 add-on)",
+                "${resolved.ref.slug} (${era.playerToken} add-on)",
                 token,
                 maxBytes = VoiceOverReleaseResolver.MAX_PLAYER_BYTES,
                 expectedBytes = assets.player.size,
@@ -489,7 +506,7 @@ class AddonRepository private constructor(context: Context) {
             download(
                 assets.data.url,
                 dataArchive,
-                "${resolved.ref.slug} (Vanilla sounds)",
+                "${resolved.ref.slug} (${era.displayLabel} sounds)",
                 token,
                 maxBytes = VoiceOverReleaseResolver.MAX_DATA_BYTES,
                 expectedBytes = assets.data.size,
@@ -501,20 +518,26 @@ class AddonRepository private constructor(context: Context) {
             val player = validator.validate(
                 playerArchive,
                 VoiceOverReleaseResolver.DISPLAY_NAME,
-                policy = AddonArchiveValidator.Policy.VOICEOVER_PLAYER,
+                policy = AddonArchiveValidator.Policy.voiceOverPlayerPolicy(
+                    com.pocketrealm.client.ClientFlavors.byClientId(
+                        com.pocketrealm.client.ActiveFlavor.resolve(
+                            "the VoiceOver install resolves the active lane",
+                        ).clientId,
+                    ) ?: com.pocketrealm.client.ClientFlavors.VANILLA,
+                ),
                 checkpoint = token::checkpoint,
             )
             val data = validator.validate(
                 dataArchive,
-                "${VoiceOverReleaseResolver.DISPLAY_NAME} Vanilla sounds",
-                policy = AddonArchiveValidator.Policy.VOICEOVER_DATA,
+                "${VoiceOverReleaseResolver.DISPLAY_NAME} ${era.displayLabel} sounds",
+                policy = AddonArchiveValidator.Policy.voiceOverDataPolicy(era),
                 checkpoint = token::checkpoint,
             )
             val folders = (player.addonFolders + data.addonFolders)
                 .distinctBy { it.lowercase(Locale.ROOT) }
             require(folders.map { it.lowercase(Locale.ROOT) }.toSet() == setOf(
                 VoiceOverReleaseResolver.PLAYER_FOLDER.lowercase(Locale.ROOT),
-                VoiceOverReleaseResolver.DATA_FOLDER.lowercase(Locale.ROOT),
+                era.dataFolder.lowercase(Locale.ROOT),
             )) { "VoiceOver release did not contain both required add-on folders" }
 
             val playerDigest = sha256(playerArchive, token)
@@ -567,7 +590,7 @@ class AddonRepository private constructor(context: Context) {
             runCatching { prunePackages(loadRegistry(registry), loadRegistry(previousRegistry)) }
             mutableState.value = AddonCatalogState(
                 installed = loadRegistryStrict(registry),
-                notice = "WoW VoiceOver and Vanilla sounds are ready for the next game launch.",
+                notice = "WoW VoiceOver and ${era.displayLabel} sounds are ready for the next game launch.",
             )
         } finally {
             staging?.takeIf { it.exists() }?.deleteRecursively()
@@ -583,12 +606,23 @@ class AddonRepository private constructor(context: Context) {
         val latestRelease = requireNotNull(resolved.latestRelease) {
             "VoiceOver does not have a current GitHub release"
         }
-        return VoiceOverReleaseResolver.resolve(latestRelease) { tag ->
-            getJson(
-                "https://api.github.com/repos/${resolved.ref.owner}/${resolved.ref.repo}/releases/tags/$tag",
-                token,
-            )
-        }
+        // R5-3: the era rides the ACTIVE lane — the resolver selects the
+        // era-matching player zip and data pack.
+        val era = VoiceOverReleaseResolver.eraFor(
+            com.pocketrealm.client.ActiveFlavor.resolve(
+                "the VoiceOver install resolves the active lane",
+            ).flavorId,
+        )
+        return VoiceOverReleaseResolver.resolve(
+            latestRelease,
+            { tag ->
+                getJson(
+                    "https://api.github.com/repos/${resolved.ref.owner}/${resolved.ref.repo}/releases/tags/$tag",
+                    token,
+                )
+            },
+            era,
+        )
     }
 
     private data class ResolvedGitHub(

@@ -14,7 +14,6 @@ import com.pocketrealm.ingame.ManagedConfigPolicy
 import com.pocketrealm.ingame.SavedVariablesCodec
 import com.pocketrealm.ingame.WowGameSettingsConfig
 import com.pocketrealm.ingame.WowUvarValueForm
-import com.pocketrealm.ingame.WowVanillaSettingsCatalog
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.supervisor.RealmEndpoint
 import com.pocketrealm.wine.WineSpikeNative
@@ -1935,6 +1934,11 @@ internal class WineRuntimeStore(private val context: Context) {
         private const val TAG = "WineRuntimeStore"
         private const val ARM_RUNTIME_ROOT_NAME = "arm-translated/winlator-ca3d735"
 
+        /** R1-2: the [ActiveFlavor] lane suffix naming the game-settings
+         * delivery's catalog resolution. */
+        const val SETTINGS_DELIVERY_LANE =
+            "the game-settings delivery resolves the persisted lane"
+
         /** GAP-3: the [ActiveFlavor] lane suffix naming the ARM runtime's
          * managed-client authorization gate. */
         private const val ARM_RUNTIME_AUTHORIZATION_LANE =
@@ -2253,11 +2257,23 @@ internal class WineRuntimeStore(private val context: Context) {
                 val text = file.readText(Charsets.UTF_8)
                 var next = text
                 val appliedNames = mutableSetOf<String>()
+                // R1-2: the delivery loop resolves the PERSISTED lane's
+                // catalog (the D9-compliant idiom — the :world process never
+                // sees the :ui holder's selection, so the multi-process
+                // settings store is the selection source, exactly like the
+                // ARM authorization gate above) — never the vanilla catalog
+                // hardcoded.
+                val laneFlavor = com.pocketrealm.client.ActiveFlavorState(
+                    kotlinx.coroutines.runBlocking {
+                        com.pocketrealm.storage.Settings(context).flow.first().selectedFlavorOrNull()
+                    },
+                ).resolve(ActiveFlavor.qualifiedFlavors, SETTINGS_DELIVERY_LANE)
+                val laneById = com.pocketrealm.ingame.WowFlavorCatalogs.settingsById(laneFlavor)
+                val laneByKey = com.pocketrealm.ingame.WowFlavorCatalogs.settingsByKey(laneFlavor)
                 assignments.forEach { (name, value) ->
                     val updated = SavedVariablesCodec.assign(
                         next, name, value,
-                        numberForm = WowVanillaSettingsCatalog.byKey(name)
-                            ?.uvarValueForm == WowUvarValueForm.NUMBER,
+                        numberForm = laneByKey(name)?.uvarValueForm == WowUvarValueForm.NUMBER,
                     )
                     if (updated != null) {
                         next = updated
@@ -2267,7 +2283,7 @@ internal class WineRuntimeStore(private val context: Context) {
                 if (next != text) writeAtomic(file, next)
                 delivered += plan.delivered.filter { entry ->
                     entry.scope == scope &&
-                        WowVanillaSettingsCatalog.byId(entry.key)?.key in appliedNames
+                        laneById(entry.key)?.key in appliedNames
                 }
             }
             // binding deliveries: enforce the staged two-slot state per command.

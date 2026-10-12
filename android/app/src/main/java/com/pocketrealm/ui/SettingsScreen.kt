@@ -408,6 +408,24 @@ fun SettingsScreen(
                     "one is an exact manual choice with no fallback.",
                 style = MaterialTheme.typography.bodySmall,
             )
+            // R6-r3-4: the per-flavor graphics-route honest copy — on a
+            // non-vanilla lane the GL routes are refused at launch; the
+            // renderer surface states it at selection time.
+            val settingsLaneFlavor = remember {
+                com.pocketrealm.client.ActiveFlavor.resolve(
+                    "the renderer card resolves the active lane",
+                )
+            }
+            val glRouteCopy = com.pocketrealm.client.ClientRuntimeContract
+                .flavorGraphicsRouteCopy(settingsLaneFlavor, "opengl")
+            if (glRouteCopy != null) {
+                Text(
+                    glRouteCopy,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.testTag("renderer-flavor-copy"),
+                )
+            }
             if (showExperimentalRenderers || experimentalSelected) {
                 listOf(
                     ArmClientRenderer.LEGACY_GLADIO,
@@ -1331,10 +1349,31 @@ fun SettingsScreen(
         }
 
         HorizontalDivider()
+        // R6-4: the tweaks card is FLAVOR-AWARE — vanilla_tweaks is a
+        // vanilla-only feature (the manifest's wine.vanilla_tweaks); on a
+        // tbc/wotlk lane the honest "not available" copy renders instead of
+        // the toggles (the wave's own ClientRuntimeContract.flavorTweaksCopy).
+        val activeSettingsFlavor = remember {
+            com.pocketrealm.client.ActiveFlavor.resolve(
+                "the client-tweaks card resolves the active lane",
+            )
+        }
+        val tweaksUnavailable = com.pocketrealm.client.ClientRuntimeContract
+            .flavorTweaksCopy(activeSettingsFlavor)
         SettingCard("Client tweaks") {
-            Text("Optional quality-of-life patches applied on the next launch. Any genuine 1.12.1 build 5875 client can run; if its exact byte layout is not qualified for patches, that launch safely uses pristine Vanilla instead.",
-                style = MaterialTheme.typography.bodySmall)
-            Row(
+            Text(
+                tweaksUnavailable
+                    ?: "Optional quality-of-life patches applied on the next launch. Any genuine 1.12.1 build 5875 client can run; if its exact byte layout is not qualified for patches, that launch safely uses pristine Vanilla instead.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (tweaksUnavailable != null) {
+                Text(
+                    "Switch the flavor back to Vanilla on Home to use the tweak set.",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.testTag("tweaks-unavailable"),
+                )
+            }
+            if (tweaksUnavailable == null) Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -1351,7 +1390,7 @@ fun SettingsScreen(
                     modifier = Modifier.weight(1f).testTag("tweaks-common"),
                 ) { Text("Common tweaks") }
             }
-            ClientTweakControls(
+            if (tweaksUnavailable == null) ClientTweakControls(
                 tweaks = snap.tweaks,
                 onTweaks = { transform ->
                     scope.launch { settings.update { it.copy(tweaks = transform(it.tweaks)) } }

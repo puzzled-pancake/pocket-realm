@@ -63,14 +63,17 @@ internal object Build5875LoginTopology : LoginTopologyMatcher {
  * Build-8606 (tbc) login topology — the build-keyed twin of
  * [Build5875LoginTopology].
  *
- * Provenance, honestly: the X11/Winlator transport contract below is the one
- * VERIFIED against the production build-5875 lane; the 8606 client rides the
- * identical Wine stack (same `wow.exe` process name, same single top-level
- * login frame) but has not yet been mapped in a device session, so this twin
- * exists as its own seam — when the 8606 device capture lands, its divergence
- * (if any) is pinned here without touching the verified 5875 contract. Until
- * then, resolving the tbc flavor to this matcher is exactly as conservative
- * as the 5875 lane: any modal or decoy window still cancels injection.
+ * Provenance: the shared X11/Winlator transport contract below is the one
+ * VERIFIED against the production build-5875 lane. W3.5 (2026-10-11,
+ * re-captured 2026-10-12 at code-red round 6 with the current probe build)
+ * promoted the 8606 twin's client-side facts from UNVERIFIED to
+ * live-verified on the Windows desktop lane: the genuine 8606 client
+ * (exe SHA-256 `8f8d7f4c…`, the S5.1 pin) presented its login frame as ONE
+ * top-level `World of Warcraft`-titled window matching the desktop lane's
+ * pinned GxWindowClassOpenGl/D3d signature, and the SendInput choreography
+ * landed on it (out/completion/w3/login-topology/build8606-tbc-live.md).
+ * The X11-lane mapping remains the 5875 contract until an ARM/Winlator
+ * 8606 session maps it; any modal or decoy window still cancels injection.
  */
 internal object Build8606LoginTopology : LoginTopologyMatcher {
     override fun matches(
@@ -83,7 +86,14 @@ internal object Build8606LoginTopology : LoginTopologyMatcher {
 
 /**
  * Build-12340 (wotlk) login topology — the build-keyed twin of
- * [Build5875LoginTopology], same provenance contract as [Build8606LoginTopology].
+ * [Build5875LoginTopology], same provenance contract as
+ * [Build8606LoginTopology]. W3.5 (2026-10-11, re-captured 2026-10-12 at
+ * code-red round 6 with the current probe build) live-verified the
+ * client-side facts on the Windows desktop lane: the genuine 12340 client
+ * (exe SHA-256 `aa63a575…`, the S5.1 pin) matched the pinned
+ * GxWindowClassOpenGl/D3d/D3d9Ex signature with the exact
+ * `World of Warcraft` title (out/completion/w3/login-topology/
+ * build12340-wotlk-live.md).
  */
 internal object Build12340LoginTopology : LoginTopologyMatcher {
     override fun matches(

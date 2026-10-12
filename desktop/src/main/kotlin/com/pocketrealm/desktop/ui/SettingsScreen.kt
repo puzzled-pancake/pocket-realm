@@ -561,9 +561,41 @@ private fun realmRunningPhase(phase: com.pocketrealm.supervisor.RuntimePhase): B
  */
 @Composable
 private fun ClientTweaksCard(model: DesktopAppModel, tweaks: ClientTweaksConfig) {
+    // R6-w3-1 (code-red round 6): the vanilla tweak set is validated against
+    // the 1.12.1 client only — a non-vanilla lane (reachable at the W4
+    // qualification flip) must render the honest "not available" copy and
+    // NEVER expose the vanilla-client patch-consent toggles (the desktop
+    // twin of the android ClientRuntimeContract.flavorTweaksCopy gate).
+    val tweaksUnavailable = com.pocketrealm.client.ClientRuntimeContract
+        .flavorTweaksCopy(
+            com.pocketrealm.client.ActiveFlavor.resolve(
+                "the client-tweaks card resolves the active lane",
+            ),
+        )
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Client tweaks", style = MaterialTheme.typography.titleMedium)
+            if (tweaksUnavailable != null) {
+                TweaksUnavailableCopy(tweaksUnavailable)
+                return@Column
+            }
+            VanillaTweakToggles(model, tweaks)
+            Text(
+                "Off switches restore the upstream game default. Turning any patch on consents " +
+                    "to patching this install's client copy: the next game start verifies the " +
+                    "executable against the authorized vanilla client layout and writes the patched " +
+                    "WoW.exe.patched beside it (your original WoW.exe is never modified; the " +
+                    "patched copy also enables the one-button nearby loot/use feature, whose " +
+                    "server knob follows this card). Wrong-layout installs keep launching " +
+                    "unpatched. Applied on the next client launch.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun VanillaTweakToggles(model: DesktopAppModel, tweaks: ClientTweaksConfig) {
             TweakSwitch("Widescreen FoV fix", tweaks.fovEnabled) { on ->
                 model.updateSettings { it.copy(tweaks = it.tweaks.copy(fovEnabled = on)) }
             }
@@ -602,18 +634,15 @@ private fun ClientTweaksCard(model: DesktopAppModel, tweaks: ClientTweaksConfig)
                     it.copy(tweaks = it.tweaks.copy(maxCameraDistanceEnabled = on))
                 }
             }
-            Text(
-                "Off switches restore the upstream game default. Turning any patch on consents " +
-                    "to patching this install's client copy: the next game start verifies the " +
-                    "executable against the authorized vanilla client layout and writes the patched " +
-                    "WoW.exe.patched beside it (your original WoW.exe is never modified; the " +
-                    "patched copy also enables the one-button nearby loot/use feature, whose " +
-                    "server knob follows this card). Wrong-layout installs keep launching " +
-                    "unpatched. Applied on the next client launch.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-    }
+}
+
+@Composable
+private fun TweaksUnavailableCopy(unavailable: String) {
+    Text(unavailable, style = MaterialTheme.typography.bodySmall)
+    Text(
+        "Switch the flavor back to Vanilla on Home to use the tweak set.",
+        style = MaterialTheme.typography.labelLarge,
+    )
 }
 
 @Composable

@@ -36,22 +36,53 @@ internal class AddonArchiveValidator {
     ) {
         companion object {
             /**
-             * The validator's default policy. Its accepted set is the ACTIVE
-             * lane's (vanilla today, since [ActiveFlavor] resolves the sole
-             * qualified lane); the name pins the default, not a frozen
-             * registry read — per-call lanes construct [Policy] fresh.
+             * The VANILLA-lane policy — the same companion-freeze hazard the
+             * VOICEOVER_PLAYER policy carries (R6-4): a companion val whose
+             * default resolved [ActiveFlavor] would freeze WHICHEVER lane
+             * was selected at first class-load, so the G3-6 vanilla pin
+             * passes or fails on JUnit method order. Constructed with the
+             * VANILLA literals explicitly; the ACTIVE-lane policy is built
+             * per call ([Policy]'s default constructor).
              */
-            val VANILLA = Policy()
-            val VOICEOVER_PLAYER = Policy(
+            val VANILLA = Policy(
+                acceptedInterfaces = com.pocketrealm.client.ClientFlavors.VANILLA.addonInterfaces,
+            )
+
+            /**
+             * R4-2: the player policy resolves the ACTIVE lane's accepted
+             * interfaces per call (never frozen at companion-init — the
+             * default Policy constructor resolves ActiveFlavor which is
+             * process-global and would freeze the wrong lane's set at first
+             * class-load in a multi-qualified world).
+             */
+            fun voiceOverPlayerPolicy(flavor: com.pocketrealm.client.ClientFlavor): Policy = Policy(
+                acceptedInterfaces = flavor.addonInterfaces,
                 expectedFolders = setOf("AI_VoiceOver"),
                 preferredRootToc = "AI_VoiceOver.toc",
             )
-            val VOICEOVER_DATA = Policy(
+
+            /** The vanilla default (pre-flavor callers). */
+            val VOICEOVER_PLAYER = voiceOverPlayerPolicy(
+                com.pocketrealm.client.ClientFlavors.VANILLA,
+            )
+
+            val VOICEOVER_DATA = voiceOverDataPolicy(
+                VoiceOverReleaseResolver.VoiceOverEra.VANILLA,
+            )
+
+            /**
+             * R6-r2-2: the era-parameterized data policy — the expected
+             * folder is the ACTIVE era's data pack identity, so the tbc/
+             * wotlk packs validate instead of being refused by the vanilla
+             * pin. The module-interface marker and size caps are
+             * era-invariant.
+             */
+            fun voiceOverDataPolicy(era: VoiceOverReleaseResolver.VoiceOverEra): Policy = Policy(
                 maxArchiveBytes = VOICEOVER_DATA_MAX_ARCHIVE_BYTES,
                 maxExpandedBytes = VOICEOVER_DATA_MAX_EXPANDED_BYTES,
                 acceptedInterfaces = ClientFlavors.VANILLA.addonInterfaces +
                     VOICEOVER_DATA_MODULE_INTERFACE,
-                expectedFolders = setOf("AI_VoiceOverData_Vanilla"),
+                expectedFolders = setOf(era.dataFolder),
                 requiredTocFields = mapOf(
                     "OptionalDeps" to "AI_VoiceOver_112, AI_VoiceOver",
                     "X-VoiceOver-DataModule-Version" to "1",
@@ -126,7 +157,13 @@ internal class AddonArchiveValidator {
                     declaresSupportedInterface(zip, entry, path, policy, checkpoint)
                 }
                 require(compatible.size <= 1) {
-                    "A repository-root addon must contain exactly one Vanilla 1.12 .toc file"
+                    // R6-r3-1: the refusal is lane-neutral — the accepted
+                    // interface set is the ACTIVE flavor's (the same set the
+                    // interface-mismatch refusal names), never a hard-coded
+                    // vanilla-era lane name.
+                    "A repository-root addon must contain exactly one .toc file " +
+                        "declaring a supported addon interface (the active lane " +
+                        "accepts: " + policy.acceptedInterfaces.sorted().joinToString() + ")"
                 }
                 compatible.singleOrNull()
             }

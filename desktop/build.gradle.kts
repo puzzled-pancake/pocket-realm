@@ -119,8 +119,11 @@ sourceSets.named("test") {
 detekt {
     buildUponDefaultConfig = true
     config.setFrom("detekt.yml")
-    // Baselines the known RP-harness debt (RpHost/RpWowClient stdio host:
-    // oversized main, magic-number protocol constants). New issues still
+    // Baselines the desktop lane's known detekt debt (R5-2, round 5: the
+    // FULL main+test set, matching the Android :app:detekt posture — until
+    // this round the file carried only the RP-harness debt and the gate sat
+    // red on ~496 findings elsewhere). Entries are written by
+    // `gradlew detektBaseline` ONLY (never hand-edited); new issues still
     // fail the build; retire entries by fixing the code, not by growing
     // this file.
     baseline = file("detekt-baseline.xml")
@@ -361,6 +364,18 @@ tasks.register<JavaExec>("seedRealmData") {
     if (project.hasProperty("stagingRoot")) {
         args(project.property("stagingRoot"))
     }
+}
+
+// W3.5 login-topology verification: launch one STAGED genuine flavor
+// client and drive Win32AutoLogin against its live login window.
+// Usage: gradlew flavorLoginProbe -DclientDir="E:/Wow clients/<dir>" -DflavorId=tbc
+tasks.register<JavaExec>("flavorLoginProbe") {
+    group = "bring-up"
+    description = "Drive Win32AutoLogin against a staged genuine flavor client's live login window."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.FlavorLoginProbeKt")
+    systemProperty("clientDir", System.getProperty("clientDir") ?: "")
+    systemProperty("flavorId", System.getProperty("flavorId") ?: "")
 }
 
 // Gate: boot realmd in-process, prove 127.0.0.1:3724 accepts a

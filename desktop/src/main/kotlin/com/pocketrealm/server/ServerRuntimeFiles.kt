@@ -214,12 +214,19 @@ internal class ServerRuntimeFiles(
         val snapshot = settingsSnapshot ?: settings.load()
         purgeStaleBotConfSecrets()
         val botConfig = if (botProfile != null) {
+            val botConfText =
+                botProfile.playerbotConfig() + (llmConfigOverrides(botProfile, snapshot) ?: "")
+            // W3.4 fail-loud conf staging: an unknown key for the flavor's
+            // bots build aborts the start instead of being silently dropped
+            // by the core's config parser; excluded families (C9 VoiceChat)
+            // are refused with their own naming.
+            BotConfStaging.requireStagingSafe(lane.flavorId, botProfile.id, botConfText)
             secureWrite(
                 File(run, "aiplayerbot-${botProfile.id}.conf"),
-                botProfile.playerbotConfig() + (llmConfigOverrides(botProfile, snapshot) ?: ""),
+                botConfText,
             )
         } else {
-            secureWrite(File(run, "aiplayerbot-disabled.conf"), """
+            val disabledConfText = """
             AiPlayerbot.Enabled = 0
             AiPlayerbot.RandomBotAutologin = 0
             AiPlayerbot.RandomBotLoginAtStartup = 0
@@ -227,7 +234,15 @@ internal class ServerRuntimeFiles(
             AiPlayerbot.CommandServerPort = 0
             AiPlayerbot.LLMEnabled = 0
             AiPlayerbot.ShowProgressBars = 0
-        """.trimIndent() + "\n")
+        """.trimIndent() + "\n"
+            // R6-5/R2-6-1 (code-red round 6): the disabled staging leg runs
+            // the SAME fail-loud gate as the profile leg — the desktop twin
+            // of the android R2-1 (round 5) fix; a drifted disabled key
+            // fails the start instead of silently dropping (the
+            // bots-off enforcement is exactly the key class the core
+            // silently drops).
+            BotConfStaging.requireStagingSafe(lane.flavorId, "disabled", disabledConfText)
+            secureWrite(File(run, "aiplayerbot-disabled.conf"), disabledConfText)
         }
         val bind = resolveBindAddress(bindAddress)
         // R1-r2-1: the boot lane's database names, never the live machine.
@@ -388,7 +403,7 @@ internal class ServerRuntimeFiles(
             .getOrNull()
         val tlsCa = runCatching { stageBundledAsset("llm", TLS_CA_BUNDLE_FILE_NAME).absolutePath }
             .getOrNull()
-        val lore = runCatching { stageBundledAsset("lore", LORE_CARDS_FILE_NAME).absolutePath }
+        val lore = runCatching { stageBundledAsset("lore", loreCardsFileName()).absolutePath }
             .getOrNull()
         // The composer rides the EXTERNAL endpoint fields on both lanes (the
         // Android twin's shape — the cloud composer is an external-lane knob);
@@ -753,7 +768,19 @@ internal class ServerRuntimeFiles(
         internal const val PROMPT_PACK_FILE_NAME = "llm_prompt_pack.json"
         internal const val DEFAULT_PROMPTS_FILE_NAME = "llm_character_card.json"
         internal const val TLS_CA_BUNDLE_FILE_NAME = "cacert.pem"
-        internal const val LORE_CARDS_FILE_NAME = "lore_cards_v112.jsonl"
+
+        /**
+         * W3.2 (D15(5) retirement): the staged lore-corpus file name
+         * resolves through the flavor registry's `llm.lore_cards` binding
+         * ([ClientFlavor.loreCardsFile]) instead of the duplicated const —
+         * the manifest owns the filename. The owner decision binds every
+         * flavor to the ONE shared corpus asset; the era filter is the
+         * native load-time lint (flavor-routed by the active stage's ban
+         * lists). Tracks [serverFlavor]'s active lane.
+         */
+        internal fun loreCardsFileName(
+            flavor: ClientFlavor = serverFlavor(),
+        ): String = flavor.loreCardsFile
 
         /** B2: errors-only world log level, matching realmd's LogFileLevel = 1. */
         internal const val DEFAULT_WORLD_LOG_FILE_LEVEL = 1

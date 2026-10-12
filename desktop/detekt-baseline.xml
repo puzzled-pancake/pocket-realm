@@ -1,13 +1,241 @@
 <?xml version="1.0" ?>
+<!-- R5-2 (code-red round 5): the desktop lane's detekt gate now runs the
+     FULL desktop-owned main+test source set against a complete baseline,
+     the same posture the Android :app:detekt lane has always had (its
+     baseline carries the full known debt at ~1.9k entries). Until this
+     round the file baselined only the RP-harness debt and the gate sat
+     red on ~496 findings everywhere else. Entries are written by
+     `gradlew detektBaseline` ONLY (never hand-edited); new issues still
+     fail the build; retire entries by fixing the code, not by growing
+     this file. -->
 <SmellBaseline>
   <ManuallySuppressedIssues></ManuallySuppressedIssues>
   <CurrentIssues>
+    <ID>ComplexCondition:HomeScreen.kt$lanHost &amp;&amp; advertisedAddress != null &amp;&amp; advertisedAddress != endpointAddress &amp;&amp; (phase == RuntimePhase.WORLD_READY || phase == RuntimePhase.RUNNING)</ID>
+    <ID>ComplexCondition:InputProfile.kt$InputProfile.Companion$legacyDefault || (repairedScheme == ControlScheme.CLASSIC_CAMERA &amp;&amp; v5CameraLockDefault) || (repairedScheme == ControlScheme.CLASSIC_CAMERA &amp;&amp; v7ClassicDefault) || retiredAddonScheme || retiredGeneratedProfile || v10GeneratedDefault || v11PreRefinementDefault || v11RearButtonDefault</ID>
+    <ID>ComplexCondition:InputProfile.kt$InputProfile.Companion$legacyDefault || v5CameraLockDefault || v7ClassicDefault || retiredAddonScheme || retiredGeneratedProfile</ID>
+    <ID>ComplexCondition:Win32AutoLogin.kt$Win32AutoLogin$matchedDescriptor != null &amp;&amp; since != null &amp;&amp; stableMatches &gt;= timings.requiredStablePolls &amp;&amp; now.now() - since &gt;= timings.loginUiSettleMs</ID>
+    <ID>ComplexCondition:Win32GamepadBridge.kt$Win32GamepadBridge$heldNow != null &amp;&amp; heldNow.vk != currentVk &amp;&amp; heldNow.mouseDownFlag == null &amp;&amp; currentVk != null</ID>
+    <ID>CyclomaticComplexMethod:AuthGate.kt$@Suppress("TooGenericExceptionCaught", "LongMethod") fun main()</ID>
+    <ID>CyclomaticComplexMethod:ControlsScreen.kt$@Composable @Suppress("LongMethod") // the editor card is one composed column by design fun ControlsScreen(model: DesktopAppModel)</ID>
+    <ID>CyclomaticComplexMethod:DesktopAddonRuntimeProjector.kt$DesktopAddonRuntimeProjector$fun project(clientRoot: File, safeMode: Boolean): List&lt;String&gt;</ID>
+    <ID>CyclomaticComplexMethod:DesktopAppModel.kt$DesktopAppModel$suspend fun autoLoginIfEnabled()</ID>
+    <ID>CyclomaticComplexMethod:DesktopBotAdmission.kt$DesktopBotAdmission$private fun cycleOnceChecked(loopGeneration: Long, controller: BotAdmissionController): Boolean</ID>
+    <ID>CyclomaticComplexMethod:DesktopClientScanner.kt$DesktopClientScanner$internal fun scanAccess(access: Access): Result</ID>
+    <ID>CyclomaticComplexMethod:DesktopInGameSettingsEditor.kt$DesktopInGameSettingsEditor$fun applyQueuedOnCleanStop(): String</ID>
+    <ID>CyclomaticComplexMethod:DesktopMariaDbEngineTest.kt$DesktopMariaDbEngineTest.ScriptedProcesses$override fun runTool( executable: File, args: List&lt;String&gt;, environment: Map&lt;String, String&gt;, stdin: File?, timeoutMs: Long, ): DatabaseRunResult</ID>
+    <ID>CyclomaticComplexMethod:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$@Suppress("TooGenericExceptionCaught") // the service seam converts any native failure to an honest result override suspend fun provisionAccount( owner: ComponentOwner, username: String, password: String, gmLevel: Int, ): AccountProvisionResult</ID>
+    <ID>CyclomaticComplexMethod:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$override suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult</ID>
+    <ID>CyclomaticComplexMethod:FlavorLoginProbe.kt$fun main()</ID>
+    <ID>CyclomaticComplexMethod:FolderTreeSource.kt$FolderTreeSource$override fun inventory(): SourceInventory</ID>
+    <ID>CyclomaticComplexMethod:HomeScreen.kt$@Composable @Suppress("LongMethod") fun HomeScreen( model: DesktopAppModel, onOpenBots: () -&gt; Unit, onOpenSettings: () -&gt; Unit, onOpenImport: () -&gt; Unit, onOpenPlayers: () -&gt; Unit = {}, )</ID>
+    <ID>CyclomaticComplexMethod:InGameSettingsScreen.kt$@Composable fun InGameSettingsScreen(model: DesktopAppModel)</ID>
+    <ID>CyclomaticComplexMethod:InGameSettingsScreen.kt$@Composable private fun SettingRow( definition: WowSettingDefinition, account: String?, liveValue: (WowSettingDefinition) -&gt; String?, requirementsMet: (WowSettingDefinition) -&gt; Boolean, onEdit: (DesktopInGameSettingsEditor.Edit) -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:InputProfile.kt$InputProfile.Companion$fun fromJson(value: JSONObject): InputProfile</ID>
+    <ID>CyclomaticComplexMethod:ManagedClientStore.kt$ManagedClientStore$private fun loadUnlocked(clientId: String): ManagedClient</ID>
+    <ID>CyclomaticComplexMethod:RealmBrowserScreen.kt$@Composable fun RealmBrowserScreen(model: DesktopAppModel)</ID>
     <ID>CyclomaticComplexMethod:RpHost.kt$@Suppress("TooGenericExceptionCaught") // host lane: every failure answers as JSON, never dies fun main()</ID>
     <ID>CyclomaticComplexMethod:RpWowClient.kt$RpWowClient.World$fun chatAndCapture( kind: String, to: String, text: String, drainMs: Long, emotes: MutableList&lt;Map&lt;String, Long&gt;&gt; = mutableListOf(), includeSelf: Boolean = false, ): List&lt;ChatLine&gt;</ID>
+    <ID>CyclomaticComplexMethod:ScratchArchiveExtractor.kt$ScratchArchiveExtractor$fun extract( stagedFile: File, format: ArchiveFormat, target: File, limits: ImportLimits, checkpoint: () -&gt; Unit = {}, onEntryExtracted: (filesDone: Int) -&gt; Unit = {}, )</ID>
+    <ID>CyclomaticComplexMethod:Win32AudioMute.kt$Win32AudioMute$private fun applyToProcess(pid: Int, mute: Boolean): String?</ID>
+    <ID>CyclomaticComplexMethod:Win32GamepadBridge.kt$Win32GamepadBridge$private fun loop()</ID>
+    <ID>CyclomaticComplexMethod:WowKeyTokens.kt$WowKeyTokens$fun tokenForVk(vk: Int): String?</ID>
+    <ID>DestructuringDeclarationWithTooManyEntries:ImportJournal.kt$ImportJournal$val (importId, priorUri, _, phase) = prior</ID>
+    <ID>DestructuringDeclarationWithTooManyEntries:ImportJournal.kt$ImportJournal$val (importId, priorUri, fingerprint, phase) = prior</ID>
+    <ID>FunctionNaming:DesktopChatterPowerMonitor.kt$DesktopChatterPowerMonitor.ExtendedKernel32$fun GetSystemPowerStatus(status: SYSTEM_POWER_STATUS): Boolean</ID>
+    <ID>FunctionNaming:DesktopMariaDbEngine.kt$DesktopMariaDbEngine.WaitNamedPipeKernel32$fun GetLastError(): Int</ID>
+    <ID>FunctionNaming:DesktopMariaDbEngine.kt$DesktopMariaDbEngine.WaitNamedPipeKernel32$fun WaitNamedPipeW(name: com.sun.jna.WString, timeoutMs: Int): Boolean</ID>
+    <ID>ImplicitDefaultLocale:ControlsScreen.kt$String.format("%.2f", local)</ID>
+    <ID>InstanceOfCheckForException:ManagedClientImporter.kt$ManagedClientImporter$error !is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:ManagedClientImporter.kt$ManagedClientImporter$error is ImportRejected</ID>
+    <ID>LargeClass:DesktopAddonRepository.kt$DesktopAddonRepository</ID>
+    <ID>LargeClass:DesktopAppModel.kt$DesktopAppModel : AutoCloseable</ID>
+    <ID>LargeClass:DesktopMariaDbEngineTest.kt$DesktopMariaDbEngineTest</ID>
+    <ID>LargeClass:DesktopRuntimeBackendTest.kt$DesktopRuntimeBackendTest</ID>
+    <ID>LargeClass:DesktopServerRuntimeFilesTest.kt$DesktopServerRuntimeFilesTest</ID>
+    <ID>LongMethod:AddonsScreen.kt$@Composable private fun AddonDetail( addon: CatalogAddon, installed: InstalledAddon?, updateAvailable: Boolean, conflicts: List&lt;Pair&lt;CatalogAddon, AddonCompatibility&gt;&gt;, recommendationReason: String?, )</ID>
+    <ID>LongMethod:AddonsScreen.kt$@Composable private fun AddonsHubScreen( repository: DesktopAddonRepository, catalog: AddonCatalog, onOpen: (AddonView) -&gt; Unit, )</ID>
+    <ID>LongMethod:DesktopAddonRepository.kt$DesktopAddonRepository$private fun installBuiltInLocked(addon: CatalogAddon, token: AddonOperationToken)</ID>
+    <ID>LongMethod:DesktopAddonRepository.kt$DesktopAddonRepository$private fun installLocked(ref: GitHubRepoRef, token: AddonOperationToken)</ID>
+    <ID>LongMethod:DesktopAddonRepository.kt$DesktopAddonRepository$private fun installVoiceOverLocked(resolved: ResolvedGitHub, token: AddonOperationToken)</ID>
+    <ID>LongMethod:DesktopAddonRuntimeProjector.kt$DesktopAddonRuntimeProjector$fun project(clientRoot: File, safeMode: Boolean): List&lt;String&gt;</ID>
+    <ID>LongMethod:DesktopAppModel.kt$DesktopAppModel$suspend fun autoLoginIfEnabled()</ID>
+    <ID>LongMethod:DesktopBootLaneBindingTest.kt$DesktopBootLaneBindingTest$@Test fun theBackendPinsTheBootLaneAndTheProvisionSeamsConsumeIt()</ID>
+    <ID>LongMethod:DesktopBotAdmission.kt$DesktopBotAdmission$private fun cycleOnceChecked(loopGeneration: Long, controller: BotAdmissionController): Boolean</ID>
+    <ID>LongMethod:DesktopClientScanner.kt$DesktopClientScanner$internal fun scanAccess(access: Access): Result</ID>
+    <ID>LongMethod:DesktopDatabaseProviderDefaultTest.kt$DesktopDatabaseProviderDefaultTest$@Test fun aCorruptInitializedSealOverAPopulatedDatadirRefusesAsTheCorruptSealVerdict()</ID>
+    <ID>LongMethod:DesktopDatabaseProviderDefaultTest.kt$DesktopDatabaseProviderDefaultTest$@Test fun aRestagedProviderClosureOverAnInitializedDatadirRefusesAsItsOwnVerdict()</ID>
+    <ID>LongMethod:DesktopInGameSettingsEditor.kt$DesktopInGameSettingsEditor$fun applyQueuedOnCleanStop(): String</ID>
+    <ID>LongMethod:DesktopMariaDbEngineTest.kt$DesktopMariaDbEngineTest$@Test fun realmEndpointProjectionTargetsTheActiveFlavorsRealmdDatabase()</ID>
+    <ID>LongMethod:DesktopMariaDbEngineTest.kt$DesktopMariaDbEngineTest$@Test fun timeframeOverlayAppliesThePinnedPlanInTheMariadbDialect()</ID>
+    <ID>LongMethod:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$@Suppress("TooGenericExceptionCaught") // any native failure is an honest refusal, never a crash override suspend fun provisionAccountVerifier( username: String, sHex: String, vHex: String, allowExistingAccount: Boolean, ): AccountProvisionResult</ID>
+    <ID>LongMethod:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$@Suppress("TooGenericExceptionCaught") // any projection failure becomes an honest result, never a crash override suspend fun projectRealmAdvertisement( databaseOwner: ComponentOwner, endpoint: RealmEndpoint, advertised: String, ): RuntimeActionResult</ID>
+    <ID>LongMethod:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$@Suppress("TooGenericExceptionCaught") // config/data failures surface as the honest DATA_MISSING posture private fun startWorld(bindAddress: String, spec: RuntimeLaunchSpec): ComponentObservation</ID>
+    <ID>LongMethod:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$@Suppress("TooGenericExceptionCaught") // the service seam converts any native failure to an honest result override suspend fun provisionAccount( owner: ComponentOwner, username: String, password: String, gmLevel: Int, ): AccountProvisionResult</ID>
+    <ID>LongMethod:DesktopRuntimeBackendTest.kt$DesktopRuntimeBackendTest$@Test fun worldPresenceIsNonEmptyWhileTheStackAndClientRun()</ID>
+    <ID>LongMethod:DesktopSupportBundleTest.kt$DesktopSupportBundleTest$@Test fun clientCrashEvidenceShipsCappedRedactedAndRawWhereBinary()</ID>
+    <ID>LongMethod:FlavorLoginProbe.kt$fun main()</ID>
+    <ID>LongMethod:FolderTreeSource.kt$FolderTreeSource$override fun inventory(): SourceInventory</ID>
+    <ID>LongMethod:HomeScreen.kt$@Composable private fun InternetHostCard(model: DesktopAppModel)</ID>
+    <ID>LongMethod:ImportJournal.kt$ImportJournal$fun beginStagingOrResume(sourceUri: String, expectedBytes: Long): StagingResume</ID>
+    <ID>LongMethod:ImportScreen.kt$@Composable private fun ImportLaneCard( model: DesktopAppModel, scope: kotlinx.coroutines.CoroutineScope, onGenerationPublished: suspend () -&gt; Unit, )</ID>
+    <ID>LongMethod:InGameSettingsScreen.kt$@Composable fun InGameSettingsScreen(model: DesktopAppModel)</ID>
+    <ID>LongMethod:InGameSettingsScreen.kt$@Composable private fun BindingsEditorCard( editor: DesktopInGameSettingsEditor, scopes: List&lt;Pair&lt;String, String&gt;&gt;, selectedScope: Pair&lt;String, String&gt;?, onScopePicked: (Pair&lt;String, String&gt;) -&gt; Unit, liveBindings: Map&lt;String, String&gt;, search: String, onSearch: (String) -&gt; Unit, onAssign: (commandId: String, primary: String?, secondary: String?) -&gt; Unit, )</ID>
+    <ID>LongMethod:InGameSettingsScreen.kt$@Composable private fun SettingRow( definition: WowSettingDefinition, account: String?, liveValue: (WowSettingDefinition) -&gt; String?, requirementsMet: (WowSettingDefinition) -&gt; Boolean, onEdit: (DesktopInGameSettingsEditor.Edit) -&gt; Unit, )</ID>
+    <ID>LongMethod:InputProfile.kt$InputProfile.Companion$fun fromJson(value: JSONObject): InputProfile</ID>
+    <ID>LongMethod:ManagedClientImporter.kt$ManagedClientImporter$@Suppress("CyclomaticComplexMethod", "TooGenericExceptionCaught") // one verdict per lane branch, mirroring the Android archive pipeline suspend fun runArchive( pickedArchive: File, afterDetection: () -&gt; Unit = {}, afterVerified: (Int) -&gt; Unit = {}, beforePublish: () -&gt; Unit = {}, afterRenameBeforeActivate: () -&gt; Unit = {}, onScratchEntry: (Int) -&gt; Unit = {}, ): ImportResult</ID>
+    <ID>LongMethod:ManagedClientStore.kt$ManagedClientStore$private fun loadUnlocked(clientId: String): ManagedClient</ID>
+    <ID>LongMethod:RealmBrowserScreen.kt$@Composable fun RealmBrowserScreen(model: DesktopAppModel)</ID>
     <ID>LongMethod:RpHost.kt$@Suppress("TooGenericExceptionCaught") // host lane: every failure answers as JSON, never dies fun main()</ID>
+    <ID>LongMethod:SettingsScreen.kt$@Composable private fun TimeframeCard(model: DesktopAppModel, storedStage: String, realmRunning: Boolean)</ID>
+    <ID>LongMethod:SettingsScreen.kt$@Composable private fun TunnelAdvertisedField(model: DesktopAppModel, value: String, realmRunning: Boolean)</ID>
+    <ID>LongMethod:Win32AudioMute.kt$Win32AudioMute$private fun applyToProcess(pid: Int, mute: Boolean): String?</ID>
+    <ID>LongMethod:Win32GamepadBridge.kt$Win32GamepadBridge$private fun loop()</ID>
+    <ID>LongParameterList:AddonsScreen.kt$( addon: CatalogAddon, installed: InstalledAddon?, updateAvailable: Boolean, busy: Boolean, onInstall: () -&gt; Unit, onRemove: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:AddonsScreen.kt$( operationLabel: String?, repositoryLabel: String?, progress: Float?, cancellable: Boolean, onCancel: () -&gt; Unit, notice: String?, errorTitle: String?, error: String?, )</ID>
+    <ID>LongParameterList:DataPreparationStore.kt$DataPreparationStore$( importId: String, stage: DataStage, workDir: File, tool: String, arguments: List&lt;String&gt;, suffix: String = "run", onTick: (() -&gt; Unit)? = null, )</ID>
+    <ID>LongParameterList:DesktopAddonRepository.kt$DesktopAddonRepository$( url: String, destination: File, slug: String, token: AddonOperationToken, maxBytes: Long = MAX_DOWNLOAD_BYTES, expectedBytes: Long? = null, )</ID>
+    <ID>LongParameterList:DesktopBotAdmission.kt$DesktopBotAdmission$( private val sampler: DesktopBotResourceSampler, private val recordFile: File, /** The admission-generation handshake seams (production: the shared * WorldNative externals; tests: recorders). */ private val beginGeneration: (Long) -&gt; Int = { generation -&gt; WorldNative.beginAdmissionBotTargetGenerationNative(generation) }, private val setAdmissionTarget: (Int, Long) -&gt; Int = { target, generation -&gt; WorldNative.setAdmissionBotTargetNative(target, generation) }, private val retireGeneration: (Long) -&gt; Int = { generation -&gt; WorldNative.retireAdmissionBotTargetGenerationNative(generation) }, /** Companion-pause guard (Android's runAdmissionMonitor contract): a * paused world reports frozen tick metrics; withholding adaptation * avoids misreading a deliberate pause as a hard stall. */ private val worldPausedProbe: () -&gt; Boolean = { WorldNative.isWorldPausedNative() == 1 }, /** The bot status lane (enabled flag at 2, online count at 4) and the * resource sample, pulled together so a test can fake both. */ private val readInputs: () -&gt; Pair&lt;LongArray, DesktopBotResourceMetrics&gt; = { WorldNative.botStatusNative() to sampler.readFromWorld() }, )</ID>
+    <ID>LongParameterList:DesktopBotAdmissionTest.kt$DesktopBotAdmissionTest$( sampledAtMs: Long, worldP99Ms: Int = 0, freeMemoryMiB: Long = 8_000L, freeStorageMiB: Long = 64_000L, hardStallCount: Int = 0, hardStallTotal: Long = 0L, )</ID>
+    <ID>LongParameterList:DesktopDatabasePreparation.kt$DesktopDatabasePreparation$( action: DatabaseStartPreparation.Action, current: DesktopSqliteSeals.Identity?, corpusCurrent: Boolean, closureCurrent: Boolean, sealProof: Boolean, sealedLedgerSurvives: Boolean, )</ID>
+    <ID>LongParameterList:ImportJournal.kt$ImportJournal$( importId: String, stage: DataStage, processed: Int, total: Int, bytesWritten: Long, checkpoint: String?, verified: Boolean = false, )</ID>
+    <ID>LongParameterList:ImportStoragePlanner.kt$ImportStoragePlanner.Companion$( source: Long, stagedArchive: Long, scratchArchive: Long, extracted: Long, database: Long, wine: Long, snapshot: Long, minimumReserve: Long, allocatable: Long, )</ID>
+    <ID>LongParameterList:InGameSettingsScreen.kt$( editor: DesktopInGameSettingsEditor, scopes: List&lt;Pair&lt;String, String&gt;&gt;, selectedScope: Pair&lt;String, String&gt;?, onScopePicked: (Pair&lt;String, String&gt;) -&gt; Unit, liveBindings: Map&lt;String, String&gt;, search: String, onSearch: (String) -&gt; Unit, onAssign: (commandId: String, primary: String?, secondary: String?) -&gt; Unit, )</ID>
+    <ID>LongParameterList:InGameSettingsScreen.kt$( section: WowSettingSection, account: String?, accounts: List&lt;String&gt;, onAccountPicked: (String) -&gt; Unit, liveValue: (WowSettingDefinition) -&gt; String?, requirementsMet: (WowSettingDefinition) -&gt; Boolean, onEdit: (DesktopInGameSettingsEditor.Edit) -&gt; Unit, )</ID>
+    <ID>LongParameterList:InputProfile.kt$ControllerAction$( val displayName: String, val keyCode: Int? = null, val pointer: ControlPointer? = null, val cameraLockToggle: Boolean = false, val targetPulse: Boolean = false, val useLootClick: Boolean = false, val nearbyUsePulse: Boolean = false, val autoRunPulse: Boolean = false, val wheelTicks: Int? = null, val radialMenuPulse: Boolean = false, val moveUiPulse: Boolean = false, )</ID>
+    <ID>LongParameterList:ManagedClientImporter.kt$ManagedClientImporter$( copy: CopyContext, journal: ImportJournal, importId: String, entry: ImportSourceEntry, source: ImportSource, staging: File, )</ID>
+    <ID>LongParameterList:ManagedClientImporter.kt$ManagedClientImporter$( copy: CopyContext, journal: ImportJournal, importId: String, source: ImportSource, inventory: SourceInventory, staging: File, afterVerified: (Int) -&gt; Unit, )</ID>
+    <ID>LongParameterList:ManagedClientImporter.kt$ManagedClientImporter$( importId: String, scan: DesktopClientScanner.Result, inventory: SourceInventory, verified: Map&lt;String, String&gt;, startedNanos: Long, beforePublish: () -&gt; Unit, afterRenameBeforeActivate: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:ManagedClientImporter.kt$ManagedClientImporter$( pickedArchive: File, afterDetection: () -&gt; Unit = {}, afterVerified: (Int) -&gt; Unit = {}, beforePublish: () -&gt; Unit = {}, afterRenameBeforeActivate: () -&gt; Unit = {}, onScratchEntry: (Int) -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:RelaunchHandoff.kt$RelaunchHandoff$( factory: () -&gt; T, held: (Throwable) -&gt; Boolean = { it is AppInstanceLockHeld }, pollMs: Long = POLL_MS, deadlineMs: Long = WAIT_MS, sleeper: (Long) -&gt; Unit = { Thread.sleep(it) }, now: () -&gt; Long = System::currentTimeMillis, )</ID>
     <ID>LongParameterList:RpWowClient.kt$RpWowClient.World$( kind: String, to: String, text: String, drainMs: Long, emotes: MutableList&lt;Map&lt;String, Long&gt;&gt; = mutableListOf(), includeSelf: Boolean = false, )</ID>
+    <ID>LongParameterList:RpWowClientCharEnumTest.kt$RpWowClientCharEnumTest.CharRow$( val guid: Long, val name: String, val race: Int = 1, val classId: Int = 1, val gender: Int = 0, val playerBytes: Int = 0, val facialHair: Int = 0, val level: Int = 1, val zone: Int = 12, val mapId: Int = 0, val x: Float = -8913.0f, val y: Float = -133.0f, val z: Float = 81.0f, val guildId: Int = 0, val charFlags: Int = 0, val firstLogin: Int = 0, val petDisplayId: Int = 0, val petLevel: Int = 0, val petFamily: Int = 0, val equipment: List&lt;Pair&lt;Int, Int&gt;&gt; = List(ENUM_SLOTS) { 0 to 0 }, )</ID>
+    <ID>LongParameterList:ScratchArchiveExtractor.kt$ScratchArchiveExtractor$( stagedFile: File, format: ArchiveFormat, target: File, limits: ImportLimits, checkpoint: () -&gt; Unit = {}, onEntryExtracted: (filesDone: Int) -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:Win32AudioMute.kt$Win32AudioMute$( pid: Int, mute: Boolean, muter: AudioSessionMuter = SYSTEM, nowMs: () -&gt; Long = System::currentTimeMillis, sleepMs: (Long) -&gt; Unit = { Thread.sleep(it) }, deadlineMs: Long = SESSION_WAIT_TIMEOUT_MS, pollMs: Long = SESSION_POLL_MS, )</ID>
+    <ID>LongParameterList:Win32GamepadBridge.kt$Win32GamepadBridge$(held: MutableMap&lt;Rp6Control, HeldKey&gt;, control: Rp6Control, downFlag: Int, upFlag: Int, down: Boolean, wasDown: Boolean)</ID>
+    <ID>LoopWithTooManyJumpStatements:ArchiveClientScanner.kt$ArchiveClientScanner.ArchiveAccess$for</ID>
+    <ID>LoopWithTooManyJumpStatements:DesktopBotAdmission.kt$DesktopBotAdmission$while</ID>
+    <ID>LoopWithTooManyJumpStatements:DesktopRealmArchiveTest.kt$DesktopRealmArchiveTest$while</ID>
+    <ID>LoopWithTooManyJumpStatements:ManagedClientImporter.kt$ManagedClientImporter$for</ID>
     <ID>LoopWithTooManyJumpStatements:RpHost.kt$while</ID>
     <ID>LoopWithTooManyJumpStatements:RpWowClient.kt$RpWowClient.World$while</ID>
+    <ID>LoopWithTooManyJumpStatements:ScratchArchiveExtractor.kt$ScratchArchiveExtractor$for</ID>
+    <ID>LoopWithTooManyJumpStatements:Win32AudioMute.kt$Win32AudioMute$for</ID>
+    <ID>LoopWithTooManyJumpStatements:Win32GamepadBridge.kt$Win32GamepadBridge$while</ID>
+    <ID>MagicNumber:AddonCatalog.kt$AddonCatalog.Companion$10.0</ID>
+    <ID>MagicNumber:AddonCatalog.kt$AddonCatalog.Companion$154</ID>
+    <ID>MagicNumber:AddonCatalog.kt$AddonCatalog.Companion$266</ID>
+    <ID>MagicNumber:AddonCatalog.kt$AddonCatalog.Companion$3</ID>
+    <ID>MagicNumber:AddonCatalog.kt$AddonCatalog.Companion$4</ID>
+    <ID>MagicNumber:AddonsScreen.kt$12</ID>
+    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$0x1a</ID>
+    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$0x4d</ID>
+    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$0x50</ID>
+    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$0x51</ID>
+    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$1024</ID>
+    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$4</ID>
+    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$4096</ID>
+    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$64</ID>
+    <ID>MagicNumber:BotsScreenSections.kt$100</ID>
+    <ID>MagicNumber:DataPreparationHost.kt$DataPreparationHost$8</ID>
+    <ID>MagicNumber:DataPreparationStore.kt$3</ID>
+    <ID>MagicNumber:DataPreparationStore.kt$DataPreparationStore$3</ID>
+    <ID>MagicNumber:DataPreparationStore.kt$DataPreparationStore$5</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$1024</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$1024L</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$200</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$299</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$300</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$32</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$399</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$3L</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$40</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$403</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$404</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$429</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$512L</ID>
+    <ID>MagicNumber:DesktopAddonRepository.kt$DesktopAddonRepository$64</ID>
+    <ID>MagicNumber:DesktopAddonRuntimeProjector.kt$DesktopAddonRuntimeProjector$1024</ID>
+    <ID>MagicNumber:DesktopAddonRuntimeProjector.kt$DesktopAddonRuntimeProjector$32</ID>
+    <ID>MagicNumber:DesktopAppModel.kt$DesktopAppModel$1000</ID>
+    <ID>MagicNumber:DesktopAppModel.kt$DesktopAppModel$12</ID>
+    <ID>MagicNumber:DesktopAppModel.kt$LanInterfaceLossMonitor$1000</ID>
+    <ID>MagicNumber:DesktopAppModel.kt$LanInterfaceLossMonitor$1_000_000</ID>
+    <ID>MagicNumber:DesktopBotAdmission.kt$DesktopBotAdmission$256</ID>
+    <ID>MagicNumber:DesktopChatterPowerMonitor.kt$DesktopChatterPowerMonitor$0xff</ID>
+    <ID>MagicNumber:DesktopChatterPowerMonitor.kt$DesktopChatterPowerMonitor$100</ID>
+    <ID>MagicNumber:DesktopChatterPowerMonitor.kt$DesktopChatterPowerMonitor$1000L</ID>
+    <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner$0x1a</ID>
+    <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner$0x4d</ID>
+    <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner$0x50</ID>
+    <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner$0x51</ID>
+    <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner$4</ID>
+    <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner.FileAccess$1024</ID>
+    <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner.FileAccess$64</ID>
+    <ID>MagicNumber:DesktopDataPreparation.kt$8</ID>
+    <ID>MagicNumber:DesktopRealmlist.kt$DesktopRealmlist$16</ID>
+    <ID>MagicNumber:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$25</ID>
+    <ID>MagicNumber:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$3</ID>
+    <ID>MagicNumber:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$700</ID>
+    <ID>MagicNumber:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$8</ID>
+    <ID>MagicNumber:DesktopVanillaTweaksPatcher.kt$DesktopVanillaTweaksPatcher$0x014c</ID>
+    <ID>MagicNumber:DesktopVanillaTweaksPatcher.kt$DesktopVanillaTweaksPatcher$0x3c</ID>
+    <ID>MagicNumber:DesktopVanillaTweaksPatcher.kt$DesktopVanillaTweaksPatcher$0xffff</ID>
+    <ID>MagicNumber:DesktopVanillaTweaksPatcher.kt$DesktopVanillaTweaksPatcher$4</ID>
+    <ID>MagicNumber:DesktopVanillaTweaksPatcher.kt$DesktopVanillaTweaksPatcher$400</ID>
+    <ID>MagicNumber:DesktopVanillaTweaksPatcher.kt$DesktopVanillaTweaksPatcher$6</ID>
+    <ID>MagicNumber:DiagnosticsScreen.kt$12</ID>
+    <ID>MagicNumber:DurableFiles.kt$DurableFiles$1024</ID>
+    <ID>MagicNumber:DurableFiles.kt$DurableFiles$64</ID>
+    <ID>MagicNumber:FlavorLoginProbe.kt$16</ID>
+    <ID>MagicNumber:FlavorLoginProbe.kt$1_500</ID>
+    <ID>MagicNumber:FlavorLoginProbe.kt$3_000</ID>
+    <ID>MagicNumber:FlavorLoginProbe.kt$5_000</ID>
+    <ID>MagicNumber:HomeScreen.kt$3600L</ID>
+    <ID>MagicNumber:HomeScreen.kt$5_000</ID>
+    <ID>MagicNumber:HomeScreen.kt$8</ID>
+    <ID>MagicNumber:HomeScreen.kt$86_400L</ID>
+    <ID>MagicNumber:ImportJournal.kt$ImportJournal$3</ID>
+    <ID>MagicNumber:ImportJournal.kt$ImportJournal$4</ID>
+    <ID>MagicNumber:ImportScreen.kt$1024</ID>
+    <ID>MagicNumber:ImportScreen.kt$1_000L</ID>
+    <ID>MagicNumber:ImportScreen.kt$5_000L</ID>
+    <ID>MagicNumber:ImportScreen.kt$8</ID>
+    <ID>MagicNumber:ImportStoragePlanner.kt$ImportStoragePlanner.Companion$0.20</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile$0.05f</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile$0.15f</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile$0.1f</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile$0.25f</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile$0.35f</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile$0.5f</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile$0.75f</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile$0.7f</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile$0.9f</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile$1.5f</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile$4.0f</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$0.20</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$0.25</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$0.30</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$0.35</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$0.40</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$0.42</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$0.85</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$10</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$11</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$5</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$6</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$7</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$8</ID>
+    <ID>MagicNumber:InputProfile.kt$InputProfile.Companion$9</ID>
+    <ID>MagicNumber:ManagedClientImporter.kt$ManagedClientImporter$0x10b</ID>
+    <ID>MagicNumber:ManagedClientImporter.kt$ManagedClientImporter$0x14c</ID>
+    <ID>MagicNumber:ManagedClientImporter.kt$ManagedClientImporter$0x8001</ID>
+    <ID>MagicNumber:ManagedClientImporter.kt$ManagedClientImporter$5</ID>
+    <ID>MagicNumber:ManagedClientStore.kt$ManagedClientStore$0x10b</ID>
+    <ID>MagicNumber:ManagedClientStore.kt$ManagedClientStore$0x14c</ID>
+    <ID>MagicNumber:ManagedClientStore.kt$ManagedClientStore$64</ID>
+    <ID>MagicNumber:RarArchiveSource.kt$6</ID>
+    <ID>MagicNumber:RarArchiveSource.kt$7</ID>
     <ID>MagicNumber:RpHost.kt$10</ID>
     <ID>MagicNumber:RpHost.kt$3</ID>
     <ID>MagicNumber:RpHost.kt$4</ID>
@@ -15,9 +243,224 @@
     <ID>MagicNumber:RpHost.kt$6</ID>
     <ID>MagicNumber:RpHost.kt$8000L</ID>
     <ID>MagicNumber:RpHost.kt$9</ID>
+    <ID>MagicNumber:ScratchArchiveExtractor.kt$ScratchArchiveExtractor$16</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$100</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$12</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$1_000</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$20</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$200</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$25</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$2_000</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$30_000</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$32L</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$3L</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$50</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$500</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$60_000</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$900_000</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings.Companion$10L</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings.Companion$250L</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings.Companion$300L</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings.Companion$300_000L</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings.Companion$4</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings.Companion$4_096</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings.Companion$50L</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings.Companion$5_000L</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings.Companion$80L</ID>
+    <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings.Companion$8_000L</ID>
+    <ID>MagicNumber:SettingsScreen.kt$1000</ID>
+    <ID>MagicNumber:Win32GamepadBridge.kt$Win32GamepadBridge$0xFF</ID>
+    <ID>MagicNumber:Win32GamepadBridge.kt$Win32GamepadBridge$255f</ID>
+    <ID>MagicNumber:Win32GamepadBridge.kt$Win32GamepadBridge$32767f</ID>
+    <ID>MagicNumber:Win32GamepadBridge.kt$Win32GamepadBridge$32768f</ID>
+    <ID>MatchingDeclarationName:ClientTweaksRuntime.kt$EffectiveClientTweaks</ID>
+    <ID>MatchingDeclarationName:FirstRunTutorial.kt$TutorialStep</ID>
+    <ID>MaxLineLength:AccountEntryValidationTest.kt$AccountEntryValidationTest$accountCreateEnabled(realmReady = true, accountOperationPending = false, username = "Someone1", password = "Passw0rd1")</ID>
+    <ID>MaxLineLength:AccountEntryValidationTest.kt$AccountEntryValidationTest$assertFalse(accountCreateEnabled(realmReady = false, accountOperationPending = false, username = "Someone1", password = "Passw0rd1"))</ID>
+    <ID>MaxLineLength:AccountEntryValidationTest.kt$AccountEntryValidationTest$assertFalse(accountCreateEnabled(realmReady = true, accountOperationPending = false, username = "", password = "Passw0rd1"))</ID>
+    <ID>MaxLineLength:AccountEntryValidationTest.kt$AccountEntryValidationTest$assertFalse(accountCreateEnabled(realmReady = true, accountOperationPending = false, username = typed, password = "Passw0rd1"))</ID>
+    <ID>MaxLineLength:AccountEntryValidationTest.kt$AccountEntryValidationTest$assertFalse(accountCreateEnabled(realmReady = true, accountOperationPending = true, username = "Someone1", password = "Passw0rd1"))</ID>
+    <ID>MaxLineLength:AccountEntryValidationTest.kt$AccountEntryValidationTest$assertTrue(accountCreateEnabled(realmReady = true, accountOperationPending = false, username = "Someone1", password = "Passw0rd1"))</ID>
+    <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog$fun</ID>
+    <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog.Companion$"059" to "Special two-part install: the player plus about 1.2 GB of Vanilla voice data for less small-screen reading."</ID>
+    <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog.Companion$"151" to "Optional Vanilla 1.12.1 Android Port UI with 6-inch handheld defaults; Pocket Realm supplies its matching 1-8 face/D-pad, target/use shoulder and LT/RT Winlator control map."</ID>
+    <ID>MaxLineLength:AddonsScreen.kt$"Add-on Lua runs inside WoW. Pocket Realm validates archive structure and Vanilla interface metadata, not the add-on's behaviour."</ID>
+    <ID>MaxLineLength:AddonsScreen.kt$"Advanced option for a public add-on project not yet in the catalog. Use the repository's main URL, not a download link."</ID>
+    <ID>MaxLineLength:AddonsScreen.kt$"Pocket Realm downloads from GitHub, records the exact commit and checksum, rejects oversized or unsafe archives, and requires "</ID>
+    <ID>MaxLineLength:AddonsScreen.kt$"This add-on was installed from a repository outside the researched catalog. It remains visible here so it can always be removed."</ID>
+    <ID>MaxLineLength:ArchiveClientScanner.kt$ArchiveClientScanner$relative != null -&gt; rebased += ImportExtractionPolicy.RawEntry(relative, entry.directory, entry.size, entry.name)</ID>
+    <ID>MaxLineLength:AuthGate.kt$"INSERT INTO account (username, gmlevel, v, s, joindate, lockedIp, last_module, locale, os, platform) "</ID>
+    <ID>MaxLineLength:ControlsScreen.kt$Row</ID>
+    <ID>MaxLineLength:ControlsScreen.kt$mutableStateOf(if (model.gamepadBridge.gamepadSupported()) "" else "no XInput driver found — the bridge is inert on this machine")</ID>
+    <ID>MaxLineLength:DataPreparationStore.kt$DataPreparationStore$JSONObject().put("name", name).put("size", file.length()).put("sha256", if (file.isFile) sha256(file) else "")</ID>
+    <ID>MaxLineLength:DesktopAddonRepository.kt$DesktopAddonRepository$require(totalBytes &lt;= DesktopAddonPolicy.MAX_BUILTIN_BYTES) { "Built-in add-on is larger than supported" }</ID>
+    <ID>MaxLineLength:DesktopAddonRuntimeProjector.kt$DesktopAddonRuntimeProjector$require(bytes &lt;= DesktopAddonPolicy.MAX_BUILTIN_BYTES) { "Built-in add-on is larger than supported" }</ID>
+    <ID>MaxLineLength:DesktopAppModelTunnelLaunchTest.kt$DesktopAppModelTunnelLaunchTest$assertTrue("the LAN address is the dial target without a tunnel:\n$invite", "set realmlist 192.168.1.50" in invite)</ID>
+    <ID>MaxLineLength:DesktopClientGenerationStoreTest.kt$DesktopClientGenerationStoreTest$assertNull("an unknown import has nothing to recover", store.recoverPublished("66666666-6666-6666-6666-666666666666"))</ID>
+    <ID>MaxLineLength:DesktopClientGenerationStoreTest.kt$DesktopClientGenerationStoreTest$private</ID>
+    <ID>MaxLineLength:DesktopClientScanner.kt$DesktopClientScanner$identity</ID>
+    <ID>MaxLineLength:DesktopDataPreparation.kt$if (preparing) "Preparing world data…" else if (status.ready) "Re-prepare world data…" else "Prepare world data…"</ID>
+    <ID>MaxLineLength:DesktopInGameSettingsEditorTest.kt$DesktopInGameSettingsEditorTest$assertTrue("expected the direct lane after the client resolved: $outcome", outcome is DesktopInGameSettingsEditor.EditOutcome.Landed)</ID>
+    <ID>MaxLineLength:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$private</ID>
+    <ID>MaxLineLength:DesktopServerRuntimeFilesTest.kt$DesktopServerRuntimeFilesTest$com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile).save(Settings.Snapshot(selectedFlavorId = "vanilla"))</ID>
+    <ID>MaxLineLength:DesktopServerRuntimeFilesTest.kt$DesktopServerRuntimeFilesTest$com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile).save(Settings.Snapshot(selectedFlavorId = "wotlk"))</ID>
+    <ID>MaxLineLength:FolderTreeSource.kt$FolderTreeSource$if</ID>
+    <ID>MaxLineLength:HomeScreen.kt$@Suppress("LongMethod", "CyclomaticComplexMethod")</ID>
+    <ID>MaxLineLength:HomeScreen.kt$@Suppress("LongMethod", "CyclomaticComplexMethod", "MagicNumber")</ID>
+    <ID>MaxLineLength:HomeScreen.kt$addressValid -&gt; "the host's provisioning port ${ServerRuntimeContract.PROVISION_PORT} is used automatically"</ID>
+    <ID>MaxLineLength:HomeScreen.kt$status = "Approved — account ${verdict.accountId} saved. Join the host and log in with it."</ID>
+    <ID>MaxLineLength:ImportJournal.kt$ImportJournal$"UPDATE files SET state='SKIPPED', bytes_copied=0, temp_name=NULL, last_error=${sqlString(reason.take(ERROR_MAX))}, "</ID>
+    <ID>MaxLineLength:ImportJournal.kt$ImportJournal$"fsync_marker=1 WHERE import_id=${sqlString(importId)} AND relative_path=${sqlString(entry.relativePath)}"</ID>
+    <ID>MaxLineLength:InputProfile.kt$ControlScheme.ANDROID_PORT$"Optional Vanilla 1.12.1 layout: direct target/use shoulders, eight action buttons, LT/RT modifier pages and radial menu. Unreliable RP6 M1/M2 rear buttons stay disabled."</ID>
+    <ID>MaxLineLength:InputProfile.kt$ControlScheme.CLASSIC_CAMERA$"Target, loot/interact, jump, movement and abilities work without an add-on. Lock camera makes the right stick look; unlock it to move the cursor."</ID>
+    <ID>MaxLineLength:InputProfile.kt$ControllerFamily$AUTO : ControllerFamily</ID>
+    <ID>MaxLineLength:InputProfile.kt$ControllerFamily$GENERIC : ControllerFamily</ID>
+    <ID>MaxLineLength:InputProfile.kt$ControllerFamily$KEYBOARD_MOUSE : ControllerFamily</ID>
+    <ID>MaxLineLength:InputProfile.kt$ControllerFamily$RETROID_POCKET_6 : ControllerFamily</ID>
+    <ID>MaxLineLength:InputProfile.kt$InputProfile.Companion$/** Exact uncustomized map shipped when nearby Use/Open replaced direct L1 use, before L3 became pointer right. */</ID>
+    <ID>MaxLineLength:Main.kt$if (handoff) "relaunch handoff timed out: ${held.message}" else "second instance refused: ${held.message}"</ID>
+    <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$@Suppress("CyclomaticComplexMethod", "TooGenericExceptionCaught")</ID>
+    <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$format == ArchiveFormat.SEVEN_ZIP -&gt; DesktopSevenZipSource(pickedArchive, detection!!.classified)</ID>
+    <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$result.scan.failures.joinToString("; ").ifBlank { "unsupported client archive" }</ID>
+    <ID>MaxLineLength:ManagedClientImporterArchiveTest.kt$ManagedClientImporterArchiveTest$SyntheticClientArchives.Entry("Wowinstall classic/setup-1.bin", File(installer, "setup-1.bin").readBytes())</ID>
+    <ID>MaxLineLength:ManagedClientImporterArchiveTest.kt$ManagedClientImporterArchiveTest$assertEquals("the refusal must not publish a pointer", null, ClientGenerationStore(roots).activeGeneration())</ID>
+    <ID>MaxLineLength:ManagedClientImporterTest.kt$ManagedClientImporterTest$assertEquals(ClientFlavors.VANILLA.versionResource, managed.manifest.getJSONObject("identity").getString("version"))</ID>
+    <ID>MaxLineLength:SettingsScreen.kt$Text("Allow friend access while hosting (invite codes)", style = MaterialTheme.typography.bodyMedium)</ID>
+    <ID>MaxLineLength:Win32AutoLoginSignatureTest.kt$Win32AutoLoginSignatureTest$assertFalse("a hidden window must not match", signature.matches(descriptor("WowWindow", "World of Warcraft", visible = false)))</ID>
+    <ID>MaxLineLength:Win32AutoLoginSignatureTest.kt$Win32AutoLoginSignatureTest$assertFalse("a title suffix must not match", signature.matches(descriptor("WowWindow", "World of Warcraft - Vanilla")))</ID>
+    <ID>MaxLineLength:Win32AutoLoginSignatureTest.kt$Win32AutoLoginSignatureTest$assertFalse("an unowned window must not match", signature.matches(descriptor("WowWindow", "World of Warcraft", pid = 0)))</ID>
+    <ID>MaxLineLength:Win32GamepadBridge.kt$Win32GamepadBridge$markIf(pressed, Rp6Control.L2, triggerHeld(gamepad.bLeftTrigger, previous[Rp6Control.L2.ordinal], profileNow.leftTriggerOnThreshold, profileNow.leftTriggerOffThreshold))</ID>
+    <ID>MaxLineLength:Win32GamepadBridge.kt$Win32GamepadBridge$markIf(pressed, Rp6Control.R2, triggerHeld(gamepad.bRightTrigger, previous[Rp6Control.R2.ordinal], profileNow.rightTriggerOnThreshold, profileNow.rightTriggerOffThreshold))</ID>
+    <ID>MaxLineLength:Win32GamepadBridge.kt$Win32GamepadBridge$private</ID>
+    <ID>MayBeConst:DesktopVanillaTweaksPatcher.kt$DesktopVanillaTweaksPatcher$internal val PATCHED_FILE_NAME: String = PATCHED_NAME</ID>
+    <ID>MayBeConst:ImportJournal.kt$ImportJournal.Companion$private val BENCHMARKS_DDL = """CREATE TABLE IF NOT EXISTS benchmarks( import_id TEXT PRIMARY KEY REFERENCES imports(import_id) ON DELETE CASCADE, device_label TEXT NOT NULL, model TEXT NOT NULL, soc TEXT NOT NULL, actively_cooled INTEGER NOT NULL DEFAULT 0, abi TEXT NOT NULL, api INTEGER NOT NULL, cores INTEGER NOT NULL, ram_bytes INTEGER NOT NULL, total_ms INTEGER NOT NULL, copy_ms INTEGER NOT NULL DEFAULT 0, data_ms INTEGER NOT NULL DEFAULT 0, stage_durations TEXT NOT NULL DEFAULT '{}', mmap_maps INTEGER NOT NULL DEFAULT 0, mmap_threads INTEGER NOT NULL DEFAULT 0, created_at_ms INTEGER NOT NULL)"""</ID>
+    <ID>MayBeConst:ImportJournal.kt$ImportJournal.Companion$private val DATA_STAGES_DDL_WITHOUT_ATTEMPT = """CREATE TABLE data_stages( import_id TEXT NOT NULL REFERENCES imports(import_id) ON DELETE CASCADE, stage TEXT NOT NULL, state TEXT NOT NULL, processed INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL DEFAULT 0, bytes_written INTEGER NOT NULL DEFAULT 0, checkpoint TEXT, attempt INTEGER NOT NULL DEFAULT 0, last_error TEXT, updated_at_ms INTEGER NOT NULL, started_at_ms INTEGER NOT NULL DEFAULT 0, completed_at_ms INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(import_id,stage))"""</ID>
+    <ID>MayBeConst:ImportJournal.kt$ImportJournal.Companion$private val FILES_DDL = """CREATE TABLE files( import_id TEXT NOT NULL REFERENCES imports(import_id) ON DELETE CASCADE, relative_path TEXT NOT NULL, document_id TEXT NOT NULL, expected_size INTEGER NOT NULL, expected_mtime INTEGER NOT NULL, state TEXT NOT NULL, bytes_copied INTEGER NOT NULL, temp_name TEXT, sha256 TEXT, attempt INTEGER NOT NULL, last_error TEXT, fsync_marker INTEGER NOT NULL, PRIMARY KEY(import_id, relative_path))"""</ID>
+    <ID>MayBeConst:ImportJournal.kt$ImportJournal.Companion$private val IMPORTS_DDL = """CREATE TABLE imports( import_id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, source_uri TEXT NOT NULL, source_fingerprint TEXT NOT NULL, phase TEXT NOT NULL, source_kind TEXT NOT NULL DEFAULT 'TREE', staged_path TEXT, staged_bytes INTEGER NOT NULL DEFAULT 0, staged_sha256 TEXT, files_processed INTEGER NOT NULL, files_total INTEGER NOT NULL, bytes_copied INTEGER NOT NULL, bytes_total INTEGER NOT NULL, last_relative_path TEXT, warning_count INTEGER NOT NULL, last_error TEXT, active_generation TEXT, created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL, completed_at_ms INTEGER)"""</ID>
+    <ID>NestedBlockDepth:DesktopAddonRepository.kt$DesktopAddonRepository$private fun copyBundledAssetTree(destination: File, token: AddonOperationToken)</ID>
+    <ID>NestedBlockDepth:DesktopAddonRepository.kt$DesktopAddonRepository$private fun sha256Tree(root: File, token: AddonOperationToken): String</ID>
+    <ID>NestedBlockDepth:DesktopAddonRuntimeProjector.kt$DesktopAddonRuntimeProjector$fun project(clientRoot: File, safeMode: Boolean): List&lt;String&gt;</ID>
+    <ID>NestedBlockDepth:DesktopAddonRuntimeProjector.kt$DesktopAddonRuntimeProjector$private fun copyBuiltInAssetTree(sourceFolder: File, destination: File)</ID>
+    <ID>NestedBlockDepth:DesktopAddonRuntimeProjector.kt$DesktopAddonRuntimeProjector$private fun copyTree(source: File, destination: File)</ID>
+    <ID>NestedBlockDepth:DesktopAppModel.kt$LanInterfaceLossMonitor$private fun runLoop()</ID>
+    <ID>NestedBlockDepth:DesktopDataPreparationStoreTest.kt$DesktopDataPreparationStoreTest$private fun stubStore( roots: DesktopStorageRoots, journal: ImportJournal, calls: MutableList&lt;String&gt;, failAt: DataStage? = null, ): DataPreparationStore</ID>
+    <ID>NestedBlockDepth:DesktopInGameSettingsEditor.kt$DesktopInGameSettingsEditor$fun applyQueuedOnCleanStop(): String</ID>
+    <ID>NestedBlockDepth:DesktopRealmArchiveTest.kt$DesktopRealmArchiveTest$@Test fun importRefusesAnArchiveWhoseSnapshotIdEscapesTheSnapshotsRoot()</ID>
+    <ID>NestedBlockDepth:DurableFiles.kt$DurableFiles$fun atomicCopy(source: File, target: File)</ID>
+    <ID>NestedBlockDepth:FolderTreeSource.kt$FolderTreeSource$override fun inventory(): SourceInventory</ID>
+    <ID>NestedBlockDepth:InGameSettingsScreen.kt$@Composable fun InGameSettingsScreen(model: DesktopAppModel)</ID>
+    <ID>NestedBlockDepth:InputProfile.kt$InputProfile.Companion$fun fromJson(value: JSONObject): InputProfile</ID>
+    <ID>NestedBlockDepth:ManagedClientImporter.kt$ManagedClientImporter$private fun copyEntry( copy: CopyContext, journal: ImportJournal, importId: String, entry: ImportSourceEntry, source: ImportSource, staging: File, ): String</ID>
+    <ID>NestedBlockDepth:RarArchiveSource.kt$internal fun isRar4Magic(file: File): Boolean</ID>
+    <ID>NestedBlockDepth:RarArchiveSource.kt$internal fun readRarEntry(file: File, rawName: String, maxBytes: Int): ByteArray</ID>
     <ID>NestedBlockDepth:RpHost.kt$@Suppress("TooGenericExceptionCaught") // host lane: every failure answers as JSON, never dies fun main()</ID>
+    <ID>NestedBlockDepth:ScratchArchiveExtractor.kt$ScratchArchiveExtractor$fun extract( stagedFile: File, format: ArchiveFormat, target: File, limits: ImportLimits, checkpoint: () -&gt; Unit = {}, onEntryExtracted: (filesDone: Int) -&gt; Unit = {}, )</ID>
+    <ID>NestedBlockDepth:Win32AudioMute.kt$Win32AudioMute$private fun applyToProcess(pid: Int, mute: Boolean): String?</ID>
+    <ID>NestedBlockDepth:Win32GamepadBridge.kt$Win32GamepadBridge$private fun loop()</ID>
+    <ID>ReturnCount:ArchiveClientScanner.kt$ArchiveClientScanner$private fun rebase(rawName: String, rootPrefix: String): String?</ID>
+    <ID>ReturnCount:ClientGenerationStore.kt$ClientGenerationStore$fun partialLength(importId: String, relativePath: String, tempName: String?): Long</ID>
+    <ID>ReturnCount:DesktopAppModel.kt$DesktopAppModel$fun advertisedOrDefaultForDisplay(): String?</ID>
+    <ID>ReturnCount:DesktopAppModel.kt$DesktopAppModel$private fun storedTunnelAdvertisement(): com.pocketrealm.supervisor.AdvertisedAddress?</ID>
+    <ID>ReturnCount:DesktopAppModel.kt$DesktopAppModel$suspend fun applyBotProfile(): RuntimeActionResult</ID>
+    <ID>ReturnCount:DesktopAppModel.kt$LanInterfaceLossMonitor$internal fun tickOnce( snapshotValue: com.pocketrealm.supervisor.RuntimeSnapshot, nowNs: Long = clock(), ): Boolean</ID>
+    <ID>ReturnCount:DesktopBotAdmission.kt$DesktopBotAdmission$fun persistedLaunchProfile(profile: BotProfile): BotProfile</ID>
+    <ID>ReturnCount:DesktopBotAdmission.kt$DesktopBotAdmission$fun readRecord(): DesktopBotAdmissionRecord?</ID>
+    <ID>ReturnCount:DesktopBotAdmission.kt$DesktopBotAdmission$private fun cycleOnceChecked(loopGeneration: Long, controller: BotAdmissionController): Boolean</ID>
+    <ID>ReturnCount:DesktopChatterPowerMonitor.kt$DesktopChatterPowerMonitor$fun computeRung(reading: PowerReading): Int</ID>
+    <ID>ReturnCount:DesktopInGameSettingsEditor.kt$DesktopInGameSettingsEditor$fun apply(edit: Edit): EditOutcome</ID>
+    <ID>ReturnCount:DesktopInGameSettingsEditor.kt$DesktopInGameSettingsEditor$fun applyQueuedOnCleanStop(): String</ID>
+    <ID>ReturnCount:DesktopInGameSettingsEditor.kt$DesktopInGameSettingsEditor$private fun readRecord(): Record</ID>
+    <ID>ReturnCount:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$fun resolveClientDir(): File?</ID>
+    <ID>ReturnCount:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$internal fun lanHostLivenessRefusal(spec: RuntimeLaunchSpec): RuntimeActionResult?</ID>
+    <ID>ReturnCount:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$private fun legacySqliteDatadirRefusal(): RuntimeActionResult?</ID>
+    <ID>ReturnCount:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$private fun liveWorldRefusal(owner: ComponentOwner): String?</ID>
+    <ID>ReturnCount:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$private fun preflightMariaDb(): RuntimeActionResult</ID>
+    <ID>ReturnCount:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$private fun providerClosureChangeRefusal(status: org.json.JSONObject): RuntimeActionResult?</ID>
+    <ID>ReturnCount:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$private fun resolveClientForLaunch(): ClientResolution</ID>
+    <ID>ReturnCount:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$private fun runtimesAtRestRefusal(): String?</ID>
+    <ID>ReturnCount:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$private fun sqliteBackupAdmission(): BackupAdmission</ID>
+    <ID>ReturnCount:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$private fun worldControl( owner: ComponentOwner, operation: String, control: () -&gt; org.json.JSONObject, ): RuntimeActionResult</ID>
+    <ID>ReturnCount:DesktopStorageRoots.kt$DesktopStorageRoots.Companion$fun defaultRoot(): File</ID>
+    <ID>ReturnCount:DesktopTimeframeOverlay.kt$DesktopTimeframeOverlay$fun prepareForStart( sqliteDatadir: File, desiredStage: String, mariadbLeg: ((desiredStage: String) -&gt; AppliedState)? = null, ): AppliedState</ID>
+    <ID>ReturnCount:ManagedClientImporter.kt$ManagedClientImporter$private fun excludeFromSafeRuntime(relative: String): Boolean</ID>
     <ID>ReturnCount:RpWowClient.kt$RpWowClient.World$private fun parseChatLine(p: ByteArray): ChatLine?</ID>
     <ID>ReturnCount:RpWowClient.kt$RpWowClient.World$private fun readLoop()</ID>
-    <ID>UnusedPrivateProperty:RpWowClient.kt$RpWowClient.World$i</ID>
+    <ID>ReturnCount:UpdateApply.kt$UpdateApply$private fun applyDownloadedUpdateChecked( stagedPackage: File, currentImage: File?, consent: Boolean, expectedSha256: String?, ): ApplyOutcome</ID>
+    <ID>ReturnCount:Win32AudioMute.kt$Win32AudioMute$private fun applyToProcess(pid: Int, mute: Boolean): String?</ID>
+    <ID>ReturnCount:Win32GamepadBridge.kt$Win32GamepadBridge$private fun foregroundBelongsTo(pid: Int?): Boolean</ID>
+    <ID>SwallowedException:DesktopLlmModelManager.kt$DesktopLlmModelManager$_runCatching: Exception</ID>
+    <ID>SwallowedException:DesktopLlmModelManager.kt$DesktopLlmModelManager$_runCatching: java.io.IOException</ID>
+    <ID>SwallowedException:DesktopSevenZipSource.kt$DesktopSevenZipSource$failure: UnsupportedOperationException</ID>
+    <ID>SwallowedException:ManagedClientImporter.kt$ManagedClientImporter$error: com.pocketrealm.importer.inno.InnoFormatException</ID>
+    <ID>SwallowedException:RarArchiveSource.kt$RarArchiveSource$error: Exception</ID>
+    <ID>SwallowedException:RarArchiveSource.kt$error: Exception</ID>
+    <ID>ThrowsCount:ArchiveClientScanner.kt$ArchiveClientScanner$private fun findClientRoot(entries: List&lt;RawEntry&gt;): String</ID>
+    <ID>ThrowsCount:DesktopAddonRuntimeProjector.kt$DesktopAddonRuntimeProjector$fun project(clientRoot: File, safeMode: Boolean): List&lt;String&gt;</ID>
+    <ID>ThrowsCount:RarArchiveSource.kt$internal fun openRarArchive(file: File): Archive</ID>
+    <ID>ThrowsCount:RarArchiveSource.kt$internal fun readRarEntry(file: File, rawName: String, maxBytes: Int): ByteArray</ID>
+    <ID>ThrowsCount:RarArchiveSource.kt$private fun applyRarRefusals(file: File, archive: Archive)</ID>
+    <ID>ThrowsCount:ScratchArchiveExtractor.kt$ScratchArchiveExtractor$fun extract( stagedFile: File, format: ArchiveFormat, target: File, limits: ImportLimits, checkpoint: () -&gt; Unit = {}, onEntryExtracted: (filesDone: Int) -&gt; Unit = {}, )</ID>
+    <ID>ThrowsCount:ScratchArchiveExtractor.kt$ScratchArchiveExtractor$private fun classifyForScratch( entries: List&lt;ArchiveClientScanner.RawEntry&gt;, limits: ImportLimits, ): ImportExtractionPolicy.Classified</ID>
+    <ID>ThrowsCount:ServerRuntimeFiles.kt$ServerRuntimeFiles$private fun rotateRestartLog(file: File, maximumBytes: Long = MAX_NORMAL_LOG_BYTES)</ID>
+    <ID>TooGenericExceptionCaught:DataPreparationHost.kt$DataPreparationHost$failure: Throwable</ID>
+    <ID>TooGenericExceptionCaught:DataPreparationStore.kt$DataPreparationStore$error: Throwable</ID>
+    <ID>TooGenericExceptionCaught:DesktopAddonRepository.kt$DesktopAddonRepository$failure: Throwable</ID>
+    <ID>TooGenericExceptionCaught:DesktopAddonRuntimeProjector.kt$DesktopAddonRuntimeProjector$failure: Throwable</ID>
+    <ID>TooGenericExceptionCaught:DesktopAppModel.kt$DesktopAppModel$failure: Throwable</ID>
+    <ID>TooGenericExceptionCaught:DesktopAppRelauncher.kt$DesktopAppRelauncher$failure: Exception</ID>
+    <ID>TooGenericExceptionCaught:DesktopBotAdmission.kt$DesktopBotAdmission$error: Throwable</ID>
+    <ID>TooGenericExceptionCaught:DesktopBotAdmission.kt$DesktopBotAdmission$failure: Throwable</ID>
+    <ID>TooGenericExceptionCaught:DesktopDataPreparation.kt$failure: Throwable</ID>
+    <ID>TooGenericExceptionCaught:DesktopGuestBans.kt$DesktopGuestBans$failure: Throwable</ID>
+    <ID>TooGenericExceptionCaught:DesktopLlmModelManager.kt$DesktopLlmModelManager$_runCatching: Exception</ID>
+    <ID>TooGenericExceptionCaught:DesktopMariaDbEngine.kt$DesktopMariaDbEngine$failure: Throwable</ID>
+    <ID>TooGenericExceptionCaught:DesktopRuntimeBackend.kt$DesktopRuntimeBackend$failure: Throwable</ID>
+    <ID>TooGenericExceptionCaught:ImportJournal.kt$ImportJournal$error: Throwable</ID>
+    <ID>TooGenericExceptionCaught:ImportScreen.kt$failure: Throwable</ID>
+    <ID>TooGenericExceptionCaught:ManagedClientImporter.kt$ManagedClientImporter$error: Throwable</ID>
+    <ID>TooGenericExceptionCaught:ManagedClientStore.kt$ManagedClientStore$error: Throwable</ID>
+    <ID>TooGenericExceptionCaught:RarArchiveSource.kt$RarArchiveSource$error: Exception</ID>
+    <ID>TooGenericExceptionCaught:RarArchiveSource.kt$error: Exception</ID>
+    <ID>TooGenericExceptionCaught:RarArchiveSource.kt$error: Throwable</ID>
+    <ID>TooGenericExceptionCaught:RelaunchHandoff.kt$RelaunchHandoff$failure: Throwable</ID>
+    <ID>TooManyFunctions:AddonsScreen.kt$com.pocketrealm.desktop.ui.AddonsScreen.kt</ID>
+    <ID>TooManyFunctions:BotsScreenSections.kt$com.pocketrealm.desktop.ui.BotsScreenSections.kt</ID>
+    <ID>TooManyFunctions:ClientGenerationStore.kt$ClientGenerationStore</ID>
+    <ID>TooManyFunctions:DataPreparationStore.kt$DataPreparationStore</ID>
+    <ID>TooManyFunctions:DesktopAddonRepository.kt$DesktopAddonRepository</ID>
+    <ID>TooManyFunctions:DesktopAppModel.kt$DesktopAppModel : AutoCloseable</ID>
+    <ID>TooManyFunctions:DesktopBotAdmission.kt$DesktopBotAdmission</ID>
+    <ID>TooManyFunctions:DesktopInGameSettingsEditor.kt$DesktopInGameSettingsEditor</ID>
+    <ID>TooManyFunctions:DesktopVanillaTweaksPatcher.kt$DesktopVanillaTweaksPatcher</ID>
+    <ID>TooManyFunctions:HomeScreen.kt$com.pocketrealm.desktop.ui.HomeScreen.kt</ID>
+    <ID>TooManyFunctions:ImportJournal.kt$ImportJournal : AutoCloseable</ID>
+    <ID>TooManyFunctions:InputProfile.kt$InputProfile$Companion</ID>
+    <ID>TooManyFunctions:ManagedClientImporter.kt$ManagedClientImporter : AutoCloseable</ID>
+    <ID>TooManyFunctions:SettingsScreen.kt$com.pocketrealm.desktop.ui.SettingsScreen.kt</ID>
+    <ID>TooManyFunctions:UpdateApply.kt$UpdateApply</ID>
+    <ID>TooManyFunctions:Win32AutoLogin.kt$Win32AutoLogin</ID>
+    <ID>TooManyFunctions:Win32GamepadBridge.kt$Win32GamepadBridge</ID>
+    <ID>UnusedParameter:DesktopClientGenerationStoreTest.kt$DesktopClientGenerationStoreTest$importId: String</ID>
+    <ID>UnusedParameter:DesktopRealmlist.kt$DesktopRealmlist$roots: DesktopStorageRoots</ID>
+    <ID>UnusedParameter:DurableFiles.kt$DurableFiles$directory: File</ID>
+    <ID>UnusedParameter:InGameSettingsScreen.kt$definition: WowSettingDefinition</ID>
+    <ID>UnusedParameter:InGameSettingsScreen.kt$editor: DesktopInGameSettingsEditor</ID>
+    <ID>UnusedParameter:InputProfile.kt$InputProfile.Companion$cameraLock: Boolean</ID>
+    <ID>UnusedPrivateClass:DesktopDataPreparationStoreTest.kt$DesktopDataPreparationStoreTest$StubStore : DataPreparationStore</ID>
+    <ID>UnusedPrivateMember:UpdateApplyTest.kt$UpdateApplyTest$private fun truncatedZip(): File</ID>
+    <ID>UseCheckOrError:DesktopClientScanner.kt$DesktopClientScanner.FileAccess$throw IllegalStateException("VAL-01: selected document is unreadable")</ID>
+    <ID>UseCheckOrError:DesktopClientScanner.kt$DesktopClientScanner.FileAccess$throw IllegalStateException("VAL-01: selected folder is not a readable directory")</ID>
+    <ID>UseCheckOrError:DesktopClientScanner.kt$DesktopClientScanner.FileAccess$throw IllegalStateException("VAL-01: selected folder is unreadable")</ID>
+    <ID>UseCheckOrError:DesktopDataPreparationStoreTest.kt$DesktopDataPreparationStoreTest.&lt;no name provided&gt;$throw IllegalStateException("stub extractor crashed at $stage")</ID>
+    <ID>UseCheckOrError:ServerRuntimeFiles.kt$ServerRuntimeFiles$throw IllegalStateException( "WRONG_STATE: cannot rotate ${file.name} (the live log stays in place)", )</ID>
+    <ID>UseCheckOrError:Win32AudioMuteTest.kt$Win32AudioMuteTest$throw IllegalStateException("COM broke")</ID>
+    <ID>UseRequire:ArchiveClientScanner.kt$ArchiveClientScanner.ArchiveAccess$throw IllegalArgumentException("VAL-02: selected executable exceeds fast-scan limit")</ID>
+    <ID>UseRequire:DesktopClientScanner.kt$DesktopClientScanner.FileAccess$throw IllegalArgumentException("VAL-02: selected executable exceeds fast-scan limit")</ID>
+    <ID>VariableNaming:RarArchiveSourceTest.kt$RarArchiveSourceTest$/** junrar BaseBlock flag bits (MHD_*), mirrored here so the fixtures pin * the exact bits the reader interprets. */ private val MHD_VOLUME = 0x0001</ID>
+    <ID>VariableNaming:RarArchiveSourceTest.kt$RarArchiveSourceTest$private val MHD_PASSWORD = 0x0080</ID>
+    <ID>VariableNaming:RarArchiveSourceTest.kt$RarArchiveSourceTest$private val MHD_SOLID = 0x0008</ID>
+    <ID>VariableNaming:RarArchiveSourceTest.kt$RarArchiveSourceTest$private val RAR4_MARKER = byteArrayOf(0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00)</ID>
+    <ID>VariableNaming:RarArchiveSourceTest.kt$RarArchiveSourceTest$private val RAR5_MARKER = byteArrayOf(0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x01, 0x00)</ID>
+    <ID>VariableNaming:Win32GamepadBridge.kt$Win32GamepadBridge.XInput.State$@JvmField var Gamepad: Gamepad = Gamepad()</ID>
   </CurrentIssues>
 </SmellBaseline>

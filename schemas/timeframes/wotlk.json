@@ -25,7 +25,7 @@
       },
       "era_terms": {
         "delta_from_flavor_final": null,
-        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+        "curation": "W3.1 flavor baseline: every stage inherits the flavor's own final_stage_era_baseline (the WotLK lane allows everything through WotLK and bans Cataclysm+ concepts); intra-flavor per-patch deltas land with the measured DB pins (design §5/§9.3) — pending-s4-pin"
       }
     },
     {
@@ -43,7 +43,7 @@
       },
       "era_terms": {
         "delta_from_flavor_final": null,
-        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+        "curation": "W3.1 flavor baseline: every stage inherits the flavor's own final_stage_era_baseline (the WotLK lane allows everything through WotLK and bans Cataclysm+ concepts); intra-flavor per-patch deltas land with the measured DB pins (design §5/§9.3) — pending-s4-pin"
       }
     },
     {
@@ -61,7 +61,7 @@
       },
       "era_terms": {
         "delta_from_flavor_final": null,
-        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+        "curation": "W3.1 flavor baseline: every stage inherits the flavor's own final_stage_era_baseline (the WotLK lane allows everything through WotLK and bans Cataclysm+ concepts); intra-flavor per-patch deltas land with the measured DB pins (design §5/§9.3) — pending-s4-pin"
       }
     },
     {
@@ -79,7 +79,7 @@
       },
       "era_terms": {
         "delta_from_flavor_final": null,
-        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+        "curation": "W3.1 flavor baseline: every stage inherits the flavor's own final_stage_era_baseline (the WotLK lane allows everything through WotLK and bans Cataclysm+ concepts); intra-flavor per-patch deltas land with the measured DB pins (design §5/§9.3) — pending-s4-pin"
       }
     },
     {
@@ -97,8 +97,144 @@
       },
       "era_terms": {
         "delta_from_flavor_final": null,
-        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+        "curation": "W3.1 flavor baseline: every stage inherits the flavor's own final_stage_era_baseline (the WotLK lane allows everything through WotLK and bans Cataclysm+ concepts); intra-flavor per-patch deltas land with the measured DB pins (design §5/§9.3) — pending-s4-pin"
       }
     }
-  ]
+  ],
+  "final_stage_era_baseline": {
+    "stage": "wotlk-3.3.5a",
+    "always_ban_terms": [
+      "vashj'ir",
+      "ny'alotha"
+    ],
+    "sense_phrases": [
+      [
+        "gilneas opened",
+        true
+      ],
+      [
+        "gilneas is open",
+        true
+      ],
+      [
+        "gilneas has opened",
+        true
+      ],
+      [
+        "playable worgen",
+        false
+      ],
+      [
+        "gilneas city",
+        false
+      ],
+      [
+        "kezan",
+        false
+      ],
+      [
+        "lost isles",
+        false
+      ],
+      [
+        "stonecore",
+        false
+      ],
+      [
+        "tol barad",
+        false
+      ],
+      [
+        "wandering isle",
+        false
+      ],
+      [
+        "stormsong valley",
+        false
+      ],
+      [
+        "drustvar",
+        false
+      ],
+      [
+        "vol'dun",
+        false
+      ],
+      [
+        "mists of pandaria",
+        false
+      ],
+      [
+        "warlords of draenor",
+        false
+      ],
+      [
+        "zereth mortis",
+        false
+      ],
+      [
+        "korthia",
+        false
+      ],
+      [
+        "revendreth",
+        false
+      ],
+      [
+        "maldraxxus",
+        false
+      ],
+      [
+        "ardenweald",
+        false
+      ],
+      [
+        "nazjatar",
+        false
+      ],
+      [
+        "battle for azeroth",
+        false
+      ],
+      [
+        "shadowlands",
+        false
+      ],
+      [
+        "the war within",
+        false
+      ],
+      [
+        "vortex pinnacle",
+        false
+      ],
+      [
+        "ramkahen",
+        false
+      ],
+      [
+        "throne of the tides",
+        false
+      ],
+      [
+        "blackrock caverns",
+        false
+      ],
+      [
+        "halls of origination",
+        false
+      ],
+      [
+        "bilgewater",
+        false
+      ],
+      [
+        "timeless isle",
+        false
+      ]
+    ],
+    "source": "W3.1 corpus-driven curation (port plan S3.4; probe 2026-10-11 against the shipped WoTLKDB_1_9 dump): the WotLK lane LEGITIMIZES everything through WotLK — Northrend, floating Dalaran, Acherus, the Ebon Blade, the expansion title, flying mounts and every vanilla-banned TBC concept (all corpus-proven WotLK vocabulary) — and bans Cataclysm+ concepts instead (the playable-worgen/Gilneas reveal, the Cata+ zones and expansion titles). Round-1 R5-1: n'zoth was REMOVED from the always-ban list — the shipped shared lore corpus names N'Zoth in vanilla-era lore cards (Naga, Old God), so banning it dropped real cards on this lane (a live false ban). Deathwing/Neltharion/cataclysm-lore vocabulary is deliberately NOT banned: the WotLK dump itself serves that lore (192/49/179 whole-word hits — WotLK-era Twilight's Hammer content discusses the coming Cataclysm), so banning it would be a live false ban.",
+    "never_ban_discipline": "Context-allow words (outland, dalaran, lich king, northrend, naxxramas, kel'thuzad, blood elf, wrath, legion, death knight, worgen, cataclysm, deathwing, ...) collide with WotLK-legitimate vocabulary and are NEVER banned; only full later-era senses are. The mists-of-pandaria/nazjatar guards hit the shipped WotLK dump (1/8 whole-word lore mentions) and are deliberate anachronism guards recorded in tests/test_timeframes_era_flavors.py (KEPT_GUARDS_WOTLK)."
+  },
+  "gatefix_note": "Code-red round 1 (R5-1/R5-2): n'zoth removed from always_ban (lore-corpus false ban); the Cata+ zone guards added per the dump scan (deepholm 32, kezan 35, tol barad 25, twilight highlands 14, wandering isle 17, gilneas city 7, lost isles 5, stonecore 2 whole-word hits in the shipped WotLK dump — live Cata+ text anachronisms, now guarded). Round 2 (R2-2): the Cata guard set extended (+8: vortex pinnacle 88, firelands 33, bilgewater 40, therazane 20, ramkahen 9, throne of the tides 6, blackrock caverns 5, halls of origination 1); uldum/ulduar/mount hyjal/stormstout/grim batol recorded as deliberate allows (WotLK-legitimate titan/raid/pre-Cata lore text) in tests/test_timeframes_era_flavors.py KEPT_ALLOWS_WOTLK. Round 2 close (card-lint): deepholm/firelands/mechagon/therazane/tiragarde sound/twilight highlands pruned to KEPT_ALLOWS_WOTLK - the shared corpus's vanilla-era cards (Gnome, Earth elemental, Therazane, Trogg, Boat, Molten Core, ...) cite them (the R5-1 rule). Round 6 (R6-3): timeless isle joined the ban list - the MoP zone hits the shipped WotLK dump 6 times (broadcast_text 75183) and was neither banned nor recorded; the same scan standard that caught the MoP title now catches the MoP zone. Its single card drop (the Southsea Freebooters card's MoP/DF retail narration) is a correct-era drop recorded in CARD_DROPS_RECORDED. fourth war/dragon isles/forbidden reach are deliberately RECORDED instead of banned (17/11/1 cards of era-legitimate content narrate them in retail-written passing - CARD_CONTENT_RECORDED); archaeology/obsidium/pyrium are the generic-word collision class, recorded in KEPT_ALLOWS_WOTLK."
 }

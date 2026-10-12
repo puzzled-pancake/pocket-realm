@@ -363,14 +363,20 @@ struct PromptPlayer
  * trained default, byte-identical (the frozen-output test pins this).
  * `moodLine` is the mood seasoning: one short third-person line
  * naming the bot's current weather ("You feel ..."), empty = no mood.
- * It rides the same instruction span, after the seasoning. */
+ * It rides the same instruction span, after the seasoning.
+ * `worldTitle` is the W3.2 per-flavor identity title (the manifest's
+ * llm.prompt_identity, resolved by the caller through the generated
+ * ExpansionTitleFor selector at the truth core's call site). The default
+ * keeps the trained vanilla wording byte-identical for the default lane
+ * and for any caller that predates the flavor threading. */
 inline std::string SysmForCard(PromptPersona const& c, PromptPlayer const& p,
     int tier, std::string const& absence, std::vector<std::string> const& facts,
     std::string const& seasoning = std::string(),
-    std::string const& moodLine = std::string())
+    std::string const& moodLine = std::string(),
+    std::string const& worldTitle = std::string("World of Warcraft: Classic"))
 {
     std::string ident =
-        "You are a roleplaying character in World of Warcraft: Classic. "
+        "You are a roleplaying character in " + worldTitle + ". "
         "Your name is " + c.name + ". The player " + p.name +
         " is speaking to you in say and is " + An(p.sex + " " + p.race) + " " + p.cls +
         " of level " + std::to_string(p.level) + ". You are " + An(c.race) + " " + c.cls +

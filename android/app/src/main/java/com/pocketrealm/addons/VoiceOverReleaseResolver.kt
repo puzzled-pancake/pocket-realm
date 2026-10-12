@@ -2,12 +2,45 @@ package com.pocketrealm.addons
 
 import org.json.JSONObject
 
-/** Strictly resolves the two upstream artifacts required by mrthinger's Vanilla 1.12 VoiceOver. */
+/**
+ * Strictly resolves the two upstream artifacts required by mrthinger's
+ * VoiceOver for the ACTIVE flavor. R5-3 (code-red round 1): the resolver was
+ * hard-pinned to the Vanilla 1.12 artifacts (player zip
+ * AI_VoiceOver-WoW_1.12, data folder AI_VoiceOverData_Vanilla) — on tbc/
+ * wotlk lanes that installed a wrong-era root toc (the vanilla interface) plus
+ * vanilla-only audio while the catalogs claimed per-expansion artifacts.
+ * [VoiceOverEra] carries the per-expansion tokens the upstream release
+ * ships (AI_VoiceOver-WoW_{1.12,2.4.3,3.3.5}); the caller resolves the era
+ * from the active lane.
+ */
 internal object VoiceOverReleaseResolver {
     const val INSTALL_ID = "mrthinger__wow-voiceover"
     const val DISPLAY_NAME = "WoW VoiceOver"
     const val PLAYER_FOLDER = "AI_VoiceOver"
-    const val DATA_FOLDER = "AI_VoiceOverData_Vanilla"
+
+    /** The per-expansion upstream tokens (R5-3): [VoiceOverEra.playerToken]
+     * is the player zip's client token; [VoiceOverEra.dataFolder] the data
+     * pack's folder/toc identity. Vanilla is the default for callers that
+     * predate flavor threading. */
+    enum class VoiceOverEra(
+        val playerToken: String,
+        val dataFolder: String,
+        /** The user-facing display label (never the raw folder name). */
+        val displayLabel: String,
+    ) {
+        VANILLA("1.12", "AI_VoiceOverData_Vanilla", "Vanilla"),
+        TBC("2.4.3", "AI_VoiceOverData_TBC", "TBC"),
+        WOTLK("3.3.5", "AI_VoiceOverData_WotLK", "WotLK"),
+    }
+
+    /** The active lane's era, resolved from the flavor id. */
+    fun eraFor(flavorId: String): VoiceOverEra = when (flavorId) {
+        com.pocketrealm.client.ClientFlavors.VANILLA.flavorId -> VoiceOverEra.VANILLA
+        com.pocketrealm.client.ClientFlavors.TBC.flavorId -> VoiceOverEra.TBC
+        com.pocketrealm.client.ClientFlavors.WOTLK.flavorId -> VoiceOverEra.WOTLK
+        else -> error("no VoiceOver era registered for flavor \"$flavorId\"")
+    }
+
     const val MAX_PLAYER_BYTES = 128L * 1024 * 1024
     const val MAX_DATA_BYTES = AddonArchiveValidator.VOICEOVER_DATA_MAX_ARCHIVE_BYTES
 
@@ -18,19 +51,33 @@ internal object VoiceOverReleaseResolver {
         })
     }
 
-    fun resolve(latestRelease: JSONObject, releaseByTag: (String) -> JSONObject): Resolved {
+    /** The pre-flavor form: the VANILLA era (keeps every legacy call site
+     * and the trailing-lambda shape compiling). */
+    fun resolve(latestRelease: JSONObject, releaseByTag: (String) -> JSONObject): Resolved =
+        resolve(latestRelease, releaseByTag, VoiceOverEra.VANILLA)
+
+    /** The era-aware resolution (R5-3): the era rides the ACTIVE lane. */
+    fun resolve(
+        latestRelease: JSONObject,
+        releaseByTag: (String) -> JSONObject,
+        era: VoiceOverEra,
+    ): Resolved {
         val latestTag = safeTag(latestRelease.getString("tag_name"))
-        val playerName = "AI_VoiceOver-WoW_1.12-$latestTag.zip"
+        val playerName = "AI_VoiceOver-WoW_${era.playerToken}-$latestTag.zip"
         val player = exactAsset(latestRelease, latestTag, playerName, MAX_PLAYER_BYTES)
 
-        val dataReferences = DATA_ASSET_URL.findAll(latestRelease.optString("body"))
+        val dataReferences = dataAssetRegex(era).findAll(latestRelease.optString("body"))
             .map { match -> safeTag(match.groupValues[1]) to match.groupValues[2] }
             .distinct()
             .toList()
         require(dataReferences.size == 1) {
-            "VoiceOver release must identify exactly one Vanilla sound pack"
+            "VoiceOver release must identify exactly one ${era.dataFolder} sound pack"
         }
         val (dataTag, dataName) = dataReferences.single()
+        require(dataName.startsWith(era.dataFolder)) {
+            "VoiceOver sound pack ${dataName.substringBefore('-')} is not the " +
+                "${era.dataFolder} pack the active lane requires"
+        }
         val dataRelease = releaseByTag(dataTag)
         require(safeTag(dataRelease.getString("tag_name")) == dataTag) {
             "VoiceOver sound-pack release identity changed"
@@ -62,12 +109,16 @@ internal object VoiceOverReleaseResolver {
         require(SAFE_TAG.matches(it)) { "VoiceOver release tag is unsafe" }
     }
 
+    /** The per-era data-pack URL pattern (the release body references the
+     * era's own sound pack). */
+    private fun dataAssetRegex(era: VoiceOverEra) = Regex(
+        "https://github\\.com/mrthinger/wow-voiceover/releases/download/" +
+            "([A-Za-z0-9._-]{1,100})/(" + Regex.escape(era.dataFolder) +
+            "-[A-Za-z0-9._-]{1,160}\\.zip)",
+    )
+
     private val SAFE_TAG = Regex("^[A-Za-z0-9._-]{1,100}$")
     private val SAFE_ASSET_NAME = Regex("^[A-Za-z0-9._-]{1,200}\\.zip$")
-    private val DATA_ASSET_URL = Regex(
-        "https://github\\.com/mrthinger/wow-voiceover/releases/download/" +
-            "([A-Za-z0-9._-]{1,100})/(AI_VoiceOverData_Vanilla-[A-Za-z0-9._-]{1,160}\\.zip)",
-    )
 
     private fun sha256(value: String): String = com.pocketrealm.fs.FileDigests.sha256(value)
 }

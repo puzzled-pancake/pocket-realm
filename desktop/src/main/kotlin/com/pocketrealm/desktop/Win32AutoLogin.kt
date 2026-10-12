@@ -7,6 +7,8 @@ import com.sun.jna.Pointer
 import com.sun.jna.platform.win32.User32
 import com.sun.jna.platform.win32.WinDef.DWORD
 import com.sun.jna.platform.win32.WinDef.HWND
+import com.sun.jna.platform.win32.WinDef.LPARAM
+import com.sun.jna.platform.win32.WinDef.WPARAM
 import com.sun.jna.platform.win32.WinDef.WORD
 import com.sun.jna.platform.win32.WinUser.INPUT
 import com.sun.jna.platform.win32.WinUser.KEYBDINPUT
@@ -101,14 +103,16 @@ object Win32AutoLogin {
      * [ClientFlavors] registry — a flavor without an entry has no pin, so
      * auto-login refuses honestly for it instead of guessing a window).
      *
-     * The tbc/wotlk entries (P11, lanes item 19) are pinned from the staged
-     * clients' own binaries via tools/capture_flavor_framexml.py: both exes
-     * embed the `GxWindowClassOpenGl`/`GxWindowClassD3d` literals (12340
-     * additionally `GxWindowClassD3d9Ex`) and the exact null-terminated
-     * UTF-16LE `World of Warcraft` title string; capture artifacts live in
-     * out/flavor-capture/{tbc,wotlk}/manifest.json. The classes are
-     * renderer-dependent (the engine registers the one matching the active
-     * Gx device), so every captured candidate is accepted.
+     * The tbc/wotlk entries (P11, lanes item 19) were pinned from the staged
+     * clients' own binaries via tools/capture_flavor_framexml.py and are
+     * LIVE-VERIFIED since W3.5 (2026-10-11): the genuine 8606/12340 exes
+     * (S5.1 hash pins) each presented their login frame as ONE top-level
+     * window matching the pinned class set + exact `World of Warcraft`
+     * title on the Windows desktop lane, driven through [pollLoginWindow]/
+     * [tryLogin] (evidence:
+     * out/completion/w3/login-topology/build{8606,12340}-*-live.md). The
+     * classes are renderer-dependent (the engine registers the one matching
+     * the active Gx device), so every captured candidate is accepted.
      */
     private val LOGIN_SIGNATURES: Map<String, LoginWindowSignature> = mapOf(
         ClientFlavors.VANILLA.flavorId to LoginWindowSignature(
@@ -248,6 +252,76 @@ object Win32AutoLogin {
         return found
     }
 
+    /**
+     * R1-1 re-run support: dismisses the genuine client's known-safe
+     * "Hardware changed.  Reload default settings?" modal (the forced-kill
+     * aftermath a verification probe leaves behind) by clicking its &No
+     * button — the non-destructive answer that keeps the Config.wtf the
+     * probe manages. EVERY other dialog is left untouched: the probe must
+     * never click through an unknown prompt. Returns true when a known
+     * modal was dismissed.
+     */
+    fun dismissHardwareChangedModal(pid: Int): Boolean {
+        var dismissed = false
+        user32.EnumWindows(WNDENUMPROC { hwnd, _ ->
+            val owner = IntByReference()
+            user32.GetWindowThreadProcessId(hwnd, owner)
+            if (owner.value == pid && user32.IsWindowVisible(hwnd)) {
+                val cls = windowClassOf(hwnd)
+                val title = windowTitleOf(hwnd)
+                if (cls == "#32770" && title == "World of Warcraft" &&
+                    dialogStaticText(hwnd) == HARDWARE_CHANGED_TEXT
+                ) {
+                    if (clickChildButton(hwnd, "&No")) dismissed = true
+                }
+            }
+            true
+        }, Pointer.NULL)
+        return dismissed
+    }
+
+    /** The exact static text of the known-safe hardware-changed modal. */
+    private const val HARDWARE_CHANGED_TEXT = "Hardware changed.  Reload default settings?"
+
+    /** The visible static text of a dialog, or null when it has none. */
+    private fun dialogStaticText(dialog: HWND): String? {
+        var found: String? = null
+        user32.EnumChildWindows(
+            dialog,
+            WNDENUMPROC { child, _ ->
+                val cls = windowClassOf(child)
+                if (cls == "Static") {
+                    val title = windowTitleOf(child)
+                    if (title.isNotBlank()) found = title
+                }
+                true
+            },
+            Pointer.NULL,
+        )
+        return found
+    }
+
+    /** Clicks the dialog's button whose caption matches [caption] (the
+     * & mnemonic stripped by the caller's match). */
+    private fun clickChildButton(dialog: HWND, caption: String): Boolean {
+        var clicked = false
+        user32.EnumChildWindows(
+            dialog,
+            WNDENUMPROC { child, _ ->
+                val title = windowTitleOf(child)
+                if (windowClassOf(child) == "Button" &&
+                    title.replace("&", "") == caption.replace("&", "")
+                ) {
+                    user32.SendMessageW(child, BM_CLICK, WPARAM(0), LPARAM(0))
+                    clicked = true
+                }
+                true
+            },
+            Pointer.NULL,
+        )
+        return clicked
+    }
+
     private fun windowClassOf(hwnd: HWND): String {
         val buffer = CharArray(WINDOW_CLASS_BUFFER_CHARS)
         val copied = user32.GetClassNameW(hwnd, buffer, WINDOW_CLASS_BUFFER_CHARS)
@@ -322,5 +396,9 @@ object Win32AutoLogin {
         fun VkKeyScanW(ch: Int): Short
         fun GetClassNameW(hwnd: HWND, buffer: CharArray, maxCount: Int): Int
         fun GetWindowTextW(hwnd: HWND, buffer: CharArray, maxCount: Int): Int
+        override fun EnumChildWindows(parent: HWND, cb: WNDENUMPROC, lp: Pointer): Boolean
+        fun SendMessageW(hwnd: HWND, msg: Int, wParam: WPARAM, lParam: LPARAM): Pointer
     }
+
+    private const val BM_CLICK = 0x00F5
 }

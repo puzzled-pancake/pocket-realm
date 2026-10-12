@@ -113,7 +113,12 @@ class DesktopAddonRepository private constructor(
         if (registry.isFile) return
         launchOperation(errorTitle = "Could not install the built-in Android Port") { token ->
             if (registry.isFile) return@launchOperation
-            val addon = checkNotNull(AddonCatalog.load().addon("151"))
+            // R4-2: the desktop lane ships the VANILLA catalog (row 151
+            // always present), so the per-flavor exclusion must gate on the
+            // ACTIVE FLAVOR — a tbc/wotlk lane skips the AndroidPort
+            // seed/refresh (owner decision, completion-plan table #8).
+            if (!isVanillaLane()) return@launchOperation
+            val addon = AddonCatalog.load().addon("151") ?: return@launchOperation
             installBuiltInLocked(addon, token)
         }
     }
@@ -132,7 +137,12 @@ class DesktopAddonRepository private constructor(
                 ?: return@launchOperation
             val assetDigest = sha256BundledAssetTree(token)
             if (assetDigest.equals(current.archiveSha256, ignoreCase = true)) return@launchOperation
-            val addon = checkNotNull(AddonCatalog.load().addon("151"))
+            // R4-2: the desktop lane ships the VANILLA catalog (row 151
+            // always present), so the per-flavor exclusion must gate on the
+            // ACTIVE FLAVOR — a tbc/wotlk lane skips the AndroidPort
+            // seed/refresh (owner decision, completion-plan table #8).
+            if (!isVanillaLane()) return@launchOperation
+            val addon = AddonCatalog.load().addon("151") ?: return@launchOperation
             installBuiltInLocked(addon, token)
         }
     }
@@ -180,7 +190,15 @@ class DesktopAddonRepository private constructor(
                     )
                     val latest = resolveGitHub(GitHubRepoRef.parse(installed.repository), token)
                     val latestIdentity = if (latest.ref.id == VoiceOverReleaseResolver.INSTALL_ID) {
-                        resolveVoiceOverAssets(latest, token).remoteIdentity
+                        resolveVoiceOverAssets(
+                            latest,
+                            token,
+                            VoiceOverReleaseResolver.eraFor(
+                                com.pocketrealm.client.ActiveFlavor.resolve(
+                                    "the VoiceOver update check resolves the active lane",
+                                ).flavorId,
+                            ),
+                        ).remoteIdentity
                     } else latest.commit
                     if (!latestIdentity.equals(installed.commitSha, ignoreCase = true)) {
                         updates[installed.id] = latestIdentity
@@ -498,7 +516,14 @@ class DesktopAddonRepository private constructor(
     }
 
     private fun installVoiceOverLocked(resolved: ResolvedGitHub, token: AddonOperationToken) {
-        val assets = resolveVoiceOverAssets(resolved, token)
+        // R6-r2-2/R6-r2-3 desktop parity: the era routes the artifacts AND
+        // the copy — no vanilla-era labels on the era-aware flow.
+        val era = VoiceOverReleaseResolver.eraFor(
+            com.pocketrealm.client.ActiveFlavor.resolve(
+                "the VoiceOver install resolves the active lane",
+            ).flavorId,
+        )
+        val assets = resolveVoiceOverAssets(resolved, token, era)
         ensureVoiceOverStorage(assets.player.size + assets.data.size)
 
         val playerArchive = File(scratch, "voiceover-player-${System.nanoTime()}.zip")
@@ -508,7 +533,7 @@ class DesktopAddonRepository private constructor(
             download(
                 assets.player.url,
                 playerArchive,
-                "${resolved.ref.slug} (1.12 add-on)",
+                "${resolved.ref.slug} (${era.playerToken} add-on)",
                 token,
                 maxBytes = VoiceOverReleaseResolver.MAX_PLAYER_BYTES,
                 expectedBytes = assets.player.size,
@@ -516,7 +541,7 @@ class DesktopAddonRepository private constructor(
             download(
                 assets.data.url,
                 dataArchive,
-                "${resolved.ref.slug} (Vanilla sounds)",
+                "${resolved.ref.slug} (${era.displayLabel} sounds)",
                 token,
                 maxBytes = VoiceOverReleaseResolver.MAX_DATA_BYTES,
                 expectedBytes = assets.data.size,
@@ -533,15 +558,19 @@ class DesktopAddonRepository private constructor(
             )
             val data = validator.validate(
                 dataArchive,
-                "${VoiceOverReleaseResolver.DISPLAY_NAME} Vanilla sounds",
-                policy = AddonArchiveValidator.Policy.VOICEOVER_DATA,
+                "${VoiceOverReleaseResolver.DISPLAY_NAME} ${era.displayLabel} sounds",
+                policy = AddonArchiveValidator.Policy.voiceOverDataPolicy(era),
                 checkpoint = token::checkpoint,
             )
             val folders = (player.addonFolders + data.addonFolders)
                 .distinctBy { it.lowercase(Locale.ROOT) }
+            val dataFolder = VoiceOverReleaseResolver
+                .eraFor(com.pocketrealm.client.ActiveFlavor.resolve(
+                    "the VoiceOver install resolves the active lane").flavorId)
+                .dataFolder
             require(folders.map { it.lowercase(Locale.ROOT) }.toSet() == setOf(
                 VoiceOverReleaseResolver.PLAYER_FOLDER.lowercase(Locale.ROOT),
-                VoiceOverReleaseResolver.DATA_FOLDER.lowercase(Locale.ROOT),
+                dataFolder.lowercase(Locale.ROOT),
             )) { "VoiceOver release did not contain both required add-on folders" }
 
             val playerDigest = sha256(playerArchive, token)
@@ -594,7 +623,7 @@ class DesktopAddonRepository private constructor(
             runCatching { prunePackages(loadRegistry(registry), loadRegistry(previousRegistry)) }
             mutableState.value = AddonCatalogState(
                 installed = loadRegistryStrict(registry),
-                notice = "WoW VoiceOver and Vanilla sounds are ready for the next game launch.",
+                notice = "WoW VoiceOver and ${era.displayLabel} sounds are ready for the next game launch.",
             )
         } finally {
             staging?.takeIf { it.exists() }?.deleteRecursively()
@@ -606,16 +635,21 @@ class DesktopAddonRepository private constructor(
     private fun resolveVoiceOverAssets(
         resolved: ResolvedGitHub,
         token: AddonOperationToken,
+        era: VoiceOverReleaseResolver.VoiceOverEra,
     ): VoiceOverReleaseResolver.Resolved {
         val latestRelease = requireNotNull(resolved.latestRelease) {
             "VoiceOver does not have a current GitHub release"
         }
-        return VoiceOverReleaseResolver.resolve(latestRelease) { tag ->
-            getJson(
-                "https://api.github.com/repos/${resolved.ref.owner}/${resolved.ref.repo}/releases/tags/$tag",
-                token,
-            )
-        }
+        return VoiceOverReleaseResolver.resolve(
+            latestRelease,
+            { tag ->
+                getJson(
+                    "https://api.github.com/repos/${resolved.ref.owner}/${resolved.ref.repo}/releases/tags/$tag",
+                    token,
+                )
+            },
+            era,
+        )
     }
 
     private data class ResolvedGitHub(
@@ -813,6 +847,15 @@ class DesktopAddonRepository private constructor(
         runCatching { prunePackages(loadRegistry(registry), loadRegistry(previousRegistry)) }
     }
 
+    /** R4-2: true when the ACTIVE flavor is the vanilla lane — the only
+     * lane the AndroidPort built-in ships for. */
+    private fun isVanillaLane(): Boolean =
+        seedAndroidPortForLane(
+            com.pocketrealm.client.ActiveFlavor.resolve(
+                "the AndroidPort seed/refresh resolves the active lane",
+            ).flavorId,
+        )
+
     private fun loadRegistry(file: File): List<InstalledAddon> =
         runCatching { loadRegistryStrict(file) }.getOrElse { emptyList() }
 
@@ -966,6 +1009,15 @@ class DesktopAddonRepository private constructor(
         private const val HTTP_READ_TIMEOUT_S = 60L
 
         @Volatile private var instance: DesktopAddonRepository? = null
+
+        /**
+         * R4-2: the AndroidPort built-in seeds/refreshes on the VANILLA lane
+         * ONLY — the owner decision excludes it per flavor. Extracted as a
+         * pure function so the desktop seed-skip is deterministically
+         * testable (the full construction's seed runs in a coroutine).
+         */
+        internal fun seedAndroidPortForLane(flavorId: String): Boolean =
+            flavorId == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId
 
         fun get(roots: DesktopStorageRoots): DesktopAddonRepository = instance ?: synchronized(this) {
             instance ?: DesktopAddonRepository(

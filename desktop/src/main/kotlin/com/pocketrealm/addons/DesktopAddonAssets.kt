@@ -20,8 +20,21 @@ import java.io.File
 internal object DesktopAddonAssets {
     private const val MAX_WALK_UP = 6
 
-    /** The researched catalog JSON (`AddonCatalog`'s bundled input). */
-    fun catalogJson(): File? = firstExisting("catalog-v1.json")
+    /** The researched catalog JSON (`AddonCatalog`'s bundled input) — the
+     * ACTIVE flavor's per-flavor asset (R6-r2-5): catalog-tbc.json /
+     * catalog-wotlk.json for the new lanes, the byte-frozen catalog-v1.json
+     * for vanilla. */
+    fun catalogJson(flavorId: String = "vanilla"): File? =
+        firstExisting(catalogAssetName(flavorId))
+
+    /** The per-flavor catalog asset name (mirrors the android
+     * AddonCatalog.catalogAssetFor). */
+    fun catalogAssetName(flavorId: String): String = when (flavorId) {
+        "vanilla" -> "catalog-v1.json"
+        "tbc" -> "catalog-tbc.json"
+        "wotlk" -> "catalog-wotlk.json"
+        else -> error("no addon catalog asset registered for flavor \"$flavorId\"")
+    }
 
     /** The project-owned Android Port add-on tree (`android-port/AndroidPort`). */
     fun androidPortRoot(): File? = firstExisting(AndroidPortPackage.ASSET_PATH.substringAfterLast('/'))

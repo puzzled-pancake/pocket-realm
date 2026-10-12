@@ -696,3 +696,49 @@ def test_counts_artifact_generated_prose_resolves_into_its_own_suite():
                 f"{name} quotes '{klass}' but no canonical JUnit XML for that "
                 "class exists in this lane's tree — the citation does not "
                 "resolve into the artifact's own suite")
+
+
+def test_w3_wave_exit_per_file_pytest_counts_match_the_live_collection():
+    """R6-1 (W3 code-red round 6): the w3 WAVE-EXIT quotes per-file pytest
+    counts ('**N passed**' beside a `tests/…py -q` citation in the same
+    sentence); a quote whose file has since grown is a count that no longer
+    reproduces (the round-5 '12 passed' for the era file that now runs 17).
+    Re-derives the live collection for every cited file and holds each
+    quote to it — the D70 rule applied to the w3 record."""
+    import re
+    import subprocess
+    import sys
+
+    wave_exit = (ROOT / "out/completion/w3/WAVE-EXIT.md").read_text(
+        encoding="utf-8")
+    quotes = []
+    for match in re.finditer(
+            r"\*\*(\d+) passed\*\*[^*]*?`?(python -m pytest (tests/[a-z0-9_]+\.py"
+            r"(?: tests/[a-z0-9_]+\.py)*))[^`\n]*", wave_exit):
+        quotes.append((match.group(1), match.group(3)))
+    if not quotes:
+        return  # the record quotes no per-file pytest counts
+    cache: dict[str, int] = {}
+    for quoted, command in quotes:
+        files = re.findall(r"tests/[a-z0-9_]+\.py", command)
+        total = 0
+        for rel in files:
+            if rel not in cache:
+                run = subprocess.run(
+                    [sys.executable, "-m", "pytest", ROOT / rel,
+                     "--collect-only", "-q"],
+                    capture_output=True, text=True, cwd=ROOT, timeout=300,
+                )
+                tail = run.stdout.strip().splitlines()[-1]
+                collected = re.search(r"(\d+) tests? collected", tail)
+                assert collected is not None and run.returncode == 0, (
+                    f"{rel}: pytest --collect-only failed to re-derive the "
+                    f"count ({tail!r}) — the cited file must collect clean"
+                )
+                cache[rel] = int(collected.group(1))
+            total += cache[rel]
+        assert int(quoted) == total, (
+            f"WAVE-EXIT quotes '{quoted} passed' for `{command}` but the "
+            f"live collection is {total} — sync the record to the cited "
+            "files (the stale-quote class R6-1 found)"
+        )

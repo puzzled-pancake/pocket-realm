@@ -25,7 +25,7 @@
       },
       "era_terms": {
         "delta_from_flavor_final": null,
-        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+        "curation": "W3.1 flavor baseline: every stage inherits the flavor's own final_stage_era_baseline (the TBC lane bans WotLK+ concepts and legitimizes Outland/flying/TBC vocabulary); intra-flavor per-patch deltas land with the measured DB pins (design §5/§9.3) — pending-s4-pin"
       }
     },
     {
@@ -43,7 +43,7 @@
       },
       "era_terms": {
         "delta_from_flavor_final": null,
-        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+        "curation": "W3.1 flavor baseline: every stage inherits the flavor's own final_stage_era_baseline (the TBC lane bans WotLK+ concepts and legitimizes Outland/flying/TBC vocabulary); intra-flavor per-patch deltas land with the measured DB pins (design §5/§9.3) — pending-s4-pin"
       }
     },
     {
@@ -61,7 +61,7 @@
       },
       "era_terms": {
         "delta_from_flavor_final": null,
-        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+        "curation": "W3.1 flavor baseline: every stage inherits the flavor's own final_stage_era_baseline (the TBC lane bans WotLK+ concepts and legitimizes Outland/flying/TBC vocabulary); intra-flavor per-patch deltas land with the measured DB pins (design §5/§9.3) — pending-s4-pin"
       }
     },
     {
@@ -79,7 +79,7 @@
       },
       "era_terms": {
         "delta_from_flavor_final": null,
-        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+        "curation": "W3.1 flavor baseline: every stage inherits the flavor's own final_stage_era_baseline (the TBC lane bans WotLK+ concepts and legitimizes Outland/flying/TBC vocabulary); intra-flavor per-patch deltas land with the measured DB pins (design §5/§9.3) — pending-s4-pin"
       }
     },
     {
@@ -97,8 +97,275 @@
       },
       "era_terms": {
         "delta_from_flavor_final": null,
-        "curation": "pending-flavor-qualification (the TBC/WotLK legitimization moves are curated with the flavor's DB pin — design §5/§9.3)"
+        "curation": "W3.1 flavor baseline: every stage inherits the flavor's own final_stage_era_baseline (the TBC lane bans WotLK+ concepts and legitimizes Outland/flying/TBC vocabulary); intra-flavor per-patch deltas land with the measured DB pins (design §5/§9.3) — pending-s4-pin"
       }
     }
-  ]
+  ],
+  "final_stage_era_baseline": {
+    "stage": "tbc-2.4.3",
+    "always_ban_terms": [
+      "acherus"
+    ],
+    "sense_phrases": [
+      [
+        "dalaran floats",
+        false
+      ],
+      [
+        "sewers of dalaran",
+        false
+      ],
+      [
+        "dalaran's sewers",
+        false
+      ],
+      [
+        "ebon blade",
+        false
+      ],
+      [
+        "wrath of the lich king",
+        false
+      ],
+      [
+        "mists of pandaria",
+        false
+      ],
+      [
+        "warlords of draenor",
+        false
+      ],
+      [
+        "zereth mortis",
+        false
+      ],
+      [
+        "korthia",
+        false
+      ],
+      [
+        "revendreth",
+        false
+      ],
+      [
+        "maldraxxus",
+        false
+      ],
+      [
+        "ardenweald",
+        false
+      ],
+      [
+        "nazjatar",
+        false
+      ],
+      [
+        "playable worgen",
+        false
+      ],
+      [
+        "gilneas opened",
+        true
+      ],
+      [
+        "gilneas is open",
+        true
+      ],
+      [
+        "gilneas has opened",
+        true
+      ],
+      [
+        "argent tournament",
+        false
+      ],
+      [
+        "borean tundra",
+        false
+      ],
+      [
+        "crystalsong",
+        false
+      ],
+      [
+        "dragonblight",
+        false
+      ],
+      [
+        "ebon hold",
+        false
+      ],
+      [
+        "frenzyheart",
+        false
+      ],
+      [
+        "howling fjord",
+        false
+      ],
+      [
+        "icecrown",
+        false
+      ],
+      [
+        "sholazar basin",
+        false
+      ],
+      [
+        "storm peaks",
+        false
+      ],
+      [
+        "taunka",
+        false
+      ],
+      [
+        "tuskarr",
+        false
+      ],
+      [
+        "wintergrasp",
+        false
+      ],
+      [
+        "vortex pinnacle",
+        false
+      ],
+      [
+        "hodir",
+        false
+      ],
+      [
+        "valiance keep",
+        false
+      ],
+      [
+        "valgarde",
+        false
+      ],
+      [
+        "wintergarde",
+        false
+      ],
+      [
+        "utgarde",
+        false
+      ],
+      [
+        "grizzly hills",
+        false
+      ],
+      [
+        "transitus shield",
+        false
+      ],
+      [
+        "ramkahen",
+        false
+      ],
+      [
+        "westguard keep",
+        false
+      ],
+      [
+        "kamagua",
+        false
+      ],
+      [
+        "throne of the tides",
+        false
+      ],
+      [
+        "amber ledge",
+        false
+      ],
+      [
+        "blackrock caverns",
+        false
+      ],
+      [
+        "halls of origination",
+        false
+      ],
+      [
+        "vashj'ir",
+        false
+      ],
+      [
+        "ny'alotha",
+        false
+      ],
+      [
+        "stormsong valley",
+        false
+      ],
+      [
+        "drustvar",
+        false
+      ],
+      [
+        "vol'dun",
+        false
+      ],
+      [
+        "gilneas city",
+        false
+      ],
+      [
+        "kezan",
+        false
+      ],
+      [
+        "lost isles",
+        false
+      ],
+      [
+        "stonecore",
+        false
+      ],
+      [
+        "tol barad",
+        false
+      ],
+      [
+        "wandering isle",
+        false
+      ],
+      [
+        "bilgewater",
+        false
+      ],
+      [
+        "inscription",
+        false
+      ],
+      [
+        "argent crusade",
+        false
+      ],
+      [
+        "saronite",
+        false
+      ],
+      [
+        "the skybreaker",
+        false
+      ],
+      [
+        "sons of hodir",
+        false
+      ],
+      [
+        "onslaught harbor",
+        false
+      ],
+      [
+        "timeless isle",
+        false
+      ]
+    ],
+    "source": "W3.1 corpus-driven curation (port plan S3.4; probe 2026-10-11 against the shipped TBCDB_1.11.0 dump): the TBC lane LEGITIMIZES every vanilla-banned TBC concept — shattrath, the Outland zones (hellfire peninsula, zangarmarsh, terokkar forest, blade's edge, netherstorm, shadowmoon valley), flying mounts and the Dark Portal senses (all corpus-proven TBC vocabulary) — and bans WotLK+ concepts instead (Acherus, the Ebon Blade, floating Dalaran, the expansion title, and the post-WotLK places/titles).",
+    "never_ban_discipline": "Context-allow words (northrend, outland, dalaran, lich king, naxxramas, kel'thuzad, blood elf, wrath, legion, death knight, worgen, draenei, ...) collide with earlier legitimate vocabulary and are NEVER banned; only full later-era senses are. Ban terms whose whole-word hits exist in the shipped TBC dump (acherus, ebon blade, sewers of dalaran, mists of pandaria, nazjatar) are deliberate anachronism guards recorded in tests/test_timeframes_era_flavors.py (KEPT_GUARDS_TBC) — the hits are lore-text mentions, not live TBC vocabulary."
+  },
+  "gatefix_note": "Code-red round 1 (R5-2): the WotLK proper-noun guards added per the dump scan (wintergrasp 104, icecrown 103, vrykul 80, frenzyheart 48, taunka 34, wyrmrest 33, yogg-saron 28, storm peaks 27, dragonblight 25, sholazar basin 22, tuskarr 22, borean tundra 16, argent tournament 10, howling fjord 12, ebon hold 5, crystalsong 6 whole-word hits in the shipped TBC dump — live WotLK text anachronisms in broadcast_text quest/gossip rows, now guarded). Round 2 (R2-1/R2-2): the guard set re-derived from the full corpus scan (+21 WotLK/Cata proper-noun guards with measured counts; ulduar/suramar/grim batol recorded as deliberate allows in tests/test_timeframes_era_flavors.py KEPT_ALLOWS_TBC - titan/pre-Cata lore text the lane legitimately cites). Round 2 close (card-lint): firelands/therazane/uldum/vrykul/westfall brigade/wrathgate/wyrmrest/wyrmrest temple/yogg-saron pruned to KEPT_ALLOWS_TBC - the shared lore corpus's vanilla-era cards (Molten Core, Baron Geddon, Sulfuras, Human, Tirisfal Glades, Zeppelin, ...) cite them, so banning them dropped real [RESULT] lore on the lane (the R5-1 rule). Round 5 (R5-1 serious): the post-TBC concepts the wotlk lane bans were ADDED to the tbc ban list (vashj'ir, ny'alotha, stormsong valley, drustvar, vol'dun, gilneas city, kezan, lost isles, stonecore, tol barad, wandering isle, bilgewater — each with zero card drops, and dump hits guarded in KEPT_GUARDS_TBC). Round 5 close (card-lint re-derive): deepholm/firelands/therazane PRUNED again — the hits are elemental-plane/vanilla-MC lore in era-legitimate vanilla cards (Earth elemental, Trogg, Therazane, Molten Core, Baron Geddon, Sulfuras, Neptulon, Archaedas, Theradras), so banning them was a live false ban (they stay in KEPT_ALLOWS_TBC); vashj'ir stays banned and its single drop (the Eastern Kingdoms card's post-Cata Shattering text) is recorded in CARD_DROPS_RECORDED, matching the wotlk lane's treatment. Round 6 (R6-1): the WotLK-era SYSTEMS and FACTIONS the round-2 zone-only scan missed joined the ban list with measured whole-word dump hits (inscription 102 - the profession launched with WotLK; argent crusade 73 - the faction formed at Light's Hope in WotLK; saronite 22; the skybreaker 9; timeless isle 6 - the MoP zone, R6-3's both-ways standard applied here too; sons of hodir 4; onslaught harbor 1). Their card drops are correct-era drops (Herbalism cites the WotLK profession Inscription; 7 cards narrate the Argent Crusade as current holder of Light's Hope/Hearthglen/Western Plaguelands; the Southsea card narrates MoP/DF retail zones) and are recorded in CARD_DROPS_RECORDED. fourth war (0 dump hits, 17 era-legitimate cards narrating it in retail-written passing) and dragon isles (4 hits, 11 cards) and forbidden reach are deliberately RECORDED instead of banned - banning them mass-dropped era-correct lore (the R5-1 false-ban direction wins; CARD_CONTENT_RECORDED), and glyph/achievement/archaeology/obsidium/pyrium are the generic-word collision class, recorded in KEPT_ALLOWS_TBC."
 }

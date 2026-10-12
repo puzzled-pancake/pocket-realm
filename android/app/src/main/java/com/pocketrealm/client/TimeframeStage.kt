@@ -283,21 +283,171 @@ object TimeframeStages {
     )
 
     /**
+     * The TBC 2.4.3 grounded baseline (W3.1, port plan S3.4): the TBC lane
+     * LEGITIMIZES every vanilla-banned TBC concept — Shattrath, the Outland
+     * zones, flying mounts, the Dark Portal senses — and bans WotLK+ concepts
+     * instead (Acherus, the Ebon Blade, floating Dalaran, the expansion
+     * title, and the post-WotLK places/titles). Mirrors
+     * schemas/timeframes/tbc.json final_stage_era_baseline verbatim
+     * (pinned by TimeframeStageTest + tools/check_timeframes.py per-flavor
+     * sync). Corpus discipline: the terms whose whole-word hits exist in the
+     * shipped TBC dump are deliberate anachronism guards recorded in
+     * tests/test_timeframes_era_flavors.py (KEPT_GUARDS_TBC).
+     */
+    val TBC_FINAL_ERA_BASELINE: TimeframeStage.EraTermClass = TimeframeStage.EraTermClass(
+        alwaysBanTerms = listOf("acherus"),
+        sensePhrases = listOf(
+            TimeframeStage.EraSensePhrase("dalaran floats", false),
+            TimeframeStage.EraSensePhrase("sewers of dalaran", false),
+            TimeframeStage.EraSensePhrase("dalaran's sewers", false),
+            TimeframeStage.EraSensePhrase("ebon blade", false),
+            TimeframeStage.EraSensePhrase("wrath of the lich king", false),
+            TimeframeStage.EraSensePhrase("mists of pandaria", false),
+            TimeframeStage.EraSensePhrase("warlords of draenor", false),
+            TimeframeStage.EraSensePhrase("zereth mortis", false),
+            TimeframeStage.EraSensePhrase("korthia", false),
+            TimeframeStage.EraSensePhrase("revendreth", false),
+            TimeframeStage.EraSensePhrase("maldraxxus", false),
+            TimeframeStage.EraSensePhrase("ardenweald", false),
+            TimeframeStage.EraSensePhrase("nazjatar", false),
+            TimeframeStage.EraSensePhrase("playable worgen", false),
+            TimeframeStage.EraSensePhrase("gilneas opened", true),
+            TimeframeStage.EraSensePhrase("gilneas is open", true),
+            TimeframeStage.EraSensePhrase("gilneas has opened", true),
+            TimeframeStage.EraSensePhrase("argent tournament", false),
+            TimeframeStage.EraSensePhrase("borean tundra", false),
+            TimeframeStage.EraSensePhrase("crystalsong", false),
+            TimeframeStage.EraSensePhrase("dragonblight", false),
+            TimeframeStage.EraSensePhrase("ebon hold", false),
+            TimeframeStage.EraSensePhrase("frenzyheart", false),
+            TimeframeStage.EraSensePhrase("howling fjord", false),
+            TimeframeStage.EraSensePhrase("icecrown", false),
+            TimeframeStage.EraSensePhrase("sholazar basin", false),
+            TimeframeStage.EraSensePhrase("storm peaks", false),
+            TimeframeStage.EraSensePhrase("taunka", false),
+            TimeframeStage.EraSensePhrase("tuskarr", false),
+            TimeframeStage.EraSensePhrase("wintergrasp", false),
+            TimeframeStage.EraSensePhrase("vortex pinnacle", false),
+            TimeframeStage.EraSensePhrase("hodir", false),
+            TimeframeStage.EraSensePhrase("valiance keep", false),
+            TimeframeStage.EraSensePhrase("valgarde", false),
+            TimeframeStage.EraSensePhrase("wintergarde", false),
+            TimeframeStage.EraSensePhrase("utgarde", false),
+            TimeframeStage.EraSensePhrase("grizzly hills", false),
+            TimeframeStage.EraSensePhrase("transitus shield", false),
+            TimeframeStage.EraSensePhrase("ramkahen", false),
+            TimeframeStage.EraSensePhrase("westguard keep", false),
+            TimeframeStage.EraSensePhrase("kamagua", false),
+            TimeframeStage.EraSensePhrase("throne of the tides", false),
+            TimeframeStage.EraSensePhrase("amber ledge", false),
+            TimeframeStage.EraSensePhrase("blackrock caverns", false),
+            TimeframeStage.EraSensePhrase("halls of origination", false),
+            TimeframeStage.EraSensePhrase("vashj'ir", false),
+            TimeframeStage.EraSensePhrase("ny'alotha", false),
+            TimeframeStage.EraSensePhrase("stormsong valley", false),
+            TimeframeStage.EraSensePhrase("drustvar", false),
+            TimeframeStage.EraSensePhrase("vol'dun", false),
+            TimeframeStage.EraSensePhrase("gilneas city", false),
+            TimeframeStage.EraSensePhrase("kezan", false),
+            TimeframeStage.EraSensePhrase("lost isles", false),
+            TimeframeStage.EraSensePhrase("stonecore", false),
+            TimeframeStage.EraSensePhrase("tol barad", false),
+            TimeframeStage.EraSensePhrase("wandering isle", false),
+            TimeframeStage.EraSensePhrase("bilgewater", false),
+            // R6-1 (round 6): the WotLK-era systems/factions.
+            TimeframeStage.EraSensePhrase("inscription", false),
+            TimeframeStage.EraSensePhrase("argent crusade", false),
+            TimeframeStage.EraSensePhrase("saronite", false),
+            TimeframeStage.EraSensePhrase("the skybreaker", false),
+            TimeframeStage.EraSensePhrase("sons of hodir", false),
+            TimeframeStage.EraSensePhrase("onslaught harbor", false),
+            // R6-3 (round 6): the MoP zone.
+            TimeframeStage.EraSensePhrase("timeless isle", false),
+        ),
+    )
+
+    /**
+     * The WotLK 3.3.5a grounded baseline (W3.1, port plan S3.4): the WotLK
+     * lane allows everything through WotLK — Northrend, floating Dalaran,
+     * Acherus, the Ebon Blade, the expansion title, flying mounts, every
+     * TBC concept — and bans Cataclysm+ concepts instead (the playable-worgen
+     * /Gilneas reveal, the Cata+ zones and expansion titles). Mirrors
+     * schemas/timeframes/wotlk.json final_stage_era_baseline verbatim.
+     * Deathwing/cataclysm LORE vocabulary is deliberately NOT banned: the
+     * shipped WotLK dump itself serves that lore (WotLK-era Twilight's
+     * Hammer content discusses the coming Cataclysm) — banning it would be a
+     * live false ban; the manifest's source note records the probe numbers.
+     */
+    val WOTLK_FINAL_ERA_BASELINE: TimeframeStage.EraTermClass = TimeframeStage.EraTermClass(
+        // R5-1: n'zoth REMOVED — the shipped shared lore corpus names N'Zoth
+        // in vanilla-era lore cards (Naga, Old God); banning it dropped real
+        // cards on this lane.
+        alwaysBanTerms = listOf("vashj'ir", "ny'alotha"),
+        sensePhrases = listOf(
+            TimeframeStage.EraSensePhrase("gilneas opened", true),
+            TimeframeStage.EraSensePhrase("gilneas is open", true),
+            TimeframeStage.EraSensePhrase("gilneas has opened", true),
+            TimeframeStage.EraSensePhrase("playable worgen", false),
+            TimeframeStage.EraSensePhrase("gilneas city", false),
+            TimeframeStage.EraSensePhrase("kezan", false),
+            TimeframeStage.EraSensePhrase("lost isles", false),
+            TimeframeStage.EraSensePhrase("stonecore", false),
+            TimeframeStage.EraSensePhrase("tol barad", false),
+            TimeframeStage.EraSensePhrase("wandering isle", false),
+            TimeframeStage.EraSensePhrase("stormsong valley", false),
+            TimeframeStage.EraSensePhrase("drustvar", false),
+            TimeframeStage.EraSensePhrase("vol'dun", false),
+            TimeframeStage.EraSensePhrase("mists of pandaria", false),
+            TimeframeStage.EraSensePhrase("warlords of draenor", false),
+            TimeframeStage.EraSensePhrase("zereth mortis", false),
+            TimeframeStage.EraSensePhrase("korthia", false),
+            TimeframeStage.EraSensePhrase("revendreth", false),
+            TimeframeStage.EraSensePhrase("maldraxxus", false),
+            TimeframeStage.EraSensePhrase("ardenweald", false),
+            TimeframeStage.EraSensePhrase("nazjatar", false),
+            TimeframeStage.EraSensePhrase("battle for azeroth", false),
+            TimeframeStage.EraSensePhrase("shadowlands", false),
+            TimeframeStage.EraSensePhrase("the war within", false),
+            // R2-2 (round 2): Cata guards (dump-scan counts recorded in the
+            // test guard tables).
+            TimeframeStage.EraSensePhrase("vortex pinnacle", false),
+            TimeframeStage.EraSensePhrase("ramkahen", false),
+            TimeframeStage.EraSensePhrase("throne of the tides", false),
+            TimeframeStage.EraSensePhrase("blackrock caverns", false),
+            TimeframeStage.EraSensePhrase("halls of origination", false),
+            TimeframeStage.EraSensePhrase("bilgewater", false),
+            // R6-3 (round 6): the MoP zone.
+            TimeframeStage.EraSensePhrase("timeless isle", false),
+        )
+    )
+
+    /** The flavor-final grounded baseline of one flavor; fail-loud for a
+     * flavor whose manifest carries no registered baseline (impossible over
+     * the shipped registry — all three carry one since W3.1). */
+    fun finalEraBaselineFor(flavorId: String): TimeframeStage.EraTermClass =
+        when (flavorId) {
+            "vanilla" -> VANILLA_FINAL_ERA_BASELINE
+            "tbc" -> TBC_FINAL_ERA_BASELINE
+            "wotlk" -> WOTLK_FINAL_ERA_BASELINE
+            else -> error("no grounded era baseline registered for flavor \"$flavorId\"")
+        }
+
+    /**
      * The era term classes the world resolves for one stage (design §5: the
      * chat era-policy follows the chosen patch, not just the flavor — the
      * same stage id the conf carries drives the class set).
      *
-     * STAGED REMAINDER (stated here, not hidden): the only GROUNDED policy in
-     * the repo is the vanilla 1.12.1 baseline, so every registered stage
-     * resolves to it today. Intra-flavor deltas (an earlier vanilla stage
-     * banning later-vanilla senses) and the TBC / WotLK legitimization moves
-     * are curated at each DB pin (design §5: "illustrative here, not asserted
-     * as data") and land as per-stage overrides here + in schemas/timeframes
-     * — the resolution point is this one function, so the curation is a data
+     * W3.1: each flavor resolves to its OWN final-stage grounded baseline
+     * (the TBC/WotLK legitimization moves are real data now — the generated
+     * native header serves the same per-flavor sets). Intra-flavor per-patch
+     * deltas (an earlier vanilla stage banning later-vanilla senses) remain
+     * pending-s4-pin curation and land as per-stage
+     * delta_from_flavor_final overrides in schemas/timeframes + here — the
+     * resolution point is this one function, so that curation stays a data
      * change, not a code sweep.
      */
     fun eraClassFor(stage: TimeframeStage): TimeframeStage.EraTermClass {
         requireForFlavor(stage.flavorId, stage.id)
-        return VANILLA_FINAL_ERA_BASELINE
+        return finalEraBaselineFor(stage.flavorId)
     }
 }

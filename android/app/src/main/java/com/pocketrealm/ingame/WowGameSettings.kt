@@ -185,8 +185,15 @@ object GameSettingsDeliveryPlanner {
             return revision > prior.revision
         }
 
+        // R1-2: the planner resolves the ACTIVE flavor's catalog — a
+        // tbc/wotlk-catalog setting queued through the flavor-routed editor
+        // must plan (the vanilla-hardcoded byId returned null and silently
+        // blocked it forever).
+        val settingsById = com.pocketrealm.client.ActiveFlavor.resolve(
+            "the game-settings planner resolves the active flavor",
+        ).let(com.pocketrealm.ingame.WowFlavorCatalogs::settingsById)
         config.cvar.forEach { (id, entry) ->
-            val definition = WowVanillaSettingsCatalog.byId(id)
+            val definition = settingsById(id)
             val cvarKey = definition?.key ?: id
             if (definition == null || definition.backend != WowSettingBackend.CVAR) {
                 blocked += id
@@ -217,7 +224,7 @@ object GameSettingsDeliveryPlanner {
             delivered += GameSettingsDeliveryEntry(id, entry.scope, entry.value ?: "", entry.revision)
         }
         config.uvar.forEach { (id, entry) ->
-            val definition = WowVanillaSettingsCatalog.byId(id)
+            val definition = settingsById(id)
             if (definition == null || definition.backend != WowSettingBackend.UVAR) {
                 blocked += id
                 return@forEach

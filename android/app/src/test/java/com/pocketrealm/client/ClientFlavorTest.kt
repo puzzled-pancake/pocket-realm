@@ -308,6 +308,8 @@ class ClientFlavorTest {
             realmdAcceptedBuilds = "9999", proofResponseBytes = null,
             wtfLayout = "account-level", wtfCharacterCacheFiles = emptySet(),
             knownExeMd5 = null, knownExeSizeBytes = null, largeAddressAware = null,
+            loreCardsFile = "lore_cards_v112.jsonl", promptIdentity = "WoW: Stranger",
+            graphicsRoutes = setOf("dxvk"), vanillaTweaksEnabled = false,
         )
         val failure = runCatching { stranger.accountExpansion }.exceptionOrNull()
         assertTrue(failure is IllegalStateException)

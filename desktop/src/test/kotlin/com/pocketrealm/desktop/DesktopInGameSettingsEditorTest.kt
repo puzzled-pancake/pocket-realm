@@ -1,5 +1,6 @@
 package com.pocketrealm.desktop
 
+import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.ClientTweaksConfig
 import com.pocketrealm.ingame.BindingsFileCodec
 import com.pocketrealm.ingame.ConfigWtfCodec
@@ -401,5 +402,61 @@ class DesktopInGameSettingsEditorTest {
     private companion object {
         const val TEST_ACCOUNT = "TESTACCT"
         const val TARGET_COMMAND = "TARGETNEARESTENEMY"
+    }
+
+    @Test
+    fun `a carried vanilla uvar queue degrades cleanly on a non-vanilla lane - R2-5`() {
+        // W4-shaped: tbc qualified + selected while the queue was staged on
+        // vanilla. The drain resolves the ACTIVE flavor's catalog — the
+        // vanilla uvar ids resolve null there and are BLOCKED (retained),
+        // never a mid-drain crash from the tbc layout's fail-loud backstop.
+        ActiveFlavor.reset()
+        // The tree is built and the uvar entry STAGED on the vanilla lane
+        // (the carried state) — then the lane flips to tbc and the drain
+        // runs there.
+        val root = syntheticClientRootVanillaShape()
+        val editor = editor(root)
+        clientRunning = true
+        val uvar = WowVanillaSettingsCatalog.byId("interface.instantQuestText")!!
+        assertEquals(WowSettingBackend.UVAR, uvar.backend)
+        val outcome = editor.apply(
+            DesktopInGameSettingsEditor.Edit.UvarSetting(uvar, TEST_ACCOUNT, "1"),
+        )
+        assertTrue(outcome is DesktopInGameSettingsEditor.EditOutcome.Landed)
+        ActiveFlavor.qualifiedSource = {
+            listOf(
+                com.pocketrealm.client.ClientFlavors.VANILLA,
+                com.pocketrealm.client.ClientFlavors.TBC.copy(qualified = true),
+            )
+        }
+        ActiveFlavor.select("tbc")
+        try {
+            clientRunning = false
+            // The drain on the tbc lane: no throw; the queue entry is
+            // blocked and retained (never delivered against a lane that
+            // has no uvar route).
+            val summary = editor.applyQueuedOnCleanStop()
+            assertTrue(summary.isNotEmpty())
+            assertTrue(
+                "the blocked uvar entry must be retained: $summary",
+                editor.queuedCount() > 0 || "blocked" in summary,
+            )
+        } finally {
+            ActiveFlavor.reset()
+        }
+    }
+
+    /** A vanilla-shaped client tree built through the VANILLA layout (the
+     * carried state the queue was staged against). */
+    private fun syntheticClientRootVanillaShape(): File {
+        val root = folder.newFolder("client-vanilla-shape")
+        val config = InGameSettingsFiles.configFile(root)
+        config.parentFile.mkdirs()
+        InGameSettingsFiles.writeAtomic(config, "")
+        val accountDir = InGameSettingsFiles.accountDirectory(root, TEST_ACCOUNT)
+        accountDir.mkdirs()
+        val uvars = InGameSettingsFiles.accountSavedVariables(root, TEST_ACCOUNT)
+        InGameSettingsFiles.writeAtomic(uvars, "questFadingDisable = \"1\"\n")
+        return root
     }
 }

@@ -114,8 +114,18 @@ data class BotLlmSpeech(
          * block is added (the driver's native kBlocks list and the bakeoff
          * script keep their own copies, pinned by tests).
          */
+        /**
+         * R4-1 (code-red round 2): the conf-delta ids are restricted to the
+         * keys the built core's kBlocks array actually reads — tool-exemplar
+         * is a SEASONING_ID whose conf key the core never looks up, so
+         * staging it would be a silent policy drop (the exact class the
+         * W3.4 fail-loud gate exists to kill). The prompt-pack TEXT block
+         * still renders for external endpoints (the trained lane's
+         * byte-identical behavior is unchanged).
+         */
         val PACK_DELTA_IDS: Set<String> =
-            com.pocketrealm.llm.LlmPromptPack.SEASONING_IDS
+            com.pocketrealm.llm.LlmPromptPack.SEASONING_IDS -
+                "tool-exemplar"
 
         fun normalizeDial(value: Int): Int =
             if (value < 0) RP_FOLLOW_SENTINEL else value.coerceIn(MIN_RP_DIAL, MAX_RP_DIAL)

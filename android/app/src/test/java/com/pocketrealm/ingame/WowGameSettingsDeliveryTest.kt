@@ -164,6 +164,44 @@ class GameSettingsDeliveryPlannerTest {
     }
 
     @Test
+    fun `a tbc-catalog cvar queued on the tbc lane plans its write - R1-2`() {
+        // R1-2: the planner resolves the ACTIVE flavor's catalog. The seam
+        // below pins the tbc lane; the queued tbc-catalog id must plan its
+        // Config.wtf write (the vanilla-hardcoded byId returned null and
+        // blocked it forever).
+        com.pocketrealm.client.ActiveFlavor.reset()
+        com.pocketrealm.client.ActiveFlavor.qualifiedSource = {
+            listOf(
+                com.pocketrealm.client.ClientFlavors.VANILLA,
+                com.pocketrealm.client.ClientFlavors.TBC.copy(qualified = true),
+            )
+        }
+        com.pocketrealm.client.ActiveFlavor.select("tbc")
+        try {
+            // The queued id must EXIST in the tbc catalog first — the
+            // resolver returns null for an unknown id and the planner would
+            // block for a reason the pin below would misattribute.
+            checkNotNull(
+                com.pocketrealm.ingame.WowFlavorCatalogs
+                    .settingsById(com.pocketrealm.client.ClientFlavors.TBC)
+                    ("graphics.gxFixLag"),
+            ) { "the tbc catalog must define graphics.gxFixLag" }
+            val config = WowGameSettingsConfig(
+                cvar = mapOf("graphics.gxFixLag" to QueuedOverride("1", 3, "config")),
+            )
+            val plan = plan(config)
+            assertTrue(
+                "the tbc-catalog queued cvar must plan its write, got blocked=" +
+                    plan.blockedKeys,
+                plan.cvarWrites.any { it.key == "gxFixLag" && it.value == "1" },
+            )
+            assertEquals(1, plan.delivered.size)
+        } finally {
+            com.pocketrealm.client.ActiveFlavor.reset()
+        }
+    }
+
+    @Test
     fun `apply-once never re-delivers an equal or older revision`() {
         val config = WowGameSettingsConfig(
             cvar = mapOf("sound.masterVolume" to QueuedOverride("0.5", 10, "config")),

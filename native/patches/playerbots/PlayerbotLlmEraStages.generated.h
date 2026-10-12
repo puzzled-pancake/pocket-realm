@@ -6,8 +6,8 @@
 // drift. The per-stage era classes follow design section 5: the world
 // resolves its class set from PocketRealm.TimeframeStage; every stage
 // whose manifest carries no curated delta resolves to its flavor's
-// grounded baseline (today: the vanilla 1.12.1 lists for ALL stages -
-// the documented v1 posture). DO NOT EDIT.
+// grounded baseline (W3.1: vanilla, tbc and wotlk each carry their own
+// grounded baseline - three distinct per-flavor sets). DO NOT EDIT.
 
 #ifndef _PlayerbotLlmEraStages_generated_h
 #define _PlayerbotLlmEraStages_generated_h
@@ -137,6 +137,132 @@ inline std::vector<std::pair<std::string, bool>> const& kEraSet0_Senses()
     return phrases;
 }
 
+inline std::vector<std::string> const& kEraSet1_AlwaysBan()
+{
+    static std::vector<std::string> const terms = {
+        "acherus",
+    };
+    return terms;
+}
+
+inline std::vector<std::pair<std::string, bool>> const& kEraSet1_Senses()
+{
+    static std::vector<std::pair<std::string, bool>> const phrases = {
+        { "dalaran floats", false },
+        { "sewers of dalaran", false },
+        { "dalaran's sewers", false },
+        { "ebon blade", false },
+        { "wrath of the lich king", false },
+        { "mists of pandaria", false },
+        { "warlords of draenor", false },
+        { "zereth mortis", false },
+        { "korthia", false },
+        { "revendreth", false },
+        { "maldraxxus", false },
+        { "ardenweald", false },
+        { "nazjatar", false },
+        { "playable worgen", false },
+        { "gilneas opened", true },
+        { "gilneas is open", true },
+        { "gilneas has opened", true },
+        { "argent tournament", false },
+        { "borean tundra", false },
+        { "crystalsong", false },
+        { "dragonblight", false },
+        { "ebon hold", false },
+        { "frenzyheart", false },
+        { "howling fjord", false },
+        { "icecrown", false },
+        { "sholazar basin", false },
+        { "storm peaks", false },
+        { "taunka", false },
+        { "tuskarr", false },
+        { "wintergrasp", false },
+        { "vortex pinnacle", false },
+        { "hodir", false },
+        { "valiance keep", false },
+        { "valgarde", false },
+        { "wintergarde", false },
+        { "utgarde", false },
+        { "grizzly hills", false },
+        { "transitus shield", false },
+        { "ramkahen", false },
+        { "westguard keep", false },
+        { "kamagua", false },
+        { "throne of the tides", false },
+        { "amber ledge", false },
+        { "blackrock caverns", false },
+        { "halls of origination", false },
+        { "vashj'ir", false },
+        { "ny'alotha", false },
+        { "stormsong valley", false },
+        { "drustvar", false },
+        { "vol'dun", false },
+        { "gilneas city", false },
+        { "kezan", false },
+        { "lost isles", false },
+        { "stonecore", false },
+        { "tol barad", false },
+        { "wandering isle", false },
+        { "bilgewater", false },
+        { "inscription", false },
+        { "argent crusade", false },
+        { "saronite", false },
+        { "the skybreaker", false },
+        { "sons of hodir", false },
+        { "onslaught harbor", false },
+        { "timeless isle", false },
+    };
+    return phrases;
+}
+
+inline std::vector<std::string> const& kEraSet2_AlwaysBan()
+{
+    static std::vector<std::string> const terms = {
+        "vashj'ir",
+        "ny'alotha",
+    };
+    return terms;
+}
+
+inline std::vector<std::pair<std::string, bool>> const& kEraSet2_Senses()
+{
+    static std::vector<std::pair<std::string, bool>> const phrases = {
+        { "gilneas opened", true },
+        { "gilneas is open", true },
+        { "gilneas has opened", true },
+        { "playable worgen", false },
+        { "gilneas city", false },
+        { "kezan", false },
+        { "lost isles", false },
+        { "stonecore", false },
+        { "tol barad", false },
+        { "wandering isle", false },
+        { "stormsong valley", false },
+        { "drustvar", false },
+        { "vol'dun", false },
+        { "mists of pandaria", false },
+        { "warlords of draenor", false },
+        { "zereth mortis", false },
+        { "korthia", false },
+        { "revendreth", false },
+        { "maldraxxus", false },
+        { "ardenweald", false },
+        { "nazjatar", false },
+        { "battle for azeroth", false },
+        { "shadowlands", false },
+        { "the war within", false },
+        { "vortex pinnacle", false },
+        { "ramkahen", false },
+        { "throne of the tides", false },
+        { "blackrock caverns", false },
+        { "halls of origination", false },
+        { "bilgewater", false },
+        { "timeless isle", false },
+    };
+    return phrases;
+}
+
 // The per-stage era class resolution (design section 5). An
 // unregistered stage falls open to the grounded default - the
 // settings layer never persists one, and the conf consumer
@@ -155,16 +281,16 @@ inline std::vector<std::string> const& AlwaysBanTermsFor(std::string const& stag
     if (stage == "vanilla-1.10") return kEraSet0_AlwaysBan();
     if (stage == "vanilla-1.11") return kEraSet0_AlwaysBan();
     if (stage == "vanilla-1.12.1") return kEraSet0_AlwaysBan();
-    if (stage == "tbc-2.0.1") return kEraSet0_AlwaysBan();
-    if (stage == "tbc-2.1") return kEraSet0_AlwaysBan();
-    if (stage == "tbc-2.2") return kEraSet0_AlwaysBan();
-    if (stage == "tbc-2.3") return kEraSet0_AlwaysBan();
-    if (stage == "tbc-2.4.3") return kEraSet0_AlwaysBan();
-    if (stage == "wotlk-3.0.2") return kEraSet0_AlwaysBan();
-    if (stage == "wotlk-3.1") return kEraSet0_AlwaysBan();
-    if (stage == "wotlk-3.2") return kEraSet0_AlwaysBan();
-    if (stage == "wotlk-3.3") return kEraSet0_AlwaysBan();
-    if (stage == "wotlk-3.3.5a") return kEraSet0_AlwaysBan();
+    if (stage == "tbc-2.0.1") return kEraSet1_AlwaysBan();
+    if (stage == "tbc-2.1") return kEraSet1_AlwaysBan();
+    if (stage == "tbc-2.2") return kEraSet1_AlwaysBan();
+    if (stage == "tbc-2.3") return kEraSet1_AlwaysBan();
+    if (stage == "tbc-2.4.3") return kEraSet1_AlwaysBan();
+    if (stage == "wotlk-3.0.2") return kEraSet2_AlwaysBan();
+    if (stage == "wotlk-3.1") return kEraSet2_AlwaysBan();
+    if (stage == "wotlk-3.2") return kEraSet2_AlwaysBan();
+    if (stage == "wotlk-3.3") return kEraSet2_AlwaysBan();
+    if (stage == "wotlk-3.3.5a") return kEraSet2_AlwaysBan();
     return kEraSet0_AlwaysBan();
 }
 
@@ -182,17 +308,32 @@ inline std::vector<std::pair<std::string, bool>> const& SensePhrasesFor(std::str
     if (stage == "vanilla-1.10") return kEraSet0_Senses();
     if (stage == "vanilla-1.11") return kEraSet0_Senses();
     if (stage == "vanilla-1.12.1") return kEraSet0_Senses();
-    if (stage == "tbc-2.0.1") return kEraSet0_Senses();
-    if (stage == "tbc-2.1") return kEraSet0_Senses();
-    if (stage == "tbc-2.2") return kEraSet0_Senses();
-    if (stage == "tbc-2.3") return kEraSet0_Senses();
-    if (stage == "tbc-2.4.3") return kEraSet0_Senses();
-    if (stage == "wotlk-3.0.2") return kEraSet0_Senses();
-    if (stage == "wotlk-3.1") return kEraSet0_Senses();
-    if (stage == "wotlk-3.2") return kEraSet0_Senses();
-    if (stage == "wotlk-3.3") return kEraSet0_Senses();
-    if (stage == "wotlk-3.3.5a") return kEraSet0_Senses();
+    if (stage == "tbc-2.0.1") return kEraSet1_Senses();
+    if (stage == "tbc-2.1") return kEraSet1_Senses();
+    if (stage == "tbc-2.2") return kEraSet1_Senses();
+    if (stage == "tbc-2.3") return kEraSet1_Senses();
+    if (stage == "tbc-2.4.3") return kEraSet1_Senses();
+    if (stage == "wotlk-3.0.2") return kEraSet2_Senses();
+    if (stage == "wotlk-3.1") return kEraSet2_Senses();
+    if (stage == "wotlk-3.2") return kEraSet2_Senses();
+    if (stage == "wotlk-3.3") return kEraSet2_Senses();
+    if (stage == "wotlk-3.3.5a") return kEraSet2_Senses();
     return kEraSet0_Senses();
+}
+
+// The per-flavor prompt-pack identity world title (W3.2),
+// resolved from the stage's flavor. The trained renderers
+// (SysmForCard) speak the ACTIVE flavor's world; the default
+// stage's output stays byte-identical to the frozen trained
+// wording ("World of Warcraft: Classic"). The titles are
+// data in schemas/flavor.json llm.prompt_identity - a
+// flavor without one fails the generator loud.
+inline std::string ExpansionTitleFor(std::string const& stage)
+{
+    if (stage.rfind("vanilla-", 0) == 0) return "World of Warcraft: Classic";
+    if (stage.rfind("tbc-", 0) == 0) return "World of Warcraft: The Burning Crusade";
+    if (stage.rfind("wotlk-", 0) == 0) return "World of Warcraft: Wrath of the Lich King";
+    return "World of Warcraft: Classic";
 }
 
 } // namespace erastages

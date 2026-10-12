@@ -3,7 +3,7 @@ package com.pocketrealm.ingame
 import android.content.Context
 import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.ManagedClientStore
-import com.pocketrealm.client.WowVanillaBindingCatalog
+import com.pocketrealm.client.WowBindingDefinition
 import com.pocketrealm.client.X86DirectWineRuntime
 import com.pocketrealm.storage.Settings
 import kotlinx.coroutines.Dispatchers
@@ -76,11 +76,25 @@ internal class InGameSettingsEditor(private val context: Context) {
         )
     }
 
+    /**
+     * W3.3: the ACTIVE flavor's catalog lookups. The editor was wired to
+     * the vanilla catalogs at every call site; each now resolves the active
+     * flavor's authored catalog (vanilla/tbc/wotlk) through
+     * [WowFlavorCatalogs], so a tbc/wotlk lane's queued entries, reconcile
+     * passes, and binding stages answer against THAT flavor's catalog.
+     */
+    private fun settingsById(): (String) -> WowSettingDefinition? =
+        WowFlavorCatalogs.settingsById(ActiveFlavor.resolve(INGAME_EDITOR_LANE))
+
+    private fun bindingFind(): (String) -> WowBindingDefinition? =
+        WowFlavorCatalogs.bindingFind(ActiveFlavor.resolve(INGAME_EDITOR_LANE))
+
     /** Queued entries whose backing key the app enforces right now. */
     fun blockedQueueKeys(snapshot: Settings.Snapshot): Set<String> {
         val enforced = enforcedForCurrentConditions(snapshot).map { it.key }.toSet()
+        val byId = settingsById()
         return snapshot.gameSettings.cvar.keys.filter { id ->
-            WowVanillaSettingsCatalog.byId(id)?.key in enforced
+            byId(id)?.key in enforced
         }.toSet()
     }
 
@@ -114,6 +128,9 @@ internal class InGameSettingsEditor(private val context: Context) {
     }
 
     suspend fun readUvarValues(account: String): Map<String, SavedVariablesCodec.Value>? = underLease { root ->
+        // R2-5: a non-vanilla layout has NO single-file uvar route — the
+        // read degrades to empty instead of reaching the fail-loud backstop.
+        if (!InGameSettingsFiles.activeLayout().supportsUvars) return@underLease emptyMap()
         val file = InGameSettingsFiles.accountSavedVariables(root, account)
         if (file.isFile) SavedVariablesCodec.parse(file.readText(Charsets.UTF_8)) else emptyMap()
     }
@@ -252,8 +269,16 @@ internal class InGameSettingsEditor(private val context: Context) {
             }
         }
         if (definition.backend == WowSettingBackend.UVAR) {
+            // R2-5: the single-file route is vanilla-only — refuse honestly
+            // before the layout backstop can throw mid-stage.
+            check(InGameSettingsFiles.activeLayout().supportsUvars) {
+                "\"${definition.label}\" is a vanilla-lane saved variable — the " +
+                    "active flavor's client writes per-addon SavedVariables and " +
+                    "has no in-game editor for them"
+            }
             val scopeFileExists = underLease { root ->
-                InGameSettingsFiles.accountSavedVariables(root, scope).isFile
+                InGameSettingsFiles.activeLayout()
+                    .accountHasUvars(root, scope)
             } == true
             check(scopeFileExists) { "log in once in game to edit saved variables" }
         }
@@ -278,7 +303,7 @@ internal class InGameSettingsEditor(private val context: Context) {
         secondary: String?,
         scope: String,
     ) {
-        check(WowVanillaBindingCatalog.find(command) != null) { "unknown binding command: $command" }
+        check(bindingFind()(command) != null) { "unknown binding command: $command" }
         val scopeFileExists = underLease { root ->
             InGameSettingsFiles.bindingsForScope(root, scope).isFile
         } == true
@@ -330,17 +355,27 @@ internal class InGameSettingsEditor(private val context: Context) {
             return false
         }
 
+        val cvarById = settingsById()
         snapshot.gameSettings.cvar.forEach { (id, entry) ->
-            val definition = WowVanillaSettingsCatalog.byId(id) ?: run {
+            val definition = cvarById(id) ?: run {
                 droppedCvar += id; return@forEach
             }
             val current = configValues[definition.key]
             if (classify(id, entry.scope, entry.revision, current)) droppedCvar += id
         }
-        val uvarValuesByScope = snapshot.gameSettings.uvar.values.map { it.scope }.distinct()
+        // R2-5: a carried vanilla uvar queue degrades CLEANLY on a
+        // non-vanilla lane — every queued uvar drops (the lane has no
+        // single-file uvar route) instead of the layout backstop throwing
+        // mid-reconcile.
+        val uvarsSupported = InGameSettingsFiles.activeLayout().supportsUvars
+        val uvarValuesByScope = if (!uvarsSupported) emptyMap()
+        else snapshot.gameSettings.uvar.values.map { it.scope }.distinct()
             .mapNotNull { scope -> readUvarValues(scope)?.let { scope to it } }.toMap()
         snapshot.gameSettings.uvar.forEach { (id, entry) ->
-            val definition = WowVanillaSettingsCatalog.byId(id) ?: run {
+            if (!uvarsSupported) {
+                droppedUvar += id; return@forEach
+            }
+            val definition = cvarById(id) ?: run {
                 droppedUvar += id; return@forEach
             }
             val current = uvarValuesByScope[entry.scope]?.get(definition.key)?.rendered()

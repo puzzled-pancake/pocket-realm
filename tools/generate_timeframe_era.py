@@ -47,8 +47,8 @@ HEADER_BANNER = """\
 // drift. The per-stage era classes follow design section 5: the world
 // resolves its class set from PocketRealm.TimeframeStage; every stage
 // whose manifest carries no curated delta resolves to its flavor's
-// grounded baseline (today: the vanilla 1.12.1 lists for ALL stages -
-// the documented v1 posture). DO NOT EDIT.
+// grounded baseline (W3.1: vanilla, tbc and wotlk each carry their own
+// grounded baseline - three distinct per-flavor sets). DO NOT EDIT.
 """
 
 
@@ -214,10 +214,10 @@ _BASELINE_CACHE: dict[str, dict] = {}
 
 def manifests_baseline(flavor: str) -> dict:
     """A stage without its own grounded_baseline inherits its flavor's
-    final-stage baseline; the TBC/WotLK lanes carry no grounded baseline of
-    their own yet (curation is pending flavor qualification), so they
-    inherit the ONLY grounded policy in the repo: the vanilla 1.12.1
-    baseline — the documented v1 posture (design §5)."""
+    final-stage baseline; a flavor with none of its own falls back to the
+    vanilla 1.12.1 baseline (since W3.1 every shipped flavor carries its
+    own, so the cross-flavor fallback is retired in practice — it remains
+    for pre-W3.1 manifest shapes)."""
     if flavor not in _BASELINE_CACHE:
         manifest = json.loads((TIMEFRAMES / f"{flavor}.json").read_text(encoding="utf-8"))
         baseline = manifest.get("final_stage_era_baseline")
@@ -225,6 +225,38 @@ def manifests_baseline(flavor: str) -> dict:
             baseline = manifests_baseline("vanilla")
         _BASELINE_CACHE[flavor] = baseline
     return _BASELINE_CACHE[flavor]
+
+
+FLAVOR_MANIFEST = ROOT / "schemas" / "flavor.json"
+
+
+def prompt_identities() -> dict[str, str]:
+    """The per-flavor prompt-pack identity world titles (W3.2): flavor.json's
+    `llm.prompt_identity` per flavor, fail-loud when missing or empty (an
+    identity-less flavor would silently render the vanilla title — the exact
+    drift the generated selector exists to prevent)."""
+    data = json.loads(FLAVOR_MANIFEST.read_text(encoding="utf-8"))
+    identities: dict[str, str] = {}
+    for flavor in FLAVOR_IDS:
+        block = data.get("flavors")
+        entry = next(
+            (f for f in block if f.get("id") == flavor), None
+        ) if isinstance(block, list) else None
+        title = (entry or {}).get("llm", {}).get("prompt_identity")
+        if not isinstance(title, str) or not title:
+            raise ValueError(
+                f"schemas/flavor.json: flavor {flavor!r} carries no llm."
+                "prompt_identity — the generated ExpansionTitleFor selector "
+                "refuses to guess (a missing identity would silently render "
+                "the vanilla title on that lane)"
+            )
+        identities[flavor] = title
+    return identities
+
+
+def flavor_of_stage(stage_id: str) -> str:
+    """The flavor slug of a stage id ("tbc-2.4.3" -> "tbc")."""
+    return stage_id.split("-", 1)[0]
 
 
 def render_era_header(manifests: dict[str, dict]) -> str:
@@ -319,6 +351,29 @@ def render_era_header(manifests: dict[str, dict]) -> str:
             f"    if (stage == {cpp_string(binding['stage'])}) return {binding['set']}_Senses();"
         )
     out.append(f"    return {bindings[0]['set']}_Senses();")
+    out.append("}")
+    out.append("")
+    out.append("// The per-flavor prompt-pack identity world title (W3.2),")
+    out.append("// resolved from the stage's flavor. The trained renderers")
+    out.append("// (SysmForCard) speak the ACTIVE flavor's world; the default")
+    out.append("// stage's output stays byte-identical to the frozen trained")
+    out.append("// wording (\"World of Warcraft: Classic\"). The titles are")
+    out.append("// data in schemas/flavor.json llm.prompt_identity - a")
+    out.append("// flavor without one fails the generator loud.")
+    out.append("inline std::string ExpansionTitleFor(std::string const& stage)")
+    out.append("{")
+    identities = prompt_identities()
+    emitted: list[str] = []
+    for binding in bindings:
+        flavor = flavor_of_stage(binding["stage"])
+        if flavor in emitted:
+            continue
+        emitted.append(flavor)
+        out.append(
+            f"    if (stage.rfind({cpp_string(flavor + '-')}, 0) == 0) "
+            f"return {cpp_string(identities[flavor])};"
+        )
+    out.append(f"    return {cpp_string(identities['vanilla'])};")
     out.append("}")
     out.append("")
     out.append("} // namespace erastages")

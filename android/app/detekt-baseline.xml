@@ -11,6 +11,7 @@
     <ID>ComplexCondition:ClientRuntime.kt$ClientRuntimeContract$executableName.isBlank() || executableName.any { it == '/' || it == '\\' || it == '\r' || it == '\n' }</ID>
     <ID>ComplexCondition:DatabaseEngine.kt$DatabaseEngine$state == State.RUNNING || state == State.STARTING || state == State.STOPPING || daemonThread?.isAlive == true</ID>
     <ID>ComplexCondition:DatabaseMigrationSeal.kt$DatabaseMigrationSeal$markerText == null || !PROVIDER.matches(expectedProviderId) || !SHA256.matches(expectedBootstrapSha256) || !SHA256.matches(expectedManifestSha256) || expectedMigrationCount &lt; 0</ID>
+    <ID>ComplexCondition:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$username.length !in 1..16 || !username.all { it.isLetterOrDigit() &amp;&amp; it.code &lt; 128 } || level !in 0..3</ID>
     <ID>ComplexCondition:ImportPathPolicy.kt$ImportPathPolicy$rawParts.isEmpty() || rawParts.any { it.isEmpty() || it == "." || it == ".." }</ID>
     <ID>ComplexCondition:ImportPathPolicy.kt$ImportPathPolicy$value.isBlank() || value.length &gt; limits.maxComponentChars || value.any { it == '\u0000' || Character.isISOControl(it) || it == '/' || it == '\\' }</ID>
     <ID>ComplexCondition:InputContract.kt$InputContract$!acceptLocked(generation) || imeActive || !noHeldInputLocked() || imeStepScheduled || imeInFlightKey != null || imeQueue.isNotEmpty()</ID>
@@ -24,7 +25,7 @@
     <ID>ComplexCondition:SinglePlayerAutoLogin.kt$SinglePlayerAutoLoginController$!bridge.isActive(generation) || !bridge.isRendererReady() || !bridge.isInputNeutral(generation) || !topologyMatches()</ID>
     <ID>ComplexCondition:UserVulkanDriverValidator.kt$UserVulkanDriverValidator$bytes[0] != 0x7f.toByte() || bytes[1] != 'E'.code.toByte() || bytes[2] != 'L'.code.toByte() || bytes[3] != 'F'.code.toByte()</ID>
     <ID>ComplexCondition:WineRuntimeStore.kt$WineRuntimeStore$relative == "usr/lib/libX11.so.6.4.0" || relative == "usr/lib/libxcb.so.1.1.0" || relative == "usr/share/alsa/alsa.conf" || relative == "opt/wine/bin/wineserver" || relative == "opt/wine/lib/wine/x86_64-unix/ntdll.so"</ID>
-    <ID>CyclomaticComplexMethod:AddonArchiveValidator.kt$AddonArchiveValidator$fun validate( archive: File, @Suppress("UNUSED_PARAMETER") repositoryName: String, policy: Policy = Policy.VANILLA, checkpoint: () -&gt; Unit = {}, ): Validated</ID>
+    <ID>CyclomaticComplexMethod:AddonArchiveValidator.kt$AddonArchiveValidator$fun validate( archive: File, @Suppress("UNUSED_PARAMETER") repositoryName: String, // A FRESH default (never the frozen companion val): the accepted // `## Interface:` set is the ACTIVE flavor's, read at install time. policy: Policy = Policy(), checkpoint: () -&gt; Unit = {}, ): Validated</ID>
     <ID>CyclomaticComplexMethod:AddonRuntimeProjector.kt$AddonRuntimeProjector$fun project(clientRoot: File, safeMode: Boolean): List&lt;String&gt;</ID>
     <ID>CyclomaticComplexMethod:AndroidRuntimeBackend.kt$AndroidRuntimeBackend$override suspend fun preflight(spec: RuntimeLaunchSpec): RuntimeActionResult</ID>
     <ID>CyclomaticComplexMethod:AndroidRuntimeBackend.kt$AndroidRuntimeBackend$private suspend fun startClient(owner: ComponentOwner, spec: RuntimeLaunchSpec): ComponentObservation</ID>
@@ -59,12 +60,13 @@
     <ID>CyclomaticComplexMethod:DiagnosticsScreen.kt$@Composable fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues())</ID>
     <ID>CyclomaticComplexMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun recoverLocked(): Boolean</ID>
     <ID>CyclomaticComplexMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun startStage( component: RuntimeComponent, phase: RuntimePhase, sessionId: String, spec: RuntimeLaunchSpec, ): Boolean</ID>
-    <ID>CyclomaticComplexMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun stopLocked( mode: StopMode, finalPhase: RuntimePhase, preserveError: String?, ): RuntimeOperation</ID>
+    <ID>CyclomaticComplexMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun stopLocked( mode: StopMode, finalPhase: RuntimePhase, preserveError: String?, stopReason: String? = null, ): RuntimeOperation</ID>
     <ID>CyclomaticComplexMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$suspend fun consentedForceStopOrphanStack(): RuntimeOperation</ID>
     <ID>CyclomaticComplexMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$suspend fun start(spec: RuntimeLaunchSpec): RuntimeOperation</ID>
     <ID>CyclomaticComplexMethod:HomeScreen.kt$@Composable fun HomeScreen( contentPadding: PaddingValues = PaddingValues(), onOpenBots: () -&gt; Unit = {}, onOpenSettings: () -&gt; Unit = {}, )</ID>
     <ID>CyclomaticComplexMethod:HomeScreen.kt$@Composable private fun RealmControlCard( state: RealmState, botProfile: BotProfile, botPresetName: String?, onStartRealm: () -&gt; Unit, onStartAll: () -&gt; Unit, onSaveExit: () -&gt; Unit, onEnterGame: (() -&gt; Unit)?, onRetryGame: () -&gt; Unit, /** Present only for the consented force-stop repair failures (orphan world, dead-session database lock): opens the confirmation. */ onForceStopOrphan: (() -&gt; Unit)?, clientRetryPending: Boolean, canLaunchGame: Boolean, settingsReady: Boolean, allowLanPlayers: Boolean, clientUnavailableReason: String?, landscape: Boolean, modifier: Modifier = Modifier, )</ID>
     <ID>CyclomaticComplexMethod:HomeScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun CurrentSetupCard( profile: BotProfile, settings: Settings.Snapshot, storedAccount: String?, onOpenBots: () -&gt; Unit, onOpenSettings: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>CyclomaticComplexMethod:HomeScreen.kt$private fun realmStatus(state: RealmState): Pair&lt;String, String&gt;</ID>
     <ID>CyclomaticComplexMethod:ImportExtractionPolicy.kt$ImportExtractionPolicy$fun classify(entries: List&lt;RawEntry&gt;): Classified</ID>
     <ID>CyclomaticComplexMethod:ImportPathPolicy.kt$ImportPathPolicy$fun normalize(rawRelative: String): String</ID>
     <ID>CyclomaticComplexMethod:ImportProgressPresentation.kt$ImportProgressPresentation.Companion$fun fromJson(value: JSONObject): ImportProgressPresentation</ID>
@@ -86,6 +88,9 @@
     <ID>CyclomaticComplexMethod:InputContract.kt$InputContract.Companion$private fun gamepadBinding( keyCode: Int, layout: GamepadLayout, profile: InputProfile, activeLayer: FaceLayer? = null, ): GamepadBinding?</ID>
     <ID>CyclomaticComplexMethod:InputProfile.kt$InputProfile.Companion$fun fromJson(value: JSONObject): InputProfile</ID>
     <ID>CyclomaticComplexMethod:LanScreen.kt$@Composable fun LanScreen()</ID>
+    <ID>CyclomaticComplexMethod:LanScreen.kt$@Composable private fun FriendAccessHostPane( supervisorClient: RuntimeSupervisorClient, endpointAddress: String, advertisedAddress: String?, modifier: Modifier = Modifier, )</ID>
+    <ID>CyclomaticComplexMethod:LanScreen.kt$@Composable private fun FriendRequestPane( suggestedHostAddress: String, modifier: Modifier = Modifier, )</ID>
+    <ID>CyclomaticComplexMethod:LanScreen.kt$@Composable private fun LanHostPane( state: RealmState, settingsReady: Boolean, allowLanPlayers: Boolean, onAllowLanPlayers: (Boolean) -&gt; Unit, friendAccessEnabled: Boolean, onFriendAccess: (Boolean) -&gt; Unit, tunnelAdvertisedAddress: String, onTunnelAdvertised: (String) -&gt; Unit, hostError: String?, onStartHost: () -&gt; Unit, onSaveExit: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>CyclomaticComplexMethod:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$fun repair(clientRoot: File): Int</ID>
     <ID>CyclomaticComplexMethod:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$private fun repairFile(file: File, previous: Map&lt;String, String?&gt;?): Boolean</ID>
     <ID>CyclomaticComplexMethod:LlmModelCoordinator.kt$LlmModelCoordinator$fun download( context: Context, descriptor: ModelDescriptor = primaryModel, onProgress: (Long) -&gt; Unit = {}, isCancelled: () -&gt; Boolean = { false }, ): File</ID>
@@ -96,7 +101,10 @@
     <ID>CyclomaticComplexMethod:ManagedClientStore.kt$ManagedClientStore$private fun loadUnlocked(clientId: String): ManagedClient</ID>
     <ID>CyclomaticComplexMethod:PackagingExperimentRunner.kt$PackagingExperimentRunner$suspend fun runPkg01(launcherRelName: String = "libpocket_pkg_launcher.so"): ExperimentResult</ID>
     <ID>CyclomaticComplexMethod:PackagingExperimentRunner.kt$PackagingExperimentRunner$suspend fun runPkg06(durationSeconds: Long): ExperimentResult</ID>
+    <ID>CyclomaticComplexMethod:PocketRealmApp.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PocketRealmApp()</ID>
+    <ID>CyclomaticComplexMethod:RealmDataArchive.kt$RealmDataArchive$fun extractSnapshot(input: InputStream, snapshotRoot: File): Pair&lt;ArchiveInfo, ByteArray?&gt;</ID>
     <ID>CyclomaticComplexMethod:RealmService.kt$RealmService$private suspend fun monitorComponents()</ID>
+    <ID>CyclomaticComplexMethod:RuntimeFailureCopy.kt$RuntimeFailureCopy$fun humanize(detail: String): String</ID>
     <ID>CyclomaticComplexMethod:RuntimeSupervisorClient.kt$RuntimeSupervisorClient.Companion$internal fun decodeRealmState(raw: String): RealmState</ID>
     <ID>CyclomaticComplexMethod:SafClientScanner.kt$SafClientScanner.Companion$internal fun scanAccess(access: Access): Result</ID>
     <ID>CyclomaticComplexMethod:SafTreeSource.kt$SafTreeSource$override fun inventory(): SourceInventory</ID>
@@ -106,8 +114,9 @@
     <ID>CyclomaticComplexMethod:Settings.kt$internal fun MutablePreferences.writeSnapshotWrites( next: Settings.Snapshot, display: ClientDisplaySelection, )</ID>
     <ID>CyclomaticComplexMethod:SettingsScreen.kt$@Composable // onLlm joins the sibling navigation params; the list is one // longer than the default cap by design. @Suppress("LongParameterList") fun SettingsScreen( contentPadding: PaddingValues = PaddingValues(), onBots: (() -&gt; Unit)? = null, onClientSetup: (() -&gt; Unit)? = null, onCapability: (() -&gt; Unit)? = null, onDiagnostics: (() -&gt; Unit)? = null, onInGameSettings: (() -&gt; Unit)? = null, onLlm: (() -&gt; Unit)? = null, )</ID>
     <ID>CyclomaticComplexMethod:SettingsScreen.kt$private suspend fun importUserVulkanDriverFromUri( context: android.content.Context, uri: Uri, ): UserVulkanDriverImport</ID>
-    <ID>CyclomaticComplexMethod:SinglePlayerAutoLogin.kt$Build5875LoginTopology$fun matches( windows: List&lt;AutoLoginWindow&gt;, lane: AutoLoginWindowLane, expectedWidth: Int = 1920, expectedHeight: Int = 1080, ): Boolean</ID>
     <ID>CyclomaticComplexMethod:SinglePlayerAutoLogin.kt$SinglePlayerAutoLoginController$@Synchronized private fun poll()</ID>
+    <ID>CyclomaticComplexMethod:SinglePlayerAutoLogin.kt$private fun matchQualifiedLoginTopology( windows: List&lt;AutoLoginWindow&gt;, lane: AutoLoginWindowLane, expectedWidth: Int, expectedHeight: Int, ): Boolean</ID>
+    <ID>CyclomaticComplexMethod:StackUpComposite.kt$StackUpComposite$fun run(profileIdArg: String): JSONObject</ID>
     <ID>CyclomaticComplexMethod:TouchOverlay.kt$@Composable private fun BoxScope.MovableCluster( clusterId: OverlayClusterId, host: ClientDisplayHost, profile: InputProfile, containerSize: IntSize, moveMode: Boolean, stockAlignment: Alignment, stockPadding: PaddingValues, stockZIndex: Float, content: @Composable () -&gt; Unit, )</ID>
     <ID>CyclomaticComplexMethod:TouchOverlay.kt$private fun ControllerAction.shortLabel(fallback: String): String</ID>
     <ID>CyclomaticComplexMethod:UserVulkanDriverRegistry.kt$UserVulkanDriverRegistry$fun import( displayName: String, payload: File, maxImportBytes: Long = UserVulkanDriverValidator.DEFAULT_MAX_IMPORT_BYTES, ): UserVulkanDriverImport</ID>
@@ -123,6 +132,8 @@
     <ID>CyclomaticComplexMethod:WorldRuntimeService.kt$WorldRuntimeService$private fun addBotStatus(value: JSONObject)</ID>
     <ID>CyclomaticComplexMethod:WorldRuntimeService.kt$WorldRuntimeService$private fun runAdmissionMonitor( controller: BotAdmissionController, startedAt: Long, generation: Long, )</ID>
     <ID>CyclomaticComplexMethod:WowGameSettings.kt$GameSettingsDeliveryPlanner$fun plan( config: WowGameSettingsConfig, enforcedCvarKeys: Set&lt;String&gt;, uvarScopeExists: (scope: String) -&gt; Boolean, bindingScopeExists: (scope: String) -&gt; Boolean, previousDelivered: List&lt;GameSettingsDeliveryEntry&gt;, ): Plan</ID>
+    <ID>EmptyFunctionBlock:LoginTopologiesTest.kt$LoginTopologiesTest.FakeBridge${}</ID>
+    <ID>EmptyFunctionBlock:TimeframeOverlayPlanTest.kt$SingleCellCursor${}</ID>
     <ID>ForEachOnRange:AndroidPortMigrator.kt$AndroidPortMigrator$1..40</ID>
     <ID>ForEachOnRange:InGameBindingsScreen.kt$0..1</ID>
     <ID>ForEachOnRange:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$1..8</ID>
@@ -199,6 +210,7 @@
     <ID>FunctionNaming:HomeScreen.kt$@Composable fun HomeScreen( contentPadding: PaddingValues = PaddingValues(), onOpenBots: () -&gt; Unit = {}, onOpenSettings: () -&gt; Unit = {}, )</ID>
     <ID>FunctionNaming:HomeScreen.kt$@Composable private fun AccountCard( username: String, onUsername: (String) -&gt; Unit, password: String, onPassword: (String) -&gt; Unit, gmAccount: Boolean, onGmAccount: (Boolean) -&gt; Unit, accountStatus: String, storedAccount: String?, onCreate: () -&gt; Unit, onClear: () -&gt; Unit, landscape: Boolean, creationEnabled: Boolean, operationPending: Boolean, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:HomeScreen.kt$@Composable private fun AccountFields( username: String, onUsername: (String) -&gt; Unit, password: String, onPassword: (String) -&gt; Unit, enabled: Boolean, modifier: Modifier, )</ID>
+    <ID>FunctionNaming:HomeScreen.kt$@Composable private fun FlavorSwitcherCard( chips: List&lt;FlavorChip&gt;, onSelect: (FlavorChip) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:HomeScreen.kt$@Composable private fun RealmControlCard( state: RealmState, botProfile: BotProfile, botPresetName: String?, onStartRealm: () -&gt; Unit, onStartAll: () -&gt; Unit, onSaveExit: () -&gt; Unit, onEnterGame: (() -&gt; Unit)?, onRetryGame: () -&gt; Unit, /** Present only for the consented force-stop repair failures (orphan world, dead-session database lock): opens the confirmation. */ onForceStopOrphan: (() -&gt; Unit)?, clientRetryPending: Boolean, canLaunchGame: Boolean, settingsReady: Boolean, allowLanPlayers: Boolean, clientUnavailableReason: String?, landscape: Boolean, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:HomeScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun CurrentSetupCard( profile: BotProfile, settings: Settings.Snapshot, storedAccount: String?, onOpenBots: () -&gt; Unit, onOpenSettings: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:InGameBindingsScreen.kt$@Composable internal fun InGameBindingsScreen()</ID>
@@ -212,10 +224,15 @@
     <ID>FunctionNaming:InGameSettingsScreens.kt$@Composable private fun HubStatusCard( activity: InGameSettingsEditor.ClientActivity, queued: Int, blocked: Int, summary: InGameSettingsEditor.ReconcileSummary?, onDiscardAll: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:InGameSettingsScreens.kt$@Composable private fun SettingDefinitionRow( definition: WowSettingDefinition, snap: Settings.Snapshot, state: InGameSettingsState, )</ID>
     <ID>FunctionNaming:LanScreen.kt$@Composable fun LanScreen()</ID>
-    <ID>FunctionNaming:LanScreen.kt$@Composable private fun LanHostPane( state: RealmState, settingsReady: Boolean, allowLanPlayers: Boolean, onAllowLanPlayers: (Boolean) -&gt; Unit, onStartHost: () -&gt; Unit, onSaveExit: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
-    <ID>FunctionNaming:LanScreen.kt$@Composable private fun LanJoinPane( lanAddress: String, onLanAddress: (String) -&gt; Unit, onJoinLan: () -&gt; Unit, lanError: String?, joined: Boolean, joinedAddress: String?, enabled: Boolean, clientUnavailableReason: String? = null, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:LanScreen.kt$@Composable private fun FriendAccessHostPane( supervisorClient: RuntimeSupervisorClient, endpointAddress: String, advertisedAddress: String?, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:LanScreen.kt$@Composable private fun FriendBanDialog( username: String, onDismiss: () -&gt; Unit, onBan: (duration: String, reason: String) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:LanScreen.kt$@Composable private fun FriendRequestPane( suggestedHostAddress: String, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:LanScreen.kt$@Composable private fun JoinedPlayersLine( supervisorClient: RuntimeSupervisorClient, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:LanScreen.kt$@Composable private fun LanHostPane( state: RealmState, settingsReady: Boolean, allowLanPlayers: Boolean, onAllowLanPlayers: (Boolean) -&gt; Unit, friendAccessEnabled: Boolean, onFriendAccess: (Boolean) -&gt; Unit, tunnelAdvertisedAddress: String, onTunnelAdvertised: (String) -&gt; Unit, hostError: String?, onStartHost: () -&gt; Unit, onSaveExit: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:LanScreen.kt$@Composable private fun LanJoinPane( lanAddress: String, onLanAddress: (String) -&gt; Unit, onJoinLan: () -&gt; Unit, onProbeJoin: () -&gt; Unit, probing: Boolean, probeStatus: String?, lanError: String?, joined: Boolean, joinedAddress: String?, enabled: Boolean, clientUnavailableReason: String? = null, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:LanScreen.kt$@Composable private fun PlannedCard(title: String, tag: String, body: String)</ID>
     <ID>FunctionNaming:LanScreen.kt$@Composable private fun PlannedLanSection(modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:LanScreen.kt$@Composable private fun RealmBrowserCard( state: RealmState, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:PocketRealmApp.kt$@Composable private fun PocketRealmTopBar( title: String, topLevel: Boolean, realmState: RealmState, onBack: () -&gt; Unit, onSettings: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:PocketRealmApp.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PocketRealmApp()</ID>
     <ID>FunctionNaming:SettingsRows.kt$@Composable internal fun ChoiceRow( label: String, selectedId: String?, choices: List&lt;Pair&lt;String, String&gt;&gt;, tag: String, support: String? = null, enabled: Boolean = true, onSelect: (String) -&gt; Unit, )</ID>
@@ -256,18 +273,21 @@
     <ID>LargeClass:DatabaseEngine.kt$DatabaseEngine</ID>
     <ID>LargeClass:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor : AutoCloseable</ID>
     <ID>LargeClass:DurableRuntimeSupervisorTest.kt$DurableRuntimeSupervisorTest</ID>
+    <ID>LargeClass:GeneratedBotConfKeyCatalog.kt$GeneratedBotConfKeyCatalog</ID>
     <ID>LargeClass:InputContract.kt$InputContract</ID>
     <ID>LargeClass:InputContractTest.kt$InputContractTest</ID>
     <ID>LargeClass:WineRuntimeStore.kt$WineRuntimeStore</ID>
+    <ID>LargeClass:WowTbcSettingsCatalog.kt$WowTbcSettingsCatalog</ID>
     <ID>LargeClass:WowVanillaSettingsCatalog.kt$WowVanillaSettingsCatalog</ID>
-    <ID>LongMethod:AddonArchiveValidator.kt$AddonArchiveValidator$fun validate( archive: File, @Suppress("UNUSED_PARAMETER") repositoryName: String, policy: Policy = Policy.VANILLA, checkpoint: () -&gt; Unit = {}, ): Validated</ID>
-    <ID>LongMethod:AddonCatalog.kt$AddonCatalog.Companion$internal fun parse(text: String): AddonCatalog</ID>
+    <ID>LargeClass:WowWotlkSettingsCatalog.kt$WowWotlkSettingsCatalog</ID>
+    <ID>LongMethod:AddonArchiveValidator.kt$AddonArchiveValidator$fun validate( archive: File, @Suppress("UNUSED_PARAMETER") repositoryName: String, // A FRESH default (never the frozen companion val): the accepted // `## Interface:` set is the ACTIVE flavor's, read at install time. policy: Policy = Policy(), checkpoint: () -&gt; Unit = {}, ): Validated</ID>
     <ID>LongMethod:AddonRepository.kt$AddonRepository$private fun installBuiltInLocked(addon: CatalogAddon, token: AddonOperationToken)</ID>
     <ID>LongMethod:AddonRepository.kt$AddonRepository$private fun installLocked(ref: GitHubRepoRef, token: AddonOperationToken)</ID>
     <ID>LongMethod:AddonRepository.kt$AddonRepository$private fun installVoiceOverLocked(resolved: ResolvedGitHub, token: AddonOperationToken)</ID>
     <ID>LongMethod:AddonRuntimeProjector.kt$AddonRuntimeProjector$fun project(clientRoot: File, safeMode: Boolean): List&lt;String&gt;</ID>
     <ID>LongMethod:AddonsScreen.kt$@Composable fun AddonsHubScreen( onRecommended: () -&gt; Unit, onInstalled: () -&gt; Unit, onBrowse: () -&gt; Unit, onCustom: () -&gt; Unit, )</ID>
     <ID>LongMethod:AddonsScreen.kt$@Composable private fun AddonDetail( addon: CatalogAddon, installed: InstalledAddon?, updateAvailable: Boolean, conflicts: List&lt;Pair&lt;CatalogAddon, AddonCompatibility&gt;&gt;, recommendationReason: String?, )</ID>
+    <ID>LongMethod:AddonsScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable fun InstalledAddonsScreen( onOpenCatalogAddon: (String) -&gt; Unit, onOpenCustomAddon: (String) -&gt; Unit, )</ID>
     <ID>LongMethod:AndroidRuntimeBackend.kt$AndroidRuntimeBackend$override suspend fun preflight(spec: RuntimeLaunchSpec): RuntimeActionResult</ID>
     <ID>LongMethod:AndroidRuntimeBackend.kt$AndroidRuntimeBackend$private suspend fun startClient(owner: ComponentOwner, spec: RuntimeLaunchSpec): ComponentObservation</ID>
     <ID>LongMethod:ArmClientRendererCatalog.kt$AndroidGladioCapabilityProbe$private fun probeEgl(declared: Int): GladioCapability</ID>
@@ -306,9 +326,10 @@
     <ID>LongMethod:DatabaseSqliteControlPlane.kt$DatabaseSqliteControlPlane.SeedStatementScanner$fun feed(chunk: String): List&lt;SeedStatement&gt;</ID>
     <ID>LongMethod:DiagnosticsScreen.kt$@Composable fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues())</ID>
     <ID>LongMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun startStage( component: RuntimeComponent, phase: RuntimePhase, sessionId: String, spec: RuntimeLaunchSpec, ): Boolean</ID>
-    <ID>LongMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun stopLocked( mode: StopMode, finalPhase: RuntimePhase, preserveError: String?, ): RuntimeOperation</ID>
+    <ID>LongMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun stopLocked( mode: StopMode, finalPhase: RuntimePhase, preserveError: String?, stopReason: String? = null, ): RuntimeOperation</ID>
     <ID>LongMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$suspend fun consentedForceStopOrphanStack(): RuntimeOperation</ID>
     <ID>LongMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$suspend fun start(spec: RuntimeLaunchSpec): RuntimeOperation</ID>
+    <ID>LongMethod:FlavorManifestParityTest.kt$FlavorManifestParityTest$@Test fun manifestFlavorsMatchTheRegistryOnEverySharedField()</ID>
     <ID>LongMethod:HomeScreen.kt$@Composable fun HomeScreen( contentPadding: PaddingValues = PaddingValues(), onOpenBots: () -&gt; Unit = {}, onOpenSettings: () -&gt; Unit = {}, )</ID>
     <ID>LongMethod:HomeScreen.kt$@Composable private fun AccountCard( username: String, onUsername: (String) -&gt; Unit, password: String, onPassword: (String) -&gt; Unit, gmAccount: Boolean, onGmAccount: (Boolean) -&gt; Unit, accountStatus: String, storedAccount: String?, onCreate: () -&gt; Unit, onClear: () -&gt; Unit, landscape: Boolean, creationEnabled: Boolean, operationPending: Boolean, modifier: Modifier = Modifier, )</ID>
     <ID>LongMethod:HomeScreen.kt$@Composable private fun RealmControlCard( state: RealmState, botProfile: BotProfile, botPresetName: String?, onStartRealm: () -&gt; Unit, onStartAll: () -&gt; Unit, onSaveExit: () -&gt; Unit, onEnterGame: (() -&gt; Unit)?, onRetryGame: () -&gt; Unit, /** Present only for the consented force-stop repair failures (orphan world, dead-session database lock): opens the confirmation. */ onForceStopOrphan: (() -&gt; Unit)?, clientRetryPending: Boolean, canLaunchGame: Boolean, settingsReady: Boolean, allowLanPlayers: Boolean, clientUnavailableReason: String?, landscape: Boolean, modifier: Modifier = Modifier, )</ID>
@@ -333,6 +354,11 @@
     <ID>LongMethod:InputProfile.kt$InputProfile.Companion$fun fromJson(value: JSONObject): InputProfile</ID>
     <ID>LongMethod:IntegratedClientDisplay.kt$ClientDisplayService.&lt;no name provided&gt;$override fun prepare( runtimeRoot: String, instanceToken: String, autoLoginUsername: String, autoLoginPassword: String, autoLoginTimingJson: String, audioMode: String, clientId: String, renderer: String, vulkanDriverId: String, rendererPackageId: String, displayProfileId: String, frameCap: Int, autoLoginUiScale: Float, ): String</ID>
     <ID>LongMethod:LanScreen.kt$@Composable fun LanScreen()</ID>
+    <ID>LongMethod:LanScreen.kt$@Composable private fun FriendAccessHostPane( supervisorClient: RuntimeSupervisorClient, endpointAddress: String, advertisedAddress: String?, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:LanScreen.kt$@Composable private fun FriendRequestPane( suggestedHostAddress: String, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:LanScreen.kt$@Composable private fun LanHostPane( state: RealmState, settingsReady: Boolean, allowLanPlayers: Boolean, onAllowLanPlayers: (Boolean) -&gt; Unit, friendAccessEnabled: Boolean, onFriendAccess: (Boolean) -&gt; Unit, tunnelAdvertisedAddress: String, onTunnelAdvertised: (String) -&gt; Unit, hostError: String?, onStartHost: () -&gt; Unit, onSaveExit: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:LanScreen.kt$@Composable private fun LanJoinPane( lanAddress: String, onLanAddress: (String) -&gt; Unit, onJoinLan: () -&gt; Unit, onProbeJoin: () -&gt; Unit, probing: Boolean, probeStatus: String?, lanError: String?, joined: Boolean, joinedAddress: String?, enabled: Boolean, clientUnavailableReason: String? = null, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:LanScreen.kt$@Composable private fun RealmBrowserCard( state: RealmState, modifier: Modifier = Modifier, )</ID>
     <ID>LongMethod:LlmRuntimePolicy.kt$LlmRuntimePolicy$private fun confLines( endpoint: String, model: String, apiKey: String, banterEnabled: Boolean, profile: LlmSamplingProfile, tier: LlmTierProfile, providerSafe: Boolean, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, defaultPromptsFile: String? = null, tlsCaFile: String? = null, cloudLane: CloudLaneConf = CloudLaneConf(), logLines: Boolean = false, ): String</ID>
     <ID>LongMethod:ManagedClientImporter.kt$ManagedClientImporter$suspend fun runArchive( archiveUri: Uri, expectedBytes: Long, afterStaging: () -&gt; Unit = {}, afterDetection: () -&gt; Unit = {}, afterVerified: (Int) -&gt; Unit = {}, beforePublish: () -&gt; Unit = {}, afterRenameBeforeActivate: () -&gt; Unit = {}, onDataStageTick: () -&gt; Unit = {}, onScratchEntry: (Int) -&gt; Unit = {}, ): ImportResult</ID>
     <ID>LongMethod:ManagedClientStore.kt$ManagedClientStore$private fun loadUnlocked(clientId: String): ManagedClient</ID>
@@ -341,13 +367,16 @@
     <ID>LongMethod:PackagingExperimentRunner.kt$PackagingExperimentRunner$suspend fun runPkg06(durationSeconds: Long): ExperimentResult</ID>
     <ID>LongMethod:PocketRealmApp.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PocketRealmApp()</ID>
     <ID>LongMethod:RealmService.kt$RealmService$private suspend fun monitorComponents()</ID>
+    <ID>LongMethod:RuntimeFailureCopy.kt$RuntimeFailureCopy$fun humanize(detail: String): String</ID>
+    <ID>LongMethod:RuntimeSnapshotJournalCodec.kt$RuntimeSnapshotJournalCodec$fun decode(value: JSONObject): RuntimeSnapshot</ID>
+    <ID>LongMethod:SafClientScanner.kt$SafClientScanner.Companion$internal fun scanAccess(access: Access): Result</ID>
     <ID>LongMethod:ServerRuntimeFiles.kt$ServerRuntimeFiles$private fun llmConfigOverrides(profile: BotProfile, snapshot: Settings.Snapshot): String?</ID>
-    <ID>LongMethod:ServerRuntimeFiles.kt$ServerRuntimeFiles$private fun worldConfig( data: File, normalPlay: Boolean, botProfile: BotProfile? = null, bindAddress: String, nearbyInteractTriggerGuardMs: Int, ): File</ID>
     <ID>LongMethod:Settings.kt$Settings$private fun Preferences.toSnapshot(): Snapshot</ID>
     <ID>LongMethod:Settings.kt$internal fun MutablePreferences.writeSnapshotWrites( next: Settings.Snapshot, display: ClientDisplaySelection, )</ID>
     <ID>LongMethod:SettingsScreen.kt$@Composable // onLlm joins the sibling navigation params; the list is one // longer than the default cap by design. @Suppress("LongParameterList") fun SettingsScreen( contentPadding: PaddingValues = PaddingValues(), onBots: (() -&gt; Unit)? = null, onClientSetup: (() -&gt; Unit)? = null, onCapability: (() -&gt; Unit)? = null, onDiagnostics: (() -&gt; Unit)? = null, onInGameSettings: (() -&gt; Unit)? = null, onLlm: (() -&gt; Unit)? = null, )</ID>
     <ID>LongMethod:SettingsScreen.kt$private suspend fun importUserVulkanDriverFromUri( context: android.content.Context, uri: Uri, ): UserVulkanDriverImport</ID>
     <ID>LongMethod:SettingsUpdateWriteSetTest.kt$SettingsUpdateWriteSetTest$@Test fun llmSettingsRoundTripThroughTheWriteSetAndNormalize()</ID>
+    <ID>LongMethod:StackUpComposite.kt$StackUpComposite$fun run(profileIdArg: String): JSONObject</ID>
     <ID>LongMethod:TouchOverlay.kt$@Composable fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier)</ID>
     <ID>LongMethod:TouchOverlay.kt$@Composable private fun BoxScope.ConsoleTouchControls( host: ClientDisplayHost, profile: InputProfile, opacity: Float, moveMode: Boolean, containerSize: IntSize, )</ID>
     <ID>LongMethod:TouchOverlay.kt$@Composable private fun BoxScope.FullTouchControls( host: ClientDisplayHost, profile: InputProfile, opacity: Float, moveMode: Boolean, containerSize: IntSize, )</ID>
@@ -364,7 +393,9 @@
     <ID>LongMethod:WorldRuntimeService.kt$WorldRuntimeService$private fun addBotStatus(value: JSONObject)</ID>
     <ID>LongMethod:WorldRuntimeService.kt$WorldRuntimeService$private fun runAdmissionMonitor( controller: BotAdmissionController, startedAt: Long, generation: Long, )</ID>
     <ID>LongMethod:WowGameSettings.kt$GameSettingsDeliveryPlanner$fun plan( config: WowGameSettingsConfig, enforcedCvarKeys: Set&lt;String&gt;, uvarScopeExists: (scope: String) -&gt; Boolean, bindingScopeExists: (scope: String) -&gt; Boolean, previousDelivered: List&lt;GameSettingsDeliveryEntry&gt;, ): Plan</ID>
+    <ID>LongParameterList:ActiveFlavorTest.kt$( flavorId: String, qualified: Boolean, build: Int = 5875, botMaxLevel: Int = 60, botRandomMaps: List&lt;Int&gt; = listOf(0, 1), addonInterfaces: Set&lt;Int&gt; = setOf(11200), extractedEstimateBytes: Long? = 4L * 1024L * 1024L * 1024L, maxTotalBytes: Long? = 20L * 1024L * 1024L * 1024L, )</ID>
     <ID>LongParameterList:AddonArchiveValidator.kt$AddonArchiveValidator$( zip: ZipFile, entry: ZipArchiveEntry, path: String, allPaths: Set&lt;String&gt;, policy: Policy, checkpoint: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:AddonCatalog.kt$AddonCatalog$( val researchedAt: String, /** The flavor this catalog serves ("vanilla"/"tbc"/"wotlk") — the * manifest key the asset resolves for (W3.7). */ val flavor: String, /** The per-flavor honest copy the add-ons screens render (W3.7): the * AndroidPort exclusion note on the tbc/wotlk catalogs. */ val flavorNote: String?, /** The catalog's own recommended starting set (the vanilla trio is the * frozen D29 curation; per-flavor catalogs declare theirs). */ val recommendedIds: List&lt;String&gt;, /** The per-recommended-row copy (catalog data on the per-flavor * assets; the vanilla trio stays in RECOMMENDATION_REASONS). */ val recommendationReasons: Map&lt;String, String&gt;, val addons: List&lt;CatalogAddon&gt;, val compatibilityPairs: List&lt;AddonCompatibility&gt;, )</ID>
     <ID>LongParameterList:AddonRepository.kt$AddonRepository$( url: String, destination: File, slug: String, token: AddonOperationToken, maxBytes: Long = MAX_DOWNLOAD_BYTES, expectedBytes: Long? = null, )</ID>
     <ID>LongParameterList:AddonsScreen.kt$( addon: CatalogAddon, installed: InstalledAddon?, updateAvailable: Boolean, busy: Boolean, onInstall: () -&gt; Unit, onRemove: () -&gt; Unit, )</ID>
     <ID>LongParameterList:AddonsScreen.kt$( operationLabel: String?, repositoryLabel: String?, progress: Float?, cancellable: Boolean, onCancel: () -&gt; Unit, notice: String?, errorTitle: String?, error: String?, )</ID>
@@ -396,6 +427,9 @@
     <ID>LongParameterList:ExperimentResult.kt$ExperimentResult.Companion$(exp: String, runId: String, code: String, detail: List&lt;String&gt;, evidence: Map&lt;String, String&gt;, ms: Long)</ID>
     <ID>LongParameterList:ForegroundPromotionPolicy.kt$ForegroundPromotionPolicy$( stateCode: ComponentLifecycle, realPlayers: Int, playerbotsEnabled: Boolean, onlinePlayers: Int, consecutiveEmptySamples: Int, currentlyPromoted: Boolean, )</ID>
     <ID>LongParameterList:ForegroundPromotionPolicyTest.kt$ForegroundPromotionPolicyTest$( state: ComponentLifecycle = ComponentLifecycle.READY, realPlayers: Int = 0, playerbotsEnabled: Boolean = true, onlinePlayers: Int = 0, consecutiveEmptySamples: Int = 0, currentlyPromoted: Boolean = true, )</ID>
+    <ID>LongParameterList:FriendProvisionProtocol.kt$FriendAccessClient$( host: String, port: Int, inviteId: String, token: String, username: String, password: String, )</ID>
+    <ID>LongParameterList:FriendRequestFlow.kt$( transport: FriendAccessTransport, host: String, port: Int, inviteId: String, token: String, username: String, password: String, onApproved: suspend (Long) -&gt; Unit, /** Live wait-status updates (design-remote-accounts §6: a dropped host * must never present as "waiting for the host to click Approve" — the * first mid-wait unreachable surfaces here while polling continues, * the desktop wait loop's exact shape). */ onWaitUpdate: (String) -&gt; Unit = {}, pollDelayMs: Long = DEFAULT_POLL_DELAY_MS, maxPolls: Int = DEFAULT_MAX_POLLS, )</ID>
+    <ID>LongParameterList:FriendRequestFlow.kt$FriendAccessTransport$( host: String, port: Int, inviteId: String, token: String, username: String, password: String, )</ID>
     <ID>LongParameterList:HomeScreen.kt$( profile: BotProfile, settings: Settings.Snapshot, storedAccount: String?, onOpenBots: () -&gt; Unit, onOpenSettings: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:HomeScreen.kt$( state: RealmState, botProfile: BotProfile, botPresetName: String?, onStartRealm: () -&gt; Unit, onStartAll: () -&gt; Unit, onSaveExit: () -&gt; Unit, onEnterGame: (() -&gt; Unit)?, onRetryGame: () -&gt; Unit, /** Present only for the consented force-stop repair failures (orphan world, dead-session database lock): opens the confirmation. */ onForceStopOrphan: (() -&gt; Unit)?, clientRetryPending: Boolean, canLaunchGame: Boolean, settingsReady: Boolean, allowLanPlayers: Boolean, clientUnavailableReason: String?, landscape: Boolean, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:HomeScreen.kt$( username: String, onUsername: (String) -&gt; Unit, password: String, onPassword: (String) -&gt; Unit, enabled: Boolean, modifier: Modifier, )</ID>
@@ -414,8 +448,8 @@
     <ID>LongParameterList:InputContract.kt$InputContract$( state: SourceState, axis: GamepadAxis, value: Float, deadZone: Float, negativeKey: Int?, positiveKey: Int?, )</ID>
     <ID>LongParameterList:InputContract.kt$InputContract$( username: String, password: String, generation: Long, loginWindowX: Int = 0, loginWindowY: Int = 0, loginWindowWidth: Int = 1920, loginWindowHeight: Int = 1080, effectiveUiScale: Float = 1f, )</ID>
     <ID>LongParameterList:InputProfile.kt$ControllerAction$( val displayName: String, val keyCode: Int? = null, val pointer: ControlPointer? = null, val cameraLockToggle: Boolean = false, val targetPulse: Boolean = false, val useLootClick: Boolean = false, val nearbyUsePulse: Boolean = false, val autoRunPulse: Boolean = false, val wheelTicks: Int? = null, val radialMenuPulse: Boolean = false, val moveUiPulse: Boolean = false, )</ID>
-    <ID>LongParameterList:LanScreen.kt$( lanAddress: String, onLanAddress: (String) -&gt; Unit, onJoinLan: () -&gt; Unit, lanError: String?, joined: Boolean, joinedAddress: String?, enabled: Boolean, clientUnavailableReason: String? = null, modifier: Modifier = Modifier, )</ID>
-    <ID>LongParameterList:LanScreen.kt$( state: RealmState, settingsReady: Boolean, allowLanPlayers: Boolean, onAllowLanPlayers: (Boolean) -&gt; Unit, onStartHost: () -&gt; Unit, onSaveExit: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:LanScreen.kt$( lanAddress: String, onLanAddress: (String) -&gt; Unit, onJoinLan: () -&gt; Unit, onProbeJoin: () -&gt; Unit, probing: Boolean, probeStatus: String?, lanError: String?, joined: Boolean, joinedAddress: String?, enabled: Boolean, clientUnavailableReason: String? = null, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:LanScreen.kt$( state: RealmState, settingsReady: Boolean, allowLanPlayers: Boolean, onAllowLanPlayers: (Boolean) -&gt; Unit, friendAccessEnabled: Boolean, onFriendAccess: (Boolean) -&gt; Unit, tunnelAdvertisedAddress: String, onTunnelAdvertised: (String) -&gt; Unit, hostError: String?, onStartHost: () -&gt; Unit, onSaveExit: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:LlmModelCoordinator.kt$LlmModelCoordinator$( url: String, descriptor: ModelDescriptor, start: Long, etag: String?, partial: File, onProgress: (Long) -&gt; Unit, isCancelled: () -&gt; Boolean, )</ID>
     <ID>LongParameterList:LlmRuntimePolicy.kt$LlmRuntimePolicy$( endpoint: String, model: String, apiKey: String, banterEnabled: Boolean, profile: LlmSamplingProfile, tier: LlmTierProfile, providerSafe: Boolean, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, defaultPromptsFile: String? = null, tlsCaFile: String? = null, cloudLane: CloudLaneConf = CloudLaneConf(), logLines: Boolean = false, )</ID>
     <ID>LongParameterList:LlmRuntimePolicy.kt$LlmRuntimePolicy$( endpoint: String?, model: String?, apiKey: String?, banterEnabled: Boolean = true, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, defaultPromptsFile: String? = null, tlsCaFile: String? = null, cloudLane: CloudLaneConf = CloudLaneConf(), logLines: Boolean = false, )</ID>
@@ -425,12 +459,14 @@
     <ID>LongParameterList:NativeRuntimeFreshnessTest.kt$NativeRuntimeFreshnessTest$( identity: Identity = this.identity, pins: List&lt;ArtifactPin&gt; = this.pins, staged: List&lt;StagedArtifact&gt; = this.staged, lockfileCommits: CommitPins = this.lockfileCommits, provenanceCommits: CommitPins? = this.provenanceCommits, provenancePins: List&lt;ArtifactPin&gt;? = this.provenancePins, sourcesCommits: CommitPins = this.sourcesCommits, requireStagedBytes: Boolean = this.requireStagedBytes, )</ID>
     <ID>LongParameterList:RealmNative.kt$RealmNative.RealmConfig$( @JvmField var abiVersion: Int = ABI_VERSION, @JvmField var dataDir: String = "", @JvmField var dbDir: String = "", @JvmField var worldConf: String = "", @JvmField var realmdConf: String = "", @JvmField var playerbotConf: String? = null, @JvmField var worldThreads: Int = 1, )</ID>
     <ID>LongParameterList:ScratchArchiveExtractor.kt$ScratchArchiveExtractor$( stagedFile: File, format: ArchiveFormat, target: File, limits: ImportLimits, checkpoint: () -&gt; Unit = {}, onEntryExtracted: (filesDone: Int) -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:ServerRuntimeFiles.kt$ServerRuntimeFiles$( data: File, normalPlay: Boolean, botProfile: BotProfile? = null, bindAddress: String, nearbyInteractTriggerGuardMs: Int, settingsSnapshot: Settings.Snapshot?, )</ID>
     <ID>LongParameterList:ServerRuntimeFiles.kt$ServerRuntimeFiles.Companion$( uiEnabled: Boolean, modelPresent: Boolean, modelAbsolutePath: String, debugBuild: Boolean, externalMode: Boolean = false, externalEndpoint: String? = null, externalModel: String? = null, externalApiKey: String? = null, banterEnabled: Boolean = true, profile: LlmSamplingProfile = LlmModelRegistry.TUNED_E2B.profile, tier: LlmTierProfile = LlmModelRegistry.TUNED_E2B.tierProfile, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, defaultPromptsFile: String? = null, tlsCaFile: String? = null, cloudLane: CloudLaneConf = CloudLaneConf(), logLines: Boolean = false, )</ID>
     <ID>LongParameterList:SettingsRows.kt$( label: String, checked: Boolean, tag: String, support: String? = null, enabled: Boolean = true, onChange: (Boolean) -&gt; Unit, )</ID>
     <ID>LongParameterList:SettingsRows.kt$( label: String, selectedId: String?, choices: List&lt;Pair&lt;String, String&gt;&gt;, tag: String, support: String? = null, enabled: Boolean = true, onSelect: (String) -&gt; Unit, )</ID>
     <ID>LongParameterList:SettingsRows.kt$( label: String, value: Float?, valueText: String, range: ClosedFloatingPointRange&lt;Float&gt;, step: Float, tag: String, enabled: Boolean = true, onCommit: (Float) -&gt; Unit, )</ID>
     <ID>LongParameterList:SettingsScreen.kt$( label: String, valueText: (Float) -&gt; String, value: Float, range: ClosedFloatingPointRange&lt;Float&gt;, steps: Int, tag: String, onCommit: (Float) -&gt; Unit, )</ID>
-    <ID>LongParameterList:SinglePlayerAutoLogin.kt$SinglePlayerAutoLoginController$( username: String, password: String, private val generation: Long, private val lane: AutoLoginWindowLane, private val expectedWidth: Int = 1920, private val expectedHeight: Int = 1080, private val bridge: AutoLoginBridge, private val scheduler: AutoLoginScheduler, private val onDiagnostic: (String) -&gt; Unit = {}, private val onTerminal: () -&gt; Unit = {}, private val timings: Settings.AutoLoginTimings = Settings.AutoLoginTimings(), )</ID>
+    <ID>LongParameterList:SinglePlayerAutoLogin.kt$SinglePlayerAutoLoginController$( username: String, password: String, private val generation: Long, private val lane: AutoLoginWindowLane, private val expectedWidth: Int = 1920, private val expectedHeight: Int = 1080, /** Login topology contract for the launched build (P11): resolved from * [LoginTopologies] by the caller; the default preserves the verified * build-5875 behavior of every existing call site. */ private val loginTopology: LoginTopologyMatcher = Build5875LoginTopology, private val bridge: AutoLoginBridge, private val scheduler: AutoLoginScheduler, private val onDiagnostic: (String) -&gt; Unit = {}, private val onTerminal: () -&gt; Unit = {}, private val timings: Settings.AutoLoginTimings = Settings.AutoLoginTimings(), )</ID>
+    <ID>LongParameterList:StackUpComposite.kt$StackUpComposite$( out: JSONObject, legName: String, component: String, designWindowMs: Long, opDeadlineMs: Long, leg: () -&gt; String, )</ID>
     <ID>LongParameterList:StagedArchive.kt$StagedArchiveCopier$( target: File, expectedBytes: Long, resumeFrom: Long, openStream: () -&gt; InputStream, onTick: (totalCopied: Long) -&gt; Unit, checkpoint: () -&gt; Unit, )</ID>
     <ID>LongParameterList:TouchOverlay.kt$( clusterId: OverlayClusterId, host: ClientDisplayHost, profile: InputProfile, containerSize: IntSize, moveMode: Boolean, stockAlignment: Alignment, stockPadding: PaddingValues, stockZIndex: Float, content: @Composable () -&gt; Unit, )</ID>
     <ID>LongParameterList:TouchOverlay.kt$( host: ClientDisplayHost, cameraLocked: Boolean, opacity: Float, expanded: Boolean, onExpandedChange: (Boolean) -&gt; Unit, onHide: () -&gt; Unit, onToggleMoveMode: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
@@ -471,7 +507,6 @@
     <ID>MagicNumber:AddonArchiveValidator.kt$AddonArchiveValidator$255</ID>
     <ID>MagicNumber:AddonArchiveValidator.kt$AddonArchiveValidator$256</ID>
     <ID>MagicNumber:AddonArchiveValidator.kt$AddonArchiveValidator$80</ID>
-    <ID>MagicNumber:AddonArchiveValidator.kt$AddonArchiveValidator.Policy$11200</ID>
     <ID>MagicNumber:AddonCatalog.kt$AddonCatalog.Companion$10.0</ID>
     <ID>MagicNumber:AddonCatalog.kt$AddonCatalog.Companion$154</ID>
     <ID>MagicNumber:AddonCatalog.kt$AddonCatalog.Companion$266</ID>
@@ -688,7 +723,11 @@
     <ID>MagicNumber:ClientDisplayProfile.kt$ClientFrameCap.FPS_40$40</ID>
     <ID>MagicNumber:ClientDisplayProfile.kt$ClientFrameCap.FPS_45$45</ID>
     <ID>MagicNumber:ClientDisplayProfile.kt$ClientFrameCap.FPS_60$60</ID>
-    <ID>MagicNumber:ClientGenerationStore.kt$ClientGenerationStore$30</ID>
+    <ID>MagicNumber:ClientFlavor.kt$ClientFlavors$11200</ID>
+    <ID>MagicNumber:ClientFlavor.kt$ClientFlavors$20400</ID>
+    <ID>MagicNumber:ClientFlavor.kt$ClientFlavors$30300</ID>
+    <ID>MagicNumber:ClientFlavor.kt$ClientFlavors$530</ID>
+    <ID>MagicNumber:ClientFlavor.kt$ClientFlavors$571</ID>
     <ID>MagicNumber:ClientImeView.kt$ClientImeView.ClientInputConnection$4</ID>
     <ID>MagicNumber:ClientPeIdentity.kt$ClientPeIdentity$0x10b</ID>
     <ID>MagicNumber:ClientPeIdentity.kt$ClientPeIdentity$0x14c</ID>
@@ -789,7 +828,6 @@
     <ID>MagicNumber:DataPreparationStore.kt$3</ID>
     <ID>MagicNumber:DataPreparationStore.kt$DataPreparationStore$2048</ID>
     <ID>MagicNumber:DataPreparationStore.kt$DataPreparationStore$5</ID>
-    <ID>MagicNumber:DataPreparationStore.kt$DataPreparationStore$5875</ID>
     <ID>MagicNumber:DatabaseDurableState.kt$DatabaseDurableState$4</ID>
     <ID>MagicNumber:DatabaseEngine.kt$DatabaseEngine$100</ID>
     <ID>MagicNumber:DatabaseEngine.kt$DatabaseEngine$1000</ID>
@@ -860,6 +898,13 @@
     <ID>MagicNumber:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$512</ID>
     <ID>MagicNumber:FileDigests.kt$FileDigests$0xff</ID>
     <ID>MagicNumber:FileDigests.kt$FileDigests$4</ID>
+    <ID>MagicNumber:FriendProvisionProtocol.kt$FriendProvisionProtocol$0xFF</ID>
+    <ID>MagicNumber:FriendProvisionProtocol.kt$FriendProvisionProtocol$16</ID>
+    <ID>MagicNumber:FriendProvisionProtocol.kt$FriendProvisionProtocol$24</ID>
+    <ID>MagicNumber:FriendProvisionProtocol.kt$FriendProvisionProtocol$3</ID>
+    <ID>MagicNumber:FriendProvisionProtocol.kt$FriendProvisionProtocol$4</ID>
+    <ID>MagicNumber:FriendProvisionProtocol.kt$FriendProvisionProtocol$64</ID>
+    <ID>MagicNumber:FriendProvisionProtocol.kt$FriendProvisionProtocol$8</ID>
     <ID>MagicNumber:HomeScreen.kt$1.18f</ID>
     <ID>MagicNumber:HomeScreen.kt$10</ID>
     <ID>MagicNumber:HomeScreen.kt$15</ID>
@@ -882,7 +927,6 @@
     <ID>MagicNumber:ImportJournal.kt$ImportJournal$9</ID>
     <ID>MagicNumber:ImportJournal.kt$ImportJournal.Helper$3</ID>
     <ID>MagicNumber:ImportJournal.kt$ImportJournal.Helper$4</ID>
-    <ID>MagicNumber:ImportModel.kt$ImportLimits$20L</ID>
     <ID>MagicNumber:ImportModel.kt$ImportLimits$8L</ID>
     <ID>MagicNumber:ImportProcessMetrics.kt$ImportProcessMetricsSampler$0.5</ID>
     <ID>MagicNumber:ImportProcessMetrics.kt$ImportProcessMetricsSampler$100L</ID>
@@ -897,7 +941,6 @@
     <ID>MagicNumber:ImportProgressPresentation.kt$500</ID>
     <ID>MagicNumber:ImportProgressPresentation.kt$60</ID>
     <ID>MagicNumber:ImportProgressPresentation.kt$ImportProgressPresentation$1_000L</ID>
-    <ID>MagicNumber:ImportStoragePlanner.kt$ImportStoragePlanner$4L</ID>
     <ID>MagicNumber:ImportStoragePlanner.kt$ImportStoragePlanner.Companion$0.20</ID>
     <ID>MagicNumber:ImportWorkerService.kt$ImportWorkerService$1000L</ID>
     <ID>MagicNumber:ImportWorkerService.kt$ImportWorkerService$26</ID>
@@ -1072,6 +1115,10 @@
     <ID>MagicNumber:IntegratedClientDisplay.kt$ClientDisplayService$512</ID>
     <ID>MagicNumber:IntegratedClientDisplay.kt$ClientDisplayService.&lt;no name provided&gt;$128</ID>
     <ID>MagicNumber:IntegratedClientDisplay.kt$ClientDisplayService.&lt;no name provided&gt;$16</ID>
+    <ID>MagicNumber:LanScreen.kt$15</ID>
+    <ID>MagicNumber:LanScreen.kt$16</ID>
+    <ID>MagicNumber:LanScreen.kt$3</ID>
+    <ID>MagicNumber:LanScreen.kt$64</ID>
     <ID>MagicNumber:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$10_000</ID>
     <ID>MagicNumber:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$11</ID>
     <ID>MagicNumber:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$7</ID>
@@ -1101,7 +1148,6 @@
     <ID>MagicNumber:ManagedClientImporter.kt$ManagedClientImporter$5</ID>
     <ID>MagicNumber:ManagedClientStore.kt$ManagedClientStore$0x10b</ID>
     <ID>MagicNumber:ManagedClientStore.kt$ManagedClientStore$0x14c</ID>
-    <ID>MagicNumber:ManagedClientStore.kt$ManagedClientStore$5875</ID>
     <ID>MagicNumber:ManagedClientStore.kt$ManagedClientStore$64</ID>
     <ID>MagicNumber:PackagingExperimentRunner.kt$PackagingExperimentRunner$100</ID>
     <ID>MagicNumber:PackagingExperimentRunner.kt$PackagingExperimentRunner$1000</ID>
@@ -1110,8 +1156,7 @@
     <ID>MagicNumber:PackagingExperimentRunner.kt$PkgConnection$30_000</ID>
     <ID>MagicNumber:PackagingExperimentRunner.kt$PkgConnection$50</ID>
     <ID>MagicNumber:PocketRealmApp.kt$600f</ID>
-    <ID>MagicNumber:PreparedDataStore.kt$PreparedDataStore$100</ID>
-    <ID>MagicNumber:PreparedDataStore.kt$PreparedDataStore$5875</ID>
+    <ID>MagicNumber:ProvisionRateLimiter.kt$ProvisionRateLimiter$4</ID>
     <ID>MagicNumber:RarArchiveSource.kt$1024</ID>
     <ID>MagicNumber:RarArchiveSource.kt$110_000</ID>
     <ID>MagicNumber:RarArchiveSource.kt$512</ID>
@@ -1133,6 +1178,8 @@
     <ID>MagicNumber:RuntimeSnapshotJson.kt$RuntimeSnapshotJson$512</ID>
     <ID>MagicNumber:RuntimeSupervisorClient.kt$RuntimeSupervisorClient$250</ID>
     <ID>MagicNumber:RuntimeTopology.kt$RealmEndpoint.Companion$10</ID>
+    <ID>MagicNumber:RuntimeTopology.kt$RealmEndpoint.Companion$100</ID>
+    <ID>MagicNumber:RuntimeTopology.kt$RealmEndpoint.Companion$127</ID>
     <ID>MagicNumber:RuntimeTopology.kt$RealmEndpoint.Companion$15</ID>
     <ID>MagicNumber:RuntimeTopology.kt$RealmEndpoint.Companion$16</ID>
     <ID>MagicNumber:RuntimeTopology.kt$RealmEndpoint.Companion$168</ID>
@@ -1144,6 +1191,7 @@
     <ID>MagicNumber:RuntimeTopology.kt$RealmEndpoint.Companion$3</ID>
     <ID>MagicNumber:RuntimeTopology.kt$RealmEndpoint.Companion$31</ID>
     <ID>MagicNumber:RuntimeTopology.kt$RealmEndpoint.Companion$4</ID>
+    <ID>MagicNumber:RuntimeTopology.kt$RealmEndpoint.Companion$64</ID>
     <ID>MagicNumber:RuntimeTopology.kt$RealmEndpoint.Companion$7</ID>
     <ID>MagicNumber:RuntimeTopology.kt$RuntimeLaunchSpec.Companion$4_096</ID>
     <ID>MagicNumber:SafClientScanner.kt$SafClientScanner.Companion$0x1a</ID>
@@ -1240,9 +1288,11 @@
     <ID>MagicNumber:SettingsScreen.kt$64</ID>
     <ID>MagicNumber:SettingsScreen.kt$900000</ID>
     <ID>MagicNumber:SettingsScreen.kt$900000f</ID>
-    <ID>MagicNumber:SinglePlayerAutoLogin.kt$Build5875LoginTopology$16</ID>
-    <ID>MagicNumber:SinglePlayerAutoLogin.kt$Build5875LoginTopology$480</ID>
-    <ID>MagicNumber:SinglePlayerAutoLogin.kt$Build5875LoginTopology$640</ID>
+    <ID>MagicNumber:SinglePlayerAutoLogin.kt$16</ID>
+    <ID>MagicNumber:SinglePlayerAutoLogin.kt$480</ID>
+    <ID>MagicNumber:SinglePlayerAutoLogin.kt$640</ID>
+    <ID>MagicNumber:StackUpComposite.kt$StackUpComposite$1000</ID>
+    <ID>MagicNumber:StackUpComposite.kt$StackUpComposite.Companion$1000</ID>
     <ID>MagicNumber:StagedArchive.kt$StagedArchiveCopier$1024</ID>
     <ID>MagicNumber:StagedArchive.kt$StagedArchiveCopier$64L</ID>
     <ID>MagicNumber:Theme.kt$0xFF0B1118</ID>
@@ -1272,6 +1322,8 @@
     <ID>MagicNumber:TouchOverlay.kt$4f</ID>
     <ID>MagicNumber:TouchOverlay.kt$5f</ID>
     <ID>MagicNumber:TouchOverlay.kt$TouchCameraScaler$0.15f</ID>
+    <ID>MagicNumber:TunnelInvite.kt$TunnelInvite$3</ID>
+    <ID>MagicNumber:TunnelInvite.kt$TunnelInvite$58</ID>
     <ID>MagicNumber:UserAccountStore.kt$UserAccountStore$3</ID>
     <ID>MagicNumber:UserAccountStore.kt$UserAccountStore.Companion$128</ID>
     <ID>MagicNumber:UserAccountStore.kt$UserAccountStore.Companion$16</ID>
@@ -1304,6 +1356,10 @@
     <ID>MagicNumber:WineRunResult.kt$WineRunResult$0x7f</ID>
     <ID>MagicNumber:WineRunResult.kt$WineRunResult$0xff</ID>
     <ID>MagicNumber:WineRunResult.kt$WineRunResult$8</ID>
+    <ID>MagicNumber:WineRuntimeStore.kt$1024</ID>
+    <ID>MagicNumber:WineRuntimeStore.kt$1_000</ID>
+    <ID>MagicNumber:WineRuntimeStore.kt$5_000</ID>
+    <ID>MagicNumber:WineRuntimeStore.kt$64</ID>
     <ID>MagicNumber:WineRuntimeStore.kt$ArmGraphicsGenerationIdentity$32</ID>
     <ID>MagicNumber:WineRuntimeStore.kt$WineRuntimeStore$0x014c</ID>
     <ID>MagicNumber:WineRuntimeStore.kt$WineRuntimeStore$0x3c</ID>
@@ -1313,7 +1369,6 @@
     <ID>MagicNumber:WineRuntimeStore.kt$WineRuntimeStore$1_000</ID>
     <ID>MagicNumber:WineRuntimeStore.kt$WineRuntimeStore$20</ID>
     <ID>MagicNumber:WineRuntimeStore.kt$WineRuntimeStore$250</ID>
-    <ID>MagicNumber:WineRuntimeStore.kt$WineRuntimeStore$2_000</ID>
     <ID>MagicNumber:WineRuntimeStore.kt$WineRuntimeStore$3</ID>
     <ID>MagicNumber:WineRuntimeStore.kt$WineRuntimeStore$4</ID>
     <ID>MagicNumber:WineRuntimeStore.kt$WineRuntimeStore$5</ID>
@@ -1354,17 +1409,18 @@
     <ID>MatchingDeclarationName:InnoCallFilter.kt$InnoCallFilterInputStream : InputStream</ID>
     <ID>MatchingDeclarationName:InnoSliceReader.kt$InnoSliceSet : AutoCloseable</ID>
     <ID>MatchingDeclarationName:SettingsRows.kt$SettingsRowDefaults</ID>
+    <ID>MaxLineLength:AccountExpansionWiringTest.kt$AccountExpansionWiringTest$assertFalse("failure rc $rc never writes", ServerRuntimeContract.shouldWriteExpansion(rc, accountExists = true))</ID>
     <ID>MaxLineLength:AddonArchiveValidator.kt$AddonArchiveValidator$require</ID>
+    <ID>MaxLineLength:AddonArchiveValidatorTest.kt$AddonArchiveValidatorTest$.</ID>
     <ID>MaxLineLength:AddonArchiveValidatorTest.kt$AddonArchiveValidatorTest$assertThrows(IllegalArgumentException::class.java) { GitHubRepoRef.parse("https://github.com/owner/repo/issues") }</ID>
+    <ID>MaxLineLength:AddonArchiveValidatorTest.kt$AddonArchiveValidatorTest$}</ID>
     <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog$fun</ID>
-    <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog.Companion$"059" to "Special two-part install: the player plus about 1.2 GB of Vanilla voice data for less small-screen reading."</ID>
     <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog.Companion$"151" to "Optional Vanilla 1.12.1 Android Port UI with 6-inch handheld defaults; Pocket Realm supplies its matching 1-8 face/D-pad, target/use shoulder and LT/RT Winlator control map."</ID>
     <ID>MaxLineLength:AddonCatalogTest.kt$AddonCatalogTest$val addon = requireNotNull(AddonCatalog.parse(File(assetRoot, "addons/catalog-v1.json").readText()).addon("151"))</ID>
     <ID>MaxLineLength:AddonRepository.kt$AddonRepository$else -&gt; error("GitHub request failed (${response.code}) for ${URI(url).path}; remaining=${remaining ?: "unknown"}")</ID>
     <ID>MaxLineLength:AddonRepository.kt$AddonRepository$private</ID>
-    <ID>MaxLineLength:AddonsScreen.kt$"Add-on Lua runs inside WoW. Pocket Realm validates archive structure and Vanilla interface metadata, not the add-on's behaviour."</ID>
-    <ID>MaxLineLength:AddonsScreen.kt$"Advanced option for a public Vanilla-compatible project not yet in the catalog. Use the repository's main URL, not a download link."</ID>
-    <ID>MaxLineLength:AddonsScreen.kt$"Pocket Realm downloads from GitHub, records the exact commit and checksum, rejects oversized or unsafe archives, and requires Vanilla Interface 11200 metadata."</ID>
+    <ID>MaxLineLength:AddonsScreen.kt$"Advanced option for a public add-on project not yet in the catalog. Use the repository's main URL, not a download link."</ID>
+    <ID>MaxLineLength:AddonsScreen.kt$"Pocket Realm downloads from GitHub, records the exact commit and checksum, rejects oversized or unsafe archives, and requires "</ID>
     <ID>MaxLineLength:AddonsScreen.kt$"This add-on was installed from a repository outside the researched catalog. It remains visible here so it can always be removed."</ID>
     <ID>MaxLineLength:AndroidPortAssetTest.kt$AndroidPortAssetTest$Layout</ID>
     <ID>MaxLineLength:AndroidPortAssetTest.kt$AndroidPortAssetTest$assertEquals(listOf("Core.lua", "ActionBars.lua", "Radial.lua", "Bags.lua", "FrameMover.lua", "Hud.lua", "Talk.lua"), declared)</ID>
@@ -1382,13 +1438,14 @@
     <ID>MaxLineLength:AndroidRuntimeBackend.kt$AndroidRuntimeBackend$if (required.any { !File(native, it).isFile }) return@withContext RuntimeActionResult(false, "native realm runtime is incomplete")</ID>
     <ID>MaxLineLength:AndroidRuntimeBackend.kt$AndroidRuntimeBackend$if (status.owner != owner) return@withContext RuntimeActionResult(false, "world ownership mismatch; save withheld")</ID>
     <ID>MaxLineLength:AndroidRuntimeBackend.kt$ServiceHandle.&lt;no name provided&gt;$pending?.completeExceptionally(IllegalStateException("${serviceType.simpleName} returned null Binder"))</ID>
-    <ID>MaxLineLength:ArchiveClientScanner.kt$ArchiveClientScanner$failures += "VAL-03: expected $EXPECTED_VERSION, detected ${identity.version ?: "no matching version resource"}"</ID>
+    <ID>MaxLineLength:ArchiveClientScanner.kt$ArchiveClientScanner$failures += "VAL-03: expected $EXPECTED_VERSION, detected ${com.pocketrealm.client.ClientPeIdentity.detected(identity)}"</ID>
     <ID>MaxLineLength:ArchiveClientScanner.kt$ArchiveClientScanner$relative != null -&gt; rebased += ImportExtractionPolicy.RawEntry(relative, entry.directory, entry.size, entry.name)</ID>
     <ID>MaxLineLength:ArchiveDetectionTest.kt$ArchiveClientScannerTest$private</ID>
     <ID>MaxLineLength:ArchiveDetectionTest.kt$ArchiveQuickCheckTest$assertTrue(ArchiveQuickCheck.looksLikeInstaller(listOf("Wowinstall classic\\setup.exe", "Wowinstall classic\\setup-2.bin")))</ID>
     <ID>MaxLineLength:ArchiveDetectionTest.kt$ImportExtractionPolicyTest$SyntheticClientArchives.hackFolderEntries.map { ImportExtractionPolicy.RawEntry(it.path, it.directory, it.bytes.size.toLong()) }</ID>
     <ID>MaxLineLength:ArmClientRendererCatalog.kt$ArmClientRenderer.MESA_VIRGL$summary = "Very experimental Mesa virpipe client with the source-matched Android VirGL GLES server; manual-only."</ID>
     <ID>MaxLineLength:ArmRootfsProvisioner.kt$ArmRootfsProvisioner$val read = archive.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())</ID>
+    <ID>MaxLineLength:BotPopulationPolicyFlavorRowsTest.kt$BotPopulationPolicyFlavorRowsTest$for</ID>
     <ID>MaxLineLength:BotsScreen.kt$"Realm is running — a changed configuration applies on the next start. The running realm keeps its launch snapshot."</ID>
     <ID>MaxLineLength:BotsScreen.kt$Stepper</ID>
     <ID>MaxLineLength:BotsScreen.kt$text = { Text("Realms already launched with this preset stay unchanged; new launches fall back to the built-in selection.") }</ID>
@@ -1402,6 +1459,8 @@
     <ID>MaxLineLength:ClientPeIdentity.kt$ClientPeIdentity$fun u32(offset: Int): Long</ID>
     <ID>MaxLineLength:ClientPeIdentity.kt$ClientPeIdentity$require</ID>
     <ID>MaxLineLength:ClientPeIdentity.kt$ClientPeIdentity$val candidate = listOf((ms ushr 16).toInt(), (ms and 0xffff).toInt(), (ls ushr 16).toInt(), (ls and 0xffff).toInt())</ID>
+    <ID>MaxLineLength:ClientRuntime.kt$ClientRuntimeContract$"Not available for ${flavor.expansion} — validated for the vanilla 1.12.1 client only (DXVK is the ${flavor.flavorId} route)."</ID>
+    <ID>MaxLineLength:ClientRuntime.kt$ClientRuntimeContract$"Vanilla tweaks are not available for ${flavor.expansion} — the tweak set is validated against the vanilla 1.12.1 client only."</ID>
     <ID>MaxLineLength:ClientRuntimeService.kt$ClientRuntimeService.&lt;no name provided&gt;$runCatching { transition(record, ClientState.FAILED, "client runtime threw before completion") }</ID>
     <ID>MaxLineLength:ClientScreen.kt$"${formatImportBytes(device.ramBytes)} RAM • ${device.cores} cores • ${device.abi} • Android API ${device.api}"</ID>
     <ID>MaxLineLength:ClientScreen.kt$"Reference: ${DeviceProfile.RETROID_POCKET_6_BASELINE.deviceLabel} full ${DeviceProfile.RETROID_POCKET_6_BASELINE.mmapMaps}-map "</ID>
@@ -1428,12 +1487,12 @@
     <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$check(runCatching { java.nio.file.Files.createSymbolicLink(destination.toPath(), target.toPath()) }.isSuccess)</ID>
     <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$component == "world" &amp;&amp; entry.getString("source_path").startsWith("native/classic-db") -&gt; "classic_db"</ID>
     <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$cursor.moveToFirst() &amp;&amp; cursor.count == 1 &amp;&amp; cursor.getString(0) == DatabaseSqliteControlPlane.INTEGRITY_OK</ID>
+    <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$database.rawQuery("SELECT address, port, realmbuilds FROM realmlist WHERE id = 1 LIMIT 1;", null)</ID>
     <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$if (providerModeLocked() == DatabaseDurableState.ProviderMode.SQLITE) sqliteCleanGeneration() else cleanGeneration()</ID>
     <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$if (providerModeLocked() == DatabaseDurableState.ProviderMode.SQLITE) sqliteInitializedSealValid() else initialized()</ID>
     <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$if (providerModeLocked() == DatabaseDurableState.ProviderMode.SQLITE) sqliteMigrationsCurrent() else migrationsCurrent()</ID>
     <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$private</ID>
     <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$staged.inputStream().use { it.readBytes().count { byte -&gt; byte == '\n'.code.toByte() }.toLong() == rows }</ID>
-    <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$val forbidden = fixedSql("least-privilege-negative", "CREATE USER 'pocket_forbidden'@'localhost' IDENTIFIED BY 'never';")</ID>
     <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$val sql = fixedSql("ledger-finish", "UPDATE pocketrealm_meta.migration_ledger SET status='$status',finished_at=${System.currentTimeMillis()},result_digest='$digest' WHERE migration_id='$id';")</ID>
     <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$val sql = fixedSql("ledger-status", "SELECT status,sql_sha256 FROM pocketrealm_meta.migration_ledger WHERE migration_id='$id';")</ID>
     <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$val sql = fixedSql("revision-check", "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='$database' AND TABLE_NAME='$table' AND COLUMN_NAME='$column';")</ID>
@@ -1443,12 +1502,18 @@
     <ID>MaxLineLength:DiagnosticsScreen.kt${ if (it.optBoolean("ok")) "Restore verification accepted" else it.optString("error") }</ID>
     <ID>MaxLineLength:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$if</ID>
     <ID>MaxLineLength:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$instanceToken = owner?.instanceToken ?: if (lifecycle == ComponentLifecycle.STOPPED) null else previous.instanceToken</ID>
+    <ID>MaxLineLength:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$publish(_state.value.copy(lastDurableAction = if (result.ok) "friend-$action-applied" else "friend-$action-failed"))</ID>
     <ID>MaxLineLength:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$publish(_state.value.copy(lastDurableAction = if (saved.ok) "world-save-acknowledged" else "world-save-failed"))</ID>
     <ID>MaxLineLength:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$startedAtWallMs = if (lifecycle == ComponentLifecycle.STARTING) clock.wallMs() else previous.startedAtWallMs</ID>
     <ID>MaxLineLength:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$updateComponent(component, ComponentLifecycle.STOPPED, detail = if (graceful.ok) "clean stop" else "forced stop")</ID>
     <ID>MaxLineLength:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$val exitPhase = if (actualFrom == RuntimePhase.CLIENT_FAILED) RuntimePhase.CLIENT_FAILED else RuntimePhase.RUNNING</ID>
     <ID>MaxLineLength:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$val graceful = if (mode == StopMode.GRACEFUL) stopOwned(component, owner) else RuntimeActionResult(false, "forced stop requested")</ID>
     <ID>MaxLineLength:ExperimentResult.kt$ExperimentResult.Companion$fun</ID>
+    <ID>MaxLineLength:FriendAccessController.kt$FriendAccessController$fun</ID>
+    <ID>MaxLineLength:FriendAccessHubTest.kt$FriendAccessHubTest.FakeBackend$listOf(FriendRosterJson.AccountRow(42L, "Dave", 0, 0, banned = false, bot = false, lastLogon = "", online = false))</ID>
+    <ID>MaxLineLength:FriendProvisionProtocolTest.kt$FriendProvisionProtocolTest$assertNull("over-16 username is refused", FriendProvisionProtocol.decodeRequest(raw("a".repeat(17), sHex, vHex)))</ID>
+    <ID>MaxLineLength:FriendProvisionProtocolTest.kt$FriendProvisionProtocolTest$assertNull("short verifier is refused", FriendProvisionProtocol.decodeRequest(raw("Dave", sHex, "bb".repeat(31))))</ID>
+    <ID>MaxLineLength:FriendProvisionProtocolTest.kt$FriendProvisionProtocolTest$assertNull("uppercase hex is refused", FriendProvisionProtocol.decodeRequest(raw("Dave", sHex.uppercase(), vHex)))</ID>
     <ID>MaxLineLength:GeneratedCommunityVulkanDrivers.kt$GeneratedCommunityVulkanDrivers$note = "Community build, not qualified by Pocket Realm. Same import validation and crash guard as any imported driver."</ID>
     <ID>MaxLineLength:GeneratedCommunityVulkanDrivers.kt$GeneratedCommunityVulkanDrivers$note = "Community build, not qualified by Pocket Realm. Ships unsupported-GPU hacks per its release notes; the crash guard applies."</ID>
     <ID>MaxLineLength:GeneratedCommunityVulkanDrivers.kt$GeneratedCommunityVulkanDrivers$summary = "Bare libvulkan_freedreno.so from the K11MCH1 WinlatorTurnipDrivers project; the conservative fallback that predates the AdrenoTools pack format."</ID>
@@ -1466,6 +1531,9 @@
     <ID>MaxLineLength:ImportProgressPresentation.kt$"Pocket Realm is checking the completed private copy against the durable import journal before making it active."</ID>
     <ID>MaxLineLength:ImportProgressPresentation.kt$"The archive is copied into app storage once; the staged copy is resumable and enables detection before extraction."</ID>
     <ID>MaxLineLength:ImportProgressPresentation.kt$"Verified files are retained. Resume continues from the last safe checkpoint; a partly copied file restarts from its beginning."</ID>
+    <ID>MaxLineLength:ImportRootLayoutTest.kt$ImportRootLayoutTest$assertTrue("row ${row.flavorId} dropped vanilla root dirs", RootLayout.VANILLA.rootDirectories.all { it in row.rootDirectories })</ID>
+    <ID>MaxLineLength:ImportRootLayoutTest.kt$ImportRootLayoutTest$assertTrue("row ${row.flavorId} dropped vanilla root files", RootLayout.VANILLA.rootFiles.all { it in row.rootFiles })</ID>
+    <ID>MaxLineLength:ImportRootLayoutTest.kt$ImportRootLayoutTest$private</ID>
     <ID>MaxLineLength:ImportWorkerService.kt$ImportWorkerService$.</ID>
     <ID>MaxLineLength:InnoLaneTest.kt$InnoLaneTest$assertTrue("expected InnoFormatException, got $error", error is com.pocketrealm.importer.inno.InnoFormatException)</ID>
     <ID>MaxLineLength:InputProfile.kt$ControlScheme.ANDROID_PORT$"Optional Vanilla 1.12.1 layout: direct target/use shoulders, eight action buttons, LT/RT modifier pages and radial menu. Unreliable RP6 M1/M2 rear buttons stay disabled."</ID>
@@ -1476,7 +1544,8 @@
     <ID>MaxLineLength:InputProfile.kt$ControllerFamily$RETROID_POCKET_6 : ControllerFamily</ID>
     <ID>MaxLineLength:InputProfile.kt$InputProfile.Companion$/** Exact uncustomized map shipped when nearby Use/Open replaced direct L1 use, before L3 became pointer right. */</ID>
     <ID>MaxLineLength:InputProfile.kt$InputProfileStore.Companion$"profile_v11"</ID>
-    <ID>MaxLineLength:LanScreen.kt$"Connected players: no remote player tracking yet; this section appears when the realm reports sessions."</ID>
+    <ID>MaxLineLength:LanScreen.kt$supportingText = { Text(if (guestName.isNotEmpty() &amp;&amp; !guestNameValid) "1-16 letters or numbers" else "1-16 letters or numbers") }</ID>
+    <ID>MaxLineLength:LanTunnelWiringContractTest.kt$LanTunnelWiringContractTest$"RealmService.hostLan(context, selection.profile.id, includeClient = false, advertised = advertised)" in lan</ID>
     <ID>MaxLineLength:LlmModelRegistryTest.kt$LlmModelRegistryTest$assertEquals("e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889", LlmModelRegistry.BASE_E2B.sha256)</ID>
     <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$(detection.excluded.takeIf { it.isNotEmpty() }?.let { " · ${it.size} entries excluded" } ?: "")</ID>
     <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$(located.excluded.takeIf { it.isNotEmpty() }?.let { " · ${it.size} entries excluded" } ?: "")</ID>
@@ -1486,19 +1555,26 @@
     <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$journal.latest().phase != ImportPhase.FAILED</ID>
     <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$result.scan.failures.joinToString("; ").ifBlank { "unsupported client archive" }</ID>
     <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$throw ImportRejected("STORAGE_PREFLIGHT: need=${storage.requiredBytes} allocatable=${storage.allocatableBytes}")</ID>
+    <ID>MaxLineLength:ManifestPermissionSurfaceTest.kt$ManifestPermissionSurfaceTest$.</ID>
+    <ID>MaxLineLength:MultiQualifiedRoutingContractTest.kt$MultiQualifiedRoutingContractTest$"fun activeGeneration(flavor: ClientFlavor = ActiveFlavor.resolve(ACTIVE_GENERATION_LANE)): String?" in source</ID>
+    <ID>MaxLineLength:NativeRuntimeFreshnessTest.kt$NativeRuntimeFreshnessTest$assertNull("document without seed_transcripts has no pin", NativeRuntimeFreshness.seedTranscriptPin(mapOf("abi" to "x86_64"), "classicrealmd"))</ID>
+    <ID>MaxLineLength:NativeRuntimeFreshnessTest.kt$NativeRuntimeFreshnessTest$assertNull("row without gzip fields has no pin", NativeRuntimeFreshness.seedTranscriptPin(record, "classicrealmd"))</ID>
     <ID>MaxLineLength:PackagingExperimentRunner.kt$PackagingExperimentRunner$evidence["excludedLibsNote"] = "${excluded.joinToString()} are PIE executables with no DT_SONAME; loadable libraries are probed, not these."</ID>
     <ID>MaxLineLength:PackagingExperimentRunner.kt$PackagingExperimentRunner$listOf("dlopen(\"${info.soname}\") did not load (err=${info.err})")</ID>
     <ID>MaxLineLength:PackagingExperimentRunner.kt$PackagingExperimentRunner$val errT = Thread { errRef.set(runCatching { proc.errorStream.bufferedReader().readText() }.getOrDefault("")) }</ID>
     <ID>MaxLineLength:PackagingExperimentRunner.kt$PackagingExperimentRunner$val outT = Thread { outRef.set(runCatching { proc.inputStream.bufferedReader().readText() }.getOrDefault("")) }</ID>
+    <ID>MaxLineLength:R2WrongFlavorManifestMatrixTest.kt$R2WrongFlavorManifestMatrixTest$private</ID>
+    <ID>MaxLineLength:RealmBuildsProjectionContractTest.kt$RealmBuildsProjectionContractTest$"String projectRealmEndpoint(String instanceToken, String address, int worldPort, String realmbuilds)" in aidl</ID>
+    <ID>MaxLineLength:RealmDataArchiveTest.kt$RealmDataArchiveTest$assertTrue("the refusal must name the unsafe path: ${thrown.message}", "unsafe archive path" in thrown.message!!)</ID>
     <ID>MaxLineLength:RealmService.kt$RealmService.Companion$private val MONITORED_PHASES = setOf(RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.PAUSED, RuntimePhase.CLIENT_FAILED)</ID>
-    <ID>MaxLineLength:SafClientScanner.kt$SafClientScanner.Companion$else</ID>
-    <ID>MaxLineLength:SafClientScanner.kt$SafClientScanner.Companion$failures += "VAL-03: expected $EXPECTED_VERSION, detected ${identity.version ?: "no matching version resource"}"</ID>
-    <ID>MaxLineLength:SafClientScanner.kt$SafClientScanner.Companion$if</ID>
-    <ID>MaxLineLength:SafClientScanner.kt$SafClientScanner.Companion$private val REQUIRED_MPQS = setOf("base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq", "model.mpq", "sound.mpq", "speech.mpq", "terrain.mpq", "texture.mpq", "wmo.mpq")</ID>
+    <ID>MaxLineLength:RuntimeSupervisorClient.kt$RuntimeSupervisorClient$suspend</ID>
+    <ID>MaxLineLength:SafClientScanner.kt$SafClientScanner.Companion$identity</ID>
     <ID>MaxLineLength:SafClientScanner.kt$SafClientScanner.Companion$private val STANDARD_ROOT_DLLS = setOf("dbghelp.dll", "divxdecoder.dll", "fmod.dll", "ijl15.dll", "scan.dll", "unicows.dll")</ID>
+    <ID>MaxLineLength:SafClientScanner.kt$SafClientScanner.Companion$warnings += "VAL-03: build confirmed; this WoW.exe is accepted for ${flavor.flavorId} launch, but optional executable tweaks require the inspected byte layout"</ID>
     <ID>MaxLineLength:SafTreeSource.kt$SafTreeSource$if</ID>
     <ID>MaxLineLength:SafTreeSource.kt$SafTreeSource$if (fileCount &gt; limits.maxFiles) throw ImportRejected("VAL-08: file count exceeds ${limits.maxFiles}")</ID>
     <ID>MaxLineLength:SecretRedactor.kt$SecretRedactor.Companion$"password|passwd|secret|credential|instance.?token|owner.?token|document.?uri|source.?uri|absolute.?path|android.?account"</ID>
+    <ID>MaxLineLength:ServerRuntimeFilesTunnelBindTest.kt$ServerRuntimeFilesTunnelBindTest$assertTrue("the world port stays fixed:\n$conf", "WorldServerPort = ${ServerRuntimeContract.WORLD_PORT}" in conf)</ID>
     <ID>MaxLineLength:SettingsScreen.kt$"Auto follows the GPU vendor like Winlator. Manual drivers stay exact; nothing is substituted at launch."</ID>
     <ID>MaxLineLength:SettingsScreen.kt$"Auto-loot opened corpses" to "Takes every available slot after you right-click a corpse; hold Shift for the original manual loot window."</ID>
     <ID>MaxLineLength:SettingsScreen.kt$"Bot population, presets, behaviour, scheduling and custom realms are configured in the dedicated Bots destination."</ID>
@@ -1511,19 +1587,28 @@
     <ID>MaxLineLength:SettingsScreen.kt$"This changes WoW's real 3D/X desktop workload. Lower resolution improves performance; the final image is scaled to the panel."</ID>
     <ID>MaxLineLength:SettingsScreen.kt$"This is independent of the Vulkan driver. DXVK 2.4.1 needs Vulkan 1.3; 1.10.3 is the compatibility option."</ID>
     <ID>MaxLineLength:SettingsScreen.kt$/** Copy the picked document into app-private cache immediately (I6: the URI is never retained), then import through the registry. */</ID>
+    <ID>MaxLineLength:SettingsScreen.kt$?:</ID>
     <ID>MaxLineLength:SettingsScreen.kt$Text</ID>
     <ID>MaxLineLength:SettingsScreen.kt$val</ID>
+    <ID>MaxLineLength:TunnelInviteTest.kt$TunnelInviteTest$assertTrue("the advertised address is the block's dial target:\n$invite", "set realmlist 100.64.12.34" in invite)</ID>
     <ID>MaxLineLength:UserVulkanDriverRegistryTest.kt$UserVulkanDriverRegistryTest$"""{"ICD":{"library_path":"libvulkan_freedreno.so","api_version":"$version"},"file_format_version":"1.0.1"}""".toByteArray()</ID>
     <ID>MaxLineLength:UserVulkanDriverRegistryTest.kt$UserVulkanDriverValidatorTest$"""{"ICD":{"library_path":"/data/local/tmp/libvulkan_freedreno.so","api_version":"1.3.290"},"file_format_version":"1.0.1"}"""</ID>
     <ID>MaxLineLength:UserVulkanDriverResolutionTest.kt$UserVulkanDriverResolutionTest$val stored = """{"ICD":{"api_version":"1.3.290","library_path":"libvulkan_freedreno.so"},"file_format_version":"1.0.0"}"""</ID>
     <ID>MaxLineLength:VoiceOverReleaseResolverTest.kt$VoiceOverReleaseResolverTest$body = "[Vanilla Sounds](https://github.com/mrthinger/wow-voiceover/releases/download/v1.3.1/AI_VoiceOverData_Vanilla-v1.0.0.zip)"</ID>
     <ID>MaxLineLength:VoiceOverReleaseResolverTest.kt$VoiceOverReleaseResolverTest$val dataUrl = "https://github.com/mrthinger/wow-voiceover/releases/download/data/AI_VoiceOverData_Vanilla-v1.zip"</ID>
     <ID>MaxLineLength:WineRuntimeStore.kt$WineRuntimeStore$"payload=${generationIdentity.rendererPackageId ?: generationIdentity.gladioPackageId ?: generationIdentity.virglPackageId}"</ID>
+    <ID>MaxLineLength:WorldRuntimeService.kt$WorldRuntimeService.&lt;no name provided&gt;$JSONObject(WorldNative.banAccountNative(username, duration, reason, ServerRuntimeContract.CONTROL_TIMEOUT_MS))</ID>
     <ID>MaxLineLength:WorldRuntimeService.kt$WorldRuntimeService.&lt;no name provided&gt;$android.util.Log.i("PocketWorld", "saveall-ack code=${ServerRuntimeContract.errorName(rc.toLong())} durationMs=$saveAckMs")</ID>
+    <ID>MaxLineLength:WowTbcSettingsCatalog.kt$WowTbcSettingsCatalog$*</ID>
+    <ID>MaxLineLength:WowTbcSettingsCatalog.kt$WowTbcSettingsCatalog$choices = listOf(WowSettingChoice("12", "Low (12)", "12"), WowSettingChoice("32", "Medium (32)", "32"), WowSettingChoice("64", "High (64)", "64"), WowSettingChoice("128", "Ultra (128)", "128"))</ID>
+    <ID>MaxLineLength:WowTbcSettingsCatalog.kt$WowTbcSettingsCatalog$choices = listOf(WowSettingChoice("none", "None", "NONE"), WowSettingChoice("alt", "Alt", "ALT"), WowSettingChoice("ctrl", "Ctrl", "CTRL"), WowSettingChoice("shift", "Shift", "SHIFT"))</ID>
     <ID>MaxLineLength:WowVanillaBindingCatalog.kt$WowVanillaBindingCatalog$addAll</ID>
+    <ID>MaxLineLength:WowWotlkSettingsCatalog.kt$WowWotlkSettingsCatalog$*</ID>
+    <ID>MaxLineLength:WowWotlkSettingsCatalog.kt$WowWotlkSettingsCatalog$choices = listOf(WowSettingChoice("none", "None", "NONE"), WowSettingChoice("alt", "Alt", "ALT"), WowSettingChoice("ctrl", "Ctrl", "CTRL"), WowSettingChoice("shift", "Shift", "SHIFT"))</ID>
     <ID>MaxLineLength:X86DirectWineRuntime.kt$X86DirectWineRuntime$ClientSession(UUID.fromString(response.getString("sessionId")), ClientState.valueOf(response.getString("state")))</ID>
     <ID>MaxLineLength:X86DirectWineRuntime.kt$X86DirectWineRuntime$if</ID>
     <ID>MayBeConst:SettingsScreen.kt$/** One minute without a single byte of progress marks a stalled import stream. */ private val USER_IMPORT_STALL_NANOS = 60_000_000_000L</ID>
+    <ID>MayBeConst:StackUpComposite.kt$StackUpComposite.Companion$/** The designed windows summed: WORSE than the host's 900s window, and * the reason the composite budget - not the stage sum - must bind. */ val designedWorstCaseMs: Long = SUPERVISOR_RECOVERY_TIMEOUT_MS + DB_INIT_STAGE_WINDOW_MS + DB_MIGRATIONS_STAGE_WINDOW_MS + DB_START_STAGE_WINDOW_MS + DB_HEALTH_STAGE_WINDOW_MS + REALM_START_STAGE_WINDOW_MS + WORLD_START_STAGE_WINDOW_MS</ID>
     <ID>NestedBlockDepth:AddonArchiveExtractor.kt$AddonArchiveExtractor$fun extract( archive: File, validated: AddonArchiveValidator.Validated, destination: File, checkpoint: () -&gt; Unit = {}, )</ID>
     <ID>NestedBlockDepth:AddonRepository.kt$AddonRepository$private fun copyBuiltInAssetTree(assetRoot: String, destination: File, token: AddonOperationToken)</ID>
     <ID>NestedBlockDepth:AddonRepository.kt$AddonRepository$private fun sha256AssetTree(assetRoot: String, token: AddonOperationToken): String</ID>
@@ -1543,6 +1628,7 @@
     <ID>NestedBlockDepth:DatabaseEngine.kt$DatabaseEngine$private fun replaySeedDatabase(database: String, pin: SqliteSeedPin): JSONObject</ID>
     <ID>NestedBlockDepth:DatabaseSqliteControlPlane.kt$DatabaseSqliteControlPlane.SeedStatementScanner$fun feed(chunk: String): List&lt;SeedStatement&gt;</ID>
     <ID>NestedBlockDepth:DurableFiles.kt$DurableFiles$fun atomicCopy(source: File, target: File)</ID>
+    <ID>NestedBlockDepth:HomeScreen.kt$private fun realmStatus(state: RealmState): Pair&lt;String, String&gt;</ID>
     <ID>NestedBlockDepth:ImportJournal.kt$ImportJournal$fun beginOrResume(uri: Uri, inventory: SourceInventory): String</ID>
     <ID>NestedBlockDepth:ImportJournal.kt$ImportJournal$fun beginStagingOrResume(uri: Uri, expectedBytes: Long): StagingResume</ID>
     <ID>NestedBlockDepth:InGameSettingsScreens.kt$@Composable private fun SettingDefinitionRow( definition: WowSettingDefinition, snap: Settings.Snapshot, state: InGameSettingsState, )</ID>
@@ -1559,6 +1645,7 @@
     <ID>NestedBlockDepth:WineRuntimeStore.kt$WineRuntimeStore$private fun enforceManagedSafeMode( p: Prepared, renderer: String, displayProfile: ClientDisplayProfile, inputSafeMode: Boolean, audioMode: String, realmEndpoint: RealmEndpoint, ): Prepared</ID>
     <ID>NestedBlockDepth:WineRuntimeStore.kt$WineRuntimeStore$private fun patchWinlatorPackagePaths(rootfs: File)</ID>
     <ID>NestedBlockDepth:WorldRuntimeService.kt$WorldRuntimeService$private fun runAdmissionMonitor( controller: BotAdmissionController, startedAt: Long, generation: Long, )</ID>
+    <ID>NewLineAtEndOfFile:R2ProvisionCollisionHoleTest.kt$com.pocketrealm.server.R2ProvisionCollisionHoleTest.kt</ID>
     <ID>ReturnCount:AndroidPortAssetTest.kt$AndroidPortAssetTest.AddonLifecycleModel$private fun initializeBars(failureStage: Int?): Boolean</ID>
     <ID>ReturnCount:AndroidPortAssetTest.kt$AndroidPortAssetTest.AddonLifecycleModel$private fun initializeRadial(failureStage: Int?): Boolean</ID>
     <ID>ReturnCount:AndroidPortAssetTest.kt$AndroidPortAssetTest.MoveAddonIconsModel$fun toggle(visibleIcons: Int): Boolean</ID>
@@ -1625,10 +1712,15 @@
     <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun recoverLocked(): Boolean</ID>
     <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun retireFailedNativeUnderFreshClaim( component: RuntimeComponent, owner: ComponentOwner, ): NativeRetire</ID>
     <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun startStage( component: RuntimeComponent, phase: RuntimePhase, sessionId: String, spec: RuntimeLaunchSpec, ): Boolean</ID>
-    <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun stopLocked( mode: StopMode, finalPhase: RuntimePhase, preserveError: String?, ): RuntimeOperation</ID>
+    <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun stopLocked( mode: StopMode, finalPhase: RuntimePhase, preserveError: String?, stopReason: String? = null, ): RuntimeOperation</ID>
     <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun stopOwned(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult</ID>
     <ID>ReturnCount:DurableRuntimeSupervisorTest.kt$DurableRuntimeSupervisorTest.FakeBackend$override suspend fun forceStop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult</ID>
     <ID>ReturnCount:DurableRuntimeSupervisorTest.kt$DurableRuntimeSupervisorTest.FakeBackend$override suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult</ID>
+    <ID>ReturnCount:FriendInviteStatusCopy.kt$FriendInviteStatusCopy$fun statusFor(response: JSONObject?): String?</ID>
+    <ID>ReturnCount:FriendProvisionProtocol.kt$FriendAccessClient$@Suppress("TooGenericExceptionCaught") // every transport failure is the honest Unreachable verdict fun requestAccess( host: String, port: Int, inviteId: String, token: String, username: String, password: String, ): Verdict</ID>
+    <ID>ReturnCount:FriendProvisionProtocol.kt$FriendProvisionProtocol$fun decodeRequest(payload: ByteArray): JSONObject?</ID>
+    <ID>ReturnCount:FriendProvisionProtocol.kt$FriendProvisionProtocol$fun readFrame(input: InputStream, maxBytes: Int): ByteArray?</ID>
+    <ID>ReturnCount:FriendProvisionProtocol.kt$FriendProvisionProtocol$private fun readExactly(input: InputStream, count: Int): ByteArray?</ID>
     <ID>ReturnCount:ImportProcessMetrics.kt$ImportProcessMetricsSampler$@Synchronized fun sample(context: Context): ImportProcessMetrics</ID>
     <ID>ReturnCount:ImportWorkerService.kt$ImportWorkerService$override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int</ID>
     <ID>ReturnCount:ImportWorkerService.kt$ImportWorkerService$private fun startArchiveImport(intent: Intent, startId: Int): Int</ID>
@@ -1648,9 +1740,11 @@
     <ID>ReturnCount:InputContract.kt$InputContract$private fun pointerButtonLocked( src: Int, owner: ControlOwner, button: PointerButton, pressed: Boolean, ): Boolean</ID>
     <ID>ReturnCount:InputContract.kt$InputContract.Companion$private fun actionBinding(action: ControllerAction): GamepadBinding?</ID>
     <ID>ReturnCount:InputContract.kt$InputContract.Companion$private fun gamepadBinding( keyCode: Int, layout: GamepadLayout, profile: InputProfile, activeLayer: FaceLayer? = null, ): GamepadBinding?</ID>
+    <ID>ReturnCount:LanPresenceModel.kt$LanPresenceModel$fun decode(raw: JSONObject?): LanPlayersOnline?</ID>
     <ID>ReturnCount:LlmModelCoordinator.kt$LlmModelCoordinator$fun modelIfVerified( context: Context, descriptor: ModelDescriptor = primaryModel, ): File?</ID>
     <ID>ReturnCount:LlmModelCoordinator.kt$LlmModelCoordinator$private fun streamToPartial( url: String, descriptor: ModelDescriptor, start: Long, etag: String?, partial: File, onProgress: (Long) -&gt; Unit, isCancelled: () -&gt; Boolean, ): StreamResult</ID>
     <ID>ReturnCount:LlmModelDownloadService.kt$LlmModelDownloadService$override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int</ID>
+    <ID>ReturnCount:LlmRuntimePolicy.kt$LlmRuntimePolicy$fun confBlockExternal( endpoint: String?, model: String?, apiKey: String?, banterEnabled: Boolean = true, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, defaultPromptsFile: String? = null, tlsCaFile: String? = null, cloudLane: CloudLaneConf = CloudLaneConf(), logLines: Boolean = false, ): String?</ID>
     <ID>ReturnCount:LlmRuntimePolicy.kt$LlmRuntimePolicy$fun normalizeExternalApiKey(key: String): String?</ID>
     <ID>ReturnCount:LlmRuntimePolicy.kt$LlmRuntimePolicy$fun normalizeExternalEndpoint(url: String): String?</ID>
     <ID>ReturnCount:LlmRuntimePolicy.kt$LlmRuntimePolicy$fun normalizeExternalModel(model: String): String?</ID>
@@ -1658,14 +1752,18 @@
     <ID>ReturnCount:ManagedClientImporter.kt$ManagedClientImporter$private fun excludeFromSafeRuntime(relative: String): Boolean</ID>
     <ID>ReturnCount:ManagedConfigPolicy.kt$ManagedConfigPolicy$fun masterSoundTransitionDelete( previousAudioMode: String?, currentAudioMode: String, previousPreparedAtRevision: Long, directEditRevisions: Map&lt;String, Long&gt;, ): ConfigWtfCodec.EnforcedLine?</ID>
     <ID>ReturnCount:ManagedConfigPolicy.kt$ManagedConfigPolicy$fun uiScaleTransitionDelete( previousUiScale: String?, currentUiScale: Float?, currentFileValues: Map&lt;String, String&gt;, ): List&lt;ConfigWtfCodec.EnforcedLine&gt;</ID>
+    <ID>ReturnCount:NativeRuntimeFreshness.kt$NativeRuntimeFreshness$fun seedTranscriptPin(record: Map&lt;*, *&gt;, database: String): SeedTranscriptPin?</ID>
     <ID>ReturnCount:RealmService.kt$RealmService$private fun accepted(name: String, block: suspend () -&gt; RuntimeOperation): String</ID>
     <ID>ReturnCount:RealmService.kt$RealmService$private fun maintenance(name: String, block: suspend () -&gt; JSONObject): String</ID>
+    <ID>ReturnCount:RuntimeTopology.kt$InterfaceWatch.Companion$fun forSession(advertisedRaw: String?): InterfaceWatch</ID>
     <ID>ReturnCount:SavedVariablesCodec.kt$SavedVariablesCodec$fun assign(text: String, name: String, value: String?, numberForm: Boolean = false): String?</ID>
     <ID>ReturnCount:ServerRuntimeFiles.kt$ServerRuntimeFiles.Companion$internal fun llmOverrides( uiEnabled: Boolean, modelPresent: Boolean, modelAbsolutePath: String, debugBuild: Boolean, externalMode: Boolean = false, externalEndpoint: String? = null, externalModel: String? = null, externalApiKey: String? = null, banterEnabled: Boolean = true, profile: LlmSamplingProfile = LlmModelRegistry.TUNED_E2B.profile, tier: LlmTierProfile = LlmModelRegistry.TUNED_E2B.tierProfile, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, defaultPromptsFile: String? = null, tlsCaFile: String? = null, cloudLane: CloudLaneConf = CloudLaneConf(), logLines: Boolean = false, ): String?</ID>
     <ID>ReturnCount:SettingsScreen.kt$suspend fun awaitBackupCompletion(): Boolean</ID>
     <ID>ReturnCount:SettingsScreen.kt$suspend fun exportRealmCharacters(target: Uri)</ID>
     <ID>ReturnCount:SettingsScreen.kt$suspend fun restoreRealmCharacters(source: Uri, info: RealmDataArchive.ArchiveInfo)</ID>
     <ID>ReturnCount:SinglePlayerAutoLogin.kt$SinglePlayerAutoLoginController$@Synchronized private fun poll()</ID>
+    <ID>ReturnCount:StackUpComposite.kt$StackUpComposite$fun run(profileIdArg: String): JSONObject</ID>
+    <ID>ReturnCount:StackUpComposite.kt$StackUpComposite$private fun fire( out: JSONObject, legName: String, component: String, designWindowMs: Long, opDeadlineMs: Long, leg: () -&gt; String, ): Stage</ID>
     <ID>ReturnCount:UserVulkanCrashGuard.kt$UserVulkanCrashGuard$fun onSessionOutcome( driver: UserVulkanDriver, failed: Boolean, forced: Boolean, uptimeMs: Long, ): UserVulkanDriver</ID>
     <ID>ReturnCount:UserVulkanCrashGuard.kt$UserVulkanCrashGuard$fun onSessionOutcome(driver: UserVulkanDriver, earlyDeath: Boolean): UserVulkanDriver</ID>
     <ID>ReturnCount:UserVulkanDriverRegistry.kt$UserVulkanDriverRegistry$fun import( displayName: String, payload: File, maxImportBytes: Long = UserVulkanDriverValidator.DEFAULT_MAX_IMPORT_BYTES, ): UserVulkanDriverImport</ID>
@@ -1707,6 +1805,7 @@
     <ID>ThrowsCount:InnoVersion.kt$InnoVersion.Companion$fun parse(signature: ByteArray): InnoVersion</ID>
     <ID>ThrowsCount:ScratchArchiveExtractor.kt$ScratchArchiveExtractor$fun extract( stagedFile: File, format: ArchiveFormat, target: File, limits: ImportLimits, checkpoint: () -&gt; Unit = {}, onEntryExtracted: (filesDone: Int) -&gt; Unit = {}, )</ID>
     <ID>ThrowsCount:ScratchArchiveExtractor.kt$ScratchArchiveExtractor$private fun classifyForScratch( entries: List&lt;ArchiveClientScanner.RawEntry&gt;, limits: ImportLimits, ): ImportExtractionPolicy.Classified</ID>
+    <ID>ThrowsCount:ServerRuntimeFiles.kt$ServerRuntimeFiles.Companion$internal fun rotateRestartLogBytes(file: File, maximumBytes: Long, pid: Int)</ID>
     <ID>TooGenericExceptionCaught:AddonRegistryPublisher.kt$AddonRegistryPublisher$failure: Throwable</ID>
     <ID>TooGenericExceptionCaught:AddonRegistryPublisher.kt$AddonRegistryPublisher$restoreFailure: Throwable</ID>
     <ID>TooGenericExceptionCaught:AddonRepository.kt$AddonRepository$failure: Throwable</ID>
@@ -1786,9 +1885,11 @@
     <ID>TooManyFunctions:RealmService.kt$RealmService : Service</ID>
     <ID>TooManyFunctions:RealmService.kt$RealmService$&lt;no name provided&gt; : Stub</ID>
     <ID>TooManyFunctions:RuntimeContracts.kt$RuntimeBackend : AutoCloseable</ID>
+    <ID>TooManyFunctions:RuntimeSupervisorClient.kt$RuntimeSupervisorClient</ID>
     <ID>TooManyFunctions:ServerRuntimeFiles.kt$ServerRuntimeFiles</ID>
     <ID>TooManyFunctions:SinglePlayerAutoLogin.kt$SinglePlayerAutoLoginController</ID>
     <ID>TooManyFunctions:StagedArchive.kt$StagedArchiveStore</ID>
+    <ID>TooManyFunctions:TimeframeOverlayPlan.kt$TimeframeOverlayPlan</ID>
     <ID>TooManyFunctions:TouchOverlay.kt$com.pocketrealm.ui.TouchOverlay.kt</ID>
     <ID>TooManyFunctions:UserVulkanDriverPresentation.kt$UserVulkanDriverPresentation</ID>
     <ID>TooManyFunctions:UserVulkanDriverRegistry.kt$UserVulkanDriverRegistry</ID>
@@ -1817,8 +1918,8 @@
     <ID>UnusedPrivateProperty:DatabaseUserStateBridge.kt$DatabaseUserStateBridge$val next = field[i + 1]</ID>
     <ID>UnusedPrivateProperty:InnoLaneTest.kt$InnoLaneTest$val wrapper = temp.newFolder()</ID>
     <ID>UnusedPrivateProperty:InputContractTest.kt$InputContractTest$val sink2 = (c.lastReport)</ID>
+    <ID>UnusedPrivateProperty:LanScreen.kt$private const val FRIEND_STATE_POLL_MS = 4_000L</ID>
     <ID>UnusedPrivateProperty:ManagedClientImporter.kt$ManagedClientImporter$val sourceFile = if (alreadyStaged) { stagedFile } else { val resumeFrom = stagedStore.resumableBytes(importId, expectedBytes) if (resumeFrom == 0L) partial.delete() val copied = StagedArchiveCopier().copy( partial, expectedBytes, resumeFrom, { context.contentResolver.openInputStream(archiveUri) ?: throw ImportRejected("VAL-13: selected archive is unreadable") }, { journal.touchStaging(importId, it) }, { coroutineContext.ensureActive() }, ) check(copied == expectedBytes) { "SOURCE_CHANGED: staged $copied bytes, expected $expectedBytes" } stagedStore.promotePartial(importId) afterStaging() stagedFile }</ID>
-    <ID>UnusedPrivateProperty:PackagingExperimentRunner.kt$PackagingExperimentRunner.Companion$private const val TAG = "PkgRunner"</ID>
     <ID>UnusedPrivateProperty:SettingsScreen.kt$val watchdog = Thread { while (!copyFinished.get()) { Thread.sleep(1_000) if (!copyFinished.get() &amp;&amp; System.nanoTime() - lastProgressNanos &gt; USER_IMPORT_STALL_NANOS ) { stalled.set(true) runCatching { opened.close() } return@Thread } } }.apply { isDaemon = true; start() }</ID>
     <ID>UnusedPrivateProperty:SinglePlayerAutoLogin.kt$SinglePlayerAutoLoginController.Companion$private const val DRAIN_POLL_MS = 50L</ID>
     <ID>UnusedPrivateProperty:SinglePlayerAutoLogin.kt$SinglePlayerAutoLoginController.Companion$private const val INPUT_DRAIN_TIMEOUT_MS = 5_000L</ID>
@@ -1829,12 +1930,15 @@
     <ID>UnusedPrivateProperty:StorageRoots.kt$StorageRoots.Companion$private const val TAG = "PR/StorageRoots"</ID>
     <ID>UnusedPrivateProperty:UserVulkanDriverValidator.kt$UserVulkanDriverValidator$val libraryPath = optionalString(icd, "library_path") ?: return IcdOutcome.Rejected("The ICD JSON has no ICD.library_path entry.")</ID>
     <ID>UnusedPrivateProperty:WineRuntimeStore.kt$WineRuntimeStore.Companion$private const val TAG = "WineRuntimeStore"</ID>
+    <ID>UnusedPrivateProperty:WowGameSettingsDeliveryTest.kt$GameSettingsDeliveryPlannerTest$val tbcDefinition = com.pocketrealm.ingame.WowFlavorCatalogs .settingsById(com.pocketrealm.client.ClientFlavors.TBC)</ID>
     <ID>UseCheckOrError:DatabaseEngine.kt$DatabaseEngine$throw IllegalStateException( "DB-ABI: unsupported device ABI list ${Build.SUPPORTED_ABIS.joinToString(",")}", )</ID>
     <ID>UseCheckOrError:DatabaseUserStateBridgeTest.kt$DatabaseUserStateBridgeTest$throw IllegalStateException("$name not found from ${System.getProperty("user.dir")}")</ID>
     <ID>UseCheckOrError:DurableRuntimeSupervisorTest.kt$DurableRuntimeSupervisorTest.FakeBackend$throw IllegalStateException("database is owned by another runtime session")</ID>
+    <ID>UseCheckOrError:DurableRuntimeSupervisorTest.kt$DurableRuntimeSupervisorTest.FakeBackend$throw IllegalStateException("world start failed: WRONG_STATE (rc=2)")</ID>
     <ID>UseCheckOrError:ImportJournal.kt$ImportJournal.Helper$throw IllegalStateException("unsupported importer journal migration $oldVersion-&gt;$newVersion")</ID>
     <ID>UseCheckOrError:InnoSetupReader.kt$InnoSetupReader$throw IllegalStateException("chunk position regressed")</ID>
     <ID>UseCheckOrError:RuntimeTopology.kt$LanInterfacePolicy$throw IllegalStateException("No active private IPv4 LAN interface is available")</ID>
+    <ID>UseCheckOrError:ServerRuntimeFiles.kt$ServerRuntimeFiles.Companion$throw IllegalStateException( "WRONG_STATE: cannot rotate ${file.name} (the live log stays in place)", )</ID>
     <ID>UseCheckOrError:SettingsScreen.kt$throw IllegalStateException("could not open archive")</ID>
     <ID>UseCheckOrError:SettingsScreen.kt$throw IllegalStateException("could not open export target")</ID>
     <ID>UseRequire:ArchiveClientScanner.kt$ArchiveClientScanner.ArchiveAccess$throw IllegalArgumentException("VAL-02: selected executable exceeds fast-scan limit")</ID>

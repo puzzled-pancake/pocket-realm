@@ -5,6 +5,7 @@
 // semantics, the corrected era lists, the era lint and every A12 filter.
 // Run by tests/test_llm_truth.py (g++ -std=c++11 -I native/patches/playerbots).
 #include "PlayerbotLlmTruthCore.h"
+#include "PlayerbotLlmPrompt.h" // W3.2: the per-flavor identity title leg
 
 #include <cassert>
 #include <cstdio>
@@ -354,18 +355,45 @@ static void TestEraStageResolution()
     CHECK(stages.back() == "wotlk-3.3.5a");
     CHECK(erastages::DefaultStage() == "vanilla-1.12.1");
 
-    // Every registered stage resolves a NON-EMPTY class set, and today
-    // (v1: no curated deltas yet) every stage's set is the same grounded
-    // baseline the default carries - the manifests' documented posture.
+    // Every registered stage resolves a NON-EMPTY class set. W3.1: the
+    // three lanes resolve to their OWN grounded per-flavor baselines (the
+    // manifests' final_stage_era_baseline) — vanilla stays the default's
+    // set byte-equivalent (D31/D50); TBC legitimizes the vanilla-banned
+    // TBC vocabulary and bans WotLK+ instead; WotLK allows through WotLK
+    // and bans Cata+ (port plan S3.4).
     static std::string const kUnsetStage;
     std::vector<std::string> const& defaultBan = erastages::AlwaysBanTermsFor(kUnsetStage);
     CHECK(defaultBan.size() == 2); // shattrath + acherus (R5-4-1 prune)
     CHECK(erastages::SensePhrasesFor(kUnsetStage).size() == 29);
     for (std::string const& stage : stages)
     {
-        CHECK(&erastages::AlwaysBanTermsFor(stage) == &defaultBan);
-        CHECK(&erastages::SensePhrasesFor(stage) == &erastages::SensePhrasesFor(""));
+        bool const vanilla = stage.rfind("vanilla-", 0) == 0;
+        CHECK(erastages::AlwaysBanTermsFor(stage).size() > 0);
+        CHECK(erastages::SensePhrasesFor(stage).size() > 0);
+        if (vanilla)
+        {
+            CHECK(&erastages::AlwaysBanTermsFor(stage) == &defaultBan);
+            CHECK(&erastages::SensePhrasesFor(stage) == &erastages::SensePhrasesFor(""));
+        }
+        else
+        {
+            // The W3.1 legitimization: a non-vanilla stage NEVER serves the
+            // vanilla set (the cross-flavor fallback is retired).
+            CHECK(&erastages::AlwaysBanTermsFor(stage) != &defaultBan);
+            CHECK(&erastages::SensePhrasesFor(stage) != &erastages::SensePhrasesFor(""));
+        }
     }
+    // The TBC set: acherus-only always-ban, the TBC concepts legitimized.
+    CHECK(erastages::AlwaysBanTermsFor("tbc-2.4.3").size() == 1);
+    // R6 round-6 close: +7 WotLK-era systems/factions (inscription, argent
+    // crusade, saronite, the skybreaker, sons of hodir, onslaught harbor,
+    // timeless isle) over the round-5 count of 57 (which was the round-4
+    // 45 +12 post-TBC senses -3 card-lint false bans).
+    CHECK(erastages::SensePhrasesFor("tbc-2.4.3").size() == 64);
+    // The WotLK set: Cata+ zones/titles banned, the WotLK-native
+    // institutions (acherus/ebon blade/wrath title) NOT in the lists.
+    CHECK(erastages::AlwaysBanTermsFor("wotlk-3.3.5a").size() == 2); // R5-1: n'zoth removed (lore-corpus false ban)
+    CHECK(erastages::SensePhrasesFor("wotlk-3.3.5a").size() == 31); // R6-3: + timeless isle over the round-5 30
     // An unknown stage falls open to the default too (double-guard).
     CHECK(&erastages::AlwaysBanTermsFor("garbage-9.9") == &defaultBan);
     CHECK(erastages::PatchLabel("garbage-9.9").empty());
@@ -383,9 +411,21 @@ static void TestEraStageResolution()
     CHECK(EraSeasoningFor("").find("patch 1.5") != std::string::npos);
     CHECK(EraSeasoningFor("pack line") == EraStageLine() + " " + "pack line");
     // the era scan itself is stage-live (the same verdict at the
-    // baseline-equal v1 stage sets, pinned so a curated delta cannot
+    // baseline-equal vanilla stage sets, pinned so a curated delta cannot
     // silently break the scan)
     CHECK(EraScan("the shattrath portal is open") == "shattrath");
+    // W3.1 per-flavor liveness: a tbc stage LEGITIMIZES shattrath/flying
+    // and bans the WotLK institutions instead; a wotlk stage allows the
+    // WotLK title and bans the Cata reveal senses.
+    hostStage = "tbc-2.4.3";
+    CHECK(EraScan("meet me in shattrath").empty());
+    CHECK(EraScan("my flying mount is fast").empty());
+    CHECK(EraScan("the ebon blade rides at dawn") == "ebon blade");
+    hostStage = "wotlk-3.3.5a";
+    CHECK(EraScan("wrath of the lich king approaches").empty());
+    CHECK(EraScan("flying mounts in outland").empty());
+    CHECK(EraScan("gilneas is open to the alliance") == "gilneas is open");
+    CHECK(EraScan("sailing to vashj'ir") == "vashj'ir");
     // ...and an UNKNOWN stage value falls open to the default (no line,
     // default terms) instead of half-failing.
     hostStage = "vanilla-9.9";
@@ -395,6 +435,41 @@ static void TestEraStageResolution()
     CHECK(EraStageLine().empty());
     TimeframeStageProviderSlot() = 0; // restore the unset default for later legs
     CHECK(EraSeasoningFor("pack line") == "pack line");
+
+    // W3.2 per-flavor identity title (ExpansionTitleFor + SysmForCard's
+    // worldTitle parameter): the DEFAULT title is the frozen trained
+    // vanilla wording; the active flavor's title rides the manifest's
+    // llm.prompt_identity through the generated selector.
+    CHECK(erastages::ExpansionTitleFor("") == "World of Warcraft: Classic");
+    CHECK(erastages::ExpansionTitleFor("garbage-9.9") == "World of Warcraft: Classic");
+    CHECK(erastages::ExpansionTitleFor("tbc-2.0.1") ==
+          "World of Warcraft: The Burning Crusade");
+    CHECK(erastages::ExpansionTitleFor("wotlk-3.3.5a") ==
+          "World of Warcraft: Wrath of the Lich King");
+    {
+        pocketllm::PromptPersona persona;
+        persona.name = "Marry";
+        persona.race = "human";
+        persona.cls = "priest";
+        persona.role = "trainer";
+        persona.zone = "Goldshire";
+        pocketllm::PromptPlayer player;
+        player.name = "Khazar";
+        player.race = "human";
+        player.cls = "warrior";
+        player.level = 5;
+        std::vector<std::string> const facts;
+        std::string const trained =
+            pocketllm::SysmForCard(persona, player, 1, "a first meeting", facts);
+        CHECK(trained.find("You are a roleplaying character in "
+                           "World of Warcraft: Classic. Your name is Marry") == 0);
+        std::string const tbc = pocketllm::SysmForCard(
+            persona, player, 1, "a first meeting", facts, std::string(),
+            std::string(), "World of Warcraft: The Burning Crusade");
+        CHECK(tbc.find("in World of Warcraft: The Burning Crusade. "
+                       "Your name is Marry") != std::string::npos);
+        CHECK(tbc.find("World of Warcraft: Classic") == std::string::npos);
+    }
 }
 
 static void TestFilters()

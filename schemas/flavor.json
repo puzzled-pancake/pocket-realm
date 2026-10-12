@@ -4,7 +4,7 @@
   "description": "The multi-flavor product manifest: the contract the build, manifest merger, and release-acceptance checks enforce. Legacy top-level fields below describe the product-wide device/permission policy; the authoritative per-flavor data lives in the flavors array. Only flavors with qualified=true may be imported or launched.",
   "auth": {
     "smsg_auth_challenge_opcode": "0x1EC",
-    "note": "Correction C3 (register \u00a70): SMSG_AUTH_CHALLENGE = 0x1EC in all three branches - ONE shared constant, never per-flavor. Kotlin: ClientFlavors.AUTH_CHALLENGE_OPCODE. The desktop harness asserts it and fails loud on any other value. SRP6 frame layouts around it are per-branch facts: see each flavor's auth_frame descriptor (verified at S8, port plan S8 item 2)."
+    "note": "Correction C3 (register §0): SMSG_AUTH_CHALLENGE = 0x1EC in all three branches - ONE shared constant, never per-flavor. Kotlin: ClientFlavors.AUTH_CHALLENGE_OPCODE. The desktop harness asserts it and fails loud on any other value. SRP6 frame layouts around it are per-branch facts: see each flavor's auth_frame descriptor (verified at S8, port plan S8 item 2)."
   },
   "flavors": [
     {
@@ -34,7 +34,7 @@
         "branch": "pocket-realm",
         "commit": "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d",
         "status": "pinned",
-        "note": "Correction C4 (register \u00a70): one multi-expansion pin serves all flavors (MANGOSBOT_ZERO/ONE/TWO, macro-switched); decision D34."
+        "note": "Correction C4 (register §0): one multi-expansion pin serves all flavors (MANGOSBOT_ZERO/ONE/TWO, macro-switched); decision D34."
       },
       "extractors": {
         "source": "server_core contrib (ad, vmap_extractor, vmap_assembler, MoveMapGen)",
@@ -70,10 +70,15 @@
         "characters": "classiccharacters",
         "logs": "classiclogs"
       },
-      "addon_interfaces": [11200],
+      "addon_interfaces": [
+        11200
+      ],
       "bot_policy": {
         "max_level": 60,
-        "random_maps": [0, 1],
+        "random_maps": [
+          0,
+          1
+        ],
         "characters_per_account": 9,
         "characters_per_account_note": "bot-headroom cap (player character occupies one slot); client UI cap is 10 per realm"
       },
@@ -87,20 +92,36 @@
       },
       "wine": {
         "prefix_segment": "wow5875",
-        "graphics_routes": ["dxvk", "opengl", "virgl"],
+        "graphics_routes": [
+          "dxvk",
+          "opengl",
+          "virgl"
+        ],
         "vanilla_tweaks": true,
         "known_exe_sha256": "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7"
       },
       "mpq_set": {
         "required": [
-          "base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq",
-          "model.mpq", "sound.mpq", "speech.mpq", "terrain.mpq", "texture.mpq", "wmo.mpq"
+          "base.mpq",
+          "dbc.mpq",
+          "fonts.mpq",
+          "interface.mpq",
+          "misc.mpq",
+          "model.mpq",
+          "sound.mpq",
+          "speech.mpq",
+          "terrain.mpq",
+          "texture.mpq",
+          "wmo.mpq"
         ],
         "note": "Vanilla flat Data/ layout. patch-*.mpq optional and accepted by the MPQ magic check when present."
       },
       "llm": {
         "lore_cards": "lore_cards_v112.jsonl",
-        "era": "vanilla"
+        "era": "vanilla",
+        "prompt_identity": "World of Warcraft: Classic",
+        "lore_cards_note": "W3.2 owner decision (completion-plan table #2): ONE shared lore corpus asset serves every flavor — no per-flavor jsonl is authored or generated. The per-flavor era-lint filter is the NATIVE load-time lint: PlayerbotLlmTruthCore EraLintCards runs over the loaded cards against the ACTIVE stage's per-flavor ban lists (PlayerbotLlmEraStages.generated.h, W3.1), so cards whose ban-term hits are anachronistic for a lane are dropped at load on that lane and kept on lanes where they are era-native. R6-2 precision (round 6): the term-hit lint is the ONLY load-time mechanism — card CONTENT narrating a later era passes when no lane bans the term; those cases are curated per term (banned where era-correct: e.g. argent crusade/inscription/timeless isle on the tbc lane), recorded per lane where the vocabulary is era-legitimate (e.g. argent crusade/inscription on wotlk) or where banning would mass-drop era-legitimate cards (fourth war/dragon isles), or recorded for the vanilla lane's frozen contract — the per-term dispositions live in tests/test_timeframes_era_flavors.py (CARD_DROPS_RECORDED / CARD_CONTENT_RECORDED / KEPT_ALLOWS), all machine-audited.",
+        "prompt_identity_note": "The prompt-pack identity line's world title per flavor: the trained renderers (PlayerbotLlmPrompt.h SysmForCard via the generated ExpansionTitleFor selector; LlmPromptPack editor preview via ClientFlavor.promptIdentity) resolve the ACTIVE flavor's title. The vanilla output stays byte-identical (trained-output freeze)."
       }
     },
     {
@@ -111,7 +132,9 @@
       "build": 8606,
       "version_resource": "2.4.3.8606",
       "client_version": "2.4.3 build 8606 (user-supplied; S5.1 identity registered, qualification pending)",
-      "supported_client_builds": [8606],
+      "supported_client_builds": [
+        8606
+      ],
       "supported_client_builds_note": "S5.1 hash registration (lanes item 13), measured on the staged genuine 2.4.3.8606 enUS client: SHA-256 8f8d7f4cf3909e61fd34b09df9c9b56c21aec76a9ad1883353f1fa5d9b8411e2 (wine.known_exe_sha256), MD5 cross-check 57c5c03097103e15f9abe2803aebdc3c (client_binary.known_exe_md5, equals the anzz1 pristine prefix, register C6), 8,272,528 bytes, PE version tuple (2,4,3,8606). Import still rejects while qualified=false; the flip is owner-decision (lanes item 21).",
       "server_core": {
         "upstream": "https://github.com/cmangos/mangos-tbc.git",
@@ -133,7 +156,7 @@
         "branch": "pocket-realm",
         "commit": "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d",
         "status": "pinned",
-        "note": "Correction C4 (register \u00a70): upstream cmangos/playerbots master is multi-expansion (MANGOSBOT_ONE selects the TBC bot API; per-expansion conf dists aiplayerbot.conf.dist.in.tbc verified) - one pin serves all flavors; decision D34. Checkout/register half: wave-0 fork registration."
+        "note": "Correction C4 (register §0): upstream cmangos/playerbots master is multi-expansion (MANGOSBOT_ONE selects the TBC bot API; per-expansion conf dists aiplayerbot.conf.dist.in.tbc verified) - one pin serves all flavors; decision D34. Checkout/register half: wave-0 fork registration."
       },
       "extractors": {
         "source": "server_core contrib (ad, vmap_extractor, vmap_assembler, MoveMapGen)",
@@ -169,32 +192,49 @@
         "excluded_keys": [],
         "note": "No VoiceChat exclusion verified for the 8606 branch; record here at S2 matrix generation if the branch ships the stub (register C9 names wotlk only)."
       },
-      "addon_interfaces": [20400],
+      "addon_interfaces": [
+        20400
+      ],
       "bot_policy": {
         "max_level": 70,
-        "random_maps": [0, 1, 530],
+        "random_maps": [
+          0,
+          1,
+          530
+        ],
         "characters_per_account": 9,
         "characters_per_account_note": "bot-headroom cap (player character occupies one slot); client UI cap is 10 per realm"
       },
       "storage": null,
       "wine": {
         "prefix_segment": "wow8606",
-        "graphics_routes": ["dxvk"],
+        "graphics_routes": [
+          "dxvk"
+        ],
         "vanilla_tweaks": false,
         "known_exe_sha256": "8f8d7f4cf3909e61fd34b09df9c9b56c21aec76a9ad1883353f1fa5d9b8411e2"
       },
       "mpq_set": {
         "required": [
-          "common.mpq", "expansion.mpq", "patch.mpq", "patch-2.mpq",
-          "enus/locale-enus.mpq", "enus/speech-enus.mpq",
-          "enus/expansion-locale-enus.mpq", "enus/expansion-speech-enus.mpq",
-          "enus/patch-enus.mpq", "enus/patch-enus-2.mpq"
+          "common.mpq",
+          "expansion.mpq",
+          "patch.mpq",
+          "patch-2.mpq",
+          "enus/locale-enus.mpq",
+          "enus/speech-enus.mpq",
+          "enus/expansion-locale-enus.mpq",
+          "enus/expansion-speech-enus.mpq",
+          "enus/patch-enus.mpq",
+          "enus/patch-enus-2.mpq"
         ],
         "note": "S5.1 exact set (lanes item 13) enumerated from the staged genuine 2.4.3.8606 enUS client (correction C2 shape): Data\\ root common/expansion/patch/patch-2 plus the Data\\enUS\\ locale/speech set. Entries are lowercase paths relative to Data\\ with forward slashes (vanilla's flat entries are the same convention without the segment). Tolerated auxiliaries observed on the staged client: enus/base-enus.mpq, enus/backup-enus.mpq. Exact-set semantics (H2-2/H2-9): an unknown patch-*.mpq is VAL-04 naming the file - enforced when the flavor qualifies; the scanners' Data\\<locale> traversal is S5 item 5 (lanes item 17)."
       },
       "llm": {
-        "lore_cards": null,
-        "era": "tbc"
+        "lore_cards": "lore_cards_v112.jsonl",
+        "era": "tbc",
+        "prompt_identity": "World of Warcraft: The Burning Crusade",
+        "lore_cards_note": "W3.2 owner decision (completion-plan table #2): ONE shared lore corpus asset serves every flavor — no per-flavor jsonl is authored or generated. The per-flavor era-lint filter is the NATIVE load-time lint: PlayerbotLlmTruthCore EraLintCards runs over the loaded cards against the ACTIVE stage's per-flavor ban lists (PlayerbotLlmEraStages.generated.h, W3.1), so cards whose ban-term hits are anachronistic for a lane are dropped at load on that lane and kept on lanes where they are era-native. R6-2 precision (round 6): the term-hit lint is the ONLY load-time mechanism — card CONTENT narrating a later era passes when no lane bans the term; those cases are curated per term (banned where era-correct: e.g. argent crusade/inscription/timeless isle on the tbc lane), recorded per lane where the vocabulary is era-legitimate (e.g. argent crusade/inscription on wotlk) or where banning would mass-drop era-legitimate cards (fourth war/dragon isles), or recorded for the vanilla lane's frozen contract — the per-term dispositions live in tests/test_timeframes_era_flavors.py (CARD_DROPS_RECORDED / CARD_CONTENT_RECORDED / KEPT_ALLOWS), all machine-audited.",
+        "prompt_identity_note": "The prompt-pack identity line's world title per flavor: the trained renderers (PlayerbotLlmPrompt.h SysmForCard via the generated ExpansionTitleFor selector; LlmPromptPack editor preview via ClientFlavor.promptIdentity) resolve the ACTIVE flavor's title. The vanilla output stays byte-identical (trained-output freeze)."
       }
     },
     {
@@ -205,7 +245,9 @@
       "build": 12340,
       "version_resource": "3.3.5.12340",
       "client_version": "3.3.5a build 12340 (user-supplied; S5.1 identity registered, qualification pending)",
-      "supported_client_builds": [12340],
+      "supported_client_builds": [
+        12340
+      ],
       "supported_client_builds_note": "S5.1 hash registration (lanes item 13), measured on the staged genuine 3.3.5a.12340 enUS client: SHA-256 aa63a5750d60ef16746c686b3d5e26876d98953eab08b1c026cd0faf78e88cb8 (wine.known_exe_sha256), MD5 cross-check 45892bdedd0ad70aed4ccd22d9fb5984 (client_binary.known_exe_md5, equals the anzz1 pristine prefix, register C6), 7,704,216 bytes, PE version tuple (3,3,5,12340). Import still rejects while qualified=false; the flip is owner-decision (lanes item 21).",
       "server_core": {
         "upstream": "https://github.com/cmangos/mangos-wotlk.git",
@@ -227,7 +269,7 @@
         "branch": "pocket-realm",
         "commit": "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d",
         "status": "pinned",
-        "note": "Correction C4 (register \u00a70): upstream cmangos/playerbots master is multi-expansion (MANGOSBOT_TWO selects the WotLK bot API; per-expansion conf dists aiplayerbot.conf.dist.in.wotlk verified) - one pin serves all flavors; decision D34. Checkout/register half: wave-0 fork registration."
+        "note": "Correction C4 (register §0): upstream cmangos/playerbots master is multi-expansion (MANGOSBOT_TWO selects the WotLK bot API; per-expansion conf dists aiplayerbot.conf.dist.in.wotlk verified) - one pin serves all flavors; decision D34. Checkout/register half: wave-0 fork registration."
       },
       "extractors": {
         "source": "server_core contrib (ad, vmap_extractor, vmap_assembler, MoveMapGen)",
@@ -263,47 +305,69 @@
         "known_exe_md5": "45892bdedd0ad70aed4ccd22d9fb5984",
         "known_exe_size_bytes": 7704216,
         "large_address_aware": false,
-        "note": "S5.1 registration (lanes item 13) measured on the staged hash-verified 3.3.5a.12340 client: 7,704,216 bytes, MD5 45892bdedd0ad70aed4ccd22d9fb5984 (the anzz1 pristine prefix, register C6), SHA-256 aa63a5750d60ef16746c686b3d5e26876d98953eab08b1c026cd0faf78e88cb8 in wine.known_exe_sha256. large_address_aware=false confirmed from the PE characteristics word (0x0103, no 0x0020 LAA bit) - register C7's 2 GB VA fact now binary-measured; the earlier 'size \u2248 12.6 MB' plan estimate was wrong for the staged client (7,704,216 B, still far under SafClientScanner.MAX_EXE_BYTES = 32 MiB). The registration records identity only; import still rejects while qualified=false."
+        "note": "S5.1 registration (lanes item 13) measured on the staged hash-verified 3.3.5a.12340 client: 7,704,216 bytes, MD5 45892bdedd0ad70aed4ccd22d9fb5984 (the anzz1 pristine prefix, register C6), SHA-256 aa63a5750d60ef16746c686b3d5e26876d98953eab08b1c026cd0faf78e88cb8 in wine.known_exe_sha256. large_address_aware=false confirmed from the PE characteristics word (0x0103, no 0x0020 LAA bit) - register C7's 2 GB VA fact now binary-measured; the earlier 'size ≈ 12.6 MB' plan estimate was wrong for the staged client (7,704,216 B, still far under SafClientScanner.MAX_EXE_BYTES = 32 MiB). The registration records identity only; import still rejects while qualified=false."
       },
       "conf_matrix": {
         "excluded_keys": [
           {
             "key_family": "VoiceChat",
-            "reason": "mangos-wotlk VoiceChat is a 46-line inert stub: it swallows the opcode and exposes zero conf keys (classic has none). H1-17's 'VoiceChat conf keys' claim is retracted - ship as-is + docs note (register \u00a70 C9).",
-            "register_ref": "FEATURE-PARITY-GAPS.md \u00a70 C9",
+            "reason": "mangos-wotlk VoiceChat is a 46-line inert stub: it swallows the opcode and exposes zero conf keys (classic has none). H1-17's 'VoiceChat conf keys' claim is retracted - ship as-is + docs note (register §0 C9).",
+            "register_ref": "FEATURE-PARITY-GAPS.md §0 C9",
             "enforced_by": "tools/generate_conf_matrix.py (never emits; staging consumers must not expect VoiceChat* keys)"
           }
         ],
         "note": "F2-8 self-documenting-exclusion pattern: this section documents what the conf matrix deliberately does not require."
       },
-      "addon_interfaces": [30300],
+      "addon_interfaces": [
+        30300
+      ],
       "bot_policy": {
         "max_level": 80,
-        "random_maps": [0, 1, 530, 571],
+        "random_maps": [
+          0,
+          1,
+          530,
+          571
+        ],
         "characters_per_account": 9,
         "characters_per_account_note": "bot-headroom cap (player character occupies one slot); client UI cap is 10 per realm"
       },
       "storage": null,
       "wine": {
         "prefix_segment": "wow12340",
-        "graphics_routes": ["dxvk"],
+        "graphics_routes": [
+          "dxvk"
+        ],
         "vanilla_tweaks": false,
         "known_exe_sha256": "aa63a5750d60ef16746c686b3d5e26876d98953eab08b1c026cd0faf78e88cb8"
       },
       "mpq_set": {
         "required": [
-          "common.mpq", "common-2.mpq", "expansion.mpq", "lichking.mpq",
-          "patch.mpq", "patch-2.mpq", "patch-3.mpq",
-          "enus/locale-enus.mpq", "enus/speech-enus.mpq",
-          "enus/expansion-locale-enus.mpq", "enus/expansion-speech-enus.mpq",
-          "enus/lichking-locale-enus.mpq", "enus/lichking-speech-enus.mpq",
-          "enus/patch-enus.mpq", "enus/patch-enus-2.mpq", "enus/patch-enus-3.mpq"
+          "common.mpq",
+          "common-2.mpq",
+          "expansion.mpq",
+          "lichking.mpq",
+          "patch.mpq",
+          "patch-2.mpq",
+          "patch-3.mpq",
+          "enus/locale-enus.mpq",
+          "enus/speech-enus.mpq",
+          "enus/expansion-locale-enus.mpq",
+          "enus/expansion-speech-enus.mpq",
+          "enus/lichking-locale-enus.mpq",
+          "enus/lichking-speech-enus.mpq",
+          "enus/patch-enus.mpq",
+          "enus/patch-enus-2.mpq",
+          "enus/patch-enus-3.mpq"
         ],
         "note": "S5.1 exact set (lanes item 13) enumerated from the staged genuine 3.3.5a.12340 enUS client (correction C2 shape): Data\\ root common, common-2, expansion, lichking, patch, patch-2, patch-3 (NO patch-4) plus the Data\\enUS\\ locale/speech set incl. the lichking pair. Entries are lowercase paths relative to Data\\ with forward slashes. Tolerated auxiliaries observed on the staged client: enus/base-enus.mpq, enus/backup-enus.mpq. Exact-set semantics (H2-2/H2-9): an unknown patch-4.mpq is VAL-04 naming the file - enforced when the flavor qualifies; the scanners' Data\\<locale> traversal is S5 item 5 (lanes item 17)."
       },
       "llm": {
-        "lore_cards": null,
-        "era": "wotlk"
+        "lore_cards": "lore_cards_v112.jsonl",
+        "era": "wotlk",
+        "prompt_identity": "World of Warcraft: Wrath of the Lich King",
+        "lore_cards_note": "W3.2 owner decision (completion-plan table #2): ONE shared lore corpus asset serves every flavor — no per-flavor jsonl is authored or generated. The per-flavor era-lint filter is the NATIVE load-time lint: PlayerbotLlmTruthCore EraLintCards runs over the loaded cards against the ACTIVE stage's per-flavor ban lists (PlayerbotLlmEraStages.generated.h, W3.1), so cards whose ban-term hits are anachronistic for a lane are dropped at load on that lane and kept on lanes where they are era-native. R6-2 precision (round 6): the term-hit lint is the ONLY load-time mechanism — card CONTENT narrating a later era passes when no lane bans the term; those cases are curated per term (banned where era-correct: e.g. argent crusade/inscription/timeless isle on the tbc lane), recorded per lane where the vocabulary is era-legitimate (e.g. argent crusade/inscription on wotlk) or where banning would mass-drop era-legitimate cards (fourth war/dragon isles), or recorded for the vanilla lane's frozen contract — the per-term dispositions live in tests/test_timeframes_era_flavors.py (CARD_DROPS_RECORDED / CARD_CONTENT_RECORDED / KEPT_ALLOWS), all machine-audited.",
+        "prompt_identity_note": "The prompt-pack identity line's world title per flavor: the trained renderers (PlayerbotLlmPrompt.h SysmForCard via the generated ExpansionTitleFor selector; LlmPromptPack editor preview via ClientFlavor.promptIdentity) resolve the ACTIVE flavor's title. The vanilla output stays byte-identical (trained-output freeze)."
       }
     }
   ],

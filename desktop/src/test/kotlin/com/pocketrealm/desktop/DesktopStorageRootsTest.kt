@@ -124,11 +124,21 @@ class DesktopStorageRootsTest {
         // The shipped default is unchanged when the override is absent
         // (byte-identical behavior for existing installs).
         System.clearProperty(DesktopStorageRoots.ENV_DATA_ROOT)
-        val expectedBase = System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home")
-        assertEquals(
-            java.io.File(expectedBase, "PocketRealm").path,
-            DesktopStorageRoots.defaultRoot().path,
-        )
+        DesktopStorageRoots.hermeticEnvLeg = ""
+        try {
+            val expectedBase = System.getenv("LOCALAPPDATA")
+                ?: System.getProperty("user.home")
+            // The env leg is INJECTED as absent (the W3 hermetic seam): a
+            // runner whose process carries the D50 user-scope var (every
+            // shell started after the relocation) must not flip this
+            // default-arm assertion.
+            assertEquals(
+                java.io.File(expectedBase, "PocketRealm").path,
+                DesktopStorageRoots.defaultRoot().path,
+            )
+        } finally {
+            DesktopStorageRoots.hermeticEnvLeg = null
+        }
     }
     // ---- R2-1 (desktop-twin round 2): the override arm fails loud ------
 
@@ -160,6 +170,7 @@ class DesktopStorageRootsTest {
     @Test
     fun `a blank override still falls through to the shipped default`() {
         System.setProperty(DesktopStorageRoots.ENV_DATA_ROOT, "")
+        DesktopStorageRoots.hermeticEnvLeg = ""
         try {
             val roots = DesktopStorageRoots()
             assertEquals(
@@ -172,6 +183,7 @@ class DesktopStorageRootsTest {
             )
         } finally {
             System.clearProperty(DesktopStorageRoots.ENV_DATA_ROOT)
+            DesktopStorageRoots.hermeticEnvLeg = null
         }
     }
     @Test

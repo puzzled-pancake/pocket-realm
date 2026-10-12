@@ -169,13 +169,26 @@ class DesktopStorageRoots(baseDir: File? = null) {
          */
         const val ENV_DATA_ROOT = "POCKET_REALM_DATA_ROOT"
 
+        /**
+         * W3: the hermetic env-leg seam for the default-arm tests — a JVM
+         * cannot clear an env var, so a runner whose process carries the
+         * D50 user-scope POCKET_REALM_DATA_ROOT (every shell started after
+         * the W0 relocation) made the two LOCALAPPDATA-default assertions
+         * machine-dependent (the exact D44 class). Null = the live
+         * environment (production, zero behavior change); a test sets it
+         * to "" to simulate the override being absent (blank falls
+         * through, the documented blank arm). The property seam above
+         * still wins first.
+         */
+        @Volatile
+        internal var hermeticEnvLeg: String? = null
+
         fun defaultRoot(): File {
-            // The system property is the test seam for the same override
-            // the env var carries in production (property wins when set).
             System.getProperty(ENV_DATA_ROOT)?.let { configured ->
                 if (configured.isNotBlank()) return configuredRoot(configured)
             }
-            System.getenv(ENV_DATA_ROOT)?.let { configured ->
+            val envLeg = hermeticEnvLeg ?: System.getenv(ENV_DATA_ROOT)
+            envLeg?.let { configured ->
                 if (configured.isNotBlank()) return configuredRoot(configured)
             }
             return File(

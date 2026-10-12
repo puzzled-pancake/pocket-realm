@@ -76,9 +76,18 @@ fun AddonsHubScreen(
             contentPadding = PaddingValues(bottom = 12.dp),
         ) {
             item {
+                // R6-1: the AndroidPort copy is flavor-conditional — on a
+                // non-vanilla lane the built-in is NOT installed (the seed
+                // skips; catalog row 151 is absent), so the authored honest
+                // exclusion note (catalog.flavorNote) renders instead.
                 Text(
-                    "Choose one place to start. The built-in Android Port is installed by default; " +
-                        "everything else stays optional and applies on the next game launch.",
+                    if (catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
+                        "Choose one place to start. The built-in Android Port is installed by default; " +
+                            "everything else stays optional and applies on the next game launch."
+                    } else {
+                        catalog.flavorNote ?: "Choose one place to start; everything " +
+                            "applies on the next game launch."
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -94,8 +103,21 @@ fun AddonsHubScreen(
             item {
                 AddonHubRow(
                     title = "Recommended for Pocket Realm",
-                    summary = "The three add-ons tested on Pocket Realm hardware.",
-                    status = "Android Port is installed by default",
+                    // R5-6-3: the hardware-tested claim is the VANILLA trio's
+                    // frozen D29 evidence — a non-vanilla lane's curated set
+                    // is research reference (round-3 demotion), so the copy
+                    // branches instead of claiming the same evidence class.
+                    summary = if (catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
+                        "The three add-ons tested on Pocket Realm hardware."
+                    } else {
+                        "Curated for ${activeFlavor.expansion} — research " +
+                            "reference, not hardware-tested."
+                    },
+                    status = if (catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
+                        "Android Port is installed by default"
+                    } else {
+                        "Curated for ${activeFlavor.expansion}"
+                    },
                     onClick = onRecommended,
                     tag = "addon-hub-recommended",
                 )
@@ -158,9 +180,18 @@ fun RecommendedAddonsScreen(onOpenAddon: (String) -> Unit) {
     }
 
     AddonPage(repository, state) {
+        // R5-6-3: the same flavor branch as the hub row — vanilla's D29
+        // trio carries the hardware-tested evidence; the tbc/wotlk
+        // recommendation sets are research-curated reference rows.
+        val testedCopy =
+            if (catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
+                "Each entry has been tested on Pocket Realm hardware. "
+            } else {
+                "${activeFlavor.expansion} recommendations are research-curated " +
+                    "(reference-grade evidence, not hardware-tested). "
+            }
         Text(
-            "Each entry has been tested on Pocket Realm hardware. " +
-                "Open one to review it before installing.",
+            testedCopy + "Open one to review it before installing.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -203,6 +234,7 @@ fun InstalledAddonsScreen(
     val context = LocalContext.current
     val repository = remember(context) { AddonRepository.get(context) }
     val catalog = remember(context) { AddonCatalog.load(context) }
+    val activeFlavor = remember(context) { activeFlavorForAddons() }
     val state by repository.state.collectAsState()
     val busy = state.operation != null
 
@@ -212,9 +244,16 @@ fun InstalledAddonsScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                if (state.installed.isEmpty()) "No add-ons installed. Reinstall the built-in " +
-                    "Android Port from Browse if you removed it."
-                else "${state.installed.size} installed · changes apply next launch.",
+                when {
+                    state.installed.isNotEmpty() ->
+                        "${state.installed.size} installed · changes apply next launch."
+                    catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId ->
+                        "No add-ons installed. Reinstall the built-in Android Port from " +
+                            "Browse if you removed it."
+                    else ->
+                        "No add-ons installed for ${activeFlavor.expansion} — browse the " +
+                            "curated set below."
+                },
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedButton(

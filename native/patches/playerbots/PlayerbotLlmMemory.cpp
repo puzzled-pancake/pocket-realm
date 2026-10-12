@@ -1075,7 +1075,11 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     std::string const sysm = pocketllm::SysmForCard(persona, promptPlayer, tier,
         AbsenceLineFor(player->GetName(), absenceBucket), facts,
         pocketllm::EraSeasoningFor(LoadPackSeasoning()),
-        sPlayerbotAIConfig.llmMoodSeasoning ? MoodLineFor(botGuid) : std::string());
+        sPlayerbotAIConfig.llmMoodSeasoning ? MoodLineFor(botGuid) : std::string(),
+        // W3.2: the identity line names the ACTIVE flavor's world
+        // (llm.prompt_identity via the generated selector); the default
+        // vanilla stage renders the frozen trained title byte-identically.
+        pocketllm::erastages::ExpansionTitleFor(pocketllm::ActiveTimeframeStage()));
 
     // The bridge owns the turn. Event reactions render through the
     // trained [EVENT] head + speak-first directive (no player words this

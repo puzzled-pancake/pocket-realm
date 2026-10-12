@@ -132,6 +132,39 @@ object ClientRuntimeContract {
         }
     }
 
+    /**
+     * W3.6 (D15(4) retirement / decision D3): the per-flavor graphics-route
+     * gate. [renderer] is the runtime route id ("dxvk"/"opengl"/"virgl");
+     * it must be one of the flavor's manifest routes
+     * ([ClientFlavor.graphicsRoutes] — `wine.graphics_routes` in
+     * schemas/flavor.json). The tbc/wotlk lanes ship DXVK (d3d9) only: the
+     * Gladio/VirGL lanes are validated against vanilla's GL usage and are
+     * honestly refused elsewhere — never silently allowed.
+     */
+    fun requireFlavorGraphicsRoute(flavor: com.pocketrealm.client.ClientFlavor, renderer: String) {
+        check(renderer in flavor.graphicsRoutes) {
+            "the $renderer graphics route is not available for the ${flavor.flavorId} flavor " +
+                "(validated routes: " + flavor.graphicsRoutes.sorted().joinToString(", ") +
+                ") — the Gladio/VirGL lanes are validated against the vanilla 1.12.1 " +
+                "client's GL usage only (decision D3); use the DXVK route"
+        }
+    }
+
+    /** The per-flavor graphics-route copy for the renderer surfaces: null
+     * when the route is available, the honest one-line reason otherwise. */
+    fun flavorGraphicsRouteCopy(
+        flavor: com.pocketrealm.client.ClientFlavor,
+        renderer: String,
+    ): String? = if (renderer in flavor.graphicsRoutes) null else
+        "Not available for ${flavor.expansion} — validated for the vanilla 1.12.1 client only (DXVK is the ${flavor.flavorId} route)."
+
+    /** The per-flavor vanilla-tweaks copy: null when the tweaks are
+     * available, the honest "not available for this flavor" line otherwise
+     * (the tweak set is validated against the 1.12.1 client only). */
+    fun flavorTweaksCopy(flavor: com.pocketrealm.client.ClientFlavor): String? =
+        if (flavor.vanillaTweaksEnabled) null else
+            "Vanilla tweaks are not available for ${flavor.expansion} — the tweak set is validated against the vanilla 1.12.1 client only."
+
     /** Arguments passed after Wine for an exact ARM renderer route. */
     fun armClientArguments(executable: String, renderer: String): List<String> {
         return when (renderer) {

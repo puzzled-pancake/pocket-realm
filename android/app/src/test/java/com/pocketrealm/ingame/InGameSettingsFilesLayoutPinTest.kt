@@ -71,13 +71,19 @@ class InGameSettingsFilesLayoutPinTest {
         )
     }
 
-    @Test fun `vanilla flavor resolves the vanilla layout and others fail loud until H4-5`() {
+    @Test fun `vanilla flavor resolves the vanilla layout and the new lanes resolve their own`() {
+        // G3-10 froze the seam with fail-loud placeholders; W3.3 (H4-5)
+        // landed the TBC/WotLK strategies as NEW layouts — the vanilla
+        // resolution is unchanged and the new lanes resolve their own
+        // strategies (WtfFlavorLayoutTest pins their paths).
         assertEquals(VanillaWtfLayout, InGameSettingsFiles.layoutFor(ClientFlavors.VANILLA))
+        assertEquals(TbcWtfLayout, InGameSettingsFiles.layoutFor(ClientFlavors.TBC))
+        assertEquals(WotlkWtfLayout, InGameSettingsFiles.layoutFor(ClientFlavors.WOTLK))
+        // An unknown flavor id still fails loud — never a silent vanilla pick.
         assertThrows(IllegalStateException::class.java) {
-            InGameSettingsFiles.layoutFor(ClientFlavors.TBC)
-        }
-        assertThrows(IllegalStateException::class.java) {
-            InGameSettingsFiles.layoutFor(ClientFlavors.WOTLK)
+            InGameSettingsFiles.layoutFor(
+                ClientFlavors.TBC.copy(flavorId = "wotlk-classic-demo"),
+            )
         }
     }
 

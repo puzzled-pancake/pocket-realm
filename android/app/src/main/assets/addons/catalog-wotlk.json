@@ -1,0 +1,231 @@
+{
+  "schema": 1,
+  "flavor": "wotlk",
+  "researchedAt": "2026-10-11",
+  "researchNote": "W3.7 era-native research (2026-10-11, GitHub REST API evidence: stars/archived/pushed_at queried live). Carry-over rows are carried from the frozen catalog-v1.json research with per-lane compatibility notes rewritten and per-expansion dates re-verified against the frozen source. Candidates without a well-evidenced GitHub home are deliberately ABSENT. Round 3 (R5-6): VoiceOver 059 demoted to reference on this lane - the upstream TBC & WotLK sound packs are WIP.",
+  "flavorNote": "The built-in AndroidPort controller UI ships for the vanilla 1.12.1 client only and is deliberately absent here (owner decision, completion-plan table #8). Reference-grade rows (WoW VoiceOver) are listed for research but their installs are disabled on this lane \u2014 the upstream artifacts do not match this flavor's accepted interface set or the required per-era data packs are not yet published. Installable add-ons project exactly as on the vanilla lane, and archives whose ## Interface does not match this flavor's accepted set fail closed.",
+  "addons": [
+    {
+      "matrixId": "059",
+      "name": "WoW VoiceOver",
+      "category": "Quest immersion / audio",
+      "description": "AI-narrated quest text: the client speaks quest objectives and lore as you accept and progress quests.",
+      "githubUrl": "https://github.com/mrthinger/wow-voiceover",
+      "clientTarget": "1.12 + 2.4.3 + 3.3.5",
+      "version": "1.4.5",
+      "verifiedUpdate": "2026-07-29",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "High / modern project; the TBC & WotLK sound packs are WIP upstream",
+      "maintenance": "Active / maintained",
+      "compatibilityNotes": "R5-6 (code-red round 3): the upstream TBC & WotLK sound packs are marked WIP \u2014 no AI_VoiceOverData_TBC/WotLK asset exists in any release, so the era-routed resolver fails loud. Demoted to reference-grade for this lane until upstream publishes the packs; the era-parameterized resolver and validator are implemented and will accept the packs when they ship.",
+      "researchSources": [
+        "https://github.com/mrthinger/wow-voiceover"
+      ],
+      "compatibilityRole": "Quest presentation",
+      "handheldScore": 9.0,
+      "handheldVerdict": "Strong",
+      "installSource": "reference"
+    },
+    {
+      "matrixId": "068",
+      "name": "FonzAppraiser",
+      "category": "Economy / loot",
+      "description": "Loot valuation: vendor/auction price hints and multi-item appraisal in tooltips.",
+      "githubUrl": "https://github.com/fondlez/FonzAppraiser",
+      "clientTarget": "1.12 + 2.4.3 + 3.3.5",
+      "version": "Latest master",
+      "verifiedUpdate": "2025-12-10",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "Niche but active and GitHub-topic visible",
+      "maintenance": "Active / maintained",
+      "compatibilityNotes": "Active upstream with explicit 3.3.5 support in the same codebase.",
+      "researchSources": [
+        "https://github.com/fondlez/FonzAppraiser"
+      ],
+      "compatibilityRole": "Loot valuation",
+      "handheldScore": 6.5,
+      "handheldVerdict": "Situational",
+      "installSource": "github"
+    },
+    {
+      "matrixId": "211",
+      "name": "DBM (3.3.5 / Warmane)",
+      "category": "Raids / encounters",
+      "description": "Deadly Boss Mods: encounter timers, warnings and boss ability tracking for WotLK raids.",
+      "githubUrl": "https://github.com/Zidras/DBM-Warmane",
+      "clientTarget": "3.3.5",
+      "version": "Latest release",
+      "verifiedUpdate": "2026-08-16",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "Very high - the community-standard 3.3.5a DBM fork; 238 GitHub stars",
+      "maintenance": "Active / maintained",
+      "compatibilityNotes": "Pushed 2026-08-16; packaged for Warmane realms but loads on any 3.3.5a client - the de-facto WotLK encounter addon.",
+      "researchSources": [
+        "https://github.com/Zidras/DBM-Warmane"
+      ],
+      "compatibilityRole": "Encounter helper",
+      "handheldScore": 8.0,
+      "handheldVerdict": "Good",
+      "installSource": "github"
+    },
+    {
+      "matrixId": "212",
+      "name": "Bagnon (3.3.5)",
+      "category": "Bags / inventory",
+      "description": "One-window bags with search and sort across every bag slot.",
+      "githubUrl": "https://github.com/RichSteini/Bagnon-3.3.5",
+      "clientTarget": "3.3.5",
+      "version": "Latest master",
+      "verifiedUpdate": "2023-10-18",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "High for the lane - 30 GitHub stars, the referenced 3.3.5 Bagnon backport",
+      "maintenance": "Frozen / complete",
+      "compatibilityNotes": "Backport with search and sort; upstream pushed last 2023-10-18 - stable, feature-complete.",
+      "researchSources": [
+        "https://github.com/RichSteini/Bagnon-3.3.5"
+      ],
+      "compatibilityRole": "Bag management",
+      "handheldScore": 8.8,
+      "handheldVerdict": "Strong",
+      "installSource": "github"
+    },
+    {
+      "matrixId": "213",
+      "name": "Recount (3.3.5)",
+      "category": "Combat / meters",
+      "description": "Damage, healing and threat meters with real-time graphs.",
+      "githubUrl": "https://github.com/richterlevania3/Recount-3.3.5",
+      "clientTarget": "3.3.5",
+      "version": "Recount v4.0.1",
+      "verifiedUpdate": "2026-07-06",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "The canonical meter on 3.3.5a servers; this GitHub mirror is niche (0 stars) but actively maintained",
+      "maintenance": "Active / maintained",
+      "compatibilityNotes": "Recount v4.0.1 for 3.3.5a; upstream pushed 2026-07-06 - the maintained mirror of the lane's standard meter.",
+      "researchSources": [
+        "https://github.com/richterlevania3/Recount-3.3.5"
+      ],
+      "compatibilityRole": "Combat meter",
+      "handheldScore": 7.8,
+      "handheldVerdict": "Good",
+      "installSource": "github"
+    },
+    {
+      "matrixId": "214",
+      "name": "Quartz (3.3.5)",
+      "category": "Casting / combat",
+      "description": "Cast bar replacement with swing timers, latency-adjusted casting and interrupt tracking.",
+      "githubUrl": "https://github.com/gareth-charles/Quartz",
+      "clientTarget": "3.3.5",
+      "version": "Latest master",
+      "verifiedUpdate": "2021-10-17",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "Niche - 3 GitHub stars",
+      "maintenance": "Frozen / complete",
+      "compatibilityNotes": "3.3.5 Quartz with simultaneous auto/melee swing timers; upstream pushed last 2021-10-17.",
+      "researchSources": [
+        "https://github.com/gareth-charles/Quartz"
+      ],
+      "compatibilityRole": "Cast bars",
+      "handheldScore": 7.5,
+      "handheldVerdict": "Good",
+      "installSource": "github"
+    },
+    {
+      "matrixId": "216",
+      "name": "AtlasLoot Enhanced (WotLK)",
+      "category": "Loot / database",
+      "description": "Loot tables for dungeons, raids and PvP: browse every drop from the map or tooltips.",
+      "githubUrl": "https://github.com/unobtainable-dev/AtlasLootEnhancedCata-WotLK",
+      "clientTarget": "3.3.5",
+      "version": "Latest master",
+      "verifiedUpdate": "2026-03-16",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "Niche - 5 GitHub stars, actively maintained",
+      "maintenance": "Active / maintained",
+      "compatibilityNotes": "Cataclysm-era AtlasLootEnhanced 6.05.04 backported to WotLK; upstream pushed 2026-03-16.",
+      "researchSources": [
+        "https://github.com/unobtainable-dev/AtlasLootEnhancedCata-WotLK"
+      ],
+      "compatibilityRole": "Loot database",
+      "handheldScore": 7.0,
+      "handheldVerdict": "Good",
+      "installSource": "github"
+    },
+    {
+      "matrixId": "217",
+      "name": "Carbonite (3.3.5)",
+      "category": "Map / questing",
+      "description": "Full-screen map, quest watch and waypoints in one pane.",
+      "githubUrl": "https://github.com/anzz1/Carbonite-3.3.5",
+      "clientTarget": "3.3.5",
+      "version": "Latest master",
+      "verifiedUpdate": "2025-10-19",
+      "dateConfidence": "Verified exact",
+      "communitySignal": "Niche - 4 GitHub stars, actively maintained",
+      "maintenance": "Active / maintained",
+      "compatibilityNotes": "3.3.5a Carbonite maintenance fork; upstream pushed 2025-10-19.",
+      "researchSources": [
+        "https://github.com/anzz1/Carbonite-3.3.5"
+      ],
+      "compatibilityRole": "Map and quests",
+      "handheldScore": 8.2,
+      "handheldVerdict": "Strong",
+      "installSource": "github"
+    }
+  ],
+  "expectedAddonCount": 8,
+  "compatibilityPairs": [
+    {
+      "addonA": "211",
+      "addonB": "213",
+      "status": "\u25ce",
+      "meaning": "Complementary",
+      "reason": "The encounter addon's timers pair naturally with the meter's damage breakdowns.",
+      "action": "Recommended raid stack.",
+      "basis": "Observed complementary feature sets",
+      "evidenceSources": [
+        "https://github.com/Zidras/DBM-Warmane",
+        "https://github.com/richterlevania3/Recount-3.3.5"
+      ]
+    },
+    {
+      "addonA": "212",
+      "addonB": "217",
+      "status": "\u25ce",
+      "meaning": "Complementary",
+      "reason": "The one-window bag and the full-screen map cover the two heaviest small-screen surfaces.",
+      "action": "Recommended handheld stack.",
+      "basis": "Observed complementary feature sets",
+      "evidenceSources": [
+        "https://github.com/RichSteini/Bagnon-3.3.5",
+        "https://github.com/anzz1/Carbonite-3.3.5"
+      ]
+    },
+    {
+      "addonA": "059",
+      "addonB": "216",
+      "status": "\u25ce",
+      "meaning": "Complementary",
+      "reason": "The voice narration reads the quests the loot database contextualizes.",
+      "action": "Recommended pair for questing sessions.",
+      "basis": "Observed complementary feature sets",
+      "evidenceSources": [
+        "https://github.com/mrthinger/wow-voiceover",
+        "https://github.com/unobtainable-dev/AtlasLootEnhancedCata-WotLK"
+      ]
+    }
+  ],
+  "expectedCompatibilityPairCount": 3,
+  "recommendedIds": [
+    "059",
+    "212",
+    "211"
+  ],
+  "gatefix_note": "Code-red round 1 (R5-4): row 215 'Grid2 (3.3.5 backport)' REMOVED \u2014 the github repo (Braehi/Grid2-3.3.5) is an EMPTY repository (zero commits, zero branches, zero releases; created_at == pushed_at 2025-10-10), so the row was uninstallable and its 'actively pushed' copy was untrue.",
+  "recommendationReasons": {
+    "059": "Reference-grade on this lane: the era-matching sound pack is WIP upstream. Listed for the lore research value; the install will be enabled when the pack ships.",
+    "212": "One-window bags with search and sort \u2014 the inventory friction fix a 5.5-inch display needs most.",
+    "211": "Encounter timers and warnings for the lane's raid content, grouped for glanceability."
+  }
+}

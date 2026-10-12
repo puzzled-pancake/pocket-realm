@@ -61,8 +61,13 @@ data class AddonCompatibility(
     }
 }
 
+@Suppress("LongParameterList")
 class AddonCatalog private constructor(
     val researchedAt: String,
+    val flavor: String,
+    val flavorNote: String?,
+    val recommendedIds: List<String>,
+    val recommendationReasons: Map<String, String>,
     val addons: List<CatalogAddon>,
     val compatibilityPairs: List<AddonCompatibility>,
 ) {
@@ -73,14 +78,18 @@ class AddonCatalog private constructor(
         .groupBy({ it.first }, { it.second })
 
     val categories: List<String> = addons.map(CatalogAddon::category).distinct().sorted()
-    /** Tested-on-hardware starting set; every item remains individually optional. */
-    val recommended: List<CatalogAddon> = RECOMMENDED_IDS.map { id ->
+    /** Tested-on-hardware starting set; every item remains individually optional.
+     * R6-r2-1: reasons resolve from the catalog's own per-flavor data first
+     * (parse enforces completeness), falling back to the vanilla trio map. */
+    val recommended: List<CatalogAddon> = recommendedIds.map { id ->
         checkNotNull(byMatrixId[id]) { "Recommended add-on $id is absent from the catalog" }
     }
 
     fun addon(matrixId: String): CatalogAddon? = byMatrixId[matrixId]
     fun addonForInstalled(installed: InstalledAddon): CatalogAddon? = byInstallId[installed.id]
-    fun recommendationReason(matrixId: String): String? = RECOMMENDATION_REASONS[matrixId]
+
+    fun recommendationReason(matrixId: String): String? =
+        recommendationReasons[matrixId] ?: RECOMMENDATION_REASONS[matrixId]
 
     fun compatibilityFor(matrixId: String, installed: List<InstalledAddon>): List<Pair<CatalogAddon, AddonCompatibility>> {
         val installedMatrixIds = installed.mapNotNull { addonForInstalled(it)?.matrixId }.toSet()
@@ -117,41 +126,73 @@ class AddonCatalog private constructor(
             "059" to "Special two-part install: the player plus about 1.2 GB of Vanilla voice data for less small-screen reading.",
         )
 
-        @Volatile private var cached: AddonCatalog? = null
+        @Volatile private var cached: Map<String, AddonCatalog>? = null
+
+        /** The catalog asset for [flavorId] (R6-r2-5, mirroring the android
+         * lane): the byte-frozen vanilla asset for the vanilla lane, the
+         * per-flavor assets otherwise. */
+        fun catalogAssetFor(flavorId: String): String = when (flavorId) {
+            "vanilla" -> "catalog-v1.json"
+            "tbc" -> "catalog-tbc.json"
+            "wotlk" -> "catalog-wotlk.json"
+            else -> error("no addon catalog asset registered for flavor \"$flavorId\"")
+        }
 
         /**
-         * The bundled researched catalog through the desktop asset resolver.
-         * A missing bundle fails loud — every caller needs the catalog to
-         * even name the built-in add-on.
+         * The ACTIVE flavor's bundled catalog (R6-r2-5): the desktop lane
+         * browses the same per-flavor researched sets the android lane
+         * ships. A missing bundle fails loud — every caller needs the
+         * catalog to even name the built-in add-on.
          */
-        fun load(): AddonCatalog = cached ?: synchronized(this) {
-            cached ?: parse(readBundledCatalogText()).also { cached = it }
+        fun load(flavorId: String): AddonCatalog {
+            val cache = cached ?: synchronized(this) {
+                cached ?: emptyMap<String, AddonCatalog>().also { cached = it }
+            }
+            cache[flavorId]?.let { return it }
+            return synchronized(this) {
+                val current = cached ?: emptyMap()
+                current[flavorId] ?: parse(readBundledCatalogText(flavorId), flavorId)
+                    .also { cached = current + (flavorId to it) }
+            }
         }
+
+        /** The active-flavor form (the screens' seam). */
+        fun load(): AddonCatalog = load(
+            com.pocketrealm.client.ActiveFlavor.resolve(
+                "the desktop add-on catalog resolves the active lane",
+            ).flavorId,
+        )
 
         /** Test seam: re-parse and re-cache from an explicit text source. */
-        internal fun reloadForTests(text: String): AddonCatalog = synchronized(this) {
-            parse(text).also { cached = it }
-        }
+        internal fun reloadForTests(text: String, flavorId: String = "vanilla"): AddonCatalog =
+            synchronized(this) {
+                parse(text, flavorId).also { cached = (cached ?: emptyMap()) + (flavorId to it) }
+            }
 
-        private fun readBundledCatalogText(): String {
-            val asset = requireNotNull(DesktopAddonAssets.catalogJson()) {
-                "The bundled add-on catalog (addons/catalog-v1.json) is missing"
+        private fun readBundledCatalogText(flavorId: String): String {
+            val asset = requireNotNull(DesktopAddonAssets.catalogJson(flavorId)) {
+                "The bundled add-on catalog (addons/${catalogAssetFor(flavorId)}) is missing"
             }
             return asset.readText(Charsets.UTF_8)
         }
 
-        internal fun parse(text: String): AddonCatalog {
+        @Suppress("LongMethod", "CyclomaticComplexMethod")
+        internal fun parse(text: String, flavorId: String = "vanilla"): AddonCatalog {
             val root = JSONObject(text)
             require(root.getInt("schema") == 1) { "Unsupported addon catalog" }
             require(!root.has("bundled")) { "Retired bundled add-on metadata is not allowed" }
+            // R2-4/R6-3 desktop parity: the asset's own flavor identity must
+            // match the requested lane.
+            if (flavorId != "vanilla") {
+                require(root.optString("flavor") == flavorId) {
+                    "the catalog asset declares flavor \"${root.optString("flavor")}\" " +
+                        "but was loaded for \"$flavorId\" - a swapped per-flavor " +
+                        "asset renders the wrong lane's add-on set"
+                }
+            }
             val addonsJson = root.getJSONArray("addons")
             val addons = List(addonsJson.length()) { index ->
                 val item = addonsJson.getJSONObject(index)
-                // R2UI-1/R6-r2-1 (android-ui-tests review round 2): the same
-                // load-time negation guard as the Android twin — research
-                // text that names a client line inside a negation clause
-                // ("explicitly NOT for 2.4.3") is rejected at parse, never
-                // silently matched as SUPPORT by the flavor projection.
                 val clientTarget = item.getString("clientTarget")
                 AddonFlavorCatalog.requirePositiveClientTarget(
                     clientTarget, item.optString("name"),
@@ -187,7 +228,24 @@ class AddonCatalog private constructor(
                     require(addon.installSource != AddonInstallSource.GITHUB || addon.installId != null)
                 }
             }
-            require(addons.size == 154 && addons.map { it.matrixId }.toSet().size == addons.size)
+            if (flavorId == "vanilla") {
+                require(addons.size == 154 && addons.map { it.matrixId }.toSet().size == addons.size)
+            } else {
+                val expected = root.getInt("expectedAddonCount")
+                require(
+                    addons.size == expected &&
+                        addons.map { it.matrixId }.toSet().size == addons.size,
+                ) {
+                    "the $flavorId catalog declares $expected add-ons but carries " +
+                        "${addons.size} (a hand edit) - per-flavor catalogs are " +
+                        "self-pinning assets"
+                }
+                require(addons.none { it.matrixId == "151" }) {
+                    "the $flavorId catalog must NOT carry the AndroidPort built-in " +
+                        "(matrixId 151): it ships for the vanilla client only " +
+                        "(owner decision, completion-plan table #8)"
+                }
+            }
             val pairsJson = root.getJSONArray("compatibilityPairs")
             val pairs = List(pairsJson.length()) { index ->
                 val item = pairsJson.getJSONObject(index)
@@ -207,9 +265,51 @@ class AddonCatalog private constructor(
                     require(pair.addonA != pair.addonB)
                 }
             }
-            require(pairs.size == 266)
+            if (flavorId == "vanilla") {
+                require(pairs.size == 266)
+            } else {
+                val expectedPairs = root.getInt("expectedCompatibilityPairCount")
+                require(pairs.size == expectedPairs) {
+                    "the $flavorId catalog declares $expectedPairs compatibility " +
+                        "pairs but carries ${pairs.size} (a hand edit)"
+                }
+            }
+            val recommendedIds: List<String>
+            val flavorReasons: Map<String, String>
+            if (flavorId == "vanilla") {
+                recommendedIds = RECOMMENDED_IDS
+                flavorReasons = emptyMap()
+            } else {
+                val declared = root.getJSONArray("recommendedIds").let { arr ->
+                    List(arr.length()) { arr.getString(it) }
+                }
+                require(declared.all { it in addons.map { addon -> addon.matrixId } }) {
+                    "the $flavorId catalog's recommendedIds reference rows outside " +
+                        "the catalog (a hand edit)"
+                }
+                val reasonsRoot = root.optJSONObject("recommendationReasons")
+                    ?: error("the $flavorId catalog carries no recommendationReasons")
+                val reasons = linkedMapOf<String, String>()
+                for (id in declared) {
+                    val reason = reasonsRoot.optString(id).takeIf { it.isNotBlank() }
+                        ?: error(
+                            "the $flavorId catalog's recommended row $id has no " +
+                                "recommendationReasons entry - the Recommended " +
+                                "screen would crash rendering it",
+                        )
+                    reasons[id] = reason
+                }
+                recommendedIds = declared
+                flavorReasons = reasons
+            }
             return AddonCatalog(
                 researchedAt = root.getString("researchedAt"),
+                flavor = flavorId,
+                flavorNote = root.optString("flavorNote").takeIf {
+                    !root.isNull("flavorNote") && it.isNotBlank()
+                },
+                recommendedIds = recommendedIds,
+                recommendationReasons = flavorReasons,
                 addons = addons,
                 compatibilityPairs = pairs,
             )

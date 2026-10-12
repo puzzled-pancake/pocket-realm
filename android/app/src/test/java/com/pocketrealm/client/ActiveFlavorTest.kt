@@ -200,4 +200,8 @@ internal fun testFlavor(
     knownExeMd5 = null,
     knownExeSizeBytes = null,
     largeAddressAware = false,
+    loreCardsFile = "lore_cards_v112.jsonl",
+    promptIdentity = "World of Warcraft: Classic",
+    graphicsRoutes = setOf("dxvk", "opengl", "virgl"),
+    vanillaTweaksEnabled = true,
 )

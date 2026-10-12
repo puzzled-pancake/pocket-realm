@@ -1351,4 +1351,56 @@ class DesktopServerRuntimeFilesTest {
             DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "classicrealmd").isFile,
         )
     }
+
+    @Test
+    fun `the disabled conf staging leg runs the fail-loud gate R6-5`() {
+        // R6-5/R2-6-1 (code-red round 6): the desktop aiplayerbot-disabled
+        // leg is the desktop twin of the android R2-1 (round 5) fix — the
+        // staged body must pass BotConfStaging for the boot lane (proven
+        // here by driving the real worldConfig write), and the gate must
+        // textually precede the disabled write (the source-shape pin).
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        files.worldConfig()
+        val staged = File(
+            File(File(roots.runtime, "server"), "run"),
+            "aiplayerbot-disabled.conf",
+        ).readText()
+        val bootFlavor = ActiveFlavor.resolve(
+            "the disabled-leg test resolves the boot lane",
+        ).flavorId
+        val verdict = BotConfStaging.validate(bootFlavor, staged)
+        assertTrue(
+            "$bootFlavor: the STAGED disabled conf must pass the gate, got " +
+                "unknown=${verdict.unknownKeys} excluded=${verdict.excludedKeys}",
+            verdict.isClean,
+        )
+        // The literal is flavor-invariant: it validates clean on every
+        // registered lane (the reviewer's independent jshell probe
+        // confirmed all three before the gate was wired).
+        for (flavor in listOf("vanilla", "tbc", "wotlk")) {
+            assertTrue(
+                "$flavor: the disabled emission must stage clean",
+                BotConfStaging.validate(flavor, staged).isClean,
+            )
+        }
+        // Source-shape pin: the gate call textually precedes the disabled
+        // write (a revert to the ungated inline write fails here).
+        val source = File(
+            "src/main/kotlin/com/pocketrealm/server/ServerRuntimeFiles.kt",
+        ).readText()
+        val gateAt = source.indexOf(
+            "BotConfStaging.requireStagingSafe(lane.flavorId, \"disabled\"",
+        )
+        val writeAt = source.indexOf("\"aiplayerbot-disabled.conf\"")
+        assertTrue(
+            "the desktop disabled leg must call requireStagingSafe for the " +
+                "disabled body (the R2-1 parity fix)",
+            gateAt >= 0,
+        )
+        assertTrue(
+            "the gate must precede the disabled write",
+            gateAt in 0 until writeAt,
+        )
+    }
 }
