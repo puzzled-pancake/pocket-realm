@@ -568,19 +568,23 @@ internal class DatabaseEngine(private val context: Context) {
         val flavor = com.pocketrealm.client.ActiveFlavorState(persisted)
             .resolve(com.pocketrealm.client.ClientFlavors.qualified(), dbBootstrapLane)
         // R4-1b (W4 code-red round 4): the ANDROID migration scope is
-        // VANILLA-only until W5 (android/app/build.gradle.kts stages the
-        // single vanilla ledger; there are no android per-flavor ledgers).
-        // Provisioning the persisted lane's tbc*/wotlk* database family
-        // here would strand the datadir — the vanilla-only ledger can
-        // never serve it and re-picking vanilla cannot recover (the
+        // VANILLA-only (android/app/build.gradle.kts stages the single
+        // vanilla ledger). W5 built the HOST-SIDE per-flavor native lanes
+        // and their lockfiles; the on-device per-flavor ledger/packaging
+        // routing is recorded as open follow-up work in the decision log
+        // (D90). Provisioning the persisted lane's tbc*/wotlk* database
+        // family here would strand the datadir — the vanilla-only ledger
+        // can never serve it and re-picking vanilla cannot recover (the
         // classic* family was never provisioned). Refuse LOUD before any
         // provisioning, naming the scope and the remedy.
         check(flavor.flavorId == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
             "ANDROID-LANE-SCOPE: this device's migration ledger is the " +
                 "vanilla lane's — the ${flavor.flavorId} pick cannot boot " +
-                "the Android server lane (per-flavor Android ledgers are " +
-                "W5 work). Re-pick Vanilla on Home to run the server on " +
-                "this device."
+                "the Android server lane (per-flavor runtime packaging is " +
+                "recorded as open follow-up work in the decision log, D90 — " +
+                "the native lanes exist host-side, this image does not " +
+                "route them yet). Re-pick Vanilla on Home to run the " +
+                "server on this device."
         }
         return MariaDbBootstrap.databaseNames(flavor)
     }

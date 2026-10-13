@@ -726,3 +726,435 @@ def test_android_worker_tmpdir_measurement_matches_the_residual():
                 f"the measured worker tmpdir is OFF the E: toolchain root "
                 f"({measured}) but WAVE-EXIT.md no longer records the open "
                 "tmpdir gap — restore the owner-visible residual (R6-r6-arch-1)")
+
+
+# R3-1/R4-1/R5-1/R6-3 (W5 code-red round 1): a decision-record failure
+# narrative must cite evidence that still exists. The W5 implementer overwrote
+# both failing-run logs with the green reruns under the same archive names, so
+# "died at FindICU ... (out/completion/w5/o09-tbc-arm64-build.log first
+# attempt)" pointed at a green log. The convention is now: failing runs are
+# archived under DISTINCT ...-first-attempt.log names with a RE-DERIVED /
+# original provenance header, and these pins refuse any record whose cited
+# artifact lacks the failure it claims.
+_DECISIONS = ROOT / "docs" / "DECISIONS-PORT.md"
+_W5 = ROOT / "out/completion/w5"
+_FAILURE_SIGNATURES = (
+    "CMake Error",
+    "unrecognized arguments",
+    "BUILD FAILED",
+)
+_FIRST_ATTEMPT_ARCHIVE_RE = re.compile(r"out/completion/w\d/[\w.-]*first-attempt[\w.-]*\.log")
+_CITED_LOG_RE = re.compile(r"out/completion/w5/[\w.-]+\.log")
+_BARE_FIRST_ATTEMPT_PHRASE = re.compile(r"out/completion/w\d/[\w.-]+\.log first attempt")
+
+
+def test_decision_rows_never_cite_an_overwritten_log_name():
+    """The overwrite convention is banned outright: a citation of the form
+    '<archive>.log first attempt' names a file that (by the archive
+    discipline) holds the LAST run under that name — the successful rerun.
+    Failure evidence goes to ...-first-attempt.log instead."""
+    text = _DECISIONS.read_text(encoding="utf-8", errors="replace")
+    hits = _BARE_FIRST_ATTEMPT_PHRASE.findall(text)
+    assert not hits, (
+        "decision rows cite '<archive>.log first attempt' — that file holds "
+        f"the latest run under the name, not the failure: {sorted(set(hits))}. "
+        "Archive failing runs under a distinct ...-first-attempt.log name and "
+        "cite that (the W5 R4-1 class)"
+    )
+
+
+def test_first_attempt_archives_carry_a_real_failure_signature():
+    archives = sorted(_W5.glob("*first-attempt*.log")) if _W5.is_dir() else []
+    if not archives:
+        return  # no first-attempt evidence in this tree: nothing to hold
+    for archive in archives:
+        text = archive.read_text(encoding="utf-8", errors="replace")
+        assert "RE-DERIVED FAILURE EVIDENCE" in text, (
+            f"{archive.name} lacks its provenance header — a first-attempt "
+            "archive must state what was re-derived, how, and from what "
+            "(the original-run-overwritten disclosure)"
+        )
+        assert any(sig in text for sig in _FAILURE_SIGNATURES), (
+            f"{archive.name} contains no failure signature — an archive named "
+            "first-attempt must carry the failure it claims "
+            f"(one of {list(_FAILURE_SIGNATURES)})"
+        )
+
+
+def test_w5_decision_rows_cited_logs_exist_and_match_their_claims():
+    if not _W5.is_dir():
+        return  # no W5 evidence in this tree: nothing to hold
+    text = _DECISIONS.read_text(encoding="utf-8", errors="replace")
+    w5_section_start = text.find("| D88 |")
+    w5_section = text[w5_section_start:] if w5_section_start >= 0 else text
+    cited = sorted(set(_CITED_LOG_RE.findall(w5_section)))
+    assert cited, "the W5 decision rows cite no evidence logs"
+    for rel in cited:
+        path = ROOT / rel
+        assert path.is_file(), (
+            f"a W5 decision row cites {rel} but the archive does not contain "
+            "it (the R4-1 class: cited evidence must exist)"
+        )
+        body = path.read_text(encoding="utf-8", errors="replace")
+        if rel.endswith("first-attempt-findicu.log"):
+            assert "FindICU" in body and "CMake Error" in body, (
+                f"{rel} no longer carries the FindICU failure D88 cites"
+            )
+        if rel.endswith("assembleDebug-arm64-first-attempt.log"):
+            assert "unrecognized arguments" in body, (
+                f"{rel} no longer carries the buildGladioClientArm failure D89 cites"
+            )
+
+
+# R6-r2-1 (W5 code-red round 2): the source-offer provenance doc still
+# claimed the AArch64 Gladio client "is built ... by tools/build_gladio_client.py"
+# with a 530400-byte / 1d9663bb... artifact — a lane that errors on use since
+# D45(7) retired it (W5 archived the death), and a digest matching nothing
+# shipped. The shipped bytes are the vendored 498656 / c02fb727... package.
+_WINE_PROVENANCE_DOC = ROOT / "docs/patches/wine-provider-provenance.md"
+
+
+def test_gladio_provenance_row_cites_the_vendored_reality():
+    doc = _WINE_PROVENANCE_DOC
+    if not doc.is_file():
+        return  # no provenance doc in this tree: nothing to hold
+    text = doc.read_text(encoding="utf-8", errors="replace")
+    row_start = text.find("**Legacy OpenGL (Gladio):**")
+    assert row_start >= 0, "the provenance doc lost its Gladio row"
+    row_end = text.find("- **", row_start + 1)
+    row = text[row_start: row_end if row_end >= 0 else len(text)]
+    assert "native/prebuilt-renderers/box64-gladio-eaa2a8d" in row, (
+        "the Gladio provenance row must cite the vendored artifact path the "
+        "image actually ships (the retired lane's reviewed bytes)"
+    )
+    assert "498656" in row and (
+        "c02fb7275463bebcc3aa3fcf3e8e6de668bd2e6f39bda57052d3352801636d08" in row
+    ), (
+        "the Gladio provenance row must carry the shipped size + sha256 pins "
+        "(498656 / c02fb727...) — the old 530400 / 1d9663bb row matched "
+        "nothing shipped"
+    )
+    assert "is built" not in row or "build_gladio_client.py" not in row, (
+        "the Gladio row still claims the retired ARM lane builds the client — "
+        "tools/build_gladio_client.py rejects the ARM invocation outright "
+        "(D45(7)/D89; out/completion/w5/assembleDebug-arm64-first-attempt.log)"
+    )
+    assert "1d9663bb" not in row and "530400" not in row, (
+        "the stale 530400/1d9663bb artifact identity must not return"
+    )
+
+
+# R6-r3-1 (W5 code-red round 3): the wiki still named W5 as the pending owner
+# of Android per-flavor runtimes after W5 exited — the exact falsifiable-
+# pending-owner class R4-r2-1 fixed in the Kotlin copy. The copy must point
+# at the recorded follow-up (D90) instead.
+_GETTING_STARTED = ROOT / "docs/wiki/Getting-Started.md"
+
+
+def test_wiki_runtime_lane_copy_points_at_the_recorded_followup():
+    """R6-r3-1 + R6-r4-2: NO wiki page may name W5 as the pending owner of
+    per-flavor runtime packaging — every page's runtime-lane copy points at
+    the recorded follow-up (D90)."""
+    wiki_dir = ROOT / "docs/wiki"
+    if not wiki_dir.is_dir():
+        return  # no wiki in this tree: nothing to hold
+    offending = []
+    d90_pages = []
+    for page in sorted(wiki_dir.glob("*.md")):
+        text = page.read_text(encoding="utf-8", errors="replace")
+        if "(W5)" in text or "land (W5)" in text or "future work (W5)" in text:
+            offending.append(f"{page.name}: pending-W5 phrasing")
+        if "D90" in text:
+            d90_pages.append(page.name)
+    assert not offending, (
+        "wiki pages name W5 as the pending owner of per-flavor runtime "
+        f"packaging: {offending} — point at the recorded follow-up (D90) "
+        "instead (the R4-r2-1 class, wiki edition)"
+    )
+    assert d90_pages, (
+        "no wiki page cites the recorded follow-up (D90) — at least the "
+        "runtime-lane pages must lead readers to the owning record"
+    )
+
+
+# R6-r3-2 (W5 code-red round 3): failure narratives in tools comments must
+# cite failure archives, never green reruns — the round-1 overwrite class
+# survived in tools/build_o09_realm_runtime.py after the decision-row pins
+# covered only docs/DECISIONS-PORT.md.
+_TOOLS_DIR = ROOT / "tools"
+
+
+def test_tools_failure_citations_resolve_to_failure_archives():
+    if not _TOOLS_DIR.is_dir():
+        return
+    import re
+    citation = re.compile(r"out/completion/w\d/[\w.-]+\.log")
+    offenders = []
+    for py in sorted(_TOOLS_DIR.glob("*.py")):
+        for lineno, line in enumerate(
+                py.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            for match in citation.finditer(line):
+                rel = match.group(0)
+                path = ROOT / rel
+                if not path.is_file():
+                    offenders.append(f"{py.name}:{lineno}: cited archive missing: {rel}")
+                    continue
+                failure_claim = ("died" in line or "failed" in line.lower()
+                                 or "death" in line)
+                if failure_claim and "first-attempt" not in rel:
+                    offenders.append(
+                        f"{py.name}:{lineno}: a failure narrative cites the "
+                        f"green-rerun archive {rel} — cite the "
+                        "*-first-attempt.log failure archive instead")
+    assert not offenders, (
+        "tools/ comments cite W5 archives that are missing or green reruns "
+        "for failure claims:\n  " + "\n  ".join(offenders)
+    )
+
+
+# R6-r3-3 (W5 code-red round 3): plan §9 requires every wave archive to carry
+# WAVE-EXIT.md; the W5 decision rows exist, so the exit record must too.
+def test_w5_exit_record_exists_once_the_wave_records_decisions():
+    decisions = (ROOT / "docs/DECISIONS-PORT.md").read_text(
+        encoding="utf-8", errors="replace")
+    w5_dir = ROOT / "out/completion/w5"
+    if "| D88 |" not in decisions or not w5_dir.is_dir():
+        return  # no W5 record in this tree: nothing to hold
+    exit_record = w5_dir / "WAVE-EXIT.md"
+    assert exit_record.is_file(), (
+        "out/completion/w5/WAVE-EXIT.md is missing while the W5 decision rows "
+        "exist — plan §9 requires the exit record (end-state checklist, rounds "
+        "count, findings ledger, waivers) before the wave can lawfully exit"
+    )
+    body = exit_record.read_text(encoding="utf-8", errors="replace")
+    assert "code-red" in body.lower() and "findings" in body.lower(), (
+        "the W5 exit record must carry the rounds count and the findings "
+        "ledger (including the round-1/2 evidence-overwrite incident)"
+    )
+
+
+# R6-r4-4 / R3-r4-3 / R1-r4-2 (W5 code-red round 4): the WAVE-EXIT record is
+# itself a citation surface — every negative-test archive it names must
+# exist and carry the CURRENT remedy text (the round-1-era archives printed
+# superseded remedies), and its "verified live" claims must resolve to
+# archived runs, never journal narration.
+_W5_EXIT = ROOT / "out/completion/w5/WAVE-EXIT.md"
+_CURRENT_REMEDY_MARKERS = (
+    "--flavor tbc --abi arm64-v8a",  # the freshness fence's interpolated remedy
+    "build_o11_extractors.py --flavor tbc --abi arm64-v8a",  # the extractor remedy
+)
+
+
+def test_wave_exit_negative_evidence_archives_carry_the_current_remedies():
+    if not _W5_EXIT.is_file() or not _W5.is_dir():
+        return  # no W5 exit record in this tree: nothing to hold
+    text = _W5_EXIT.read_text(encoding="utf-8", errors="replace")
+    assert "round-2 live remedy verification" not in text, (
+        "WAVE-EXIT cites the round-2 live remedy verification, which is "
+        "journal narration, not an archived artifact — cite the re-derived "
+        "*-corrupt-r4.log archives (the R6-r4-4 class)"
+    )
+    named = sorted(set(re.findall(r"negative-[\w.-]+\.log", text)))
+    assert named, "WAVE-EXIT names no negative-test archives"
+    for name in named:
+        archive = _W5 / name
+        assert archive.is_file(), (
+            f"WAVE-EXIT names {name} but the archive does not exist (the "
+            "round-1 cited-evidence class, exit-record edition)"
+        )
+        body = archive.read_text(encoding="utf-8", errors="replace")
+        assert "rc=1" in body, f"{name} does not record the failing exit"
+        if "freshness" in name:
+            assert any(m in body for m in _CURRENT_REMEDY_MARKERS[:1]), (
+                f"{name} prints a superseded remedy — re-derive the "
+                "corruption negative under the current code"
+            )
+        if "extractor" in name:
+            assert _CURRENT_REMEDY_MARKERS[1] in body, (
+                f"{name} prints a superseded remedy without --abi — "
+                "re-derive the corruption negative under the current code"
+            )
+
+
+def test_wave_exit_apk_claims_resolve_to_the_verification_archive():
+    """R2-r4-2 / R3-r4-2: ABI-filter and byte-identity claims must cite the
+    archived APK content verification, and that archive must carry the
+    listing + per-lib MATCH rows against the CURRENT vanilla pins."""
+    if not _W5_EXIT.is_file() or not _W5.is_dir():
+        return
+    text = _W5_EXIT.read_text(encoding="utf-8", errors="replace")
+    if "abi filter" not in text.lower() and "abi-filter" not in text.lower():
+        return  # the claim is not made in this record
+    assert "apk-libs-verify.log" in text, (
+        "WAVE-EXIT claims ABI-filter/byte-identity verification without "
+        "citing apk-libs-verify.log (the R2-r4-2 class: mutable build "
+        "output is not evidence)"
+    )
+    archive = _W5 / "apk-libs-verify.log"
+    assert archive.is_file(), "the cited apk-libs-verify.log does not exist"
+    body = archive.read_text(encoding="utf-8", errors="replace")
+    assert "ABI filter: arm64-v8a only" in body, (
+        "the apk verification archive lacks the ABI-filter listing"
+    )
+    assert "byte-identical to schemas/realm-runtime-lockfile-arm64-v8a.json" in body, (
+        "the apk verification archive lacks the byte-identity verdict"
+    )
+    assert body.count("-> MATCH") >= 7, (
+        "the apk verification archive does not carry per-lib MATCH rows for "
+        "the packaged realm libs"
+    )
+
+
+# R6-r6-1 / R4-r6-3 / R4-r6-1 / R4-r6-2 (W5 code-red round 6): the WAVE-EXIT
+# record is auditable content, not narrative — its findings ledger must cover
+# every reviewer id the wave's tracked files cite (round 4 was silently
+# dropped once), its rounds sections must match the LIVE-PROGRESS codered-rN
+# sequence, its L0 sweep measurement must equal the live tool, and its
+# focused-suite tally must cite an archived invocation whose counts it
+# reproduces.
+_W5_ID_PATTERN = re.compile(r"R[0-9]-r[0-9]-[0-9]+")
+_WAVE_EXIT = ROOT / "out/completion/w5/WAVE-EXIT.md"
+_LIVE_PROGRESS = ROOT / "out/completion/LIVE-PROGRESS.log"
+
+
+def _w5_exit_text() -> str | None:
+    if _WAVE_EXIT.is_file() and (ROOT / "docs/DECISIONS-PORT.md").is_file():
+        if (ROOT / "docs/DECISIONS-PORT.md").read_text(
+                encoding="utf-8", errors="replace").find("| D88 |") >= 0:
+            return _WAVE_EXIT.read_text(encoding="utf-8", errors="replace")
+    return None
+
+
+def test_wave_exit_ledger_covers_every_cited_reviewer_id():
+    """R6-r6-1: every reviewer id cited on a W5-touched surface must have a
+    disposition row in W5's WAVE-EXIT — round 4 was silently dropped once.
+    Scope: the files W5 created or edited (its own test pins, the build
+    script, the Kotlin/doc surfaces it rewrote). Earlier waves' ids live in
+    THEIR exit records and are out of this scan."""
+    text = _w5_exit_text()
+    if text is None:
+        return
+    wave_start = "d8a7806b540564f69c3a26d105468ee237fcaa9b"
+    w5_surfaces = (
+        "tests/test_w5_flavor_packaging_gates.py",
+        "tests/test_renderer_packages_restage_contract.py",
+        "tests/test_build_toolchain_residency.py",
+        "android/app/build.gradle.kts",
+        "android/app/src/main/java/com/pocketrealm/database/DatabaseEngine.kt",
+        "android/app/src/main/java/com/pocketrealm/server/ServerRuntimeFiles.kt",
+        "docs/patches/wine-provider-provenance.md",
+        "docs/wiki/Getting-Started.md",
+        "docs/wiki/Home-Screen.md",
+        "tools/build_o09_realm_runtime.py",
+        "tools/stage_renderer_packages.py",
+    )
+    import subprocess
+    introduced = set()
+    for rel in w5_surfaces:
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        current_ids = set(_W5_ID_PATTERN.findall(
+            path.read_text(encoding="utf-8", errors="replace")))
+        baseline = subprocess.run(
+            ["git", "show", f"{wave_start}:{rel.replace('/', '/')}"],
+            cwd=ROOT, capture_output=True, text=True)
+        baseline_ids = set(_W5_ID_PATTERN.findall(
+            baseline.stdout)) if baseline.returncode == 0 else set()
+        introduced |= current_ids - baseline_ids
+    assert introduced, "no W5-introduced reviewer ids found on the surfaces"
+    missing = sorted(introduced - set(_W5_ID_PATTERN.findall(text)))
+    assert not missing, (
+        f"WAVE-EXIT's findings ledger omits W5-introduced reviewer ids "
+        f"cited on W5's own surfaces: {missing} — the round that produced "
+        "them needs a disposition row (the R6-r6-1 class: round 4 was "
+        "dropped once); ids already present at the wave-start commit belong "
+        "to earlier waves' records and are out of this scan"
+    )
+
+
+def test_wave_exit_rounds_ledger_matches_the_codered_sequence():
+    text = _w5_exit_text()
+    if text is None:
+        return
+    if not _LIVE_PROGRESS.is_file():
+        return
+    rounds = sorted(set(re.findall(
+        r"codered-r(\d+) COMPLETE", _LIVE_PROGRESS.read_text(
+            encoding="utf-8", errors="replace"))), key=int)
+    assert rounds, "LIVE-PROGRESS records no completed code-red rounds"
+    headers = re.findall(r"^### Round (\d+)", text, re.M)
+    assert [int(r) for r in headers] == [int(r) for r in rounds], (
+        f"WAVE-EXIT's rounds ledger {headers} does not match the executed "
+        f"code-red sequence {rounds} — every round needs its section, in "
+        "order, each with a findings count (the R4-r6-3 class: round 4 was "
+        "missing and round 5 sat after the waivers)"
+    )
+
+
+def test_wave_exit_l0_sweep_line_matches_the_live_tool():
+    import subprocess
+    import sys
+    text = _w5_exit_text()
+    if text is None:
+        return
+    match = re.search(
+        r"leak_sweep OK \((\d+) files / (\d+) allowlisted findings", text)
+    if match is None:
+        return  # the record quotes no sweep measurement
+    live = subprocess.run(
+        [sys.executable, str(ROOT / "tools/leak_sweep.py")],
+        capture_output=True, text=True, cwd=ROOT)
+    live_line = re.search(
+        r"OK \((\d+) files scanned, (\d+) allowlisted findings\)", live.stdout)
+    assert live.returncode == 0 and live_line is not None, (
+        "the live leak_sweep run is not OK")
+    assert match.groups() == live_line.groups(), (
+        f"WAVE-EXIT's L0 sweep line quotes {match.groups()} but the live "
+        f"tool prints {live_line.groups()} — refresh the record (the "
+        "unsynced-quote class, WAVE-EXIT edition)"
+    )
+
+
+def test_wave_exit_focused_tally_cites_an_archived_invocation():
+    text = _w5_exit_text()
+    if text is None:
+        return
+    tally = re.search(
+        r"focused pytest (\d+)/(\d+) across the (\d+) touched suites", text)
+    if tally is None:
+        return  # no focused tally claim in this record
+    cited = re.findall(r"focused-r\d+\.txt", text)
+    assert cited, (
+        "the focused-suite tally names no archived invocation — archive the "
+        "per-file results (out/completion/w5/focused-rN.txt) and cite it "
+        "(the R4-r6-2 class)"
+    )
+    archive = _W5 / cited[0]
+    assert archive.is_file(), f"the cited {cited[0]} does not exist"
+    archive_lines = archive.read_text(encoding="utf-8", errors="replace").splitlines()
+    # Self-reference guard: this file's own per-file line is written by the
+    # same archive-regeneration run whose tally pin lives HERE — while that
+    # final line is absent the archive is mid-regeneration, and comparing
+    # against it would record this pin as its own failure.
+    if not any("tests/test_wave_evidence.py ->" in l for l in archive_lines):
+        return
+    passed = failed = files = 0
+    for line in archive_lines:
+        per_file = re.search(r"tests/[\w_]+\.py -> (?:(\d+) failed, )?(\d+) passed", line)
+        entry = re.search(r"tests/[\w_]+\.py -> ", line)
+        if per_file is not None:
+            files += 1
+            failed += int(per_file.group(1) or 0)
+            passed += int(per_file.group(2))
+        elif entry is not None:
+            files += 1
+    assert not failed, (
+        f"the archived invocation {cited[0]} records {failed} failing "
+        "file run(s) — the close archive must be all-green"
+    )
+    assert (passed, files) == (int(tally.group(1)), int(tally.group(3))), (
+        f"the archived invocation {cited[0]} records {passed} passed across "
+        f"{files} files, not the {tally.group(1)}/{tally.group(3)} the "
+        "record claims — re-run the archive or fix the tally"
+    )

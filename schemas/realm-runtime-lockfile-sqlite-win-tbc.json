@@ -162,6 +162,15 @@
         "src/shared/Database/SqlOperations.cpp"
       ],
       "reason": "DO_SQLITE-only hardened connection layer: WAL with synchronous=NORMAL rendered per connection, busy_timeout 500ms with BUSY retry instead of silent false, BEGIN IMMEDIATE write transactions, begin-failure refusal + commit-failure rollback, fully materialized query results under the connection lock, no leaked statement wrappers, explicit-length TRANSIENT text binds. DO_MYSQL builds are behaviorally unchanged."
+    },
+    {
+      "id": "tbc-icu-apple-guard",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "CMakeLists.txt",
+      "reason": "TBC-only branch fact (W5): the pinned cmangos-tbc tree is the only branch gating its ICU find on `if (UNIX OR APPLE)` - classic and wotlk gate `if (APPLE)` - and the NDK toolchain sets UNIX=1 while the android dep prefix stages no ICU, so the tbc Android configure died at FindICU before any target existed. Mirrors the o11 lane's o11-cmangos-tbc-icu-apple-guard.patch. Configure-inert on WIN32 (both guards false) and never linked by the server (staged DT_NEEDED allowlist: libc/libdl/libm/libc++_shared/z), so narrowing the guard cannot change the produced binaries."
     }
   ],
   "playerbots_source_overlays": [

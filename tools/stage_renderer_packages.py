@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Stage the closed ARM DXVK and Vulkan-driver catalogs from pinned assets."""
+"""Stage the closed ARM DXVK and Vulkan-driver catalogs from pinned assets.
+
+Also re-stages the vendored box64-gladio-eaa2a8d glibc client on every run
+(R2-1): the retired ARM Gladio build lane's reviewed output is vendored at
+native/prebuilt-renderers/box64-gladio-eaa2a8d/ (tracked, sha-pinned), so the
+atomic renderer-packages replace above can never strand the arm64 full lane
+without the package its closure gate digest-pins."""
 
 from __future__ import annotations
 
@@ -79,6 +85,27 @@ MEMBERS = (
     ("system32", "./system32/d3d9.dll", 0x8664),
     ("syswow64", "./syswow64/d3d9.dll", 0x014C),
 )
+
+# The vendored box64-gladio-eaa2a8d glibc client (R2-1, W5 code-red round 1).
+# The ARM Gladio BUILD lane is retired (D45(7)) — these are the exact reviewed
+# bytes the retired lane last produced (2026-09-30, provenance copied to
+# native/prebuilt-renderers/box64-gladio-eaa2a8d/BUILD_PROVENANCE.json), now
+# tracked so a fresh checkout can always satisfy the arm64 closure gate that
+# digest-pins them (android/app/build.gradle.kts ValidateSelectedNativeClosureTask
+# + ArmClientRendererCatalog.GLADIO_CLIENT_SHA256). Staged on EVERY run below:
+# the atomic renderer-packages replace above must never strand the ARM lane
+# without the package (the deleted buildGladioClientArm task was the previous
+# re-publisher — its removal is what made this producer mandatory).
+GLADIO_PACKAGE_ID = "box64-gladio-eaa2a8d"
+GLADIO_PREBUILT = (
+    ROOT / "native" / "prebuilt-renderers" / GLADIO_PACKAGE_ID / "libGL.so.1"
+)
+GLADIO_PREBUILT_PROVENANCE = (
+    ROOT / "native" / "prebuilt-renderers" / GLADIO_PACKAGE_ID /
+    "BUILD_PROVENANCE.json"
+)
+GLADIO_SIZE = 498656
+GLADIO_SHA256 = "c02fb7275463bebcc3aa3fcf3e8e6de668bd2e6f39bda57052d3352801636d08"
 
 
 sha256 = common.sha256_file
@@ -318,6 +345,47 @@ def main() -> int:
         },
         "packages": records,
     }
+    # R2-1: re-stage the vendored gladio package AFTER the atomic replace, so
+    # the wiped tree always regains the ARM libGL package the closure gate
+    # digest-pins. Fail-closed on the vendored bytes: a changed or missing
+    # prebuilt aborts before anything is published.
+    if not GLADIO_PREBUILT.is_file() or sha256(GLADIO_PREBUILT) != GLADIO_SHA256:
+        raise RuntimeError(
+            f"vendored gladio package is missing or changed: {GLADIO_PREBUILT} "
+            f"(expected {GLADIO_SIZE} bytes, sha256 {GLADIO_SHA256}); it is the "
+            "retired ARM lane's reviewed output (D45(7)) and the only producer "
+            "of the box64-gladio-eaa2a8d package the arm64 closure gate requires"
+        )
+    gladio_target = RENDERER_STAGE / GLADIO_PACKAGE_ID / "libGL.so.1"
+    gladio_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(GLADIO_PREBUILT, gladio_target)
+    if (gladio_target.stat().st_size != GLADIO_SIZE
+            or sha256(gladio_target) != GLADIO_SHA256):
+        raise RuntimeError(f"staged gladio package differs from its pin: {gladio_target}")
+    # The manifest's `packages` list is the closed DXVK SELECTION catalog the
+    # app enumerates and the gradle gate pins — gladio is the OpenGL renderer
+    # package with its own Kotlin selection identity, so it is recorded under
+    # a separate key and never enters the dxvk selection set.
+    manifest["opengl_packages"] = [{
+        "id": GLADIO_PACKAGE_ID,
+        "backend": "opengl",
+        "translator": "box64",
+        "qualification": "installed-unqualified-legacy",
+        "source": {
+            "vendored": GLADIO_PREBUILT.relative_to(ROOT).as_posix(),
+            "provenance": GLADIO_PREBUILT_PROVENANCE.relative_to(ROOT).as_posix(),
+            "size": GLADIO_SIZE,
+            "sha256": GLADIO_SHA256,
+            "origin": "retired tools/build_gladio_client.py AArch64 lane output "
+                      "from the gladio-eaa2a8d source pin (D45(7)); nothing rebuilds it",
+        },
+        "files": [{
+            "role": "libGL.so.1",
+            "asset": f"arm-translated/renderer-packages/{GLADIO_PACKAGE_ID}/libGL.so.1",
+            "size": GLADIO_SIZE,
+            "sha256": GLADIO_SHA256,
+        }],
+    }]
     RENDERER_STAGE.mkdir(parents=True, exist_ok=True)
     target = RENDERER_STAGE / "catalog.json"
     write_atomic(target, (json.dumps(manifest, indent=2) + "\n").encode("utf-8"))

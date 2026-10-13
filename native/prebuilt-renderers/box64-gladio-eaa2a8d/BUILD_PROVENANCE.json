@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "vendored": true,
+  "what": "Frozen box64-gladio-eaa2a8d glibc libGL.so.1 client, the ARM renderer package the arm64-v8a full-lane APK ships and its closure gate digest-pins",
+  "origin": {
+    "builder": "tools/build_gladio_client.py AArch64 cross lane (RETIRED per decision D45(7); the lane's last output on record is dated 2026-09-30)",
+    "provenance_of_record": "native/.build-arm64/gladio-client/BUILD_PROVENANCE.json (this host's retired-lane build dir; the fields below are copied from it)",
+    "source_url": "https://github.com/brunodev85/gladio.git",
+    "source_commit": "eaa2a8d6eda3a1a6af755370ea9fac6cf7792ac3",
+    "sources_json_entry": "gladio-eaa2a8d",
+    "license": "LGPL-2.1",
+    "builder_image": "ghcr.io/termux/package-builder-cgct@sha256:69ffa5cfe02ca569e7d03d1c99e3c9a0f79390ad6bf11a3629d048c29c6ccb61",
+    "dt_needed": [
+      "ld-linux-aarch64.so.1",
+      "libX11.so.6",
+      "libc.so.6"
+    ]
+  },
+  "artifact": {
+    "path": "native/prebuilt-renderers/box64-gladio-eaa2a8d/libGL.so.1",
+    "size": 498656,
+    "sha256": "c02fb7275463bebcc3aa3fcf3e8e6de668bd2e6f39bda57052d3352801636d08"
+  },
+  "consumers": {
+    "gradle_closure_gate": "android/app/build.gradle.kts ValidateSelectedNativeClosureTask: renderer-packages/box64-gladio-eaa2a8d/libGL.so.1 pinned at this exact size + sha256",
+    "kotlin_selection": "ArmClientRendererCatalog.GLADIO_PACKAGE_ID / GLADIO_CLIENT_SHA256 (LEGACY_GLADIO renderer path)",
+    "restager": "tools/stage_renderer_packages.py copies this vendored artifact into the staged renderer-packages tree on every run, failing closed on any digest change"
+  },
+  "policy": "Nothing rebuilds the ARM client (D45(7): the ARM product path is Box64 + DXVK; the x86_64 Gladio validation lane is the only buildable lane). These are the exact reviewed bytes the gates already pinned - vendored so a fresh checkout can satisfy the closure gate and the restager's atomic catalog replace can never strand the ARM lane without them (code-red W5 round 1, R2-1)."
+}

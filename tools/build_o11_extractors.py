@@ -242,6 +242,8 @@ def main() -> int:
                              "fork/pin is registered — port plan S1 item 5)")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+    # R4-r5-1: the disk-headroom preflight (shared with the o09 lane driver).
+    common.require_disk_headroom(ROOT / "native")
     try:
         select_flavor(args.flavor)
     except flavor_layout.FlavorPinError as exc:

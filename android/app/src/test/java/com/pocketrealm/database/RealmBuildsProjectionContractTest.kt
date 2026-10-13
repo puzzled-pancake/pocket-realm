@@ -127,12 +127,15 @@ class RealmBuildsProjectionContractTest {
     @Test
     fun theAndroidLedgerScopeRefusesNonVanillaPicksBeforeProvisioning() {
         // R4-1b (W4 code-red round 4): the android migration ledger is
-        // VANILLA-only until W5 — provisioning the persisted lane's
-        // tbc*/wotlk* family would strand the datadir (the vanilla-only
-        // ledger can never serve it, and re-picking vanilla cannot recover
-        // a family that was never provisioned). The bootstrap resolver
-        // must refuse LOUD, naming the scope + the remedy, BEFORE it can
-        // return any non-vanilla database names.
+        // VANILLA-only — provisioning the persisted lane's tbc*/wotlk*
+        // family would strand the datadir (the vanilla-only ledger can
+        // never serve it, and re-picking vanilla cannot recover a family
+        // that was never provisioned). The bootstrap resolver must refuse
+        // LOUD, naming the scope + the remedy, BEFORE it can return any
+        // non-vanilla database names. W5 built the host-side per-flavor
+        // native lanes; the on-device packaging routing is the recorded
+        // open follow-up (decision D90) — the refusal cites it, never a
+        // wave name.
         val engine = mainSource("database/DatabaseEngine.kt")
         val gate = engine.substringAfter("private fun bootstrapDatabaseNames")
             .substringBefore("private fun realmdDatabaseName")
@@ -143,8 +146,13 @@ class RealmBuildsProjectionContractTest {
         assertTrue(
             "the android lane-scope refusal must fire for non-vanilla picks",
             "ANDROID-LANE-SCOPE" in gate &&
-                "per-flavor Android ledgers are " in gate &&
+                "recorded as open follow-up work in the decision log, D90" in gate &&
                 "Re-pick Vanilla on Home" in gate,
+        )
+        assertTrue(
+            "the refusal must not name a wave as the pending owner (the " +
+                "R6-r4-1 class — W5 exited with the packaging follow-up open)",
+            "W5 work" !in gate && "(W5)" !in gate,
         )
         // ordering: the refusal check must precede the bootstrap names the
         // provisioning consumes

@@ -305,7 +305,7 @@
     {
       "path": "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/libpocket_realmd_runtime.so",
       "size": 5409176,
-      "sha256": "de485628397be32670606cc902c09a766770d507648ab73e8f5adcf2d3f3b453",
+      "sha256": "cdfca758b309a9d82d264e9f3700717c0348ca9831ed4149b2b6a4fece001a90",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -320,8 +320,8 @@
     },
     {
       "path": "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/libpocket_world_runtime.so",
-      "size": 34180272,
-      "sha256": "6e643d5aca24432c5e9d9d9ee9288b2a0e6b02fbdc74cba720a724d4252ec625",
+      "size": 34189600,
+      "sha256": "b193a3b1c4b1d3fb44d10699f3f455213ad474810f76fdcfb6e2027071c3dea1",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -335,5 +335,5 @@
       ]
     }
   ],
-  "binaries_stale_for_patches": true
+  "binaries_stale_for_patches": false
 }

@@ -156,10 +156,17 @@ DXVK remains the default ARM renderer. The following routes are separately
 selected, capability-gated, generation-local, and fail without fallback.
 
 - **Legacy OpenGL (Gladio):** recovered from Pocket Realm commit
-  `22410a53db50561a9784a23c715e4fb6855db6a8`. The AArch64 glibc client is built
-  from `brunodev85/gladio@eaa2a8d6eda3a1a6af755370ea9fac6cf7792ac3` by
-  `tools/build_gladio_client.py`. The reviewed client is 530400 bytes, SHA-256
-  `1d9663bb23ffe6083cf94925e6ffde4523888d52051c9bf934c87aad4bae4680`.
+  `22410a53db50561a9784a23c715e4fb6855db6a8`. The source of record is
+  `brunodev85/gladio@eaa2a8d6eda3a1a6af755370ea9fac6cf7792ac3` (LGPL-2.1).
+  The AArch64 glibc client the arm64-v8a image ships is the VENDORED,
+  digest-pinned artifact at `native/prebuilt-renderers/box64-gladio-eaa2a8d/libGL.so.1`
+  (498656 bytes, SHA-256
+  `c02fb7275463bebcc3aa3fcf3e8e6de668bd2e6f39bda57052d3352801636d08`;
+  origin provenance beside it): the last reviewed output of the retired AArch64
+  build lane (removed from `tools/build_gladio_client.py` per decision D45(7);
+  the x86_64 validation lane remains buildable, the ARM lane does not —
+  D89/D90). `tools/stage_renderer_packages.py` re-stages the vendored bytes
+  into the APK's renderer-packages tree on every run, fail-closed on digest.
   It launches WoW with `-opengl` and is considered running only after a live
   transport context, live GLX context, and a validated presented frame.
 

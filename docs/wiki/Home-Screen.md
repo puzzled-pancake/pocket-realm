@@ -49,9 +49,11 @@ applies its own databases on first boot.
 On Android, the app ships the Vanilla lane's runtime and migration ledger
 only: picking TBC or WotLK on a phone refuses at boot (and at the server
 database gate) with a RUNTIME-LANE MISMATCH / ANDROID-LANE-SCOPE message
-naming the remedy — re-pick Vanilla. Per-flavor Android runtimes and
-ledgers are future work (W5); the TBC/WotLK chips remain selectable so
-their imports and prepared data can be staged ahead of that landing.
+naming the remedy — re-pick Vanilla. Per-flavor Android runtime packaging
+is recorded as open follow-up work (decision D90 in `docs/DECISIONS-PORT.md`:
+the native per-flavor lanes and lockfiles exist, the shipped images do not
+route them yet); the TBC/WotLK chips remain selectable so their imports and
+prepared data can be staged ahead of that landing.
 
 ## Main buttons
 

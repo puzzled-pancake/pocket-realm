@@ -739,6 +739,34 @@ abstract class ValidateNativeRuntimeFreshnessTask : DefaultTask() {
     @get:Input
     abstract val requireStagedBytes: Property<Boolean>
 
+    /**
+     * W5 additive per-flavor mode: when true, a flavor whose o09 realm-staging
+     * tree does not exist on this host is SKIPPED with a lifecycle note (the
+     * pre-W5 posture, LV-flavor-import-34) instead of failing — the vanilla
+     * lane's build graph never grows a hard dependency on per-flavor staging.
+     * When the staging tree EXISTS the full fence runs (a staging tree without
+     * its lockfile still fails loud: staged bytes never ride unpinned). The
+     * decision is made at EXECUTION time on purpose: a configuration-time
+     * isDirectory would be an untracked input, and a staging tree appearing
+     * under a cached configuration would then build ungated (fail-open).
+     * The vanilla instances keep this false and are unchanged. The pure
+     * evaluation contract (NativeRuntimeFreshness) is untouched — this mode
+     * decides WHETHER the fence runs, never WHAT it accepts.
+     */
+    @get:Input
+    abstract val skipWhenStagingAbsent: Property<Boolean>
+
+    /**
+     * R6-1 (W5 code-red round 1): the failure remedy must name the lane that
+     * can actually fix the failure. The vanilla instances keep the historical
+     * lane-generic command (the tool's --flavor defaults to vanilla); the
+     * per-flavor instances interpolate their own --flavor/--abi so the printed
+     * command rebuilds the STALE flavor tree instead of silently rebuilding
+     * vanilla while the tbc/wotlk fence keeps failing.
+     */
+    @get:Input
+    abstract val remedy: Property<String>
+
     @get:Input
     abstract val skipRequested: Property<String>
 
@@ -755,23 +783,35 @@ abstract class ValidateNativeRuntimeFreshnessTask : DefaultTask() {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun artifactPins(record: Map<*, *>): List<Triple<String, Long, String>> =
-        (record["artifacts"] as? List<*>).orEmpty()
+    /**
+     * R3-r3-1: rows missing path/size/sha256 are COUNTED, never silently
+     * narrowed — a partially malformed lockfile must fail loud (naming the
+     * malformed-row count), because a dropped row plus that artifact's
+     * absent staged file would otherwise pass the gate with "OK".
+     */
+    private fun artifactPins(record: Map<*, *>): Pair<List<Triple<String, Long, String>>, Int> {
+        val rows = (record["artifacts"] as? List<*>).orEmpty()
             .mapNotNull { row -> row as? Map<*, *> }
-            .mapNotNull { row ->
-                val path = row["path"] as? String ?: return@mapNotNull null
-                val size = (row["size"] as? Number)?.toLong() ?: return@mapNotNull null
-                val sha256 = row["sha256"] as? String ?: return@mapNotNull null
+        var malformed = 0
+        val pins = rows.mapNotNull { row ->
+            val path = row["path"] as? String
+            val size = (row["size"] as? Number)?.toLong()
+            val sha256 = row["sha256"] as? String
+            if (path == null || size == null || sha256 == null) {
+                malformed += 1
+                null
+            } else {
                 Triple(path, size, sha256)
             }
+        }
+        return pins to malformed
+    }
 
     private fun fail(reasons: List<String>): Nothing =
         throw GradleException(
             "Native runtime freshness fence FAILED for ${laneLabel.get()}:\n" +
                 reasons.joinToString("\n") { reason -> "  - $reason" } +
-                "\n  Remedy: rerun the full lane build: " +
-                "python tools/build_o09_realm_runtime.py " +
-                "(matching -PpocketAbi/-PpocketLane)",
+                "\n  Remedy: " + remedy.get(),
         )
 
     @TaskAction
@@ -789,6 +829,16 @@ abstract class ValidateNativeRuntimeFreshnessTask : DefaultTask() {
             "Refusing ambiguous -PpocketSkipNativeFreshness='$skip'; pass exactly 'true' " +
                 "to skip loudly, or drop the property to run the fence"
         }
+        if (skipWhenStagingAbsent.get() &&
+            !File(repoRootPath.get(), stagingRelativeDir.get()).isDirectory
+        ) {
+            logger.lifecycle(
+                "Native runtime freshness: no per-flavor staging under " +
+                    "${stagingRelativeDir.get()} — skipped (additive gate; the " +
+                    "flavor lane was never built on this host)",
+            )
+            return
+        }
 
         val abi = selectedAbi.get()
         val backend = databaseBackend.get()
@@ -797,38 +847,43 @@ abstract class ValidateNativeRuntimeFreshnessTask : DefaultTask() {
         val reasons = ArrayList<String>()
 
         if (!lockfile.isFile) {
-            fail(listOf("realm runtime lockfile is missing: $lockfileRelativePath"))
+            fail(listOf("realm runtime lockfile is missing: ${lockfileRelativePath.get()}"))
         }
         val record = runCatching { JsonSlurper().parse(lockfile) as Map<*, *> }.getOrElse {
             fail(listOf(
-                "realm runtime lockfile is not parseable JSON: $lockfileRelativePath " +
+                "realm runtime lockfile is not parseable JSON: ${lockfileRelativePath.get()} " +
                     "(${it.message ?: it.javaClass.simpleName})",
             ))
         }
         val lockAbi = record["abi"] as? String
         if (lockAbi != abi) {
-            reasons += "$lockfileRelativePath pins abi '$lockAbi' but the build selected '$abi'"
+            reasons += "${lockfileRelativePath.get()} pins abi '$lockAbi' but the build selected '$abi'"
         }
         val lockBackend = record["database_backend"] as? String
         if (lockBackend != backend) {
-            reasons += "$lockfileRelativePath pins database_backend '$lockBackend' but the " +
+            reasons += "${lockfileRelativePath.get()} pins database_backend '$lockBackend' but the " +
                 "build selected '$backend'"
         }
         val lockCmangos = record["cmangos_commit"] as? String
         val lockPlayerbots = record["playerbots_commit"] as? String
         if (lockCmangos != expectedCmangosCommit.get()) {
-            reasons += "$lockfileRelativePath cmangos_commit '$lockCmangos' != " +
+            reasons += "${lockfileRelativePath.get()} cmangos_commit '$lockCmangos' != " +
                 "schemas/sources.json pin '${expectedCmangosCommit.get()}' (cmangos-core); " +
                 "the lane build ran against STALE source pins"
         }
         if (lockPlayerbots != expectedPlayerbotsCommit.get()) {
-            reasons += "$lockfileRelativePath playerbots_commit '$lockPlayerbots' != " +
+            reasons += "${lockfileRelativePath.get()} playerbots_commit '$lockPlayerbots' != " +
                 "schemas/sources.json pin '${expectedPlayerbotsCommit.get()}' (playerbots); " +
                 "the lane build ran against STALE source pins"
         }
-        val pins = artifactPins(record)
+        val (pins, malformedLockRows) = artifactPins(record)
         if (pins.isEmpty()) {
-            reasons += "$lockfileRelativePath has no artifact pins"
+            reasons += "${lockfileRelativePath.get()} has no artifact pins"
+        }
+        if (malformedLockRows > 0) {
+            reasons += "${lockfileRelativePath.get()} contains $malformedLockRows malformed " +
+                "artifact row(s) (missing path/size/sha256) — a lockfile row that " +
+                "cannot be verified must fail the fence, never be skipped"
         }
 
         if (requireStagedBytes.get()) {
@@ -860,9 +915,15 @@ abstract class ValidateNativeRuntimeFreshnessTask : DefaultTask() {
                     reasons += "BUILD_PROVENANCE.json playerbots_commit '$provPlayerbots' " +
                         "!= lockfile pin '$lockPlayerbots' (${stagingRelativeDir.get()})"
                 }
-                val provPins = artifactPins(provenance).associateBy { File(it.first).name }
+                val (provPins, malformedProvRows) = artifactPins(provenance)
+                if (malformedProvRows > 0) {
+                    reasons += "BUILD_PROVENANCE.json under ${stagingRelativeDir.get()} " +
+                        "contains $malformedProvRows malformed artifact row(s) " +
+                        "(missing path/size/sha256) — provenance rows must be complete"
+                }
+                val provPinsByName = provPins.associateBy { File(it.first).name }
                 for ((path, size, sha256) in pins) {
-                    val prov = provPins[File(path).name]
+                    val prov = provPinsByName[File(path).name]
                     if (prov == null) {
                         reasons += "BUILD_PROVENANCE.json has no record for $path"
                     } else if (prov.second != size || !prov.third.equals(sha256, true)) {
@@ -909,7 +970,160 @@ abstract class ValidateNativeRuntimeFreshnessTask : DefaultTask() {
         logger.lifecycle(
             "Native runtime freshness: OK for ${laneLabel.get()} " +
                 "(mode=${if (requireStagedBytes.get()) "staged-bytes" else "pins-only"}, " +
-                "${pins.size} pinned artifacts verified against $lockfileRelativePath)",
+                "${pins.size} pinned artifacts verified against ${lockfileRelativePath.get()})",
+        )
+    }
+}
+
+/**
+ * W5: per-flavor o11 extractor staged-bytes verification — the additive twin
+ * of the vanilla extractors' existence + ELF checks in
+ * ValidateSelectedNativeClosureTask. For a flavor whose
+ * native/.build-o11-<abi>-<flavor>/extractor-staging tree exists on this
+ * host, every schemas/o11-extractor-lockfile-<flavor>[-<abi>].json artifact
+ * row must resolve to a byte-identical staged file, every staged .so must
+ * carry a lockfile pin (nothing unpinned rides), the lockfile must pin the
+ * selected ABI, and its cmangos_commit must still equal the flavor's own
+ * schemas/sources.json pin (cmangos-core-<flavor> — the D36 divergence
+ * class, per-flavor leg). A flavor with no staging tree on this host skips
+ * additively (LV-flavor-import-34 semantics); like the per-flavor freshness
+ * fence, that decision is made at EXECUTION time, never at configuration.
+ */
+abstract class ValidateFlavorExtractorStagingTask : DefaultTask() {
+    @get:Input
+    abstract val selectedAbi: Property<String>
+
+    @get:Input
+    abstract val flavor: Property<String>
+
+    @get:Input
+    abstract val repoRootPath: Property<String>
+
+    @get:Input
+    abstract val lockfileRelativePath: Property<String>
+
+    @get:Input
+    abstract val stagingRelativeDir: Property<String>
+
+    @get:Input
+    abstract val expectedCmangosCommit: Property<String>
+
+    private fun sha256Hex(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(1 shl 16)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun fail(reasons: List<String>): Nothing =
+        throw GradleException(
+            "Per-flavor extractor staging verification FAILED for " +
+                "${flavor.get()}/${selectedAbi.get()}:\n" +
+                reasons.joinToString("\n") { reason -> "  - $reason" } +
+                "\n  Remedy: rerun the flavor lane build: " +
+                "python tools/build_o11_extractors.py " +
+                "--flavor ${flavor.get()} --abi ${selectedAbi.get()}",
+        )
+
+    @TaskAction
+    fun validate() {
+        val repoRoot = File(repoRootPath.get())
+        val stagingDir = File(repoRoot, stagingRelativeDir.get())
+        if (!stagingDir.isDirectory) {
+            logger.lifecycle(
+                "Extractor staging: no per-flavor staging under " +
+                    "${stagingRelativeDir.get()} — skipped (additive gate; the " +
+                    "flavor lane was never built on this host)",
+            )
+            return
+        }
+        val reasons = ArrayList<String>()
+        val lockfile = File(repoRoot, lockfileRelativePath.get())
+        if (!lockfile.isFile) {
+            fail(listOf("extractor lockfile is missing: ${lockfileRelativePath.get()}"))
+        }
+        val record = runCatching { JsonSlurper().parse(lockfile) as Map<*, *> }.getOrElse {
+            fail(listOf(
+                "extractor lockfile is not parseable JSON: ${lockfileRelativePath.get()} " +
+                    "(${it.message ?: it.javaClass.simpleName})",
+            ))
+        }
+        val lockAbi = record["abi"] as? String
+        if (lockAbi != selectedAbi.get()) {
+            reasons += "${lockfileRelativePath.get()} pins abi '$lockAbi' but the build " +
+                "selected '${selectedAbi.get()}'"
+        }
+        val lockCmangos = record["cmangos_commit"] as? String
+        if (lockCmangos != expectedCmangosCommit.get()) {
+            reasons += "${lockfileRelativePath.get()} cmangos_commit '$lockCmangos' != " +
+                "schemas/sources.json pin '${expectedCmangosCommit.get()}' " +
+                "(cmangos-core-${flavor.get()}); the lane ran against STALE source pins"
+        }
+        // R3-r3-1: malformed rows are counted and failed loud, never silently
+        // narrowed — a dropped row plus that artifact's absent staged file
+        // would otherwise pass this gate with "OK".
+        val extractorRows = (record["artifacts"] as? List<*>).orEmpty()
+            .mapNotNull { row -> row as? Map<*, *> }
+        var malformedRows = 0
+        val pins = extractorRows.mapNotNull { row ->
+            val path = row["path"] as? String
+            val size = (row["size"] as? Number)?.toLong()
+            val sha256 = row["sha256"] as? String
+            if (path == null || size == null || sha256 == null) {
+                malformedRows += 1
+                null
+            } else {
+                Triple(path, size, sha256)
+            }
+        }
+        if (pins.isEmpty()) {
+            reasons += "${lockfileRelativePath.get()} has no artifact pins"
+        }
+        if (malformedRows > 0) {
+            reasons += "${lockfileRelativePath.get()} contains $malformedRows malformed " +
+                "artifact row(s) (missing path/size/sha256) — a lockfile row that " +
+                "cannot be verified must fail the gate, never be skipped"
+        }
+        val stagedFiles = File(stagingDir, "jniLibs/${selectedAbi.get()}")
+            .listFiles { file -> file.isFile && file.name.endsWith(".so") }
+            ?.toList().orEmpty()
+        val stagedByName = stagedFiles.associateBy { it.name }
+        for ((path, size, sha256) in pins) {
+            val staged = stagedByName[File(path).name]
+            if (staged == null || staged.length() == 0L) {
+                reasons += "staged ${File(path).name} is missing or empty under " +
+                    "${stagingRelativeDir.get()}/jniLibs/${selectedAbi.get()} " +
+                    "(lockfile pins $size bytes, sha256 $sha256)"
+                continue
+            }
+            if (staged.length() != size) {
+                reasons += "staged ${staged.name} size ${staged.length()} != lockfile " +
+                    "pin $size (${stagingRelativeDir.get()})"
+            }
+            val actualSha256 = sha256Hex(staged)
+            if (!actualSha256.equals(sha256, true)) {
+                reasons += "staged ${staged.name} sha256 $actualSha256 != lockfile pin " +
+                    "$sha256 (${stagingRelativeDir.get()})"
+            }
+        }
+        val pinnedNames = pins.map { File(it.first).name }.toSet()
+        stagedFiles.filter { it.name !in pinnedNames }.forEach { staged ->
+            reasons += "staged ${staged.name} has no lockfile pin; unpinned native " +
+                "bytes must not ride into the APK " +
+                "(${stagingRelativeDir.get()}/jniLibs/${selectedAbi.get()})"
+        }
+        if (reasons.isNotEmpty()) {
+            fail(reasons)
+        }
+        logger.lifecycle(
+            "Extractor staging: OK for ${flavor.get()}/${selectedAbi.get()} " +
+                "(${pins.size} pinned artifacts verified against ${lockfileRelativePath.get()})",
         )
     }
 }
@@ -1178,6 +1392,11 @@ val validateNativeRuntimePins = tasks.register<ValidateNativeRuntimeFreshnessTas
     expectedCmangosCommit.set(pinnedCmangosCommit)
     expectedPlayerbotsCommit.set(pinnedPlayerbotsCommit)
     requireStagedBytes.set(false)
+    skipWhenStagingAbsent.set(false)
+    remedy.set(
+        "rerun the full lane build: python tools/build_o09_realm_runtime.py " +
+            "(matching -PpocketAbi/-PpocketLane)",
+    )
     skipRequested.set(providers.gradleProperty("pocketSkipNativeFreshness").orElse(""))
 }
 
@@ -1199,7 +1418,103 @@ val validateNativeRuntimeFreshness = tasks.register<ValidateNativeRuntimeFreshne
     expectedCmangosCommit.set(pinnedCmangosCommit)
     expectedPlayerbotsCommit.set(pinnedPlayerbotsCommit)
     requireStagedBytes.set(true)
+    skipWhenStagingAbsent.set(false)
+    remedy.set(
+        "rerun the full lane build: python tools/build_o09_realm_runtime.py " +
+            "(matching -PpocketAbi/-PpocketLane)",
+    )
     skipRequested.set(providers.gradleProperty("pocketSkipNativeFreshness").orElse(""))
+}
+
+// W5: the packaging gate learns the per-flavor realm-runtime staging set
+// (docs/FLAVOR-ARTIFACT-NAMING.md §2 — the flavor segment precedes the abi
+// segment). The SET ITSELF is derived from its owning table
+// (schemas/flavor.json, R1-r3-1): every qualified non-vanilla flavor gets
+// the SAME staged-bytes staleness fence the vanilla lane runs, against ITS
+// OWN lockfile and its own sources.json pins (cmangos-core-<flavor> /
+// playerbots-<flavor>) — a future qualified flavor gains both gate families
+// and a retirement drops them without a build-script edit. The
+// trackedJsonMap read keeps the manifest a configuration-cache-tracked
+// input. The task skips itself additively at execution when that flavor's
+// staging tree was never built on this host, so a fresh checkout's vanilla
+// build is graph-identical. The tasks are registered UNCONDITIONALLY and
+// wired wherever the vanilla fence is wired (stageNativeLibs + every
+// shipping variant edge below): the skip-when-absent decision must stay at
+// execution time, because a configuration-time isDirectory would be an
+// untracked configuration-cache input and a staging tree appearing under a
+// cached configuration would build ungated.
+val flavorManifest = trackedJsonMap("schemas/flavor.json")
+val qualifiedPerFlavorIds = (flavorManifest["flavors"] as? List<*>).orEmpty()
+    .mapNotNull { row -> row as? Map<*, *> }
+    .filter { it["qualified"] == true && it["id"] != "vanilla" }
+    .map { it["id"] as String }
+val perFlavorRuntimeFreshnessTasks = qualifiedPerFlavorIds.map { flavor ->
+    val flavorCapitalized = flavor.replaceFirstChar { it.uppercase() }
+    tasks.register<ValidateNativeRuntimeFreshnessTask>(
+        "validateNativeRuntimeFreshness$flavorCapitalized",
+    ) {
+        group = "verification"
+        description = "Fail the build when the staged $flavor realm runtime .so bytes or " +
+            "provenance disagree with the $flavor realm-runtime lockfile for $pocketAbi."
+        selectedAbi.set(pocketAbi)
+        databaseBackend.set("mysql")
+        laneLabel.set("$pocketAbi/$pocketLane $flavor staged bytes")
+        repoRootPath.set(repoRootForNativePins.asFile.absolutePath)
+        // x86_64 keeps the historical no-abi-suffix form (…-tbc.json); arm64
+        // carries the abi segment (…-tbc-arm64-v8a.json) — flavor_layout's
+        // _suffixed_name, docs/FLAVOR-ARTIFACT-NAMING.md §2.
+        lockfileRelativePath.set(
+            if (pocketAbi == "x86_64") "schemas/realm-runtime-lockfile-$flavor.json"
+            else "schemas/realm-runtime-lockfile-$flavor-$pocketAbi.json",
+        )
+        stagingRelativeDir.set("native/.build-o09-$pocketAbi-$flavor/realm-staging")
+        expectedCmangosCommit.set(sourcesCommitPin("cmangos-core-$flavor"))
+        expectedPlayerbotsCommit.set(sourcesCommitPin("playerbots-$flavor"))
+        requireStagedBytes.set(true)
+        skipWhenStagingAbsent.set(true)
+        // R1-r4-1: these fences are deliberately the MARIADB lane only —
+        // the shipped provider (the vanilla fence's sqliteProvider branch
+        // has no per-flavor counterpart yet). A per-flavor SQLITE lane
+        // (build_o09_realm_runtime.py --backend sqlite stages into
+        // realm-staging-sqlite with the sibling -sqlite lockfile) would be
+        // UNGATED by this family; extending the lockfile/staging templates
+        // to branch on the backend exactly as the vanilla fence does is
+        // D90-owned packaging work. Until then this comment is the
+        // recorded posture.
+        remedy.set(
+            "rerun the $flavor lane build: python tools/build_o09_realm_runtime.py " +
+                "--flavor $flavor --abi $pocketAbi (matching -PpocketLane)",
+        )
+        skipRequested.set(providers.gradleProperty("pocketSkipNativeFreshness").orElse(""))
+    }
+}
+
+// W5: the per-flavor o11 extractor staged-bytes gate (ask item 2 — the tbc/
+// wotlk extractor lockfiles exist; this teaches the packaging gate to verify
+// their staged bytes the way the vanilla closure check verifies existence).
+// Same additive execution-time skip as the freshness fences above.
+val perFlavorExtractorStagingTasks = qualifiedPerFlavorIds.map { flavorId ->
+    val flavorCapitalized = flavorId.replaceFirstChar { it.uppercase() }
+    tasks.register<ValidateFlavorExtractorStagingTask>(
+        "validateFlavorExtractorStaging$flavorCapitalized",
+    ) {
+        group = "verification"
+        description = "Verify the staged $flavorId extractor .so bytes against " +
+            "schemas/o11-extractor-lockfile-$flavorId for $pocketAbi."
+        selectedAbi.set(pocketAbi)
+        flavor.set(flavorId)
+        repoRootPath.set(repoRootForNativePins.asFile.absolutePath)
+        // The o11 lockfile naming keeps the historical x86_64 no-ABI-suffix
+        // form (schemas/o11-extractor-lockfile-<flavor>.json) and adds the
+        // abi segment for arm64 (…-<flavor>-arm64-v8a.json) — flavor_layout's
+        // _suffixed_name, docs/FLAVOR-ARTIFACT-NAMING.md §2.
+        lockfileRelativePath.set(
+            if (pocketAbi == "x86_64") "schemas/o11-extractor-lockfile-$flavorId.json"
+            else "schemas/o11-extractor-lockfile-$flavorId-$pocketAbi.json",
+        )
+        stagingRelativeDir.set("native/.build-o11-$pocketAbi-$flavorId/extractor-staging")
+        expectedCmangosCommit.set(sourcesCommitPin("cmangos-core-$flavorId"))
+    }
 }
 
 tasks.matching { task ->
@@ -1628,29 +1943,18 @@ val stageRendererPackages = if (pocketAbi == "arm64-v8a" && pocketLane == "full"
     }
 } else null
 
-val buildGladioClientArm = if (pocketAbi == "arm64-v8a" && pocketLane == "full") {
-    tasks.register<Exec>("buildGladioClientArm") {
-        group = "pocket realm"
-        description = "Build and stage the pinned Box64/glibc Gladio client."
-        val repoRoot = layout.projectDirectory.dir("../..").asFile
-        workingDir(repoRoot)
-        commandLine("python", "tools/build_gladio_client.py", "--abi", "arm64-v8a")
-        inputs.files(
-            File(repoRoot, "tools/build_gladio_client.py"),
-            File(repoRoot, "native/xserver-winlator/cpp/gladiorenderer"),
-        )
-        outputs.files(
-            File(repoRoot, "native/.build-arm64/gladio-client/libGL.so.1"),
-            File(repoRoot, "native/.build-arm64/gladio-client/BUILD_PROVENANCE.json"),
-            File(repoRoot,
-                "native/.build-arm64/wine-staging/assets/arm-translated/renderer-packages/" +
-                    "box64-gladio-eaa2a8d/libGL.so.1"),
-        )
-        // The DXVK catalog producer replaces renderer-packages atomically.
-        // Re-publish Gladio afterwards so neither task can erase the other.
-        stageRendererPackages?.let { dependsOn(it) }
-    }
-} else null
+// W5 fix: the buildGladioClientArm task is GONE. D45(7) retired the Gladio
+// ARM lane entirely — build_gladio_client.py is the x86_64 validation lane
+// only ("no target selection", pinned by
+// tests/test_gladio_client_unpack_transport.py) — but this build file kept an
+// Exec task invoking it with the retired `--abi arm64-v8a` flag, so EVERY
+// arm64-v8a full-lane assembly died with "unrecognized arguments" before any
+// packaging work. The ARM renderer-packages catalog data the APK still ships
+// (wine-staging/assets/arm-translated/renderer-packages/box64-gladio-eaa2a8d,
+// required by the closure gate) is staged catalog data, not a product of the
+// retired script; the frozen .build-arm64/gladio-client tree is retired-lane
+// output with no remaining consumer. Nothing rebuilds the ARM client — per
+// D45(7) the ARM product path is Box64 + DXVK.
 
 val stageVirglRendererArm = if (pocketAbi == "arm64-v8a" && pocketLane == "full") {
     tasks.register<Exec>("stageVirglRendererArm") {
@@ -1729,7 +2033,6 @@ val validateSelectedNativeClosure = tasks.register<ValidateSelectedNativeClosure
     sqliteProvider.set(providers.gradleProperty("sqliteProvider").isPresent)
     dependsOn(verifyGeneratedVulkanDriverCatalog)
     stageRendererPackages?.let { dependsOn(it) }
-    buildGladioClientArm?.let { dependsOn(it) }
     stageVirglRendererArm?.let { dependsOn(it) }
     removeRetiredArmClientAssets?.let { dependsOn(it) }
 }
@@ -1784,8 +2087,12 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     if (pocketLane == "full") {
         // The realm .so bytes this Sync copies must already have passed the
         // staleness fence: a stale staging dir never reaches the staged-jniLibs
-        // output that feeds every variant's APK merge.
+        // output that feeds every variant's APK merge. The W5 per-flavor
+        // fences ride the same edge (additive: they skip flavors whose
+        // staging was never built on this host).
         dependsOn(validateNativeRuntimeFreshness)
+        dependsOn(perFlavorRuntimeFreshnessTasks)
+        dependsOn(perFlavorExtractorStagingTasks)
     }
 
     into(stagedLib)
@@ -1895,75 +2202,94 @@ val validateDatabaseRuntime by tasks.registering {
     val selectedAbi = pocketAbi
     val nativeRootSuffix = pocketNativeRootSuffix
     val expectedMachine = pocketElfMachine
+    // Hoisted plain-value capture (configuration cache): the doLast below
+    // reads the manifest-derived per-flavor set — a direct script-level
+    // reference would retain the build-script instance.
+    val perFlavorIds = qualifiedPerFlavorIds
     doLast {
-        val stage = File(repoRoot, "native/.build-$nativeRootSuffix/mariadb-staging")
-        val required = listOf(
-            File(stage, "jniLibs/$selectedAbi/libpocket_mariadbd.so"),
-            File(stage, "jniLibs/$selectedAbi/libpocket_mariadb_client.so"),
-            File(stage, "assets/database/provider/bootstrap.sql"),
-            File(stage, "assets/database/provider/runtime-manifest.json"),
-            File(stage, "assets/database/migrations/manifest.json"),
-            File(stage, "BUILD_PROVENANCE.json"),
-        )
-        val missing = required.filterNot { it.isFile }
-        check(missing.isEmpty()) {
-            "MariaDB staging incomplete for $selectedAbi. Run the ABI-aware MariaDB staging and " +
-                "tools/stage_database_migrations.py. Missing: ${missing.joinToString { it.name }}"
-        }
-        required.take(2).forEach { file ->
-            val header = file.inputStream().use { input -> ByteArray(20).also { input.read(it) } }
-            val machine = (header[18].toInt() and 0xff) or ((header[19].toInt() and 0xff) shl 8)
-            check(header.copyOfRange(0, 4).contentEquals(byteArrayOf(0x7f, 0x45, 0x4c, 0x46)) &&
-                machine == expectedMachine) {
-                "MariaDB artifact is not $selectedAbi ELF (e_machine=$machine): $file"
-            }
-        }
-        val runtimeManifest = JsonSlurper().parse(
-            File(stage, "assets/database/provider/runtime-manifest.json"),
-        ) as Map<*, *>
-        val expectedProvider = when (selectedAbi) {
-            "x86_64" -> "mariadb-11.5.2-termux-glibc"
-            "arm64-v8a" -> "mariadb-12.3.2-termux-bionic-arm64"
-            else -> error("Unsupported database ABI $selectedAbi")
-        }
-        check((runtimeManifest["schema"] as? Number)?.toInt() == 1 &&
-            runtimeManifest["provider"] == expectedProvider &&
-            runtimeManifest["abi"] == selectedAbi) {
-            "MariaDB runtime manifest identity mismatch for $selectedAbi: " +
-                File(stage, "assets/database/provider/runtime-manifest.json")
-        }
-        // S1 item 7: the packaging gate learns the per-flavor ledger set
-        // (docs/FLAVOR-ARTIFACT-NAMING.md §2). A flavor whose staging tree
-        // exists (S4 staged it) must present the same completeness the
-        // vanilla lane requires — its staging root is
-        // native/.build-<suffix>-<flavor>/mariadb-staging per
-        // tools/stage_database_migrations.py asset_root(). Flavors with no
-        // staging yet (pre-S4) are skipped, so the vanilla build is unchanged.
-        for (flavor in listOf("tbc", "wotlk")) {
-            val flavorStage = File(repoRoot, "native/.build-$nativeRootSuffix-$flavor/mariadb-staging")
-            if (!flavorStage.isDirectory) continue
-            val flavorRequired = listOf(
-                File(flavorStage, "jniLibs/$selectedAbi/libpocket_mariadbd.so"),
-                File(flavorStage, "jniLibs/$selectedAbi/libpocket_mariadb_client.so"),
-                File(flavorStage, "assets/database/provider/bootstrap.sql"),
-                File(flavorStage, "assets/database/provider/runtime-manifest.json"),
-                File(flavorStage, "assets/database/migrations/manifest.json"),
-                File(flavorStage, "BUILD_PROVENANCE.json"),
+        // R2-r4-3: ONE verifier for every MariaDB staging tree — the vanilla
+        // leg and the per-flavor legs get identical completeness, ELF
+        // e_machine, and provider runtime-manifest identity checks (the
+        // per-flavor leg previously checked existence + flavorId only while
+        // its comment promised vanilla parity).
+        fun verifyMariadbStagingTree(
+            stageRoot: File,
+            label: String,
+            remedy: String,
+            expectedFlavorId: String?,
+        ) {
+            val prefix = if (label.isEmpty()) "" else "$label "
+            val required = listOf(
+                File(stageRoot, "jniLibs/$selectedAbi/libpocket_mariadbd.so"),
+                File(stageRoot, "jniLibs/$selectedAbi/libpocket_mariadb_client.so"),
+                File(stageRoot, "assets/database/provider/bootstrap.sql"),
+                File(stageRoot, "assets/database/provider/runtime-manifest.json"),
+                File(stageRoot, "assets/database/migrations/manifest.json"),
+                File(stageRoot, "BUILD_PROVENANCE.json"),
             )
-            val flavorMissing = flavorRequired.filterNot { it.isFile }
-            check(flavorMissing.isEmpty()) {
-                "$flavor MariaDB staging incomplete for $selectedAbi (the per-flavor " +
-                    "staging tree exists, so the packaging gate enforces it). " +
-                    "Re-run tools/stage_database_migrations.py --flavor $flavor. " +
-                    "Missing: ${flavorMissing.joinToString { it.name }}"
+            val missing = required.filterNot { it.isFile }
+            check(missing.isEmpty()) {
+                "${prefix}MariaDB staging incomplete for $selectedAbi. $remedy " +
+                    "Missing: ${missing.joinToString { it.name }}"
             }
-            val flavorManifest = JsonSlurper().parse(
-                File(flavorStage, "assets/database/migrations/manifest.json"),
+            required.take(2).forEach { file ->
+                val header = file.inputStream().use { input -> ByteArray(20).also { input.read(it) } }
+                val machine = (header[18].toInt() and 0xff) or ((header[19].toInt() and 0xff) shl 8)
+                check(header.copyOfRange(0, 4).contentEquals(byteArrayOf(0x7f, 0x45, 0x4c, 0x46)) &&
+                    machine == expectedMachine) {
+                    "MariaDB artifact is not $selectedAbi ELF (e_machine=$machine): $file"
+                }
+            }
+            val runtimeManifest = JsonSlurper().parse(
+                File(stageRoot, "assets/database/provider/runtime-manifest.json"),
             ) as Map<*, *>
-            check((flavorManifest["flavorId"] as? String) == flavor) {
-                "$flavor migration ledger flavorId mismatch: " +
-                    File(flavorStage, "assets/database/migrations/manifest.json")
+            val expectedProvider = when (selectedAbi) {
+                "x86_64" -> "mariadb-11.5.2-termux-glibc"
+                "arm64-v8a" -> "mariadb-12.3.2-termux-bionic-arm64"
+                else -> error("Unsupported database ABI $selectedAbi")
             }
+            check((runtimeManifest["schema"] as? Number)?.toInt() == 1 &&
+                runtimeManifest["provider"] == expectedProvider &&
+                runtimeManifest["abi"] == selectedAbi) {
+                "MariaDB runtime manifest identity mismatch for $selectedAbi: " +
+                    File(stageRoot, "assets/database/provider/runtime-manifest.json")
+            }
+            if (expectedFlavorId != null) {
+                val migrationsManifest = JsonSlurper().parse(
+                    File(stageRoot, "assets/database/migrations/manifest.json"),
+                ) as Map<*, *>
+                check((migrationsManifest["flavorId"] as? String) == expectedFlavorId) {
+                    "$expectedFlavorId migration ledger flavorId mismatch: " +
+                        File(stageRoot, "assets/database/migrations/manifest.json")
+                }
+            }
+        }
+        val stage = File(repoRoot, "native/.build-$nativeRootSuffix/mariadb-staging")
+        verifyMariadbStagingTree(
+            stage,
+            label = "",
+            remedy = "Run the ABI-aware MariaDB staging and " +
+                "tools/stage_database_migrations.py.",
+            expectedFlavorId = null,
+        )
+        // S1 item 7: the packaging gate learns the per-flavor ledger set
+        // (docs/FLAVOR-ARTIFACT-NAMING.md §2). A flavor whose NATIVE staging
+        // leg exists must present the same completeness the vanilla lane
+        // requires. R2-r4-1: the skip keys on the native leg
+        // (jniLibs/<abi>), NEVER on the tree root — an assets-only
+        // migrations tree (tools/stage_database_migrations.py writes no
+        // jniLibs; the W3-era native/.build-x86_64-tbc tree is exactly that)
+        // has no producer for the native artifacts (owner table #7 skips
+        // x86_64 per-flavor native builds) and must not trip the demand.
+        for (flavor in perFlavorIds) {
+            val flavorStage = File(repoRoot, "native/.build-$nativeRootSuffix-$flavor/mariadb-staging")
+            if (!File(flavorStage, "jniLibs/$selectedAbi").isDirectory) continue
+            verifyMariadbStagingTree(
+                flavorStage,
+                label = flavor,
+                remedy = "Re-run tools/stage_database_migrations.py --flavor $flavor.",
+                expectedFlavorId = flavor,
+            )
         }
     }
 }
@@ -2157,12 +2483,16 @@ androidComponents {
                     // must never package the realm runtimes without
                     // digest validation. validateNativeRuntimeFreshness adds
                     // the staleness fence: staged bytes, provenance, and
-                    // sources.json commit pins must all agree first.
+                    // sources.json commit pins must all agree first. The W5
+                    // per-flavor fences (realm runtime + o11 extractors)
+                    // ride the same edges additively.
                     dependsOn(
                         validateDatabaseRuntime,
                         validateRealmRuntime,
                         validateNativeRuntimeFreshness,
                     )
+                    dependsOn(perFlavorRuntimeFreshnessTasks)
+                    dependsOn(perFlavorExtractorStagingTasks)
                 }
         }
         if (variant.name == "databaseRuntime") {
@@ -2179,6 +2509,8 @@ androidComponents {
                         validateRealmRuntime,
                         validateNativeRuntimeFreshness,
                     )
+                    dependsOn(perFlavorRuntimeFreshnessTasks)
+                    dependsOn(perFlavorExtractorStagingTasks)
                 }
         }
     }

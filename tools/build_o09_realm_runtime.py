@@ -227,6 +227,12 @@ CMANGOS_OVERLAYS = [
         ],
         "reason": "DO_SQLITE-only hardened connection layer: WAL with synchronous=NORMAL rendered per connection, busy_timeout 500ms with BUSY retry instead of silent false, BEGIN IMMEDIATE write transactions, begin-failure refusal + commit-failure rollback, fully materialized query results under the connection lock, no leaked statement wrappers, explicit-length TRANSIENT text binds. DO_MYSQL builds are behaviorally unchanged.",
     },
+    {
+        "id": "tbc-icu-apple-guard",
+        "backends": ["mysql", "sqlite"],
+        "path": "CMakeLists.txt",
+        "reason": "TBC-only branch fact (W5): the pinned cmangos-tbc tree is the only branch gating its ICU find on `if (UNIX OR APPLE)` - classic and wotlk gate `if (APPLE)` - and the NDK toolchain sets UNIX=1 while the android dep prefix stages no ICU, so the tbc Android configure died at FindICU before any target existed. Mirrors the o11 lane's o11-cmangos-tbc-icu-apple-guard.patch. Configure-inert on WIN32 (both guards false) and never linked by the server (staged DT_NEEDED allowlist: libc/libdl/libm/libc++_shared/z), so narrowing the guard cannot change the produced binaries.",
+    },
 ]
 
 # --- S1 overlay split (port plan S1 item 4; consumed by CP-2/S2) -------------
@@ -258,6 +264,7 @@ OVERLAY_SCOPES = {
     "runtime-dialect-truncate": "expansion-neutral",
     "runtime-dialect-anticheat-prune": "expansion-neutral",
     "db-sqlite-connection-hardening": "expansion-neutral",
+    "tbc-icu-apple-guard": "flavor",
 }
 # TBC re-derived anchor variants (port plan S2 item 3 / CP-2). The tbc branch
 # (puzzled-pancake/mangos-tbc pocket-realm @ ffbf97675) drifts from classic at
@@ -465,16 +472,21 @@ def core_anchor_restore_pair(classic_upstream: str, classic_android: str,
 # the guard upstream; the instance-aware m_loadedMMaps lookups re-derive the
 # graceful-miss semantics). Same sorted flavor-scoped list tbc got: all
 # eight flavor overlays apply, none dropped.
+# W5: tbc-only overlay ids, registered for tbc IN ADDITION to the shared
+# flavor-scoped set; vanilla/wotlk keep the shared set EXACTLY (their trees
+# already gate ICU on APPLE-only, so registering tbc-icu-apple-guard there
+# would put an unapplied row into their lockfiles and move the vanilla
+# lane's applied-overlay set — invariant 1's byte identity). The delta is
+# pinned by tests/test_s1_flavor_parameterization.py::
+# test_o09_overlay_split_resolves_registered_flavor_sets.
+_TBC_ONLY_OVERLAY_IDS = {"tbc-icu-apple-guard"}
+_FLAVOR_SCOPED_OVERLAY_IDS = sorted(
+    overlay_id for overlay_id, scope in OVERLAY_SCOPES.items() if scope == "flavor"
+)
 PER_FLAVOR_OVERLAY_REGISTRATION = {
-    "vanilla": sorted(
-        overlay_id for overlay_id, scope in OVERLAY_SCOPES.items() if scope == "flavor"
-    ),
-    "tbc": sorted(
-        overlay_id for overlay_id, scope in OVERLAY_SCOPES.items() if scope == "flavor"
-    ),
-    "wotlk": sorted(
-        overlay_id for overlay_id, scope in OVERLAY_SCOPES.items() if scope == "flavor"
-    ),
+    "vanilla": sorted(set(_FLAVOR_SCOPED_OVERLAY_IDS) - _TBC_ONLY_OVERLAY_IDS),
+    "tbc": sorted(set(_FLAVOR_SCOPED_OVERLAY_IDS) | _TBC_ONLY_OVERLAY_IDS),
+    "wotlk": sorted(set(_FLAVOR_SCOPED_OVERLAY_IDS) - _TBC_ONLY_OVERLAY_IDS),
 }
 
 
@@ -969,6 +981,21 @@ WIN_STATIC_OPENSSL_ANDROID = """  if(POCKET_REALM_WIN_DEPS)
     )
   endif()
 """
+# W5 tbc lane: the pinned cmangos-tbc tree gates its ICU find on
+# `if (UNIX OR APPLE)` — classic and wotlk gate `if (APPLE)` only — and the
+# NDK toolchain sets UNIX=1 while the android dep prefix stages no ICU, so
+# the tbc Android configure died at FindICU before any target existed
+# (archived failure evidence: out/completion/w5/o09-tbc-first-attempt-findicu.log —
+# the green rerun lives under o09-tbc-arm64-build.log). Mirror of the o11 lane's
+# native/o11-patches/o11-cmangos-tbc-icu-apple-guard.patch. Configure-inert
+# on WIN32 (both guards false there) and the server never links ICU (the
+# staged DT_NEEDED allowlist is libc/libdl/libm/libc++_shared/z).
+ICU_GUARD_TBC_UPSTREAM = "if (UNIX OR APPLE)"
+ICU_GUARD_TBC_ANDROID = (
+    "if (APPLE) # pocket-realm o09: only Apple needs this ICU find - the NDK "
+    "sets UNIX=1 while the android dep prefix stages no ICU and the server "
+    "never links it (classic/wotlk gate APPLE-only already)"
+)
 RESULT_QUEUE_UPSTREAM = """void SqlResultQueue::Update()
 {
     std::lock_guard<std::mutex> guard(m_mutex);
@@ -6096,6 +6123,24 @@ def sdk_root() -> Path:
 
 def tools() -> tuple[Path, Path, Path, Path]:
     sdk = sdk_root()
+    # R3-r5-1 (W5 code-red round 5, hard rule 1 / §7): the Android toolchain
+    # MUST be the mandated E:-resident install. CMake pins whatever compiler
+    # path the FIRST configure saw in its warm-dir cache
+    # (CMakeFiles/*/CMakeC[XX]Compiler.cmake), so a C:-resident SDK silently
+    # becomes the provenance of every artifact a warm-dir rebuild produces
+    # while the invoking command lines show only E: tools. Fail at resolution,
+    # before any configure can reuse such a cache.
+    mandated_sdk_root = Path(r"E:\pocket_realm_toolchain\android-sdk")
+    if sdk.resolve() != mandated_sdk_root.resolve():
+        raise RuntimeError(
+            f"ANDROID_SDK_ROOT resolves to {sdk} — the android lane toolchain "
+            f"must be the mandated E:-resident install {mandated_sdk_root} "
+            "(hard rule 1 / §7). A C:-resident NDK in a warm CMake compiler "
+            "cache becomes the provenance of every rebuilt artifact (the "
+            "R3-r5-1 class). Set ANDROID_SDK_ROOT="
+            f"{mandated_sdk_root} and wipe the affected native/.build-o09-* "
+            "warm dir so CMake reconfigures with the E: toolchain."
+        )
     ndks = sorted(path for path in (sdk / "ndk").glob("*") if path.is_dir())
     cmakes = sorted(path for path in (sdk / "cmake").glob("*") if path.is_dir())
     if not ndks or not cmakes:
@@ -6550,6 +6595,13 @@ def prepare_cmangos_source() -> None:
     replace_anchor(cmangos / "CMakeLists.txt", BACKEND_SELECT_UPSTREAM, BACKEND_SELECT_ANDROID)
     # Windows MSVC lane: keep the pinned static OpenSSL the only linked copy
     replace_anchor(cmangos / "CMakeLists.txt", WIN_STATIC_OPENSSL_UPSTREAM, WIN_STATIC_OPENSSL_ANDROID)
+    # W5 tbc lane: narrow the ICU find guard to APPLE (tbc-icu-apple-guard).
+    # The classic/wotlk trees gate APPLE-only already, so this anchor pair is
+    # tbc-scoped: running it for another flavor cannot match (and the missing
+    # anchor would refuse loud) — exactly why the call is branch-gated here
+    # and the overlay id is registered for tbc only.
+    if ACTIVE_FLAVOR == "tbc":
+        replace_anchor(cmangos / "CMakeLists.txt", ICU_GUARD_TBC_UPSTREAM, ICU_GUARD_TBC_ANDROID)
     # Windows mysql lane: the named-pipe connection must carry the conf's
     # pipe NAME (host == "." selects the protocol; the socket field names
     # the pipe). MySQL-lane-only: sqlite builds never compile DatabaseMysql.
@@ -6763,6 +6815,12 @@ def restore_cmangos_source() -> None:
         WIN_STATIC_OPENSSL_ANDROID,
         WIN_STATIC_OPENSSL_UPSTREAM,
     )
+    if ACTIVE_FLAVOR == "tbc":
+        restore_anchor(
+            cmangos / "CMakeLists.txt",
+            ICU_GUARD_TBC_ANDROID,
+            ICU_GUARD_TBC_UPSTREAM,
+        )
     if BACKEND in ("mysql", "mariadb"):
         restore_anchor(
             cmangos / "src" / "shared" / "Database" / "DatabaseMysql.cpp",
@@ -7446,6 +7504,10 @@ def main() -> int:
     if args.write_lockfiles:
         write_lockfiles()
         return 0
+    # R4-r5-1: the disk-headroom preflight — hour-scale native builds on a
+    # volume below the documented floor fail here with a reclaim remedy,
+    # never as a wasted multi-GB ENOSPC build.
+    common.require_disk_headroom(ROOT / "native")
     try:
         select_flavor(args.flavor)
     except flavor_layout.FlavorPinError as exc:

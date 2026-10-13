@@ -307,7 +307,7 @@
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libpocket_realmd_runtime.so",
       "size": 5882304,
-      "sha256": "a495348cc7aa5c2f8287f919edbeefb96bffaf5fa2eaee8984d4484f422f3583",
+      "sha256": "d6ffa96911e95b85daa41d74de4eef625acd689bb2cb5a7c733d1bd1c53428b3",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -322,8 +322,8 @@
     },
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libpocket_world_runtime.so",
-      "size": 34588216,
-      "sha256": "67faa667762179a28e93bff3e1adaaa91a86c0d74639490c888e7831a41be749",
+      "size": 34598872,
+      "sha256": "a33705b93c82d363d13af251c8b00ce28f864f86741554e465652cf36b76ec8a",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -457,5 +457,5 @@
       "gzip_size": 3320
     }
   },
-  "binaries_stale_for_patches": true
+  "binaries_stale_for_patches": false
 }

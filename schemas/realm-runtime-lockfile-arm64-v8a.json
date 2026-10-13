@@ -305,7 +305,7 @@
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libpocket_realmd_runtime.so",
       "size": 5464048,
-      "sha256": "cc49838697b09b44c32956a441307da61c17477e676bc4e055b1637692a96436",
+      "sha256": "0790119b1324a922c8485236748ad1817cddc8d00a5da4f00fd6a2d436a222b8",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -320,8 +320,8 @@
     },
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libpocket_world_runtime.so",
-      "size": 33326168,
-      "sha256": "4e649f7881fa33d4371dd882bdbabffd9cb3ed2619ded82132b370e8f2c518d6",
+      "size": 33336808,
+      "sha256": "37a4af6f457424a5845f10e09757541cd7ca96970965b35023b05c4f85a86f2a",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -429,5 +429,5 @@
     "commit": "6d05498314db1b57f81c271080018aa2d0b89be9",
     "vendored": "native/llm/prebuilt/arm64-v8a"
   },
-  "binaries_stale_for_patches": true
+  "binaries_stale_for_patches": false
 }

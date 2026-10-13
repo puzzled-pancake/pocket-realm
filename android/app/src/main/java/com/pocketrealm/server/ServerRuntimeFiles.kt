@@ -66,14 +66,18 @@ internal class ServerRuntimeFiles(context: Context) {
     /**
      * R4-1 (W4 code-red round 4): the ANDROID boot-time lane-vs-runtime
      * gate — the desktop requireRuntimeLaneMatches twin. The packaged
-     * Android realm runtime is the VANILLA lane's libpocket_world_runtime.so
-     * (android/app/build.gradle.kts stages the single vanilla lockfile
-     * lane; schemas/ carries no Android per-flavor lockfiles), so booting
+     * Android realm runtime is the VANILLA lane's libpocket_world_runtime.so:
+     * W5 built and locked the HOST-SIDE per-flavor native lanes
+     * (schemas/realm-runtime-lockfile-{tbc,wotlk}-arm64-v8a.json against
+     * native/.build-o09-arm64-v8a-{flavor}/realm-staging, decision D88) but
+     * the APK's gradle flavor routing — packaging a per-flavor staging tree
+     * into the image — is recorded as open follow-up work in DECISIONS-PORT
+     * D90, so the image still carries exactly one realm runtime and booting
      * vanilla core bytes against a tbc/wotlk conf+database family is
      * refused LOUD before startNative — the exact wrong-core boot the
-     * desktop refuses with RUNTIME-LANE MISMATCH. W5 owns per-flavor
-     * Android runtimes; until then every non-vanilla boot on this device
-     * refuses with the actionable copy.
+     * desktop refuses with RUNTIME-LANE MISMATCH. Until the D90 wiring
+     * ships, every non-vanilla boot on this device refuses with the
+     * actionable copy.
      */
 
     fun acquireNormalDataLease(): PreparedDataStore.GenerationLease = normalData.acquireRuntimeLease()
@@ -575,8 +579,10 @@ internal class ServerRuntimeFiles(context: Context) {
                 "RUNTIME-LANE MISMATCH: the Android image ships the vanilla " +
                     "lane's pocket_* runtime only — booting vanilla core bytes " +
                     "against the ${bootLane.flavorId} database family is refused " +
-                    "(per-flavor Android runtimes are W5 work). Re-pick Vanilla " +
-                    "on Home to boot this device."
+                    "(per-flavor runtime packaging is recorded as open follow-up " +
+                    "work in the decision log, D90 — the native lanes and their " +
+                    "lockfiles exist host-side, the image does not route them " +
+                    "yet). Re-pick Vanilla on Home to boot this device."
             }
         }
         private const val MAX_NORMAL_LOG_BYTES = 4L * 1024L * 1024L

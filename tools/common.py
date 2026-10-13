@@ -387,3 +387,25 @@ def msys2_root() -> Path:
     raise RuntimeError(
         "MSYS2 not found; set MSYS2_ROOT to its install root (e.g. C:\\msys64)"
     )
+
+
+DISK_HEADROOM_FLOOR_GB = 12.0
+
+
+def require_disk_headroom(build_root: Path, floor_gb: float = DISK_HEADROOM_FLOOR_GB) -> None:
+    """R4-r5-1 (W5 code-red round 5): fail LOUD before an hour-scale native
+    build when the build root's volume is below the documented free-space
+    floor. The lockfile digest fences make ENOSPC-corrupted staged bytes fail
+    closed, but the cheaper failure is this preflight: a named remedy instead
+    of a wasted multi-GB build. Remedy names the retired warm-dir class to
+    reclaim (stale .build-o09-* / .build-o11-* trees)."""
+    free_gb = shutil.disk_usage(build_root).free / 2**30
+    if free_gb < floor_gb:
+        raise SystemExit(
+            f"ERROR: only {free_gb:.1f} GB free on {build_root.anchor} "
+            f"(floor {floor_gb} GB) before a native lane build. Reclaim space "
+            "by deleting stale warm dirs that no gate pins: "
+            "native/.build-o09-<abi>[-<flavor>] and "
+            "native/.build-o11-<abi>[-<flavor>] trees for lanes whose "
+            "lockfile artifacts you can rebuild, then re-run this lane."
+        )

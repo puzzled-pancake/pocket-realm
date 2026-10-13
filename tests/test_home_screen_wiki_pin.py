@@ -112,11 +112,13 @@ def test_troubleshooting_documents_the_wave_val_codes():
 
 
 def test_the_wiki_states_the_per_platform_runtime_honesty():
-    """R4-1 (W4 code-red round 4): the wiki must state, per platform, what
-    actually boots today — the desktop installed image refuses a TBC/WotLK
-    boot (RUNTIME-LANE MISMATCH), AND Android ships the Vanilla lane's
-    runtime + ledger only (boot + server-database gate refuse; per-flavor
-    Android runtimes/ledgers are W5). A wiki that documents only the
+    """R4-1 (W4 code-red round 4), re-pointed at W5 code-red round 5
+    (R6-r5-1): the wiki must state, per platform, what actually boots
+    today — the desktop installed image refuses a TBC/WotLK boot
+    (RUNTIME-LANE MISMATCH), AND Android ships the Vanilla lane's runtime +
+    ledger only (boot + server-database gate refuse; the per-flavor
+    packaging follow-up is recorded as decision D90, never as a pending
+    wave name — W5 exited with it open). A wiki that documents only the
     desktop refusal hides the Android gate the flip made reachable."""
     home = (ROOT / "docs/wiki/Home-Screen.md").read_text(encoding="utf-8")
     assert "On Android, the app ships the Vanilla lane's runtime and migration ledger only" in " ".join(home.split()), (
@@ -130,8 +132,11 @@ def test_the_wiki_states_the_per_platform_runtime_honesty():
     assert "Vanilla does, on every platform" in normalized, (
         "Getting-Started must answer 'which flavors run the server today' "
         "with the per-platform truth")
-    assert "W5" in normalized, (
-        "Getting-Started must name the per-lane-runtime milestone")
+    assert "D90" in normalized, (
+        "Getting-Started must cite the recorded follow-up decision (D90) "
+        "for the per-flavor packaging scope — the pending-W5 phrasing is "
+        "falsified by the wave's own exit (R6-r5-1)"
+    )
 
 
 def test_the_wiki_front_page_names_all_three_qualified_versions():

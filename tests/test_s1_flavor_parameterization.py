@@ -246,11 +246,18 @@ def test_build_native_registered_flavors_resolve_after_pin_registration(tmp_path
 # ---------------------------------------------------------------------------
 
 def test_o09_overlay_split_vanilla_parity() -> None:
+    """Vanilla's applied set is the whole table backend-filtered, MINUS the
+    flavor-scoped ids another flavor owns (W5: tbc's tbc-icu-apple-guard).
+    Deriving through PER_FLAVOR_OVERLAY_REGISTRATION keeps the pin
+    mechanical: any table entry that slips into vanilla's set without being
+    registered for it (or vice versa) diverges here."""
     from tools import build_o09_realm_runtime as o09
     for backend in ("mysql", "sqlite"):
         expected = [
             dict(entry) for entry in o09.CMANGOS_OVERLAYS
             if backend in entry.get("backends", ("mysql", "sqlite"))
+            and (o09.OVERLAY_SCOPES[entry["id"]] == "expansion-neutral"
+                 or entry["id"] in o09.PER_FLAVOR_OVERLAY_REGISTRATION["vanilla"])
         ]
         assert o09.overlays_for("vanilla", backend) == expected
 
@@ -260,14 +267,20 @@ def test_o09_overlay_split_resolves_registered_flavor_sets() -> None:
     at the P2 data wave (2026-10-08): tbc registered its re-derived set
     (CP-2, five anchors re-derived, none dropped) and wotlk re-derived its
     own variants at its S2 build (2026-10-06) — both now RESOLVE, each set
-    scoped to its own flavor's anchors, id-parity with vanilla per backend
-    (the anchor text differs per branch by design; the ids are the contract)."""
+    scoped to its own flavor's anchors. The ids are the contract: W5 added
+    the first DELIBERATE per-flavor delta — tbc's `tbc-icu-apple-guard`
+    (its pinned tree is the only branch gating the ICU find on
+    `if (UNIX OR APPLE)`, which the NDK toolchain trips at configure) — so
+    this pin now asserts the delta is EXACTLY that one named id and that
+    wotlk keeps full id-parity with vanilla. Any further divergence is a
+    registration drift this test refuses."""
     from tools import build_o09_realm_runtime as o09
     for backend in ("mysql", "sqlite"):
-        for flavor in ("tbc", "wotlk"):
-            assert [e["id"] for e in o09.overlays_for(flavor, backend)] == [
-                e["id"] for e in o09.overlays_for("vanilla", backend)
-            ]
+        vanilla_ids = [e["id"] for e in o09.overlays_for("vanilla", backend)]
+        wotlk_ids = [e["id"] for e in o09.overlays_for("wotlk", backend)]
+        tbc_ids = [e["id"] for e in o09.overlays_for("tbc", backend)]
+        assert wotlk_ids == vanilla_ids
+        assert sorted(tbc_ids) == sorted(vanilla_ids + ["tbc-icu-apple-guard"])
 
 
 def test_o09_select_flavor_vanilla_agrees_with_driver_constants() -> None:

@@ -98,6 +98,17 @@ ALLOWLIST: tuple[dict[str, str], ...] = (
         "retires": "never (owning table)",
     },
     {
+        "path": "tests/test_build_toolchain_residency.py",
+        "reason": (
+            "W5 R3-r6-2: the win warm-dir residency pin freezes the D76-DISCLOSED "
+            "C:-resident MSVC/WinGet toolchain identities as a drift baseline — the "
+            "literals ARE the recorded disclosure (any NEW identity fails the pin); "
+            "the win toolchain relocation itself is owner-owned (D76, W1)"
+        ),
+        "retires": "when the owner relocates the win toolchain to E: and the baseline "
+                   "is re-derived E:-resident (the pin then scans for E: records)",
+    },
+    {
         "path": "tests/test_check_e_only.py",
         "reason": "the gate's own tests construct C: literals by design to prove detection",
         "retires": "never (owning-table test)",

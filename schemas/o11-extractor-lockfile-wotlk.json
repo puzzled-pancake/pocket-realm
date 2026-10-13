@@ -15,7 +15,7 @@
     {
       "path": "native/.build-o11-x86_64-wotlk/extractor-staging/jniLibs/x86_64/libpocket_ad.so",
       "size": 422960,
-      "sha256": "2e7da23886e473e94223f09fc57f2cee53f09ea017e4b618496ae917e68c2ed5",
+      "sha256": "4a3b6b3c15971d3161c29da7e62870dacdf452377a8e5d66aaf2f27ed0fd860c",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -30,7 +30,7 @@
     {
       "path": "native/.build-o11-x86_64-wotlk/extractor-staging/jniLibs/x86_64/libpocket_vmap_extractor.so",
       "size": 480672,
-      "sha256": "f31351225c160b64cf2dcd3da1890add4929d0a528be6e8fd449862df1a2847e",
+      "sha256": "ba4b45f91fe52e520a28a8fa656c45cd7e1e28fb46528f540520a7c84e9d478f",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -45,7 +45,7 @@
     {
       "path": "native/.build-o11-x86_64-wotlk/extractor-staging/jniLibs/x86_64/libpocket_vmap_assembler.so",
       "size": 359384,
-      "sha256": "a9766300d50d395512315ef95482c45a1e36b687757ba2bec6417ed1fe12d354",
+      "sha256": "7afc963d255662a22b7d6d0ddbb768234e0d3877b603f2c494730057f27c73ca",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -60,7 +60,7 @@
     {
       "path": "native/.build-o11-x86_64-wotlk/extractor-staging/jniLibs/x86_64/libpocket_movemapgen.so",
       "size": 2059648,
-      "sha256": "2f7f89f0b2725ce3c52f7a557e733ce7182e54fe33584e4f7b516a95df4e1e1d",
+      "sha256": "51e509cf74fca610397f0f39c551751ff65a54d88977a1b4c39308c0b1374f7f",
       "needed": [
         "libc.so",
         "libdl.so",

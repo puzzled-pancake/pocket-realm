@@ -224,13 +224,16 @@ def test_committed_lockfiles_never_record_the_sqlite_backend() -> None:
         assert not missing, (
             f"{name} predates the P0 overlay work (missing overlay ids "
             f"{sorted(missing)}); rebuild that ABI lane with the current driver")
-        # The exact mysql overlay set, mechanically derived from
-        # the driver's registry + backend filter. A future registry entry
-        # without a "backends" key defaults into BOTH provenances - this
-        # catches that (and a mis-filtered regeneration) instead of trusting
-        # the lockfile to have been written correctly.
-        expected = {entry["id"] for entry in driver.CMANGOS_OVERLAYS
-                    if "mysql" in entry.get("backends", ("mysql", "sqlite"))}
+        # The exact mysql overlay set, mechanically derived from the driver's
+        # registry through the same registration-checked derivation the
+        # writer uses (overlays_for("vanilla", backend)) — these committed
+        # lockfiles are VANILLA lanes, so a tbc-only registered entry
+        # (tbc-icu-apple-guard, W5) must not leak into the expected set, while
+        # a future registry entry without a "backends" key still defaults
+        # into both provenances and a mis-filtered regeneration still diverges
+        # from the writer — both caught here instead of trusting the lockfile
+        # to have been written correctly.
+        expected = {entry["id"] for entry in driver.overlays_for("vanilla", "mysql")}
         assert overlays == expected, (
             f"{name} overlay ids differ from the driver registry filtered "
             f"for mysql: missing={sorted(expected - overlays)}, "
@@ -252,8 +255,7 @@ def test_committed_lockfiles_never_record_the_sqlite_backend() -> None:
     sqlite_overlays = {
         entry["id"] for entry in srec.get("cmangos_source_overlays", [])}
     expected_sqlite = {
-        entry["id"] for entry in driver.CMANGOS_OVERLAYS
-        if "sqlite" in entry.get("backends", ("mysql", "sqlite"))}
+        entry["id"] for entry in driver.overlays_for("vanilla", "sqlite")}
     assert sqlite_overlays == expected_sqlite, (
         f"sibling sqlite overlay drift: missing="
         f"{sorted(expected_sqlite - sqlite_overlays)}, unexpected="

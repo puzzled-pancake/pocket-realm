@@ -19,7 +19,7 @@
     {
       "path": "native/.build-o11-arm64-v8a-tbc/extractor-staging/jniLibs/arm64-v8a/libpocket_ad.so",
       "size": 173680,
-      "sha256": "f35514c0beafe5a620878c175b005626c6b32b5afb7586798952e82e68f363fa",
+      "sha256": "7bc903af9ef2db2bcae49499e73340fd7239eda8931747fbec51a10997f72f2b",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -34,7 +34,7 @@
     {
       "path": "native/.build-o11-arm64-v8a-tbc/extractor-staging/jniLibs/arm64-v8a/libpocket_vmap_extractor.so",
       "size": 459496,
-      "sha256": "7fb407e94f53a5e374a7a16265cce368dc42a1ec6942aba48cd57b5af7b8aee8",
+      "sha256": "113eadc2bf9a37b7c9c14f57788a39064df2732b2db033a61eba76cdd9d7e16b",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -49,7 +49,7 @@
     {
       "path": "native/.build-o11-arm64-v8a-tbc/extractor-staging/jniLibs/arm64-v8a/libpocket_vmap_assembler.so",
       "size": 353664,
-      "sha256": "78aadc52710d19018b049979c3573f9d2ba003ace73de5add0f17715c8ce6e4b",
+      "sha256": "52115eb38166e1dfcddbe9f373a5b5065ddc47ffc4b5a55b49624f46e32615d0",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -64,7 +64,7 @@
     {
       "path": "native/.build-o11-arm64-v8a-tbc/extractor-staging/jniLibs/arm64-v8a/libpocket_movemapgen.so",
       "size": 1909624,
-      "sha256": "996b719b1e6402c5eaa6e297281897d790483b19b1d4c0be51f2063d08383abb",
+      "sha256": "2d22ae010e29d509827c548dc78ee146d3e6ca09539f8f4a028cf70621d84cdd",
       "needed": [
         "libc.so",
         "libdl.so",
