@@ -101,20 +101,58 @@ class RealmBuildsProjectionContractTest {
     }
 
     @Test
-    fun theEngineNeverReResolvesTheFlavorInsideTheDatabaseProcess() {
+    fun theEngineResolvesThePersistedLaneNeverTheUiHolder() {
+        // W4 flip (R1-1/D72 retirement): the engine resolves the PERSISTED
+        // Home selection through ActiveFlavorState (the same machine the
+        // desktop twin uses) — never the :ui-local ActiveFlavor holder this
+        // process cannot see, and never a silent vanilla guess.
         val engine = mainSource("database/DatabaseEngine.kt")
         assertEquals(
-            "the engine (the :database process) must not resolve the active " +
-                "flavor — the Home switcher's ActiveFlavor selection is " +
-                "UI-process-local in-memory state this process cannot see; " +
-                "the caller threads the resolved build list instead",
+            "the engine must not resolve the active flavor through the :ui " +
+                "holder — the persisted pick crosses the process boundary instead",
             0,
             occurrences(engine, "ActiveFlavor.resolve"),
         )
         assertEquals(
             "the engine keeps no flavor import either (the value crosses Binder)",
             0,
-            occurrences(engine, "com.pocketrealm.client.ActiveFlavor"),
+            occurrences(engine, "import com.pocketrealm.client.ActiveFlavor"),
+        )
+        assertTrue(
+            "the engine must resolve the persisted lane through ActiveFlavorState",
+            "ActiveFlavorState(persisted)" in engine,
+        )
+    }
+
+    @Test
+    fun theAndroidLedgerScopeRefusesNonVanillaPicksBeforeProvisioning() {
+        // R4-1b (W4 code-red round 4): the android migration ledger is
+        // VANILLA-only until W5 — provisioning the persisted lane's
+        // tbc*/wotlk* family would strand the datadir (the vanilla-only
+        // ledger can never serve it, and re-picking vanilla cannot recover
+        // a family that was never provisioned). The bootstrap resolver
+        // must refuse LOUD, naming the scope + the remedy, BEFORE it can
+        // return any non-vanilla database names.
+        val engine = mainSource("database/DatabaseEngine.kt")
+        val gate = engine.substringAfter("private fun bootstrapDatabaseNames")
+            .substringBefore("private fun realmdDatabaseName")
+        assertTrue(
+            "the bootstrap resolves the persisted pick first (the R1-1 law)",
+            "ActiveFlavorState(persisted)" in gate,
+        )
+        assertTrue(
+            "the android lane-scope refusal must fire for non-vanilla picks",
+            "ANDROID-LANE-SCOPE" in gate &&
+                "per-flavor Android ledgers are " in gate &&
+                "Re-pick Vanilla on Home" in gate,
+        )
+        // ordering: the refusal check must precede the bootstrap names the
+        // provisioning consumes
+        assertTrue(
+            "the refusal must fire BEFORE the lane's database names are " +
+                "returned to the provisioning",
+            gate.indexOf("ANDROID-LANE-SCOPE") <
+                gate.indexOf("return MariaDbBootstrap.databaseNames(flavor)"),
         )
     }
 
@@ -227,13 +265,17 @@ class RealmBuildsProjectionContractTest {
             "the gate resolves the registry's qualified lane",
             "ClientFlavors.qualified()" in gate,
         )
+        // W4 flip (D72 retirement): the ambiguous no-pick state still refuses
+        // loud (the ActiveFlavorState resolve), but the vanilla-only
+        // requirement is GONE — each qualified lane provisions its own
+        // database family.
         assertTrue(
-            "zero or several qualified flavors must refuse loud before any SQL crosses the client",
-            "expected exactly one qualified flavor, found \${qualified.size}" in gate,
+            "the gate resolves the persisted pick through ActiveFlavorState",
+            "ActiveFlavorState(persisted)" in gate,
         )
         assertTrue(
-            "the gate keeps the vanilla-only lane the conf templates seed",
-            "flavorId == ClientFlavors.VANILLA.flavorId" in gate,
+            "the D72 retirement marker must be present on the android twin",
+            "D72 retirement" in gate,
         )
         assertTrue(
             "the projection must route through the one bootstrap resolver (W1.2)",

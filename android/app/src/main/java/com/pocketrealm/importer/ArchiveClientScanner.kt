@@ -2,6 +2,70 @@ package com.pocketrealm.importer
 
 import com.pocketrealm.client.SafClientScanner
 
+/** W4: the bounded-depth Data walk collecting MPQs by lowercase
+ * basename (locale subdirectories included, wrapper levels too). */
+private const val MPQ_WALK_MAX_DEPTH = 4
+
+/** The MPQ file magic ("MPQ") and its length. */
+private val MPQ_MAGIC: ByteArray = byteArrayOf(0x4d.toByte(), 0x50.toByte(), 0x51.toByte(), 0x1a.toByte())
+private const val MPQ_MAGIC_LEN = 4
+
+/** W4: the whole MPQ audit for the archive lane — the locale walk, the
+ * per-form missing check, and the R1-1/R2-5-2 exact-set leg (an unknown
+ * patch-*.mpq on a non-vanilla lane is VAL-04 naming the file; vanilla
+ * keeps its documented tolerance). Extracted from verifyExtracted for
+ * complexity/nesting. */
+private fun auditMpqSet(
+    data: java.io.File,
+    flavor: com.pocketrealm.client.ClientFlavor?,
+    failures: MutableList<String>,
+) {
+    val mpqByRelPath = collectMpqFiles(data)
+    val missing = flavor?.requiredMpqs.orEmpty().filterNot { key ->
+        val lowered = key.lowercase()
+        if ('/' in lowered) mpqByRelPath.containsKey(lowered)
+        else mpqByRelPath.keys.any { it.substringAfterLast('/') == lowered }
+    }
+    if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
+    if (flavor != null && flavor.flavorId != com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
+        for ((rel, file) in mpqByRelPath) {
+            val base = rel.substringAfterLast('/')
+            val known = flavor.requiredMpqs.any {
+                val lowered = it.lowercase()
+                lowered == rel || lowered.substringAfterLast('/') == base
+            }
+            if (!known && base.startsWith("patch-") && base.endsWith(".mpq")) {
+                failures += "VAL-04: unknown patch MPQ not in the exact set: Data/$rel"
+            }
+        }
+    }
+    @Suppress("MagicNumber")  // the MPQ magic bytes, named by their use
+    for (file in mpqByRelPath.values) {
+        val header = file.inputStream().use { runCatching { it.readNBytes(MPQ_MAGIC_LEN) }.getOrDefault(ByteArray(0)) }
+        if (!header.contentEquals(MPQ_MAGIC)) {
+            failures += "VAL-04: invalid MPQ header: Data/${file.name}"
+        }
+    }
+}
+
+private fun collectMpqFiles(data: java.io.File):
+        LinkedHashMap<String, java.io.File> {
+    val mpqs = LinkedHashMap<String, java.io.File>()
+    fun walk(dir: java.io.File, rel: String, depth: Int) {
+        if (depth >= MPQ_WALK_MAX_DEPTH) return
+        for (child in dir.listFiles().orEmpty()) {
+            val childRel =
+                (if (rel.isEmpty()) child.name else "$rel/${child.name}").lowercase()
+            if (child.isDirectory) walk(child, childRel, depth + 1)
+            else if (child.name.endsWith(".mpq", true)) {
+                mpqs.putIfAbsent(childRel, child)
+            }
+        }
+    }
+    walk(data, "", 0)
+    return mpqs
+}
+
 /**
  * Detection over a client archive's raw entry list: finds the client root
  * (WoW.exe at depth ≤ 2 counting the wrapper folder), rebases entries under
@@ -102,18 +166,7 @@ internal class ArchiveClientScanner(
         if (!data.isDirectory) {
             failures += "VAL-04: Data directory is absent"
         } else {
-            val mpqs = data.listFiles().orEmpty().filter { it.isFile && it.name.endsWith(".mpq", true) }
-                .associateBy { it.name.lowercase() }
-            // A foreign client (no qualified flavor matched) already failed
-            // VAL-03; never compare the qualified MPQ union against it.
-            val missing = flavor?.requiredMpqs.orEmpty().filterNot(mpqs::containsKey)
-            if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
-            for (file in mpqs.values) {
-                val header = file.inputStream().use { runCatching { it.readNBytes(4) }.getOrDefault(ByteArray(0)) }
-                if (!header.contentEquals(byteArrayOf(0x4d, 0x50, 0x51, 0x1a))) {
-                    failures += "VAL-04: invalid MPQ header: Data/${file.name}"
-                }
-            }
+            auditMpqSet(data, flavor, failures)
         }
         val supported = failures.isEmpty() && flavor != null
         return SafClientScanner.Result(

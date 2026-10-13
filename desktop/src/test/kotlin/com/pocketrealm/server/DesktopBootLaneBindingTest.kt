@@ -98,13 +98,18 @@ class DesktopBootLaneBindingTest {
     }
 
     @Test
-    fun theSoleQualifiedLaneStillDegradesWithoutAnyPick() {
-        ActiveFlavor.reset() // the real registry: vanilla-only
+    fun thePersistedPickResolvesTheBootLaneWithoutTheHolder() {
+        // W4 flip: the sole-qualified degrade is RETIRED — with three
+        // qualified lanes an absent persisted pick refuses loud, and the
+        // PERSISTED pick (not the holder) resolves the boot lane. This
+        // test pins the persisted-pick leg: the pick survives the holder
+        // being empty (the cross-process posture).
+        val files = files() // pickVanilla: the persisted pick + holder pin
+        ActiveFlavor.reset() // the holder goes EMPTY (the other process)
         try {
-            val files = files()
             assertEquals(
                 "vanilla",
-                files.bootLaneFlavor(snapshotWith(null)).flavorId,
+                files.bootLaneFlavor(snapshotWith("vanilla")).flavorId,
             )
         } finally {
             ActiveFlavor.reset()
@@ -302,14 +307,14 @@ class DesktopBootLaneBindingTest {
             "desktop/src/main/kotlin/com/pocketrealm/database/DesktopMariaDbEngine.kt",
         ).readText()
         assertTrue(
-            "the desktop engine must carry the android realmdDatabaseName " +
-                "guard's twin (the machine's fail-loud resolution, then the " +
-                "W1.2 vanilla-only requirement before any SQL crosses) — and " +
-                "corrects D63's 'verified in place' claim. W1.2: the guard " +
-                "renamed to bootstrapDatabaseNames and the bootstrap's CREATE " +
-                "DATABASE literals route through it (MariaDbBootstrap)",
+            "the desktop engine must keep the lane-routed bootstrap: the " +
+                "machine's resolution (holder fallback) then the shared " +
+                "MariaDbBootstrap composition — W4 (D72 retirement, owner " +
+                "ruling 2026-10-12) removed the W1.2 vanilla-only requirement " +
+                "(the per-flavor ledgers provision and apply each lane's own " +
+                "family), and the shape guard stays",
             "com.pocketrealm.server.ServerRuntimeFiles.serverFlavor()" in engine &&
-                "the MariaDB bootstrap resolves only the vanilla lane (the " in engine &&
+                "D72 RETIRED, owner ruling 2026-10-12" in engine &&
                 "MariaDbBootstrap.initialAuthSql(" in engine &&
                 "bootstrapDatabaseNames()" in engine,
         )

@@ -625,6 +625,59 @@ def test_owning_surfaces_stay_green_with_the_widened_token_set():
 # ---------------------------------------------------------------------------
 
 
+def test_archive_sniffer_val_copy_is_flavor_neutral():
+    """R6-r6-1 (W4 code-red round 6): VAL-11/VAL-12 rejection copy must not
+    hard-code the vanilla identity ("1.12.1", "5875") — the flip qualified
+    tbc/wotlk imports, and the copy derives the accepted set from
+    ClientPeIdentity.expectedVersions (the same registry source VAL-03
+    uses), so it cannot drift from the registry again."""
+    source = (
+        ROOT / "android/app/src/main/java/com/pocketrealm/importer/"
+        "ArchiveFormatSniffer.kt"
+    ).read_text(encoding="utf-8")
+    stripped = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    stripped = re.sub(r"//[^\n]*", "", stripped)
+    for token in ("1.12.1", "5875"):
+        hits = [
+            l for l in stripped.splitlines()
+            if token in l and ("VAL11_ISO" in l or "VAL12_NOT_INNO" in l
+                               or "installers" in l or "extracted" in l)
+        ]
+        assert not hits, (
+            f"ArchiveFormatSniffer's VAL-11/12 copy hard-codes the vanilla "
+            f"identity {token!r} ({hits[:1]}) - derive the accepted set "
+            "from ClientPeIdentity.expectedVersions (R6-r6-1)"
+        )
+    assert "expectedVersions" in stripped, (
+        "the VAL-11/12 copy must derive the accepted set from the registry "
+        "(ClientPeIdentity.expectedVersions)"
+    )
+
+
+def test_settings_setup_card_copy_is_flavor_neutral():
+    """R4-4 (W4 code-red round 4): the Settings maintenance Setup card
+    must not hard-code "the WoW 1.12.1 client" — the desktop twin
+    already reads flavor-neutrally, and the flip made tbc/wotlk
+    selectable, so the card names the user's own flavor, never one
+    lane's version token."""
+    source = (
+        ROOT / "android/app/src/main/java/com/pocketrealm/ui/SettingsScreen.kt"
+    ).read_text(encoding="utf-8")
+    stripped = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    stripped = re.sub("//[^\n]*", "", stripped)
+    hard_coded = re.findall(
+        r"WoW \d+\.\d+ client", stripped,
+    )
+    assert not hard_coded, (
+        f"SettingsScreen's Setup card hard-codes a lane's client "
+        f"identity ({hard_coded[:2]}) - the desktop twin reads "
+        "flavor-neutrally; name the user's own flavor instead (R4-4)"
+    )
+    assert "Setup covers the game-files import for your flavor" in stripped, (
+        "the Setup card lost the flavor-neutral requirement copy"
+    )
+
+
 def test_multi_flavor_screen_copy_derives_the_client_identity():
     """ClientScreen's copy names the ACTIVE lane's client, resolved through
     the fail-loud flavor machine (the TunnelInvite.clientRequirementLine
@@ -634,12 +687,17 @@ def test_multi_flavor_screen_copy_derives_the_client_identity():
     # comment-stripped: the CONTRACT marker names the old literal; only
     # copy in string position counts
     stripped = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
-    stripped = re.sub(r"//[^\n]*", "", stripped)
+    stripped = re.sub("//[^\n]*", "", stripped)
     hard_coded = re.findall(r"WoW \d+\.\d+", stripped)
     assert not hard_coded, (
         f"ClientScreen hard-codes a lane's client identity in user copy "
         f"({hard_coded[:2]}) — derive it from ActiveFlavor (R2-1)"
     )
-    assert "ActiveFlavor.resolve(" in source, (
+    # W4 flip: the render lane resolves through the machine's canonical
+    # displayedId (selection, else sole qualified, else null -> the
+    # first-pick copy) - the import OPERATION still fails loud at the
+    # resolver; either form is the ActiveFlavor machine, never a literal.
+    assert ("ActiveFlavor.resolve(" in source
+            or "ActiveFlavor.displayedId" in source), (
         "ClientScreen lost the active-lane resolution its copy derives from"
     )

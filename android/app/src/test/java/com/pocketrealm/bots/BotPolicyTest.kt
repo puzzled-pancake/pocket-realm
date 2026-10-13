@@ -4,8 +4,25 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 class BotPolicyTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @Test fun legacyAdv3IdentitiesRemainDecodableAfterCatalogExpansion() {
         val old400 = "adv3-b4-g-6y-2-8-8-2-5-a-a-1-5-37-e58c5248"
         val old600 = "adv3-go-i-6y-2-8-8-1-4-a-a-1-3-1f-6a68f29a"
@@ -18,7 +35,7 @@ class BotPolicyTest {
 
     @Test fun livelyProfileIsExplicitBoundedNearbyBiasedAndKeepsUnsafeServicesDisabled() {
         val profile = BotProfiles.LIVELY_700
-        val config = profile.playerbotConfig()
+        val config = profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
 
         assertEquals("mobile-lively-b700-v2", profile.id)
         assertEquals(700, profile.selectedTarget)
@@ -63,7 +80,7 @@ class BotPolicyTest {
         assertEquals(10_800, fresh.randomizeMaxIntervalSeconds)
 
         listOf(efficient, fresh, BotProfiles.LIVELY_700).forEach { profile ->
-            val config = profile.playerbotConfig()
+            val config = profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
             assertTrue(config.contains("AiPlayerbot.RandomBotLoginAtStartup = 0"))
             assertTrue(config.contains("AiPlayerbot.RandomBotLoginWithPlayer = 1"))
             assertTrue(config.contains("AiPlayerbot.RandomBotMaps = 0,1"))
@@ -130,7 +147,7 @@ class BotPolicyTest {
 
     @Test fun launchDayProfileStartsSmallAndPublishesEveryBehaviorChoiceExplicitly() {
         val profile = BotProfiles.LAUNCH_DAY_700
-        val config = profile.playerbotConfig()
+        val config = profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
 
         assertEquals("mobile-launchday-b700-v1", profile.id)
         assertEquals(25, profile.initialTarget)
@@ -243,7 +260,7 @@ class BotPolicyTest {
         assertEquals(8, profile.activeBotPercent)
         assertTrue(profile.allowBotChat)
         assertTrue(profile.allowPlayerInvites)
-        val config = profile.playerbotConfig()
+        val config = profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
         assertTrue(config.contains("AiPlayerbot.IterationsPerTick = 7"))
         assertTrue(config.contains("AiPlayerbot.RandomBotsMaxLoginsPerInterval = 6"))
         assertTrue(config.contains("AiPlayerbot.RandomBotsPerInterval = 24"))
@@ -278,7 +295,7 @@ class BotPolicyTest {
 
     @Test fun lowProfileNeverInheritsUnsafeUpstreamServicesOrCounts() {
         val profile = BotProfiles.LOW_25
-        val config = profile.playerbotConfig()
+        val config = profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
 
         assertEquals(25, profile.selectedTarget)
         assertEquals(3, profile.accountCount)

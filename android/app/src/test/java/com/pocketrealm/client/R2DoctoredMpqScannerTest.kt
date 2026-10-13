@@ -7,6 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * R2 adversarial breaker (android-core round 1): doctored MPQ sets and
@@ -20,6 +23,19 @@ import java.nio.file.Files
  * runs (the scanner's own stated rule).
  */
 class R2DoctoredMpqScannerTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; the
+     * scanner gates pin the VANILLA lane (holder select). */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     // ------------------------------------------------------------------
     // Folder/archive lane: SafClientScanner.scanAccess over a synthetic tree
@@ -38,21 +54,27 @@ class R2DoctoredMpqScannerTest {
     }
 
     @Test
-    fun `a tbc identity is refused before any mpq set comparison`() {
-        // Full TBC set present (including the enus/ members the vanilla
-        // union knows nothing about): the identity gate must refuse on VAL-03
-        // and the MPQ union must not be compared against a foreign flavor.
+    fun `a tbc identity mpq-compares against its own set and refuses a foreign tree`() {
+        // W4 flip (the former pre-flip pin refused the tbc identity on
+        // VAL-03 outright): a tbc exe now RESOLVES qualified, so the MPQ
+        // comparison runs against the TBC lane's own set — this tree
+        // carries the vanilla base + tbc locale members but not the tbc
+        // base set (common/expansion/patch/patch-2), so the refusal is
+        // VAL-04 naming the missing base MPQs, and the identity is the
+        // tbc lane's own (never compared against a FOREIGN flavor's set).
         val access = tree(
             exe = vanillaExe("2.4.3.8606"),
             mpqs = VANILLA_BASE_MPQS + TBC_LOCALE_MPQS,
         )
         val result = SafClientScanner.scanAccess(access)
         assertFalse(result.supported)
-        assertTrue(result.failures.any { it.startsWith("VAL-03") })
+        assertTrue(result.failures.none { it.startsWith("VAL-03") })
         assertTrue(
-            "a foreign identity must never be MPQ-compared",
-            result.failures.none { it.startsWith("VAL-04") },
+            "the mpq union comparison is the lane's own set (VAL-04)",
+            result.failures.any { it.startsWith("VAL-04") },
         )
+        // the refusal result carries no managed clientId (only the
+        // supported verdict publishes the managed identity).
         assertNull(result.clientId)
     }
 
@@ -106,13 +128,21 @@ class R2DoctoredMpqScannerTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `verifyExtracted refuses a wrong-flavor exe and skips the mpq union`() {
+    fun `verifyExtracted refuses a wrong-mpq tree on the resolved flavor's own set`() {
+        // W4 flip: a wotlk exe RESOLVES qualified, so the post-extraction
+        // gate mpq-compares against the WOTLK lane's own set — this tree
+        // carries only the vanilla base set, so the refusal is VAL-04
+        // (the missing wotlk base MPQs) and the identity is wotlk's own.
         val root = extractedTree(exeVersion = "3.3.5.12340", mpqNames = VANILLA_BASE_MPQS)
         try {
             val result = ArchiveClientScanner().verifyExtracted(root)
             assertFalse(result.supported)
-            assertTrue(result.failures.any { it.startsWith("VAL-03") })
-            assertTrue(result.failures.none { it.startsWith("VAL-04") })
+            assertTrue(result.failures.none { it.startsWith("VAL-03") })
+            assertTrue(
+                "the mpq union comparison is the lane's own set (VAL-04)",
+                result.failures.any { it.startsWith("VAL-04") },
+            )
+            // refusal results publish no managed clientId.
             assertNull(result.clientId)
         } finally {
             root.deleteRecursively()

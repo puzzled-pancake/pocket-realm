@@ -125,7 +125,9 @@ fun InGameSettingsScreen(model: DesktopAppModel) {
     }
 
     fun requirementsMet(definition: WowSettingDefinition): Boolean = definition.requires.all { gate ->
-        val gateDefinition = WowVanillaSettingsCatalog.byId(gate.id) ?: return@all true
+        val gateDefinition = com.pocketrealm.ingame.WowFlavorCatalogs
+            .settingsById(model.inGameSettings.activeLaneForCatalog())(gate.id)
+            ?: return@all true
         val current = liveValue(gateDefinition) ?: return@all true
         current != gate.notValue
     }
@@ -233,6 +235,7 @@ fun InGameSettingsScreen(model: DesktopAppModel) {
         } else {
             SectionCard(
                 section = section,
+                catalogLane = editor.activeLaneForCatalog(),
                 account = account,
                 accounts = accounts,
                 onAccountPicked = { picked ->
@@ -257,8 +260,10 @@ private fun sectionLabel(section: WowSettingSection): String = when (section) {
 }
 
 @Composable
+@Suppress("LongParameterList")
 private fun SectionCard(
     section: WowSettingSection,
+    catalogLane: com.pocketrealm.client.ClientFlavor,
     account: String?,
     accounts: List<String>,
     onAccountPicked: (String) -> Unit,
@@ -288,9 +293,12 @@ private fun SectionCard(
                     }
                 }
             }
-            WowVanillaSettingsCatalog.groups(section).forEach { group ->
+            com.pocketrealm.ingame.WowFlavorCatalogs
+                .settingsGroups(catalogLane)(section)
+                .forEach { group ->
                 Text(group, style = MaterialTheme.typography.titleMedium)
-                WowVanillaSettingsCatalog.forSection(section)
+                com.pocketrealm.ingame.WowFlavorCatalogs
+                    .settingsForSection(catalogLane)(section)
                     .filter { it.group == group }
                     .forEach { definition ->
                         SettingRow(
@@ -463,7 +471,8 @@ private fun BindingsEditorCard(
         ) {
             Text("Key bindings", style = MaterialTheme.typography.titleMedium)
             Text(
-                "The stock 1.12.1 binding catalog (" + WowVanillaBindingCatalog.userFacing.size +
+                "The stock binding catalog (" + com.pocketrealm.ingame.WowFlavorCatalogs
+                    .bindingsUserFacing(editor.activeLaneForCatalog()).size +
                     " action IDs, integrity-pinned). Assignments land in the selected " +
                     "scope's bindings-cache.wtf when the client is stopped, or queue for " +
                     "the next clean stop while it runs.",
@@ -496,7 +505,10 @@ private fun BindingsEditorCard(
                 label = { Text("Search the binding catalog") },
                 modifier = Modifier.fillMaxWidth(),
             )
-            WowVanillaBindingCatalog.search(search, includeAdvanced = true)
+            com.pocketrealm.ingame.WowFlavorCatalogs.bindingsSearch(
+                editor.activeLaneForCatalog(),
+                search, includeAdvanced = true,
+            )
                 .forEach { binding ->
                     val currentKeys = liveBindings.filterValues { it == binding.id }.keys.sorted()
                     Column(modifier = Modifier.fillMaxWidth().padding(start = 8.dp)) {
@@ -550,7 +562,10 @@ private fun BindingsEditorCard(
                             )
                             when {
                                 token == null -> captureNote = "that key has no 1.12.1 binding token"
-                                token in WowVanillaBindingCatalog.reservedKeys ->
+                                token in com.pocketrealm.ingame.WowFlavorCatalogs
+                                    .bindingsReservedKeys(
+                                        editor.activeLaneForCatalog(),
+                                    ) ->
                                     captureNote = "the controller bridge owns that key"
                                 else -> {
                                     val secondary = liveBindings.filterValues { it == command }.keys

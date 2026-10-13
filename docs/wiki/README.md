@@ -1,6 +1,6 @@
 # Pocket Realm Wiki
 
-Pocket Realm is an Android launcher and local game environment for playing a user-supplied World of Warcraft 1.12.1 client on a handheld device. It brings the game client, a private realm, local player accounts, computer-controlled residents, controller support, touch controls, add-ons, backups, and troubleshooting into one app.
+Pocket Realm is an Android launcher and local game environment for playing a user-supplied World of Warcraft client — any of the three qualified game versions (Vanilla 1.12.1, The Burning Crusade 2.4.3, or Wrath of the Lich King 3.3.5a) — on a handheld device. It brings the game client, a private realm, local player accounts, computer-controlled residents, controller support, touch controls, add-ons, backups, and troubleshooting into one app.
 
 This wiki describes the project as it exists now. It is written for players, testers, family members, and other readers who do not need to understand the code.
 

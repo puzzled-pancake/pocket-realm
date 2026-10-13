@@ -30,7 +30,18 @@ The selection is checked before anything is copied. A `VAL-01` rejection means t
 - A downloader/launcher folder was selected (the message says `launcher-only` because a direct `WoW.exe` is absent).
 - A `.zip`/`.7z`/`.rar` archive or a shortcut was selected instead of a folder.
 
-Archive lanes unpack original installer payloads (setup.exe + setup-*.bin) on device; non-Inno installer payloads reject with `VAL-12`, disc images with `VAL-11`, and unsupported archives (encrypted, multi-volume, solid RAR4, pre-5.0/post-5.5.6 Inno data) with `VAL-13` — run `tools/install_client_windows.ps1` on a PC to rank every source and extract the problematic ones for the folder lane. For the folder lane, extract the client first, then choose the folder that directly contains `WoW.exe` and a `Data` folder. A `VAL-03` rejection instead means the client is the wrong version: exactly WoW 1.12.1 build 5875 is required. Replay the guide with **Settings → Setup → Show first-run setup guide** if you want the full requirements again.
+Archive lanes unpack original installer payloads (setup.exe + setup-*.bin) on device; non-Inno installer payloads reject with `VAL-12`, disc images with `VAL-11`, and unsupported archives (encrypted, multi-volume, solid RAR4, pre-5.0/post-5.5.6 Inno data) with `VAL-13` — run `tools/install_client_windows.ps1` on a PC to rank every source and extract the problematic ones for the folder lane. For the folder lane, extract the client first, then choose the folder that directly contains `WoW.exe` and a `Data` folder. A `VAL-03` rejection instead means the client is the wrong version: the client must be one of the qualified builds (Vanilla 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340 — the app names the set it expects). Replay the guide with **Settings → Setup → Show first-run setup guide** if you want the full requirements again.
+
+## VAL-02: the executable is over the fast-scan limit
+
+`VAL-02: selected executable exceeds fast-scan limit` means the selected `WoW.exe` is larger than the 32 MiB fast-scan cap. That is not a normal client file — pick the client's own `WoW.exe` (the genuine builds are a few megabytes), not a repacked or bundled executable.
+
+## VAL-04: the MPQ set does not match the flavor
+
+A `VAL-04` rejection names the problem set:
+
+- `missing base MPQ set: <files>` — the client's `Data` folder is missing files the selected flavor requires. TBC and WotLK clients keep their locale files inside `Data\enUS\` (or another locale folder); the scan walks those folders, so a genuine client passes. If you moved or deleted files out of `Data`, restore them from your original client copy.
+- `unknown patch MPQ not in the exact set: Data/<file>` — the TBC and WotLK flavors enforce an exact set: an unknown `patch-*.mpq` is refused naming the file, because a patched client cannot load the server's data. Remove the unknown patch file (or restore the original client's `Data` folder). The Vanilla flavor tolerates unknown patch files (its own MPQ note documents this), so this refusal only fires on the TBC/WotLK lanes.
 
 ## Import stopped or looks frozen
 

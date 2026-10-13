@@ -76,13 +76,28 @@ private sealed class AddonView {
  */
 @Composable
 fun AddonsScreen(model: DesktopAppModel) {
-    val repository = remember { model.addons }
-    val catalog = remember { AddonCatalog.load() }
     var view by remember { mutableStateOf<AddonView>(AddonView.Hub) }
     val open: (AddonView) -> Unit = { view = it }
     val back: () -> Unit = { view = AddonView.Hub }
 
     Box(Modifier.fillMaxSize()) {
+        // W4 flip (R5-1 round 2): the repository — whose init seeds the
+        // built-in and resolves the ACTIVE lane — is constructed AFTER the
+        // first-pick gate. Pre-pick construction threw inside the seed's
+        // launchOperation and left a sticky seed error for the session.
+        // The operation gates (install, seed, projection) keep the loud
+        // refusal once a pick exists.
+        if (ActiveFlavor.displayedId == null) {
+            Text(
+                "Pick a game flavor on the Home screen first — the add-on catalog follows that lane.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(24.dp),
+            )
+            return@Box
+        }
+        val repository = remember { model.addons }
+        val catalog = remember { AddonCatalog.load() }
         when (val current = view) {
             AddonView.Hub -> AddonsHubScreen(repository, catalog, open)
             AddonView.Recommended -> RecommendedAddonsScreen(repository, catalog, open, back)

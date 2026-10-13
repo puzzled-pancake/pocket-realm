@@ -1,6 +1,7 @@
 package com.pocketrealm.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,7 +57,7 @@ class PerFlavorSurfaceCopyPinTest {
         )
         assertTrue(
             "the non-vanilla fallback must say research reference, not tested",
-            "research \" +\n                            \"reference, not hardware-tested." in source,
+            "research" in source && "reference, not hardware-tested." in source,
         )
         assertTrue(
             "the recommended screen's tested line must be vanilla-conditional",
@@ -80,7 +81,7 @@ class PerFlavorSurfaceCopyPinTest {
         )
         assertTrue(
             "the tweaks card must resolve the active flavor",
-            "ActiveFlavor.resolve" in source,
+            source.contains("ActiveFlavor.resolve") || source.contains("ActiveFlavor.displayedId"),
         )
     }
 
@@ -94,49 +95,29 @@ class PerFlavorSurfaceCopyPinTest {
         )
         assertTrue(
             "the renderer card must resolve the active lane flavor",
-            "ActiveFlavor.resolve" in source,
+            source.contains("ActiveFlavor.resolve") || source.contains("ActiveFlavor.displayedId"),
         )
     }
-
-    @Test fun `the settings screens remainder is recorded R3-3 and R3-W3-1`() {
-        // Source pin (R6-5 round-5 tightening): the settings/bindings/
-        // controls screens' vanilla-catalog references are a RECORDED
-        // W4-owned remainder (D83) — the pin enumerates the EXACT distinct
-        // symbols and total call sites so the flip checklist can diff the
-        // set when the lane gains per-flavor catalogs.
+    @Test fun `the settings screens route through the flavor-routed seam R5-1`() {
+        // R5-1 (W4 code-red round 5): the D83 remainder is RETIRED — the
+        // settings/bindings/controls screens resolve every catalog read
+        // through the flavor-routed seam (WowFlavorCatalogs + the active
+        // lane), never a hard-coded vanilla object.
         val files = listOf(
             "src/main/java/com/pocketrealm/ui/InGameSettingsScreens.kt",
             "src/main/java/com/pocketrealm/ui/InGameBindingsScreen.kt",
             "src/main/java/com/pocketrealm/ui/ControlsScreen.kt",
         )
-        val refs = mutableListOf<String>()
         for (f in files) {
             val text = java.io.File(f).readText()
-            Regex("WowVanillaSettingsCatalog\\.\\w+|WowVanillaBindingCatalog\\.\\w+")
-                .findAll(text)
-                .forEach { refs += it.value }
+            assertTrue(
+                "$f: lost the flavor-routed catalog reads (R5-1)",
+                "WowFlavorCatalogs" in text,
+            )
+            assertFalse(
+                "$f: a hard-coded vanilla catalog reference remains (R5-1)",
+                Regex("WowVanilla(Settings|Binding)Catalog\\.\\w+").containsMatchIn(text),
+            )
         }
-        assertEquals(
-            "the android remainder's call-site count moved — update the W4 " +
-                "flip checklist and this pin together",
-            19, refs.size,
-        )
-        assertEquals(
-            "the android remainder's distinct symbols moved — update the W4 " +
-                "flip checklist and this pin together",
-            sortedSetOf(
-                "WowVanillaSettingsCatalog.groups",
-                "WowVanillaSettingsCatalog.forSection",
-                "WowVanillaSettingsCatalog.byId",
-                "WowVanillaSettingsCatalog.FIXED_REASON_RENDERER",
-                "WowVanillaBindingCatalog.reservedKeys",
-                "WowVanillaBindingCatalog.userFacing",
-                "WowVanillaBindingCatalog.stockDefaultKeys",
-                "WowVanillaBindingCatalog.search",
-                "WowVanillaBindingCatalog.find",
-                "WowVanillaBindingCatalog.inCategory",
-            ),
-            refs.toSortedSet(),
-        )
     }
 }

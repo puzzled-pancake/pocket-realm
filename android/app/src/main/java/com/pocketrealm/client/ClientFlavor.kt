@@ -11,7 +11,11 @@ package com.pocketrealm.client
  *
  * A flavor with [ClientFlavor.qualified] == false is declared but disabled:
  * its data is informational, import rejects it, and no runtime lane may
- * authorize it. Only the vanilla lane is qualified today.
+ * authorize it. All three lanes are qualified since the W4 flip (owner
+ * default, completion-plan §4 W4.4 / decision D86): with several qualified
+ * flavors an ABSENT active selection refuses loud
+ * ([com.pocketrealm.client.ActiveFlavorState.resolve]) — the Home flavor
+ * cards own the first pick, and the pick persists in settings.
  */
 data class ClientFlavor(
     /** Flavor slug matching schemas/flavor.json: "vanilla", "tbc", "wotlk". */
@@ -190,10 +194,12 @@ object ClientFlavors {
     )
 
     /**
-     * TBC 2.4.3 build 8606 — declared, disabled: the S5.1 client identity is
-     * registered (hashes/size/MPQ set measured on the staged genuine client)
-     * but the qualification flip is an owner decision (lanes item 21), so
-     * import must still reject.
+     * TBC 2.4.3 build 8606 — qualified at the W4 flip (owner default,
+     * completion-plan §4 W4.4 / decision D86). GATED: the flip commits only
+     * when the W4.1 desktop end-to-end, the W4.2 3×3 auth matrix, and the
+     * W4.3 friend-arc evidence are green (D86's flip-gate paragraph).
+     * Storage budgets are the W4 measured values (the manifest's
+     * storage.note carries the measurement provenance).
      */
     val TBC: ClientFlavor = ClientFlavor(
         flavorId = "tbc",
@@ -202,7 +208,7 @@ object ClientFlavors {
         build = 8606,
         versionResource = "2.4.3.8606",
         expansion = "The Burning Crusade",
-        qualified = false,
+        qualified = true,
         databases = ClientFlavor.DatabaseNames(
             realmd = "tbcrealmd",
             world = "tbcmangos",
@@ -218,8 +224,8 @@ object ClientFlavors {
             "enus/expansion-locale-enus.mpq", "enus/expansion-speech-enus.mpq",
             "enus/patch-enus.mpq", "enus/patch-enus-2.mpq",
         ),
-        extractedEstimateBytes = null,
-        maxTotalBytes = null,
+        extractedEstimateBytes = 12L * 1024L * 1024L * 1024L,
+        maxTotalBytes = 24L * 1024L * 1024L * 1024L,
         botMaxLevel = 70,
         botRandomMaps = listOf(0, 1, 530),
         realmdAcceptedBuilds = "8606",
@@ -236,10 +242,12 @@ object ClientFlavors {
     )
 
     /**
-     * WotLK 3.3.5a build 12340 — declared, disabled: the S5.1 client identity
-     * is registered (hashes/size/MPQ set measured on the staged genuine
-     * client) but the qualification flip is an owner decision (lanes item 21),
-     * so import must still reject.
+     * WotLK 3.3.5a build 12340 — qualified at the W4 flip (owner default,
+     * completion-plan §4 W4.4 / decision D86). GATED: the flip commits only
+     * when the W4.1 desktop end-to-end, the W4.2 3×3 auth matrix, and the
+     * W4.3 friend-arc evidence are green (D86's flip-gate paragraph).
+     * Storage budgets are the W4 measured values (the manifest's
+     * storage.note carries the measurement provenance).
      */
     val WOTLK: ClientFlavor = ClientFlavor(
         flavorId = "wotlk",
@@ -248,7 +256,7 @@ object ClientFlavors {
         build = 12340,
         versionResource = "3.3.5.12340",
         expansion = "Wrath of the Lich King",
-        qualified = false,
+        qualified = true,
         databases = ClientFlavor.DatabaseNames(
             realmd = "wotlkrealmd",
             world = "wotlkmangos",
@@ -266,8 +274,8 @@ object ClientFlavors {
             "enus/lichking-locale-enus.mpq", "enus/lichking-speech-enus.mpq",
             "enus/patch-enus.mpq", "enus/patch-enus-2.mpq", "enus/patch-enus-3.mpq",
         ),
-        extractedEstimateBytes = null,
-        maxTotalBytes = null,
+        extractedEstimateBytes = 24L * 1024L * 1024L * 1024L,
+        maxTotalBytes = 40L * 1024L * 1024L * 1024L,
         botMaxLevel = 80,
         botRandomMaps = listOf(0, 1, 530, 571),
         realmdAcceptedBuilds = "12340",

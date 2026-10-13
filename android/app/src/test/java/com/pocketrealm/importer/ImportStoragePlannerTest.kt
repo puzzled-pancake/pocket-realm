@@ -10,8 +10,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import kotlin.math.ceil
+import org.junit.Before
 
 class ImportStoragePlannerTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @Test fun importTotalCapIsTheQualifiedFlavorStorageBudget() {
         // ImportLimits.maxTotalBytes is flavor data, not a hard-coded cap:
         // its default resolves the qualified flavor's storage.max_total_bytes.

@@ -20,7 +20,12 @@ import java.nio.charset.Charset
 object SyntheticClientArchives {
 
     /** Ported verbatim from ImportFixtureProvider.syntheticPe (debug fixture). */
-    fun syntheticPe(build: Int = 5875): ByteArray {
+    fun syntheticPe(
+        build: Int = 5875,
+        versionMajor: Int = 1,
+        versionMinor: Int = 12,
+        versionRev: Int = 1,
+    ): ByteArray {
         val bytes = ByteArray(4096)
         bytes[0] = 'M'.code.toByte()
         bytes[1] = 'Z'.code.toByte()
@@ -31,8 +36,8 @@ object SyntheticClientArchives {
         buffer.putShort(0x104, 0x14c.toShort())
         buffer.putShort(0x118, 0x10b.toShort())
         buffer.putInt(0x300, 0xfeef04bd.toInt())
-        buffer.putInt(0x308, (1 shl 16) or 12)
-        buffer.putInt(0x30c, (1 shl 16) or build)
+        buffer.putInt(0x308, (versionMajor shl 16) or versionMinor)
+        buffer.putInt(0x30c, (versionRev shl 16) or build)
         return bytes
     }
 

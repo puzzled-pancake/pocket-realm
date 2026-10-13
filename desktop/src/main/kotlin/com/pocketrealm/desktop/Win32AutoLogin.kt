@@ -198,6 +198,26 @@ object Win32AutoLogin {
         )
     }
 
+    /**
+     * Foreground the client's login window. A bare SetForegroundWindow
+     * refuses when the CALLING process does not own the foreground (the
+     * Windows foreground lock — the W4.1 probe boots the client from a
+     * tool JVM), so unlock with the published harmless synthetic-ALT tap
+     * and retry, accepting has-actually-focused as success even when the
+     * BOOL lied. Returns null on focus, else the failure reason.
+     */
+    private fun focusClientWindow(window: HWND): String? {
+        val keyup = 0x0002
+        repeat(5) { attempt ->
+            user32.keybd_event(0x12 /* VK_MENU */, 0.toByte(), 0, 0)
+            user32.keybd_event(0x12 /* VK_MENU */, 0.toByte(), keyup, 0)
+            user32.SetForegroundWindow(window)
+            sleep(250L + attempt * 250L)
+            if (user32.GetForegroundWindow() == window) return null
+        }
+        return "could not focus the client window"
+    }
+
     /** Try to log the given account into the client owned by [pid].
      * Returns null on success, or the human-readable failure reason.
      * The [timings] and [flavorId] parameters are the DESK-133/138
@@ -215,7 +235,7 @@ object Win32AutoLogin {
             is LoginWindowPoll.NeverAppeared -> return poll.reason
             is LoginWindowPoll.Found -> poll.hwnd
         }
-        if (!user32.SetForegroundWindow(window)) return "could not focus the client window"
+        focusClientWindow(window)?.let { return it }
         typeText(username, timings)?.let { return it }
         tap(VK_TAB, timings.imeKeyDwellMs)?.let { return it }
         sleep(timings.fieldSettleMs)
@@ -393,6 +413,7 @@ object Win32AutoLogin {
 
     /** The User32 additions JNA's stock interface does not declare. */
     private interface ExtendedUser32 : User32 {
+        fun keybd_event(bVk: Byte, bScan: Byte, dwFlags: Int, dwExtraInfo: Int)
         fun VkKeyScanW(ch: Int): Short
         fun GetClassNameW(hwnd: HWND, buffer: CharArray, maxCount: Int): Int
         fun GetWindowTextW(hwnd: HWND, buffer: CharArray, maxCount: Int): Int

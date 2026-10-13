@@ -4,6 +4,9 @@ import com.pocketrealm.bots.BotProfiles
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * W3.4 fail-loud conf staging (port plan S3.6): the staged
@@ -17,13 +20,26 @@ import org.junit.Test
  * excluded_keys, not just the generator.
  */
 class BotConfStagingTest {
+    /** W4 flip fixture: the conf staging resolves the ACTIVE flavor's
+     * known keys — pin the VANILLA lane (holder select). */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     @Test fun `the shipped vanilla profile emission stages clean`() {
         // The REAL base-profile emission (the fresh-install default) must
         // pass the vanilla gate — the gate is wired into worldConfig, so a
         // failing emission would abort every vanilla realm start.
         val profile = BotProfiles.defaultProfile
-        val conf = profile.playerbotConfig()
+        val conf = profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
         val verdict = BotConfStaging.validate("vanilla", conf)
         assertTrue(
             "the shipped vanilla bot emission carries unknown keys: " +
@@ -41,7 +57,7 @@ class BotConfStagingTest {
         profiles.forEach { profile ->
             BotConfStaging.requireStagingSafe(
                 "vanilla", profile.id,
-                profile.playerbotConfig(),
+                profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA),
             )
         }
     }

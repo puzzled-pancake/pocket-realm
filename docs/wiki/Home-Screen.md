@@ -26,13 +26,32 @@ The card also shows the selected bot profile and its starting and target populat
 ## Game flavor
 
 A **Game flavor** switcher card sits with the setup cards. Each chip selects
-the game version this lane plays. All registered flavors render as chips;
-an unqualified flavor is visible but unselectable (Vanilla 1.12.1 is
-selectable today; The Burning Crusade and Wrath of the Lich King stay
-unselectable until their clients are qualified).
+the game version this lane plays. All registered flavors render as chips.
+Since the W4 qualification flip (decision D86) all three lanes are
+selectable: Vanilla 1.12.1, The Burning Crusade 2.4.3, and Wrath of the
+Lich King 3.3.5a. Until you pick, the surfaces show a "Pick a game flavor"
+first-pick state; the pick persists and drives imports, prepared world
+data, and bot populations on that lane.
 Switching the flavor re-targets imports, prepared world data, and bot
 populations on that lane.
-Unqualified flavors stay off until their client is qualified.
+A flavor whose client is not qualified renders visible but unselectable.
+Until you pick, the unselectable-until-qualified chips stay honest to the
+registry: all three registered lanes are qualified since the W4 flip
+(decision D86), so every chip is selectable today.
+Per-platform runtime honesty (what actually boots today):
+On the desktop, the installed image stages the Vanilla lane's runtime;
+picking TBC or WotLK on an installed image refuses with a clear
+RUNTIME-LANE MISMATCH message until that lane's runtime is built and
+staged (the developer `-PrpFlavor=` harness routing loads the per-lane
+runtime for development boots). Each lane's MariaDB database family and
+migration ledger are prepared per lane, so a development lane switch
+applies its own databases on first boot.
+On Android, the app ships the Vanilla lane's runtime and migration ledger
+only: picking TBC or WotLK on a phone refuses at boot (and at the server
+database gate) with a RUNTIME-LANE MISMATCH / ANDROID-LANE-SCOPE message
+naming the remedy — re-pick Vanilla. Per-flavor Android runtimes and
+ledgers are future work (W5); the TBC/WotLK chips remain selectable so
+their imports and prepared data can be staged ahead of that landing.
 
 ## Main buttons
 

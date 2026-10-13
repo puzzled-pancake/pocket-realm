@@ -214,8 +214,10 @@ internal class ServerRuntimeFiles(
         val snapshot = settingsSnapshot ?: settings.load()
         purgeStaleBotConfSecrets()
         val botConfig = if (botProfile != null) {
+            // R5-R6-2: the conf VALUES ride the same pinned boot lane as
+            // the staging gate — never the :ui holder.
             val botConfText =
-                botProfile.playerbotConfig() + (llmConfigOverrides(botProfile, snapshot) ?: "")
+                botProfile.playerbotConfig(lane) + (llmConfigOverrides(botProfile, snapshot) ?: "")
             // W3.4 fail-loud conf staging: an unknown key for the flavor's
             // bots build aborts the start instead of being silently dropped
             // by the core's config parser; excluded families (C9 VoiceChat)
@@ -295,11 +297,16 @@ internal class ServerRuntimeFiles(
             # qualified flavor ("<stage-or-default>", never empty). The game
             # client stays at its fixed version; this gates world content
             # only. Applied at world start — never mid-session.
-            // R1-r3-1 (round 3): the stage resolves through the PINNED
-            // start lane (confValueFor — the android D47-10/D62 twin), so
-            // conf, data, and overlay can never name different flavors at
-            // one start. The bare confValue( delegates to the LIVE holder
-            // machine and would tear the stage leg off the boot lane.
+            # R1-r3-1 (round 3): the stage resolves through the PINNED
+            # start lane (confValueFor — the android D47-10/D62 twin), so
+            # conf, data, and overlay can never name different flavors at
+            # one start. The bare confValue( delegates to the LIVE holder
+            # machine and would tear the stage leg off the boot lane.
+            # W4.1: the whole block rides '#' — the native Config parser
+            # accepts ONLY '#'/']'-leads (Config.cpp Reload: a keyless
+            # line is a hard config REJECTION, and '//' is not a comment),
+            # so the former '//' note lines failed every world boot with
+            # POCKET_SERVER_CONFIG.
             PocketRealm.TimeframeStage = "${TimeframeStages.confValueFor(snapshot.timeframeStage, lane.flavorId)}"
         """.trimIndent() + "\n")
     }

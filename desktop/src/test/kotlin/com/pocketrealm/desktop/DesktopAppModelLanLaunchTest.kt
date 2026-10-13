@@ -14,6 +14,9 @@ import org.junit.Rule
 import org.junit.Test
 import java.io.File
 import org.junit.rules.TemporaryFolder
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * DESK-15/24/42 launch-gate contract at the app-model level, plus the
@@ -34,6 +37,20 @@ import org.junit.rules.TemporaryFolder
  *    filtered view) after the datadir gates pass.
  */
 class DesktopAppModelLanLaunchTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @get:Rule
     val folder = TemporaryFolder()
 

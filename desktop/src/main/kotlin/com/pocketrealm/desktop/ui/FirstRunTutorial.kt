@@ -37,6 +37,29 @@ import com.pocketrealm.desktop.DesktopAppModel
 
 internal data class TutorialStep(val title: String, val body: String)
 
+/** R6-3 (W4 code-red round 3): the requirement body is DERIVED from the
+ * registry's qualified set, never a hard-coded vanilla version — the
+ * vanilla MPQ list must not be presented as the generic requirement (the
+ * required base set differs per game version). Desktop twin of the
+ * android UNCOMPRESSED_CLIENT_REQUIREMENT derivation. */
+internal val DESKTOP_CLIENT_REQUIREMENT: String = run {
+    val builds = com.pocketrealm.client.ClientFlavors.qualified()
+        .joinToString(", ") { flavor ->
+            val version = flavor.versionResource.substringBeforeLast(".")
+            "${flavor.expansion} $version (build ${flavor.build})"
+        }
+    "You need your own copy of the game client for one of the qualified " +
+        "expansions — $builds — that you are entitled to use: an " +
+        "already-installed game folder — the folder that directly " +
+        "contains WoW.exe and its complete Data folder with the base set " +
+        "of .MPQ files (the exact set differs per game version). It must " +
+        "NOT be a downloader or launcher you have to run yourself, and " +
+        "not a password-protected or split archive. The final step of " +
+        "this guide takes you to Import, where you choose that folder — " +
+        "Pocket Realm copies and verifies it into app storage, so the " +
+        "original folder can move or change afterwards."
+}
+
 internal val FIRST_RUN_TUTORIAL_STEPS: List<TutorialStep> = listOf(
     TutorialStep(
         title = "Welcome to Pocket Realm",
@@ -46,18 +69,8 @@ internal val FIRST_RUN_TUTORIAL_STEPS: List<TutorialStep> = listOf(
             "bundles or downloads them.",
     ),
     TutorialStep(
-        title = "What you need: an extracted WoW 1.12.1 client",
-        body = "You need your own copy of the World of Warcraft 1.12.1 " +
-            "(build 5875) client that you are entitled to use: an " +
-            "already-installed game folder — the folder that directly " +
-            "contains WoW.exe and its complete Data folder with the base " +
-            "set of .MPQ files (base, dbc, fonts, interface, misc, model, " +
-            "sound, speech, terrain, texture, wmo). It must NOT be a " +
-            "downloader or launcher you have to run yourself, and not a " +
-            "password-protected or split archive. The final step of this " +
-            "guide takes you to Import, where you choose that folder — " +
-            "Pocket Realm copies and verifies it into app storage, so the " +
-            "original folder can move or change afterwards.",
+        title = "What you need: an extracted WoW for your flavor (Vanilla 1.12.1, TBC 2.4.3, or WotLK 3.3.5a) client",
+        body = DESKTOP_CLIENT_REQUIREMENT,
     ),
     TutorialStep(
         title = "Prepare the world data (once)",

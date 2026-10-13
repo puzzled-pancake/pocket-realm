@@ -31,10 +31,6 @@ class MpqSetKeyFormTripwireTest {
         error("source not found walking up from ${System.getProperty("user.dir")}: $repoRelative")
     }
 
-    /** The scanner's key form: bare lowercase filenames, never a path. */
-    private fun bareNameKeys(requiredMpqs: Set<String>): Set<String> =
-        requiredMpqs.map { it.substringAfterLast('/') }.toSet()
-
     private class FakeAccess(
         private val tree: Map<String, List<SafClientScanner.Entry>>,
         private val blobs: Map<String, ByteArray>,
@@ -95,60 +91,245 @@ class MpqSetKeyFormTripwireTest {
         )
     }
 
-    @Test
-    fun theTbcWotlkRequiredSetsCarrySlashedEntriesTheKeyFormCannotMatch() {
-        // The deferral precondition itself: every later-expansion registry
-        // carries locale-prefixed requiredMpqs entries while BOTH gates'
-        // key forms are bare filenames - so reconstructing the scanner's
-        // comparison yields a missing-set of EXACTLY the slashed entries.
-        // When S5 lands the Data/<locale> traversal, this test FAILS its
-        // precondition on purpose: reconcile the key comparison (and add
-        // the C2 exact-set rule) in the same change, then re-pin.
-        for (flavor in ClientFlavors.ALL.filter { it.flavorId != "vanilla" }) {
-            val slashed = flavor.requiredMpqs.filter { "/" in it }
-            assertTrue(
-                "${flavor.flavorId}: the recorded deferral precondition " +
-                    "changed - no slashed requiredMpqs remain. S5 landed the " +
-                    "Data/<locale> traversal: reconcile the scanner key " +
-                    "comparison with the registry path-form and re-pin this " +
-                    "tripwire (plus the C2 exact-set rule).",
-                slashed.isNotEmpty(),
-            )
-            // Reconstruct the gates' comparison: keys are bare names, so
-            // the slashed entries are ALWAYS the missing-set.
-            val keys = bareNameKeys(flavor.requiredMpqs)
-            val missing = flavor.requiredMpqs.filterNot(keys::contains)
-            assertEquals(
-                "${flavor.flavorId}: the missing-set the gates compute is " +
-                    "exactly the slashed entries - a genuine client with " +
-                    "every MPQ staged still fails VAL-04 at the flip",
-                slashed,
-                missing,
-            )
+    @Suppress("LongMethod")
+    private fun tbcTree(
+        withLocaleSubdir: Boolean,
+        extraPatch: String? = null,
+    ): FakeAccess {
+        val wowId = "wow"
+        val dataId = "data"
+        val localeId = "locale"
+        val extraId = "extra"
+        val flatIds = listOf("common", "expansion", "patch", "patch-2")
+            .associateBy({ it }, { "mpq-$it" })
+        val localeFiles = listOf(
+            "locale-enus", "speech-enus", "expansion-locale-enus",
+            "expansion-speech-enus", "patch-enus", "patch-enus-2",
+        )
+        val root = mutableListOf(
+            SafClientScanner.Entry(wowId, "WoW.exe", directory = false, size = 4096L),
+            SafClientScanner.Entry(dataId, "Data", directory = true, size = 0L),
+        )
+        val tree = mutableMapOf<String, List<SafClientScanner.Entry>>("root" to root)
+        val blobs = mutableMapOf<String, ByteArray>(
+            wowId to SyntheticClientArchives.syntheticPe(
+                build = 8606, versionMajor = 2, versionMinor = 4, versionRev = 3,
+            ),
+        )
+        for ((name, id) in flatIds) {
+            root += SafClientScanner.Entry(id, "$name.MPQ", directory = false, size = 1024L)
+            blobs[id] = SyntheticClientArchives.mpqStub("$name.MPQ")
         }
+        if (withLocaleSubdir) {
+            root += SafClientScanner.Entry(localeId, "enUS", directory = true, size = 0L)
+            val localeEntries = localeFiles.map { name ->
+                val id = "mpq-$name"
+                blobs[id] = SyntheticClientArchives.mpqStub("$name.MPQ")
+                SafClientScanner.Entry(id, "$name.MPQ", directory = false, size = 1024L)
+            }
+            tree[localeId] = localeEntries
+        } else {
+            for (name in localeFiles) {
+                val id = "mpq-$name"
+                root += SafClientScanner.Entry(id, "$name.MPQ", directory = false, size = 1024L)
+                blobs[id] = SyntheticClientArchives.mpqStub("$name.MPQ")
+            }
+        }
+        if (extraPatch != null) {
+            root += SafClientScanner.Entry(extraId, extraPatch, directory = false, size = 1024L)
+            blobs[extraId] = SyntheticClientArchives.mpqStub(extraPatch)
+        }
+        tree[dataId] = root.drop(2)
+        return FakeAccess(tree, blobs)
+    }
+
+    @Test
+    fun theTbcWotlkLocaleMpqsResolveThroughTheDataLocaleTraversal() {
+        // W4 (the locale-MPQ defect the tbc E2E surfaced): the recorded
+        // S5-era deferral ("slashed entries the key form cannot match") is
+        // RETIRED - the scanner walks Data/<locale>/ (bounded depth) and
+        // matches the registry's slashed requiredMpqs keys by lowercase
+        // basename. A genuine-shape tbc tree (locale MPQs inside
+        // Data/enUS/) scans SUPPORTED.
+        val genuine = SafClientScanner.scanAccess(tbcTree(withLocaleSubdir = true))
+        assertTrue(
+            "a genuine tbc tree with locale MPQs in Data/enUS/ must scan " +
+                "supported: ${genuine.failures}",
+            genuine.supported,
+        )
+        // R2-R4-2: a flat layout cannot satisfy the SLASHED keys (the
+        // locale MPQs must sit in Data/enUS/ - the only paths the genuine
+        // client loads), so the flat locale placement refuses
+        val flat = SafClientScanner.scanAccess(tbcTree(withLocaleSubdir = false))
+        assertFalse(
+            "a flat locale placement cannot satisfy the slashed keys: ${flat.failures}",
+            flat.supported,
+        )
+        // and the gate still refuses a MISSING locale MPQ, naming the
+        // registry's slashed key
+        val wowId = "wow"
+        val dataId = "data"
+        val localeId = "locale"
+        val root = mutableListOf(
+            SafClientScanner.Entry(wowId, "WoW.exe", directory = false, size = 4096L),
+            SafClientScanner.Entry(dataId, "Data", directory = true, size = 0L),
+            SafClientScanner.Entry(localeId, "enUS", directory = true, size = 0L),
+        )
+        val blobs = mutableMapOf<String, ByteArray>(
+            wowId to SyntheticClientArchives.syntheticPe(
+                build = 8606, versionMajor = 2, versionMinor = 4, versionRev = 3,
+            ),
+        )
+        val names = listOf("common", "expansion", "patch", "patch-2")
+        for (name in names) {
+            root += SafClientScanner.Entry("mpq-$name", "$name.MPQ", directory = false, size = 1024L)
+            blobs["mpq-$name"] = SyntheticClientArchives.mpqStub("$name.MPQ")
+        }
+        root += SafClientScanner.Entry("mpq-locale", "locale-enus.MPQ", directory = false, size = 1024L)
+        blobs["mpq-locale"] = SyntheticClientArchives.mpqStub("locale-enus.MPQ")
+        val missing = SafClientScanner.scanAccess(
+            FakeAccess(mapOf("root" to root, dataId to root.drop(1), localeId to listOf(
+                SafClientScanner.Entry("mpq-locale", "locale-enus.MPQ", directory = false, size = 1024L),
+            )), blobs),
+        )
+        assertFalse("a tbc tree missing most locale MPQs must refuse", missing.supported)
+        assertTrue(
+            "the refusal names the slashed registry key: ${missing.failures}",
+            missing.failures.any {
+                "enus/expansion-locale-enus.mpq" in it
+            },
+        )
+    }
+
+    @Test
+    fun anUnknownPatchMpqRefusesWithTheExactSetCopy() {
+        // R1-1/R2-5-2 (W4 code-red round 5): the tbc mpq_set note's
+        // exact-set semantics are ENFORCED now that the flavor qualifies -
+        // an unknown patch-9.mpq (valid magic, not in the tbc set) refuses
+        // VAL-04 naming the file.
+        val doctored = SafClientScanner.scanAccess(
+            tbcTree(withLocaleSubdir = true, extraPatch = "patch-9.MPQ"),
+        )
+        assertFalse(
+            "an unknown patch MPQ must refuse on the tbc lane: ${doctored.failures}",
+            doctored.supported,
+        )
+        assertTrue(
+            "the refusal names the file: ${doctored.failures}",
+            doctored.failures.any { "patch-9.mpq" in it },
+        )
+    }
+
+    @Test
+    fun aPathDoctoredMpqSetRefusesLoud() {
+        // R2-R4-2: a PATH-DOCTORED set (the required MPQs under
+        // Data/decoy/, no Data/enUS/) must refuse - a basename-only match
+        // accepted it into a generation whose client cannot load its data.
+        val wowId = "wow"
+        val dataId = "data"
+        val decoyLocale = "decoy"
+        val decoyRoot = mutableListOf(
+            SafClientScanner.Entry(wowId, "WoW.exe", directory = false, size = 4096L),
+            SafClientScanner.Entry(dataId, "Data", directory = true, size = 0L),
+            SafClientScanner.Entry(decoyLocale, "decoy", directory = true, size = 0L),
+        )
+        val decoyBlobs = mutableMapOf<String, ByteArray>(
+            wowId to SyntheticClientArchives.syntheticPe(
+                build = 8606, versionMajor = 2, versionMinor = 4, versionRev = 3,
+            ),
+        )
+        val names = listOf("common", "expansion", "patch", "patch-2")
+        for (name in names) {
+            decoyRoot += SafClientScanner.Entry("mpq-$name", "$name.MPQ", directory = false, size = 1024L)
+            decoyBlobs["mpq-$name"] = SyntheticClientArchives.mpqStub("$name.MPQ")
+        }
+        for (name in listOf("locale-enus", "expansion-locale-enus")) {
+            decoyRoot += SafClientScanner.Entry(
+                "decoy-$name", "$name.MPQ", directory = false, size = 1024L)
+            decoyBlobs["decoy-$name"] = SyntheticClientArchives.mpqStub("$name.MPQ")
+        }
+        val decoyTree = mutableMapOf<String, List<SafClientScanner.Entry>>(
+            "root" to decoyRoot,
+            dataId to decoyRoot.drop(2),
+        )
+        decoyTree[decoyLocale] = listOf(
+            SafClientScanner.Entry(
+                "decoy-locale-enus", "locale-enus.MPQ",
+                directory = false, size = 1024L,
+            ),
+            SafClientScanner.Entry(
+                "decoy-expansion-locale-enus", "expansion-locale-enus.MPQ",
+                directory = false, size = 1024L,
+            ),
+        )
+        val decoy = SafClientScanner.scanAccess(FakeAccess(decoyTree, decoyBlobs))
+        assertFalse(
+            "a path-doctored MPQ set (decoy dir, no enUS) must refuse: ${decoy.failures}",
+            decoy.supported,
+        )
+    }
+
+    @Test
+    fun anOversizedWowExeRefusesWithTheVal02SizeCopy() {
+        // R6-7: the charter's negative-matrix "oversized -> VAL codes" leg
+        // - a declared WoW.exe size above the 32 MiB fast-scan cap must
+        // refuse with the exact VAL-02 size copy.
+        val wowId = "wow"
+        val dataId = "data"
+        val mpqIds = SyntheticClientArchives.BASE_MPQS.associateBy({ it }, { "mpq-$it" })
+        val root = listOf(
+            SafClientScanner.Entry(wowId, "WoW.exe", directory = false,
+                size = 33L * 1024L * 1024L),
+            SafClientScanner.Entry(dataId, "Data", directory = true, size = 0L),
+        )
+        val data = mpqIds.map { (name, id) ->
+            SafClientScanner.Entry(id, name, directory = false, size = 1024L)
+        }
+        val blobs = buildMap {
+            put(wowId, SyntheticClientArchives.syntheticPe(build = 5875))
+            mpqIds.forEach { (name, id) -> put(id, SyntheticClientArchives.mpqStub(name)) }
+        }
+        val result = SafClientScanner.scanAccess(
+            FakeAccess(mapOf("root" to root, dataId to data), blobs),
+        )
+        assertFalse("an oversized WoW.exe must refuse", result.supported)
+        assertTrue(
+            "must carry the exact VAL-02 size copy: ${result.failures}",
+            result.failures.any {
+                it == "VAL-02: selected executable exceeds fast-scan limit"
+            },
+        )
     }
 
     @Test
     fun bothGatesCompareMissingOnlyAndNeverRejectUnknownMpqs() {
-        // The C2 exact-set rule (an unknown patch-*.mpq is VAL-04 naming
-        // the file) has NO implementing check in either lane: pin the
-        // absence so S5's reconcile cannot forget the other half of the
-        // contract. If these source pins break because the exact-set rule
-        // LANDED, update this test to pin the rule positively instead.
+        // R1-1/R2-5-2 (W4 code-red round 5): the C2 exact-set rule LANDED -
+        // pin it POSITIVELY in both lanes: the unknown patch-*.mpq leg
+        // (VAL-04 naming the file, non-vanilla lanes) plus the missing-only
+        // compare it complements.
         val saf = source("android/app/src/main/java/com/pocketrealm/client/SafClientScanner.kt")
         val archive = source("android/app/src/main/java/com/pocketrealm/importer/ArchiveClientScanner.kt")
-        // bare-name key forms (the collision half)
-        assertTrue("associateBy { it.name.lowercase() }" in saf)
+        // W4: the locale traversal + per-form key matching (the
+        // retired S5 deferral's replacement + the R2-R4-2 path-doctored
+        // refusal)
+        assertTrue("walkMpqTree" in saf)
+        assertTrue("mpqByRelPath.containsKey(lowered)" in saf)
         // missing-only comparison (never an unknown-entry rejection)
         for ((name, text) in listOf("SafClientScanner" to saf, "ArchiveClientScanner" to archive)) {
             assertTrue(
                 "$name: lost the requiredMpqs missing-only compare",
-                "filterNot(mpqs::containsKey)" in text,
+                "requiredMpqs.orEmpty().filterNot" in text,
+            )
+            // the LANDED C2 exact-set rule: an unknown patch MPQ is
+            // VAL-04 naming the file, on the non-vanilla lanes
+            assertTrue(
+                "$name: lost the exact-set unknown-patch rejection (R1-1)",
+                "unknown patch MPQ not in the exact set" in text,
             )
             assertTrue(
-                "$name: an exact-set rejection exists but this tripwire " +
-                    "was not re-pinned - pin the C2 rule positively",
-                "unknown" !in text.lowercase() || "patch-" !in text.lowercase(),
+                "$name: the exact-set leg must gate on the non-vanilla lanes " +
+                    "(vanilla's documented tolerance)",
+                "VANILLA.flavorId" in text,
             )
         }
     }

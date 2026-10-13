@@ -12,6 +12,9 @@ import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.UUID
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * The desktop leg of DESK-128 (per-flavor prepared-data pointer namespace &
@@ -31,6 +34,20 @@ import java.util.UUID
  *    directions (identity fields AND the alias key).
  */
 class DesktopPreparedDataPointerTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @Test fun canonicalPerFlavorPointerResolvesForTheQualifiedLane() {
         val root = Files.createTempDirectory("o11-desk128-canonical").toFile()
         try {

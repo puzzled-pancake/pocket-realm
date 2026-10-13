@@ -6,8 +6,12 @@ import java.io.File
 import java.math.BigInteger
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * Per-client-build SRP6 auth fixtures (DESK-56): the auth math and wire
@@ -28,6 +32,20 @@ import org.junit.Test
  * layout.
  */
 class AuthGateTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @Test
     fun verifierGoldenVectorMatchesTheReferenceDerivation() {
         val verifier = VsrpMath.verifierFor(GOLDEN_ACCOUNT, GOLDEN_PASSWORD, bytes(GOLDEN_SALT_HEX))
@@ -41,6 +59,70 @@ class AuthGateTest {
             BigInteger(GOLDEN_V_HEX, 16),
             verifier.v,
         )
+    }
+
+    /** N on the wire: the client reads the padded-BE form REVERSED
+     * (little-endian) - the exact transform its own check applies. */
+    private val nBytesPinned: ByteArray = VsrpMath.N.toPaddedBe(32).reversedArray()
+
+    /** R2-R4-1 (W4 code-red round 4): a realmd serving a LONGER
+     * proof-response frame than the flavor pins must refuse loud —
+     * readExactly(N) alone silently truncated the trailing bytes, which
+     * made the "drift fails loud" invariant unfalsifiable up-drift. The
+     * stub realmd completes the challenge round trip, then serves the
+     * vanilla-pinned 26-byte frame plus 8 trailing bytes: the client must
+     * reject the frame as drift-up. */
+    @Test
+    fun aLongerThanPinnedProofFrameRefusesLoud() {
+        // the deterministic salt: the stub must serve THE verifier's own
+        // salt (the client compares it byte-for-byte)
+        val verifier = VsrpMath.verifierFor("DRIFTUP", "driftpw", bytes(GOLDEN_SALT_HEX))
+        val listener = java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress())
+        val serverThread = Thread {
+            runCatching {
+                listener.accept().use { sock ->
+                    sock.getInputStream().use { input ->
+                        val drain = ByteArray(4096)
+                        runCatching { input.read(drain) }
+                        sock.getOutputStream().use { out ->
+                            // a minimal well-formed challenge response:
+                            // cmd, error, success | B[32] | g_len, g |
+                            // N_len, N[32] | s[32] | versionChallenge[16] |
+                            // securityFlags
+                            out.write(
+                                byteArrayOf(0, 0, 0) + ByteArray(32) +
+                                    byteArrayOf(1, 7, 32) + nBytesPinned +
+                                    verifier.s.reversedArray() +
+                                    ByteArray(16) + byteArrayOf(0),
+                            )
+                            out.flush()
+                            runCatching { input.read(drain) }
+                            // the vanilla-pinned 26-byte frame + 8 trailing
+                            val response = ByteArray(26 + 8)
+                            response[0] = 1  // CMD_AUTH_LOGON_PROOF
+                            response[1] = 0  // AUTH_LOGON_SUCCESS
+                            out.write(response)
+                            out.flush()
+                        }
+                    }
+                }
+            }
+        }
+        serverThread.start()
+        try {
+            val failure = assertThrows(IllegalStateException::class.java) {
+                VsrpClient.logon(
+                    "127.0.0.1", listener.localPort, "DRIFTUP", verifier,
+                )
+            }
+            assertTrue(
+                "the refusal names the drift-up: ${failure.message}",
+                "frame drift-up" in (failure.message ?: ""),
+            )
+        } finally {
+            listener.close()
+            serverThread.join(5000)
+        }
     }
 
     /** The random lane keeps the gate's unpadded-salt invariant: exactly

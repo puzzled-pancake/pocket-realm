@@ -601,7 +601,13 @@ class DesktopAppModel(
      */
     fun activeClientGeneration(): ClientGenerationStatus? {
         val store = com.pocketrealm.importer.ClientGenerationStore(roots)
-        val flavor = com.pocketrealm.client.ActiveFlavor.resolve(ACTIVE_CLIENT_GENERATION_LANE)
+        // W4 flip (R5-1): the render/status path resolves through the
+        // machine's canonical displayedId — no persisted pick under the
+        // flipped registry is the honest "no generation" state, never an
+        // ambiguous-registry crash mid-composition.
+        val flavor = com.pocketrealm.client.ActiveFlavor.displayedId?.let { laneId ->
+            com.pocketrealm.client.ClientFlavors.ALL.first { it.flavorId == laneId }
+        } ?: return null
         store.activeGeneration(flavor) ?: return null
         return try {
             val managed = com.pocketrealm.client.ManagedClientStore(roots).load(flavor.clientId)
@@ -2052,8 +2058,6 @@ class DesktopAppModel(
 
         /** GAP-3: the [com.pocketrealm.client.ActiveFlavor] lane suffix
          * naming the active-generation gate. */
-        private const val ACTIVE_CLIENT_GENERATION_LANE =
-            "the active client generation resolves the qualified lane"
 
         /** The READ-ONLY proof outcomes that ARE an authoritative world
          * answer about the stored identity. Everything else (world not

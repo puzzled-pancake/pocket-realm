@@ -19,6 +19,9 @@ import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * DESK-21/36/52/67/97: the launch-boundary identity gates and the
@@ -37,6 +40,29 @@ import org.junit.rules.TemporaryFolder
  *    GENERATION through the fail-closed reader when a pointer is published.
  */
 class DesktopClientIdentityGateTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+    /** W4 flip: persists the VANILLA pick into these roots' settings — the
+     * launcher resolves the persisted lane, not the holder. */
+    private fun pickVanilla(roots: DesktopStorageRoots) {
+        com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile).save(
+            com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile)
+                .load().copy(selectedFlavorId = "vanilla"),
+        )
+    }
+
+
     @get:Rule
     val folder = TemporaryFolder()
 
@@ -49,7 +75,11 @@ class DesktopClientIdentityGateTest {
         includeClient = false,
     )
 
-    private val limits = ImportLimits(minFiles = 1, minTotalBytes = 0L)
+    // W4 flip: by-lazy — ImportLimits' DEFAULT maxTotalBytes resolves the
+    // active lane, and instance fields initialize BEFORE any @Before runs;
+    // a constructor-time resolve would refuse under several qualified
+    // flavors even with the fixture pin in place.
+    private val limits: ImportLimits get() = ImportLimits(minFiles = 1, minTotalBytes = 0L)
 
     /** The lanes under test exercise scan/copy/publish, not the storage budget:
      * a fixed generous allocatable keeps the preflight off the host TEMP
@@ -89,7 +119,7 @@ class DesktopClientIdentityGateTest {
         val sentinel = "set realmlist 9.9.9.9\r\n"
         File(dir, "realmlist.wtf").writeText(sentinel)
         val backend = DesktopRuntimeBackend(
-            DesktopStorageRoots(folder.newFolder("roots")),
+            DesktopStorageRoots(folder.newFolder("roots")).also { r -> pickVanilla(r) },
             clientDir = dir,
             clientProcessScanner = { emptyList() },
         )
@@ -112,7 +142,7 @@ class DesktopClientIdentityGateTest {
         val dir = materializeClient(folder.newFolder("client"))
         File(dir, "WoW.exe").writeBytes("junk, not a PE".toByteArray())
         val backend = DesktopRuntimeBackend(
-            DesktopStorageRoots(folder.newFolder("roots")),
+            DesktopStorageRoots(folder.newFolder("roots")).also { r -> pickVanilla(r) },
             clientDir = dir,
             clientProcessScanner = { emptyList() },
         )
@@ -125,7 +155,7 @@ class DesktopClientIdentityGateTest {
         val dir = folder.newFolder("client")
         File(dir, "WoW.exe").writeText("placeholder: the guard fires before any launch")
         val backend = DesktopRuntimeBackend(
-            DesktopStorageRoots(folder.newFolder("roots")),
+            DesktopStorageRoots(folder.newFolder("roots")).also { r -> pickVanilla(r) },
             clientDir = dir,
             clientProcessScanner = { listOf(ClientProcessScan(4242, File(dir, "WoW.exe").canonicalPath)) },
         )
@@ -144,7 +174,7 @@ class DesktopClientIdentityGateTest {
     fun folderLaneLaunchWithoutAPristineFileTakesTheScannerGateRefusal() {
         val dir = folder.newFolder("client") // client-less: no WoW.exe at all
         val backend = DesktopRuntimeBackend(
-            DesktopStorageRoots(folder.newFolder("roots")),
+            DesktopStorageRoots(folder.newFolder("roots")).also { r -> pickVanilla(r) },
             clientDir = dir,
             clientProcessScanner = { emptyList() },
         )
@@ -170,7 +200,9 @@ class DesktopClientIdentityGateTest {
      * defense in depth behind it. */
     @Test
     fun managedLaneLaunchStillRefusesFailClosedWhenThePristineExeIsAbsent() {
-        val roots = DesktopStorageRoots(folder.newFolder("roots")).also { it.ensureDirectories() }
+        val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        pickVanilla(roots)
+        roots.ensureDirectories()
         runBlocking { injectedImporter(roots).run(materializeClient(folder.newFolder("imported"))) }
         val generation = com.pocketrealm.importer.ClientGenerationStore(roots).activeGeneration()
         val exe = File(File(File(roots.content, "client"), "generations"), "$generation/WoW.exe")
@@ -190,12 +222,14 @@ class DesktopClientIdentityGateTest {
 
     @Test
     fun resolveClientDirPrefersTheActiveManagedGenerationThroughTheFailClosedReader() {
-        val roots = DesktopStorageRoots(folder.newFolder("roots")).also { it.ensureDirectories() }
+        val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        pickVanilla(roots)
+        roots.ensureDirectories()
         // A legacy folder that WOULD pass the identity scan...
         val legacy = materializeClient(folder.newFolder("legacy-client"))
         roots.ensureDirectories()
         DesktopSettingsStore(roots.settingsFile).save(
-            com.pocketrealm.storage.Settings.Snapshot(clientDir = legacy.absolutePath),
+            com.pocketrealm.storage.Settings.Snapshot(clientDir = legacy.absolutePath, selectedFlavorId = "vanilla"),
         )
         val before = DesktopRuntimeBackend(roots).resolveClientDir()
         assertEquals("without a generation the passing folder resolves", legacy.canonicalFile, before?.canonicalFile)
@@ -213,11 +247,14 @@ class DesktopClientIdentityGateTest {
 
     @Test
     fun resolveClientDirRefusesAWrongBuildFolder() {
-        val roots = DesktopStorageRoots(folder.newFolder("roots")).also { it.ensureDirectories() }
+        val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        pickVanilla(roots)
+        roots.ensureDirectories()
         materializeClient(folder.newFolder("wrong-build"), build = 6005)
         DesktopSettingsStore(roots.settingsFile).save(
             com.pocketrealm.storage.Settings.Snapshot(
                 clientDir = File(folder.root, "wrong-build").absolutePath,
+                selectedFlavorId = "vanilla",
             ),
         )
         val resolved = DesktopRuntimeBackend(roots).resolveClientDir()
@@ -229,10 +266,12 @@ class DesktopClientIdentityGateTest {
 
     @Test
     fun aBrokenManagedPointerIsRefusedFailClosedAndNeverDowngradedToTheFolder() {
-        val roots = DesktopStorageRoots(folder.newFolder("roots")).also { it.ensureDirectories() }
+        val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        pickVanilla(roots)
+        roots.ensureDirectories()
         val legacy = materializeClient(folder.newFolder("legacy-client"))
         DesktopSettingsStore(roots.settingsFile).save(
-            com.pocketrealm.storage.Settings.Snapshot(clientDir = legacy.absolutePath),
+            com.pocketrealm.storage.Settings.Snapshot(clientDir = legacy.absolutePath, selectedFlavorId = "vanilla"),
         )
         runBlocking { injectedImporter(roots).run(materializeClient(folder.newFolder("imported"))) }
         // Sabotage the published generation's manifest: the pointer still

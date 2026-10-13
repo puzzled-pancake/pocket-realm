@@ -5,6 +5,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * DESK-97 scratch-lane name policy pins: classification must reject
@@ -14,6 +17,20 @@ import org.junit.rules.TemporaryFolder
  * duplicate gate and silently overwrite each other mid-extraction.
  */
 class ScratchArchiveExtractorTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @get:Rule val temp = TemporaryFolder()
 
     @Test fun trailingDotOrSpaceEntryNamesAreRejectedAsVal07() {

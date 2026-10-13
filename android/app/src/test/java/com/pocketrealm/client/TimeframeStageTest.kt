@@ -6,6 +6,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * The shared timeframe core's contract (design §1–§5 of the multiplayer +
@@ -27,6 +30,20 @@ import org.junit.Test
  * file so the twins cannot fork.
  */
 class TimeframeStageTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     // ---- the stage timelines ---------------------------------------------
 
@@ -78,13 +95,16 @@ class TimeframeStageTest {
 
     @Test
     fun confValueNeverGoesEmptyAndDefaultsToTheFinalPatch() {
-        // The qualified lane today is vanilla-only (the shared registry's
-        // exactly-one-qualified contract); the conf always names a CONCRETE
-        // stage of that lane.
+        // W4 flip: three lanes are qualified and the holder carries a
+        // selection (this class pins the vanilla lane in setUp) — the conf
+        // always names a CONCRETE stage of the ACTIVE lane.
         assertEquals(
-            listOf("vanilla"),
-            ClientFlavors.qualified().map { it.flavorId },
+            setOf("vanilla", "tbc", "wotlk"),
+            ClientFlavors.qualified().map { it.flavorId }.toSet(),
         )
+        // the holder's pinned vanilla selection resolves the ACTIVE lane
+        // (the .single() degrade is retired).
+        assertEquals("vanilla", com.pocketrealm.client.ActiveFlavor.resolve().flavorId)
         assertEquals("vanilla-1.12.1", TimeframeStages.confValue(""))
         assertEquals("vanilla-1.12.1", TimeframeStages.confValue("vanilla-1.12.1"))
         // An explicit non-default stage of the qualified lane rides verbatim.
@@ -234,8 +254,11 @@ class TimeframeStageTest {
         assertEquals("tbc-2.4.3", TimeframeStages.resolveStoredIn("tbc-2.4.3", qualifiedAll))
         assertEquals("wotlk-3.0.2", TimeframeStages.resolveStoredIn("wotlk-3.0.2", qualifiedAll))
         assertEquals("", TimeframeStages.resolveStoredIn("vanilla-9.9", qualifiedAll))
-        // And through the production wrapper, which reads the live registry.
-        assertEquals("", TimeframeStages.resolveStored("tbc-2.4.3"))
+        // And through the production wrapper, which reads the live
+        // registry. W4 flip: the live registry qualifies all three lanes,
+        // so the tbc stage survives (it was "not qualified today" only
+        // under the pre-flip registry).
+        assertEquals("tbc-2.4.3", TimeframeStages.resolveStored("tbc-2.4.3"))
         assertEquals("vanilla-1.1", TimeframeStages.resolveStored("vanilla-1.1"))
         assertEquals("", TimeframeStages.resolveStored("vanilla-9.9"))
     }

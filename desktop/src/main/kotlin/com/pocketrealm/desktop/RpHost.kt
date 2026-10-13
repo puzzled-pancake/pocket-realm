@@ -62,6 +62,30 @@ fun main() {
         drain(backend, owner)
     })
 
+    // W4 (D72 retirement): the harness applies any PENDING lane migration
+    // set BEFORE the start gates run — a first tbc/wotlk boot on the MariaDB
+    // lane stages its whole database family here (headless, the same
+    // consent the Diagnostics apply verb gives), and an already-current
+    // lane short-circuits idempotently inside the engine.
+    backend.pinBootLaneFromSettings()
+    runCatching { backend.mariadbVerifierSeeding().applyPinnedMigrations() }
+        .onFailure { System.err.println("MIGRATION-PRE-APPLY: ${it.message}") }
+        .onSuccess { applied ->
+            // the service's guarded() answers engine refusals as VALUES
+            // ({ok:false, error}) — a silent false would strand the boot
+            // one gate later with the same PENDING the apply just failed.
+            if (!applied.optBoolean("ok")) {
+                System.err.println(
+                    "MIGRATION-PRE-APPLY refused: " +
+                        applied.optString("error", applied.toString()))
+            } else {
+                System.err.println(
+                    "MIGRATION-PRE-APPLY ok (applied=${applied.optInt("applied")}, " +
+                        "skipped=${applied.optInt("skipped")}, " +
+                        "idempotent=${applied.optBoolean("idempotent")})")
+            }
+        }
+
     val preflight = kotlinx.coroutines.runBlocking { backend.preflight(spec) }
     if (!preflight.ok) {
         System.err.println("PREFLIGHT FAILED: ${preflight.detail}")
@@ -198,18 +222,58 @@ fun main() {
                     val user = protoLoginUser(request.getString("user"))
                     val pass = request.getString("pass")
                     val srp = VsrpMath.verifierFor(user, pass)
-                    val realmd = com.pocketrealm.database.DatabaseSqliteControlPlane
-                        .databaseFile(roots.sqliteDatadir, ServerRuntimeFiles.serverDatabases().realmd)
-                    com.pocketrealm.database.DesktopSqliteConnection(realmd.absolutePath).use { db ->
-                        db.exec(protoLoginAccountUpdate(user, srp))
-                    }
+                    // W4.2: the verifier row lands where the booted realmd
+                    // ACTUALLY reads — provider-aware (the extracted
+                    // [seedSrpVerifierRowForLane]; the former sqlite-only
+                    // write went inert the day the shipped-default MariaDB
+                    // lane booted, leaving proto-login logging in against a
+                    // row realmd never saw on this machine's default lane).
+                    protoLoginSeedVerifier(backend, roots, user, srp)
                     val key = VsrpClient.logon(
                         RealmEndpoint.LOOPBACK_ADDRESS,
                         ServerRuntimeContract.REALM_PORT.toInt(),
                         user, srp,
+                        identity = VsrpClient.LogonIdentity(
+                            lane = (backend.bootLane
+                                ?: ServerRuntimeFiles.serverFlavor())),
                     )
                     sessionKeys[user] = key
                     JSONObject().put("ok", true).put("user", user)
+                }
+                "proto-logon" -> {
+                    // W4.2 (the 3x3 auth matrix): one SRP6 logon with an
+                    // EXPLICIT client build - the harness drives the
+                    // wrong-build cells through the same wire path proto-login
+                    // uses, and a refused pairing answers as JSON (the op loop
+                    // contract), never dies. The refusal reason carries the
+                    // realmd verdict ("challenge rejected with result N") so
+                    // the driver can assert WRONG_BUILD on mismatched pairs.
+                    val user = protoLoginUser(request.getString("user"))
+                    val pass = request.getString("pass")
+                    val build = request.getInt("build")
+                    val srp = VsrpMath.verifierFor(user, pass)
+                    protoLoginSeedVerifier(backend, roots, user, srp)
+                    try {
+                        val key = VsrpClient.logon(
+                            RealmEndpoint.LOOPBACK_ADDRESS,
+                            ServerRuntimeContract.REALM_PORT.toInt(),
+                            user, srp,
+                            identity = VsrpClient.LogonIdentity(
+                                buildOverride = build,
+                                lane = (backend.bootLane
+                                    ?: ServerRuntimeFiles.serverFlavor())),
+                        )
+                        if (request.optBoolean("keepKey", false)) sessionKeys[user] = key
+                        JSONObject().put("ok", true).put("user", user)
+                            .put("build", build)
+                            .put("frameBytes", (backend.bootLane
+                                ?: ServerRuntimeFiles.serverFlavor()).proofResponseBytes)
+                            .put("sessionKey", key)
+                    } catch (refusal: Throwable) {
+                        JSONObject().put("ok", false).put("user", user)
+                            .put("build", build)
+                            .put("reason", refusal.message ?: refusal.toString())
+                    }
                 }
                 "proto-world" -> {
                     val user = request.getString("user").uppercase()
@@ -308,6 +372,31 @@ internal fun protoLoginUser(raw: String): String {
     val user = raw.uppercase()
     ServerRuntimeContract.requireAccountToken("username", user)
     return user
+}
+
+/** W4.2: the proto-login verifier write, provider-aware — the row lands
+ * where the BOOTED realmd reads (MariaDB named pipe on the shipped
+ * default, the sqlite datadir on the dev opt-in lane). The former
+ * sqlite-only UPDATE went inert the day the MariaDB lane booted: realmd
+ * kept the account row its own creation wrote (random salt), and the
+ * logon's salt-equality check refused every proto-login on this
+ * machine's default lane. */
+private fun protoLoginSeedVerifier(
+    backend: DesktopRuntimeBackend,
+    roots: DesktopStorageRoots,
+    user: String,
+    srp: VsrpMath.Verifier,
+) {
+    seedSrpVerifierRowForLane(backend, roots, user, srp)
+    // The UPDATE leg stays for the sqlite lane's row refresh (the helper
+    // INSERTs a fresh row; the UPDATE path kept the historical shape).
+    if (!backend.isMariadbLane()) {
+        val realmd = com.pocketrealm.database.DatabaseSqliteControlPlane
+            .databaseFile(roots.sqliteDatadir, ServerRuntimeFiles.serverDatabases().realmd)
+        com.pocketrealm.database.DesktopSqliteConnection(realmd.absolutePath).use { db ->
+            db.exec(protoLoginAccountUpdate(user, srp))
+        }
+    }
 }
 
 /** The proto-login UPDATE against the realmd account row. The username

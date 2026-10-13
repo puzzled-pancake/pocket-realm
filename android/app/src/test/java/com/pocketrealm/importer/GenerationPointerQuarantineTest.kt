@@ -12,6 +12,8 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.Before
 
 /**
  * G3-5 quarantine guards for the durable generation pointers, on the pure
@@ -35,6 +37,19 @@ import java.security.MessageDigest
  * paths apply are the ones pinned here.
  */
 class GenerationPointerQuarantineTest {
+    /** W4 flip fixture: the generation pointer resolves the ACTIVE lane
+     * through the holder — pin the VANILLA lane (holder select). */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     private val tempRoots = mutableListOf<File>()
 
     @After fun cleanTempRoots() {

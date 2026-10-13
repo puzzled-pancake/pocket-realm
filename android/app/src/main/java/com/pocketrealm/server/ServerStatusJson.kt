@@ -28,14 +28,20 @@ internal object ServerStatusJson {
         .put("nativeCmangosCommit", ServerRuntimeContract.NATIVE_CMANGOS_COMMIT)
         .put("nativePlayerbotsCommit", ServerRuntimeContract.NATIVE_PLAYERBOTS_COMMIT)
 
-    private fun base(component: String, values: LongArray, detail: String) = JSONObject()
+    private fun base(
+        component: String,
+        values: LongArray,
+        detail: String,
+        runtimeBuildId: String? = null,
+        nativeCmangosCommit: String? = null,
+    ) = JSONObject()
         .put("schema", ServerRuntimeContract.CONTROL_SCHEMA).put("ok", true)
         .put("component", component).put("abiVersion", values[0])
         .put("state", ServerRuntimeContract.stateName(values[1]))
         .put("stateCode", values[1]).put("error", ServerRuntimeContract.errorName(values[2]))
         .put("errorCode", values[2]).put("heartbeatMs", values[3])
         .put("detail", detail.take(512)).put("pid", Process.myPid())
-        .put("runtimeBuildId", ServerRuntimeContract.RUNTIME_BUILD_ID)
-        .put("nativeCmangosCommit", ServerRuntimeContract.NATIVE_CMANGOS_COMMIT)
+        .put("runtimeBuildId", runtimeBuildId ?: ServerRuntimeContract.RUNTIME_BUILD_ID)
+        .put("nativeCmangosCommit", nativeCmangosCommit ?: ServerRuntimeContract.NATIVE_CMANGOS_COMMIT)
         .put("nativePlayerbotsCommit", ServerRuntimeContract.NATIVE_PLAYERBOTS_COMMIT)
 }

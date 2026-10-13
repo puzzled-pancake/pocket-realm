@@ -14,6 +14,8 @@ import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.junit.After
+import org.junit.Before
 
 /**
  * DESK-34/63/97: the desktop folder-lane import pipeline end to end —
@@ -24,12 +26,28 @@ import org.junit.rules.TemporaryFolder
  * synthetic fixtures (no Blizzard bytes committed).
  */
 class ManagedClientImporterTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @get:Rule
     val folder = TemporaryFolder()
 
     /** The synthetic client is under the plain 20-file minimum; relax the
      * floor exactly like a small fixture client, keeping the caps. */
-    private val limits = ImportLimits(minFiles = 1, minTotalBytes = 0L)
+    // W4 flip: getter, not a field — the ImportLimits DEFAULT resolves the
+           // active lane, and fields initialize before any @Before pin.
+    private val limits: ImportLimits get() = ImportLimits(minFiles = 1, minTotalBytes = 0L)
 
     /** These lanes exercise copy/verify/publish, not the storage budget: a
      * fixed generous allocatable keeps the preflight off the host TEMP

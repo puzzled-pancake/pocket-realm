@@ -20,6 +20,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * The default-flip's pinning suite (the desktop's shipped database provider
@@ -61,6 +64,20 @@ import org.junit.rules.TemporaryFolder
  * with or without a real staged provider distribution.
  */
 class DesktopDatabaseProviderDefaultTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @get:Rule
     val folder = TemporaryFolder()
 
@@ -186,6 +203,8 @@ class DesktopDatabaseProviderDefaultTest {
                 "pocket_forbidden" in sql -> refused("scripted: account administration denied")
                 "required_z9999_not_real" in sql -> ok("0")
                 "information_schema.COLUMNS" in sql -> ok("1")
+                // W4 (D72 retirement): the per-lane provisioning verb.
+                "CREATE DATABASE IF NOT EXISTS" in sql -> ok()
                 "pocket_admin" in sql -> ok()
                 "migration_ledger" in sql -> ok()
                 else -> refused("scripted: unexpected client sql: ${sql.take(80)}")
@@ -778,6 +797,7 @@ class DesktopDatabaseProviderDefaultTest {
         roots.settingsFile.writeText(
             com.pocketrealm.storage.Settings.Snapshot(
                 databaseProvider = com.pocketrealm.storage.Settings.DatabaseProvider.SQLITE,
+                selectedFlavorId = "vanilla",
             ).toJson(),
         )
         val backend = DesktopRuntimeBackend(roots)

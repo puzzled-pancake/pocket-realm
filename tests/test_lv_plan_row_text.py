@@ -95,11 +95,17 @@ def test_server_db_19_row_cites_the_android_flavor_lane_tests() -> None:
     # ground truth: the pin classes exist and carry the G3-9 legs
     shim = SNAPSHOT_SHIM_TEST.read_text(encoding="utf-8")
     assert "checkSnapshotFlavorMatchesLane" in SNAPSHOT_STORE.read_text(encoding="utf-8")
-    assert "tbc flavored snapshot refuses the vanilla lane naming both flavors" in shim
+    # W4 flip: the cross-flavor refusal leg now uses a synthetic foreign
+    # flavor id (tbc is QUALIFIED, so a tbc snapshot against the tbc lane
+    # would legitimately restore); the leg, its class, and its test count
+    # are unchanged.
+    assert "a foreign-flavor snapshot refuses the active lane naming both flavors" in shim
     assert SNAPSHOT_STORE_TEST.read_text(encoding="utf-8").count("@Test") == 3
     assert shim.count("@Test") == 4
-    # the desktop class genuinely holds no flavor pins (why the citation moved)
-    assert "flavor" not in RESTORE_TEST.read_text(encoding="utf-8").lower()
+    # the desktop restore class carries the flip's persisted-pick fixture
+    # (the restore gate resolves the lane from the pinned boot lane), so
+    # the former "holds no flavor pins" ground truth is retired with D72.
+    assert "selectedFlavorId" in RESTORE_TEST.read_text(encoding="utf-8")
 
 
 def test_desktop_app_08_probe_uses_the_real_save_api() -> None:

@@ -393,10 +393,14 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("binding-search"),
             )
-            val catalogMatches = WowVanillaBindingCatalog.search(bindingSearch)
-            ControlSection("WoW 1.12.1 action reference") {
+            val catalogMatches = com.pocketrealm.ingame.WowFlavorCatalogs.bindingsSearch(
+                activeBindingLane(), bindingSearch,
+            )
+            ControlSection("WoW action reference") {
+                val stockActions = com.pocketrealm.ingame.WowFlavorCatalogs
+                    .bindingsUserFacing(activeBindingLane()).size
                 SupportingText(
-                    "${WowVanillaBindingCatalog.userFacing.size} stock actions are documented, alongside every " +
+                    "$stockActions stock actions are documented, alongside every " +
                         "keyboard and mouse output supported by this app. This action list is reference-only: " +
                         "assign a supported output above, " +
                         "then bind that key to the action in WoW's Key Bindings screen.",

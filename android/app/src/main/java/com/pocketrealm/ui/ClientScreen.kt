@@ -79,11 +79,19 @@ private val ARCHIVE_MIME_TYPES = arrayOf(
  * TunnelInvite.clientRequirementLine precedent (D9). A hard-coded
  * "WoW 1.12.1 client" line on a TBC/WotLK lane was factually wrong copy
  * AND evaded the leak sweep (no version token match). Fails loud with the
- * machine's message on an ambiguous registry, like every sibling site. */
-private fun activeClientVersion(): String =
-    ActiveFlavor.resolve("the client import screen names the active lane's client")
-        .versionResource
-        .substringBeforeLast('.')
+ * machine's message on an ambiguous registry, like every sibling site.
+ *
+ * W4 flip: with no pick yet under several qualified flavors the resolver
+ * refuses loud — this render lane returns null and the screen renders the
+ * first-pick copy instead of crashing composition (the import operation
+ * itself keeps the machine's loud refusal). */
+private fun activeClientVersionOrNull(): String? =
+    ActiveFlavor.displayedId?.let { laneId ->
+        com.pocketrealm.client.ClientFlavors.ALL
+            .first { it.flavorId == laneId }
+            .versionResource
+            .substringBeforeLast('.')
+    }
 
 /**
  * Managed client import, server-data generation, and the import benchmark.
@@ -96,7 +104,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     val context = LocalContext.current
     // R2-1: resolved per composition from the live registry — a flavor flip
     // is honored on the next recomposition, never frozen at first composition.
-    val clientVersion = activeClientVersion()
+    val clientVersion = activeClientVersionOrNull()
     val ui = remember { ImportUiState(context) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) ui.onFolderPicked(context, uri)
@@ -115,40 +123,13 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     }
 
     ui.pendingImport?.let { pending ->
-        AlertDialog(
-            onDismissRequest = { ui.pendingImport = null },
-            title = { Text(if (pending.isArchive) "Install from this archive?" else "Import the game files?") },
-            text = {
-                Text(
-                    if (pending.isArchive) {
-                        val gigabytes = pending.expectedBytes / 1_000_000_000.0
-                        "Pocket Realm copies the ${"%.1f".format(gigabytes)} GB archive into app storage, " +
-                            "detects the WoW $clientVersion client inside, extracts and verifies it, then builds " +
-                            "the server's maps, collision and navmesh data. Original installer archives " +
-                            "(containing setup.exe + setup-*.bin) are unpacked on device too — plan for " +
-                            "well over 30 minutes (an hour or more for a ~5 GB installer archive) and " +
-                            "roughly twice the archive size in free space " +
-                            "(three times for an installer archive); keep the device plugged in and " +
-                            "awake. The archive itself is only read, never modified, and the staged " +
-                            "copy is deleted after the client is published."
-                    } else {
-                        "This copies and verifies the WoW $clientVersion client, then builds the " +
-                            "server's maps, collision and navmesh data. Depending on the " +
-                            "device this can take over 30 minutes. Keep the device plugged " +
-                            "in and awake. The selected folder is only read, never modified. " +
-                            "The folder must be the plain, already-extracted (uncompressed) " +
-                            "WoW $clientVersion client itself — not an installer or launcher."
-                    },
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    ui.pendingImport = null
-                    ui.startImport(context, pending)
-                }) { Text(if (pending.isArchive) "Install" else "Start import") }
-            },
-            dismissButton = {
-                TextButton(onClick = { ui.pendingImport = null }) { Text("Cancel") }
+        importConfirmDialog(
+            pending = pending,
+            clientVersion = clientVersion,
+            onDismiss = { ui.pendingImport = null },
+            onConfirm = {
+                ui.pendingImport = null
+                ui.startImport(context, pending)
             },
         )
     }
@@ -178,7 +159,18 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text("Game setup", style = MaterialTheme.typography.headlineSmall)
-        Text("Import the WoW $clientVersion client and generate the server's world data")
+        if (clientVersion == null) {
+            // W4 flip: no pick yet under several qualified flavors — the
+            // first-pick copy instead of a "null" version interpolation
+            // (the import operation keeps the machine's loud refusal).
+            Text(
+                "Pick a game flavor on Home first — the import lane follows that flavor.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            Text("Import the WoW $clientVersion client and generate the server's world data")
+        }
         OutlinedButton(onClick = { archivePicker.launch(ARCHIVE_MIME_TYPES) }) {
             Text("Import from archive (.zip / .7z / .rar)")
         }
@@ -210,7 +202,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
  * in plain functions (detekt complexity is counted per function; the screen
  * composable stays a thin shell).
  */
-private class ImportUiState(context: android.content.Context) {
+internal class ImportUiState(context: android.content.Context) {
     private val appContext = context.applicationContext
     var importProgress by mutableStateOf(ImportProgressPresentation.idle())
     var importNotice by mutableStateOf<String?>(null)
@@ -771,3 +763,10 @@ internal fun importWatchdogAction(facts: ImportWatchdogFacts): ImportWatchdogAct
     return if (restartAllowed && facts.hasSourceUri) ImportWatchdogAction.RESTART
     else ImportWatchdogAction.SHOW_MANUAL_RESUME
 }
+
+
+/** The import confirmation dialog (extracted from ClientScreen so the
+ * screen's composition complexity stays under the detekt threshold; the
+ * copy branches on archive-vs-folder and names the ACTIVE lane's client
+ * version — the W4 flip's render-time null path renders the first-pick
+ * copy instead of a "null" interpolation). */

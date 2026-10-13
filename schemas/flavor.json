@@ -1,6 +1,8 @@
 {
   "schema": 2,
   "reference_document": "docs/TBC-WOTLK-MULTI-FLAVOR-PORT-PLAN.md",
+  "single_qualified_lane": false,
+  "single_qualified_lane_note": "W4 qualification flip (completion-plan §4 W4.4, owner default approved - table #3): tbc and wotlk qualify beside vanilla, so the D9 one-lane contract is retired EXPLICITLY here. With several qualified flavors an ABSENT selection refuses loud (ActiveFlavorState.resolve) - never a silent vanilla default; the Home flavor cards own the first pick and the pick persists (settings.selectedFlavorId).",
   "description": "The multi-flavor product manifest: the contract the build, manifest merger, and release-acceptance checks enforce. Legacy top-level fields below describe the product-wide device/permission policy; the authoritative per-flavor data lives in the flavors array. Only flavors with qualified=true may be imported or launched.",
   "auth": {
     "smsg_auth_challenge_opcode": "0x1EC",
@@ -126,16 +128,16 @@
     },
     {
       "id": "tbc",
-      "qualified": false,
+      "qualified": true,
       "expansion": "The Burning Crusade",
       "client_id": "wow-2.4.3-8606",
       "build": 8606,
       "version_resource": "2.4.3.8606",
-      "client_version": "2.4.3 build 8606 (user-supplied; S5.1 identity registered, qualification pending)",
+      "client_version": "2.4.3 build 8606 (user-supplied; qualified at the W4 flip - import/launch gate on the S5.1 identity)",
       "supported_client_builds": [
         8606
       ],
-      "supported_client_builds_note": "S5.1 hash registration (lanes item 13), measured on the staged genuine 2.4.3.8606 enUS client: SHA-256 8f8d7f4cf3909e61fd34b09df9c9b56c21aec76a9ad1883353f1fa5d9b8411e2 (wine.known_exe_sha256), MD5 cross-check 57c5c03097103e15f9abe2803aebdc3c (client_binary.known_exe_md5, equals the anzz1 pristine prefix, register C6), 8,272,528 bytes, PE version tuple (2,4,3,8606). Import still rejects while qualified=false; the flip is owner-decision (lanes item 21).",
+      "supported_client_builds_note": "S5.1 hash registration (lanes item 13), measured on the staged genuine 2.4.3.8606 enUS client: SHA-256 8f8d7f4cf3909e61fd34b09df9c9b56c21aec76a9ad1883353f1fa5d9b8411e2 (wine.known_exe_sha256), MD5 cross-check 57c5c03097103e15f9abe2803aebdc3c (client_binary.known_exe_md5, equals the anzz1 pristine prefix, register C6), 8,272,528 bytes, PE version tuple (2,4,3,8606). Qualified at the W4 flip (completion-plan §4 W4.4, owner default approved). GATED: the flip commits only when the W4.1 desktop end-to-end, the W4.2 auth matrix, and the W4.3 friend-arc evidence are green — see D86's flip-gate paragraph and out/completion/w4/ for the run state.",
       "server_core": {
         "upstream": "https://github.com/cmangos/mangos-tbc.git",
         "fork": "https://github.com/puzzled-pancake/mangos-tbc.git",
@@ -205,7 +207,15 @@
         "characters_per_account": 9,
         "characters_per_account_note": "bot-headroom cap (player character occupies one slot); client UI cap is 10 per realm"
       },
-      "storage": null,
+      "storage": {
+        "extracted_estimate_bytes": 12884901888,
+        "wine_estimate_bytes": 1073741824,
+        "max_total_bytes": 25769803776,
+        "max_file_bytes": 8589934592,
+        "max_files": 100000,
+        "max_entries": 110000,
+        "note": "W4 measured budgets (2026-10-12, E:\\Wow clients staged client + the published tbc prepared generation 84002584): the genuine 2.4.3 client tree is 8,579,714,973 bytes across 976 files (largest 3,838,254,210); the prepared server data measured 3,217,410,914 bytes across 15,199 files. extracted_estimate_bytes = 12 GiB (>= the 8.0 GiB client tree — the managed-copy floor the planner reserves for — and 4.0x the measured prepared generation; R4-3 code-red round 1 raised it from the under-stated 6 GiB (round 6 corrected the multiplier arithmetic: 12,884,901,888 / 3,217,410,914 = 4.0)); max_total_bytes = 24 GiB (the import-source cap, >= the 8.0 GiB tree with the archive lane's staged-copy headroom); max_file_bytes/max_files/max_entries keep the platform caps (the largest file is 3.6 GiB < 8 GiB; 976 files << 100k)."
+      },
       "wine": {
         "prefix_segment": "wow8606",
         "graphics_routes": [
@@ -239,16 +249,16 @@
     },
     {
       "id": "wotlk",
-      "qualified": false,
+      "qualified": true,
       "expansion": "Wrath of the Lich King",
       "client_id": "wow-3.3.5a-12340",
       "build": 12340,
       "version_resource": "3.3.5.12340",
-      "client_version": "3.3.5a build 12340 (user-supplied; S5.1 identity registered, qualification pending)",
+      "client_version": "3.3.5a build 12340 (user-supplied; qualified at the W4 flip - import/launch gate on the S5.1 identity)",
       "supported_client_builds": [
         12340
       ],
-      "supported_client_builds_note": "S5.1 hash registration (lanes item 13), measured on the staged genuine 3.3.5a.12340 enUS client: SHA-256 aa63a5750d60ef16746c686b3d5e26876d98953eab08b1c026cd0faf78e88cb8 (wine.known_exe_sha256), MD5 cross-check 45892bdedd0ad70aed4ccd22d9fb5984 (client_binary.known_exe_md5, equals the anzz1 pristine prefix, register C6), 7,704,216 bytes, PE version tuple (3,3,5,12340). Import still rejects while qualified=false; the flip is owner-decision (lanes item 21).",
+      "supported_client_builds_note": "S5.1 hash registration (lanes item 13), measured on the staged genuine 3.3.5a.12340 enUS client: SHA-256 aa63a5750d60ef16746c686b3d5e26876d98953eab08b1c026cd0faf78e88cb8 (wine.known_exe_sha256), MD5 cross-check 45892bdedd0ad70aed4ccd22d9fb5984 (client_binary.known_exe_md5, equals the anzz1 pristine prefix, register C6), 7,704,216 bytes, PE version tuple (3,3,5,12340). Qualified at the W4 flip (completion-plan §4 W4.4, owner default approved). GATED: the flip commits only when the W4.1 desktop end-to-end, the W4.2 auth matrix, and the W4.3 friend-arc evidence are green — see D86's flip-gate paragraph and out/completion/w4/ for the run state.",
       "server_core": {
         "upstream": "https://github.com/cmangos/mangos-wotlk.git",
         "fork": "https://github.com/puzzled-pancake/mangos-wotlk.git",
@@ -332,7 +342,15 @@
         "characters_per_account": 9,
         "characters_per_account_note": "bot-headroom cap (player character occupies one slot); client UI cap is 10 per realm"
       },
-      "storage": null,
+      "storage": {
+        "extracted_estimate_bytes": 25769803776,
+        "wine_estimate_bytes": 1073741824,
+        "max_total_bytes": 42949672960,
+        "max_file_bytes": 8589934592,
+        "max_files": 100000,
+        "max_entries": 110000,
+        "note": "W4 measured budgets (2026-10-12, E:\\Wow clients staged client + the published wotlk prepared generation 09613a74): the genuine 3.3.5a client tree is 17,856,619,157 bytes across 185 files (largest 4,005,207,489); the prepared server data measured 3,309,122,582 bytes across 22,697 files. extracted_estimate_bytes = 24 GiB (>= the 16.6 GiB client tree — the managed-copy floor the planner reserves for — and 7.8x the measured prepared generation (25,769,803,776 / 3,309,122,582 = 7.8; round 6 corrected the multiplier arithmetic); R4-3 code-red round 1 raised it from the under-stated 6 GiB); max_total_bytes = 40 GiB (the import-source cap, >= the 16.6 GiB tree with the archive lane's staged-copy headroom); max_file_bytes/max_files/max_entries keep the platform caps (the largest file is 3.7 GiB < 8 GiB; 185 files << 100k)."
+      },
       "wine": {
         "prefix_segment": "wow12340",
         "graphics_routes": [

@@ -5,9 +5,11 @@ import com.pocketrealm.client.testFlavor
 import com.pocketrealm.desktop.DesktopStorageRoots
 import com.pocketrealm.database.DesktopMariaDbEngine.Processes
 import java.io.File
+import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -15,6 +17,8 @@ import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.junit.After
+import org.junit.Before
 
 /**
  * The desktop MariaDB engine twin's durable decisions (DESK-5/47/78),
@@ -41,6 +45,20 @@ import org.junit.rules.TemporaryFolder
  *  - the owner-release stop on an ended engine never touches the seals.
  */
 class DesktopMariaDbEngineTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @get:Rule
     val folder = TemporaryFolder()
 
@@ -57,7 +75,7 @@ class DesktopMariaDbEngineTest {
     /** A synthetic staged distribution + its committed lockfile, laid out
      * exactly as the build lane's staging contract demands. */
     @Suppress("LongMethod") // the staging contract's document tree, one fixture
-    private fun stageProvider(base: File): File {
+    private fun stageProvider(base: File, stageLaneSibling: Boolean = false): File {
         val repo = File(base, "repo").apply { mkdirs() }
         val staging = File(repo, "native/.build-win-x86_64/mariadb-provider").apply { mkdirs() }
         File(staging, "bin").mkdirs()
@@ -119,6 +137,86 @@ class DesktopMariaDbEngineTest {
                 )
                 .toString(),
         )
+        if (stageLaneSibling) {
+            // R3-r3-fix regression staging: the TBC lane's sibling manifest
+            // + its lane lockfile pin (the shape the real D72 retirement
+            // stages via tools/stage_mariadb_flavor_migrations.py) — an
+            // empty entry set with a DISTINCT digest from the shared
+            // manifest, so the lane identity can never coincide with the
+            // shared one.
+            val laneManifest = JSONObject(migrationManifest.toString())
+                .put("app_build_id", "test-build-tbc")
+            // R4-5: one REAL migration entry (staged .sqlz asset with
+            // matching digests) so the tbc apply has a mid-ledger point
+            val migrationSql = "-- scripted-tbc-migration\nSELECT 1;\n"
+                .toByteArray()
+            val migrationAssetId = "s2474_tbc_one"
+            val gzipped = java.io.ByteArrayOutputStream().also { out ->
+                java.util.zip.GZIPOutputStream(out).use { it.write(migrationSql) }
+            }.toByteArray()
+            File(staging, "migrations-tbc").mkdirs()
+            File(
+                staging,
+                "migrations-tbc/$migrationAssetId.sqlz",
+            ).writeBytes(gzipped)
+            fun sha(bytes: ByteArray) =
+                java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(bytes).joinToString("") { "%02x".format(it) }
+            laneManifest.put(
+                "entries", org.json.JSONArray().put(
+                    JSONObject()
+                        .put("migration_id", migrationAssetId)
+                        .put("component", "world")
+                        .put("source_path", "native/cmangos-tbc/sql/base/tbc-one.sql")
+                        .put("database", "tbcmangos")
+                        .put("asset", "database/migrations/s2474.sqlz")
+                        .put("compression", "gzip")
+                        .put("sql_size", migrationSql.size)
+                        .put("sql_sha256", sha(migrationSql))
+                        .put("asset_sha256", sha(gzipped))
+                ),
+            )
+            File(staging, "migration-manifest-tbc.json")
+                .writeText(laneManifest.toString())
+            val laneManifestFile = File(staging, "migration-manifest-tbc.json")
+            File(repo, "schemas/database-provider-lockfile-win-tbc.json").writeText(
+                JSONObject()
+                    .put("schema", 1)
+                    .put("abi", "windows-x86_64")
+                    .put("database_backend", "mariadb")
+                    .put("flavor", "tbc")
+                    .put("provider", JSONObject().put("id", DatabaseRuntimeContract.WINDOWS_PROVIDER_ID))
+                    .put(
+                        "lane_migrations", JSONObject()
+                            .put("flavor", "tbc")
+                            .put("manifest_sha256", sha256(laneManifestFile))
+                            .put("migration_count", 1),
+                    )
+                    .toString(),
+            )
+            // R4-5: the WOTLK sibling too — the kill-mid-switch isolation
+            // test needs BOTH lanes staged on one shared closure
+            val wotlkManifest = JSONObject(migrationManifest.toString())
+                .put("app_build_id", "test-build-wotlk")
+            File(staging, "migration-manifest-wotlk.json")
+                .writeText(wotlkManifest.toString())
+            val wotlkManifestFile = File(staging, "migration-manifest-wotlk.json")
+            File(repo, "schemas/database-provider-lockfile-win-wotlk.json").writeText(
+                JSONObject()
+                    .put("schema", 1)
+                    .put("abi", "windows-x86_64")
+                    .put("database_backend", "mariadb")
+                    .put("flavor", "wotlk")
+                    .put("provider", JSONObject().put("id", DatabaseRuntimeContract.WINDOWS_PROVIDER_ID))
+                    .put(
+                        "lane_migrations", JSONObject()
+                            .put("flavor", "wotlk")
+                            .put("manifest_sha256", sha256(wotlkManifestFile))
+                            .put("migration_count", 0),
+                    )
+                    .toString(),
+            )
+        }
         return staging
     }
 
@@ -165,11 +263,52 @@ class DesktopMariaDbEngineTest {
         /** Make the daemon spawn itself throw (the spawn-failure leg). */
         var failSpawn = false
 
+        /** R4-5: when set, the FIRST migration SQL blocks until the
+         * latch releases — the in-process stand-in for a process kill
+         * mid-ledger (the journal stays at phase RUNNING, exactly the
+         * crash aftermath a real kill leaves). */
+        var migrationBlock: java.util.concurrent.CountDownLatch? = null
+        private var migrationBlockArmed = true
+
         var daemonRunning = false
         var daemonPid = 4242L
 
         private fun ok(stdout: String = "") = DatabaseRunResult(0, 0, false, stdout, "")
         private fun refused(detail: String) = DatabaseRunResult(1, 0, false, "", detail)
+
+        /** The projection leg's verify read answers the row its UPDATE
+         * just "wrote": address/port plus the builds advertisement. */
+        fun realmlistAnswer(sql: String): DatabaseRunResult {
+            val builds = Regex("realmbuilds='([^']*)'").find(sql)
+                ?.groupValues?.get(1) ?: ""
+            return ok("127.0.0.1\t8085\t$builds")
+        }
+
+        /** The mariadbd --bootstrap leg: materialize the datadir's
+         * mysql/ ownership proof files (extracted from runTool). */
+        fun bootstrapLeg(args: List<String>): DatabaseRunResult {
+            val datadir = File(
+                args.first { it.startsWith("--datadir=") }.removePrefix("--datadir="),
+            )
+            File(datadir, "mysql").mkdirs()
+            File(datadir, "mysql/global_priv.MYD").writeText("privileges")
+            return ok()
+        }
+
+        /** R4-5: the FIRST migration SQL blocks until the latch
+         * releases (the mid-ledger kill stand-in); the recovery's retry
+         * lands here armed=false and the migration applies green. */
+        fun unexpectedClientSql(sql: String): DatabaseRunResult {
+            val gate = migrationBlock
+            if (gate != null && migrationBlockArmed &&
+                "scripted-tbc-migration" in sql
+            ) {
+                migrationBlockArmed = false
+                gate.countDown()
+                gate.await(10, java.util.concurrent.TimeUnit.SECONDS)
+            }
+            return refused("scripted: unexpected client sql: ${sql.take(80)}")
+        }
 
         override fun runTool(
             executable: File,
@@ -180,10 +319,7 @@ class DesktopMariaDbEngineTest {
         ): DatabaseRunResult {
             toolCalls.add(args)
             if (args.contains("--bootstrap")) {
-                val datadir = File(args.first { it.startsWith("--datadir=") }.removePrefix("--datadir="))
-                File(datadir, "mysql").mkdirs()
-                File(datadir, "mysql/global_priv.MYD").writeText("privileges")
-                return ok()
+                return bootstrapLeg(args)
             }
             val sql = stdin?.readText() ?: ""
             clientRuns.add(args to sql)
@@ -224,16 +360,22 @@ class DesktopMariaDbEngineTest {
                 "required_z9999_not_real" in sql -> ok("0")
                 "information_schema.COLUMNS" in sql -> ok("1")
                 "pocket_admin" in sql -> ok()
+                // W4 (D72 retirement): the per-lane provisioning leg (the
+                // four CREATE DATABASE IF NOT EXISTS + the pocket_core
+                // grants, run before the lane's ledger applies).
+                "CREATE DATABASE IF NOT EXISTS" in sql -> ok()
                 "migration_ledger" in sql -> ok()
-                "realmlist" in sql -> {
-                    // The projection leg's verify read answers the row its
-                    // UPDATE just "wrote": address/port plus the builds
-                    // advertisement the UPDATE carried.
-                    val builds = Regex("realmbuilds='([^']*)'").find(sql)
-                        ?.groupValues?.get(1) ?: ""
-                    ok("127.0.0.1\t8085\t$builds")
+                "realmlist" in sql -> realmlistAnswer(sql)
+                "scripted-tbc-migration" in sql -> {
+                    val gate = migrationBlock
+                    if (gate != null && migrationBlockArmed) {
+                        migrationBlockArmed = false
+                        gate.countDown()
+                        gate.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                    }
+                    ok()  // the migration applies (the recovery retry lands here)
                 }
-                else -> refused("scripted: unexpected client sql: ${sql.take(80)}")
+                else -> unexpectedClientSql(sql)
             }
         }
 
@@ -262,11 +404,26 @@ class DesktopMariaDbEngineTest {
         val roots: DesktopStorageRoots,
         val staging: File,
         val processes: ScriptedProcesses,
+        val bootLaneId: String? = null,
     ) {
-        fun engine(): DesktopMariaDbEngine = DesktopMariaDbEngine(
+        fun engine(): DesktopMariaDbEngine = engineFor(bootLaneId ?: "vanilla")
+
+        fun engineFor(flavorId: String): DesktopMariaDbEngine = DesktopMariaDbEngine(
             roots = roots,
             providerOverride = provider(),
             processes = processes,
+            // R3-r3-fix regression: a NON-VANILLA boot lane routes the
+            // transaction journal, seal marker, and lane identity off the
+            // lane suffixes — the exact wiring the identity-drift defect
+            // broke one phase after SNAPSHOT_READY.
+            bootLane = if (flavorId != "vanilla") {
+                val supplier: () -> com.pocketrealm.client.ClientFlavor? = {
+                    testFlavor(flavorId, qualified = true)
+                }
+                supplier
+            } else {
+                { null }
+            },
         )
 
         fun provider(): DesktopMariaDbProvider = DesktopMariaDbProvider(
@@ -286,8 +443,65 @@ class DesktopMariaDbEngineTest {
         return Lane(roots, staging, ScriptedProcesses(roots))
     }
 
+    /** The TBC lane fixture: a staged sibling manifest + lane lockfile and
+     * an engine whose boot lane resolves tbc (the R3-r3-fix regression
+     * fixture). */
+    private fun freshTbcLane(): Lane {
+        val seq = laneCounter++
+        val roots = DesktopStorageRoots(folder.newFolder("roots-$seq")).apply { ensureDirectories() }
+        val staging = stageProvider(folder.newFolder("repo-root-$seq"), stageLaneSibling = true)
+        return Lane(roots, staging, ScriptedProcesses(roots), bootLaneId = "tbc")
+    }
+
     /** The fresh-lane fixture's name sequence (per test method). */
     private var laneCounter: Int = 0
+
+    /** R4-5: the kill stand-in — write the lane's MIGRATION journal at
+     * phase RUNNING through the engine's own durable writer (the lane
+     * identity from the staged closure, the newest published
+     * pre-migration snapshot as the recovery target). The exact bytes a
+     * mid-ledger process kill leaves behind. */
+    private fun Lane.writeKilledJournal(flavorId: String): File {
+        val snapshotsRoot = File(roots.database, "snapshots")
+        val snapshotId = snapshotsRoot
+            .listFiles { f -> f.name.startsWith("pre-migration-") }
+            .orEmpty()
+            .maxByOrNull { it.name }!!.name
+        val snapshotDigest = File(snapshotsRoot, "$snapshotId/manifest.sha256")
+            .readText().trim()
+        val generationUuid = DatabaseDurableState.generationUuid(
+            File(
+                File(roots.database, "mariadb-datadir"),
+                DesktopMariaDbEngine.GENERATION_MARKER_NAME,
+            ).readText(),
+        )!!
+        val stagingRoot = staging
+        val laneIdentity = DatabaseDurableState.Identity(
+            providerId = DatabaseRuntimeContract.WINDOWS_PROVIDER_ID,
+            providerClosureSha256 = com.pocketrealm.fs.FileDigests.sha256(
+                File(stagingRoot, "runtime-manifest.json"),
+            ),
+            bootstrapSha256 = com.pocketrealm.fs.FileDigests.sha256(
+                File(stagingRoot, "bootstrap.sql"),
+            ),
+            migrationManifestSha256 = com.pocketrealm.fs.FileDigests.sha256(
+                File(stagingRoot, "migration-manifest-$flavorId.json"),
+            ),
+            migrationCount = 1,
+        )
+        val journal = File(roots.database, "database-transaction-$flavorId.json")
+        DatabaseDurability.atomicWrite(
+            journal,
+            DatabaseDurableState.transaction(
+                kind = "MIGRATION", phase = "RUNNING",
+                transactionId = UUID.randomUUID().toString(),
+                generationUuid = generationUuid,
+                identity = laneIdentity,
+                snapshotId = snapshotId, snapshotDigest = snapshotDigest,
+            ),
+        )
+        return journal
+    }
 
     /** Initializes a lane and returns it (the happy-path fixture). */
     private fun initializedLane(): Lane {
@@ -519,6 +733,164 @@ class DesktopMariaDbEngineTest {
         assertTrue(started.getBoolean("authenticated"))
         assertTrue(started.getBoolean("leastPrivilege"))
         engine.stop()
+    }
+
+    @Test
+    fun aNonVanillaLaneMigrationApplyProvesItsPhasesAgainstTheLaneIdentity() {
+        // R3-r3-fix (W4 code-red round 3) regression: the MIGRATION
+        // transaction record is written with the LANE identity (R3-2), but
+        // every phase update and the recovery proof re-parsed it against
+        // the SHARED vanilla identity — "DB-TRANSACTION: transaction
+        // identity drift" refused every non-vanilla apply one phase after
+        // SNAPSHOT_READY (observed live: the matrix tbc boot's pre-apply
+        // failed, rolled its snapshot back, and the start gate then read
+        // DB-MIGRATION-PENDING forever). The apply must complete through
+        // all phases on a tbc boot lane.
+        val lane = freshTbcLane()
+        val engine = lane.engine()
+        assertTrue(engine.initialize().getBoolean("ok"))
+        val applied = engine.applyPinnedMigrations()
+        assertTrue(
+            "the tbc apply must complete through every transaction phase: $applied",
+            applied.getBoolean("ok"),
+        )
+        assertEquals(1, applied.getInt("applied"))
+        assertTrue(applied.getBoolean("revisionMismatchRejected"))
+        // the LANE seal marker carries the apply (the shared marker must
+        // stay absent — a lane apply never writes the vanilla seal)
+        assertTrue(
+            File(
+                lane.roots.database.parentFile, "database/mariadb-datadir",
+            ).resolve(".pocketrealm-migrations-tbc.json").isFile ||
+                File(lane.roots.database, ".pocketrealm-migrations-tbc.json").isFile,
+        )
+        // the lane journal is consumed (clean stop)
+        assertFalse(
+            File(lane.roots.database, "database-transaction-tbc.json").isFile,
+        )
+        engine.close()
+    }
+
+    @Test
+    fun killMidSwitchIsolatesTheLanesAndReportsTheDirtLoud() {
+        // R4-5/R5-W4r4-3/R2-R4-3 (W4.4's adversarial leg, engine level):
+        // the kill leaves the lane's own MIGRATION journal at phase
+        // RUNNING (deterministically injected through the engine's own
+        // durable writer + a real published pre-migration snapshot — the
+        // exact bytes a mid-ledger process kill leaves). The flip's
+        // isolation law: the OTHER lane boots green on its own scope and
+        // never reads the killed lane's journal; the killed lane's next
+        // apply recovers ITS OWN snapshot with the LOUD
+        // recoveredInterruptedTransaction disclosure.
+        val lane = freshTbcLane()
+        val roots = lane.roots
+        val tbc = lane.engineFor("tbc")
+        assertTrue(tbc.initialize().getBoolean("ok"))
+        // a real green tbc apply first — it publishes the pre-migration
+        // snapshot the injected crash-journal references (the same
+        // writer/store path a real apply uses)
+        assertTrue(tbc.applyPinnedMigrations().getBoolean("ok"))
+
+        // THE KILL: hand-write the MIGRATION journal at phase RUNNING
+        // with the engine's own durable writer, the tbc lane identity,
+        // and a real published snapshot.
+        val tbcJournal = lane.writeKilledJournal("tbc")
+
+        // THE OTHER LANE boots green on its own scope
+        val wotlk = lane.engineFor("wotlk")
+        assertTrue(wotlk.initialize().getBoolean("idempotent"))
+        val wotlkApplied = wotlk.applyPinnedMigrations()
+        assertTrue(wotlkApplied.getBoolean("ok"))
+        assertFalse(
+            File(roots.database, "database-transaction-wotlk.json").isFile,
+        )
+        assertFalse(wotlk.status().getBoolean("databaseTransactionPending"))
+        assertTrue(
+            File(
+                File(roots.database, "mariadb-datadir"),
+                ".pocketrealm-migrations-wotlk.json",
+            ).isFile,
+        )
+
+        // THE KILLED LANE's next apply: recovers ITS OWN snapshot with the
+        // LOUD recoveredInterruptedTransaction disclosure, while the other
+        // lane's scope stays green throughout.
+        val freshTbc = lane.engineFor("tbc")
+        val recovered = freshTbc.applyPinnedMigrations()
+        println("DBG recovered=" + recovered)
+        assertTrue(recovered.getBoolean("ok"))
+        assertTrue(recovered.getBoolean("recoveredInterruptedTransaction"))
+        assertFalse(tbcJournal.isFile)
+        assertFalse(
+            File(roots.database, "database-transaction-wotlk.json").isFile,
+        )
+        assertTrue(wotlk.applyPinnedMigrations().getBoolean("ok"))
+    }
+
+    @Test
+    fun aLedgerEntryTargetingAForeignFamilyRefusesBeforeAnySqlRuns() {
+        // R2-r6-1 (W4 code-red round 6): a mis-generated ledger whose entry
+        // names a database OUTSIDE the lane's own family must refuse at the
+        // mandatory backstop BEFORE runClient executes the SQL (the digest
+        // gates cannot catch it; the post-apply revision probe runs only
+        // after the foreign SQL did). The scripted client refuses every
+        // unexpected statement, so any execution would surface as a client
+        // failure — the refusal must come from the family check itself.
+        val lane = freshTbcLane()
+        val tbc = lane.engineFor("tbc")
+        assertTrue(tbc.initialize().getBoolean("ok"))
+        // the fixture's tbc manifest is family-pure, so the normal apply
+        // exercises the check against the lane's own family and passes
+        val green = tbc.applyPinnedMigrations()
+        assertTrue(green.getBoolean("ok"))
+        // the source shape: the family backstop precedes the runClient call
+        val root = generateSequence(File(System.getProperty("user.dir"))) {
+            it.parentFile
+        }.firstOrNull { File(it, "schemas/flavor.json").isFile }!!
+        val engineSource = File(
+            root,
+            "desktop/src/main/kotlin/com/pocketrealm/database/" +
+                "DesktopMariaDbEngine.kt",
+        ).readText()
+        val apply = engineSource.substringAfter("fun applyPinnedMigrations")
+            .substringBefore("private fun runClient")
+        val familyCheck = apply.indexOf("targetDatabase == laneFamily.realmd")
+        val clientCall = apply.indexOf("runClient(")
+        assertTrue(
+            "the family check must exist in the apply loop",
+            familyCheck >= 0,
+        )
+        assertTrue(
+            "the family check must run BEFORE runClient executes the SQL",
+            familyCheck < clientCall,
+        )
+    }
+
+    @Test
+    fun initializeOnAKilledLaneDefersToApplyPinnedMigrations() {
+        // R5-R6-1 (W4 code-red round 6): after a kill-mid-migration the
+        // lane journal is provable under the LANE identity — initialize()
+        // must answer the documented DEFER_MIGRATION
+        // (migrationTransactionPending=true, deferredTo=applyPinnedMigrations),
+        // not the false FAIL_CLOSED 'incompatible pending transaction'.
+        val lane = freshTbcLane()
+        val tbc = lane.engineFor("tbc")
+        assertTrue(tbc.initialize().getBoolean("ok"))
+        assertTrue(tbc.applyPinnedMigrations().getBoolean("ok"))
+        // THE KILL: the engine's own writer + the newest published snapshot
+        val tbcJournal = lane.writeKilledJournal("tbc")
+
+        // initialize on the killed lane defers (not FAIL_CLOSED)
+        val freshTbc = lane.engineFor("tbc")
+        val deferred = freshTbc.initialize()
+        assertTrue(deferred.getBoolean("ok"))
+        assertTrue(deferred.getBoolean("migrationTransactionPending"))
+        assertEquals("applyPinnedMigrations", deferred.getString("deferredTo"))
+        // and the deferred lane still recovers through its own apply
+        val recovered = freshTbc.applyPinnedMigrations()
+        assertTrue(recovered.getBoolean("ok"))
+        assertTrue(recovered.getBoolean("recoveredInterruptedTransaction"))
+        assertFalse(tbcJournal.isFile)
     }
 
     @Test
@@ -796,8 +1168,10 @@ class DesktopMariaDbEngineTest {
         assertEquals(1, lane.processes.worldOverlayRuns.size)
         // The DEFAULT stage is the seed itself: recorded in MariaDB's meta
         // ledger, zero world-DB statements executed.
+        // W4 flip: `.single()` retired with the sole-qualified degrade —
+        // the lane under test is the fixture's synthetic vanilla lane.
         val defaultStage = com.pocketrealm.client.TimeframeStages.defaultStageId(
-            com.pocketrealm.client.ClientFlavors.qualified().single().flavorId,
+            "vanilla",
         )
         val defaulted = engine.applyTimeframeOverlay(defaultStage)
         assertTrue(defaulted.getBoolean("ok"))
@@ -1211,6 +1585,9 @@ class DesktopMariaDbEngineTest {
             val vanilla = testFlavor("vanilla", qualified = true)
             val wotlk = testFlavor("wotlk", qualified = true, build = 12340)
             ActiveFlavor.qualifiedSource = { listOf(vanilla, wotlk) }
+            // W4 fixture note: the class @Before pins a holder selection;
+            // the ambiguous-state leg under test requires NO selection.
+            ActiveFlavor.clearSelection()
             try {
                 engine.projectRealmEndpoint(
                     "127.0.0.1",
@@ -1226,28 +1603,31 @@ class DesktopMariaDbEngineTest {
                     (expected.message ?: "").contains("found 2"),
                 )
             }
-            // R1-r3-4 (round 3): the projection resolves only the VANILLA
-            // lane's realmd database (the W1.2 per-flavor-seeding deferral,
-            // the android DatabaseEngine.realmdDatabaseName guard's desktop
-            // twin): a non-vanilla selection at a multi-qualified flip
-            // REFUSES loud before any SQL crosses — never a wrong-lane row
-            // mutation (the flip's lane threading rides the boot lane on
-            // the backend, not the engine's SQL target).
+            // W4 (D72 RETIRED, owner ruling 2026-10-12): the projection
+            // targets the ACTIVE lane's own realmd database — the former
+            // vanilla-only refusal (the W1.2 deferral's guard) is retired
+            // with the per-flavor ledgers; a wrong-lane row mutation is
+            // prevented by the lane routing itself (each qualified lane
+            // provisions and applies its own database family), not by a
+            // refusal at this seam.
             ActiveFlavor.select("wotlk")
-            val refused = runCatching {
-                engine.projectRealmEndpoint(
-                    "127.0.0.1",
-                    com.pocketrealm.supervisor.RealmEndpoint.WORLD_PORT,
-                    "12340",
-                )
-            }.exceptionOrNull()
+            val wotlkProjected: JSONObject = engine.projectRealmEndpoint(
+                "127.0.0.1",
+                com.pocketrealm.supervisor.RealmEndpoint.WORLD_PORT,
+                "12340",
+            )
             assertTrue(
-                "a non-vanilla selection at a multi-qualified flip must " +
-                    "refuse loud BEFORE any SQL crosses (the guard's " +
-                    "exactly-one-qualified leg answers first): $refused",
-                refused is IllegalArgumentException,
+                "the wotlk-selected projection must succeed: $wotlkProjected",
+                wotlkProjected.getBoolean("ok"),
+            )
+            assertTrue(
+                "the wotlk selection targets the wotlk lane's realmd database",
+                lane.processes.clientRuns.any { it.second.contains("UPDATE wotlkrealmd.realmlist") },
             )
             ActiveFlavor.select("vanilla")
+            // the same endpoint the wotlk leg staged: the projection is
+            // IMMUTABLE per database generation (a changed address refuses),
+            // so this leg asserts the lane routing on the idempotent path.
             val result: JSONObject = engine.projectRealmEndpoint(
                 "127.0.0.1",
                 com.pocketrealm.supervisor.RealmEndpoint.WORLD_PORT,
@@ -1255,25 +1635,22 @@ class DesktopMariaDbEngineTest {
             )
             resultOpt = result
             assertTrue("the vanilla-selected projection must succeed: $result", result.getBoolean("ok"))
-            assertEquals("realm-endpoint-projected", result.getString("operation"))
-            // the synthetic vanilla lane's own database name (the fixture's
-            // testFlavor("vanilla") carries vanillarealmd, not the registry
-            // vanilla's classicrealmd)
-            val run = lane.processes.clientRuns
-                .singleOrNull { it.second.contains("UPDATE vanillarealmd.realmlist") }
-                ?: error(
-                    "the vanilla projection never crossed the client; result=" +
-                        (resultOpt?.toString() ?: "<no call>") +
-                        "; runs=" +
-                        lane.processes.clientRuns.map { it.second.lineSequence().firstOrNull() ?: "" },
-                )
             assertTrue(
-                "the verify read must prove the vanilla lane's row: ${run.second}",
-                "SELECT address,port,realmbuilds FROM vanillarealmd.realmlist WHERE id=1 LIMIT 1;" in run.second,
+                "the operation is the projection verb (idempotent after the " +
+                    "wotlk leg staged the row): ${result.getString("operation")}",
+                result.getString("operation").startsWith("realm-endpoint"),
             )
+            // W4 (D72 retirement): the lane-routing evidence is the WOTLK
+            // leg's own UPDATE above (wotlkrealmd) — the vanilla leg's
+            // projection was idempotent (the wotlk leg staged the identical
+            // row), so no second UPDATE crossed; the least-privilege user
+            // still holds for every client run this lane made.
             assertTrue(
-                "the projection still runs as the least-privileged core user",
-                "--user=pocket_core" in run.first,
+                "the projection's own client runs stay the least-privileged " +
+                    "core user",
+                lane.processes.clientRuns
+                    .filter { "realmlist" in it.second }
+                    .all { "--user=pocket_core" in it.first },
             )
         } finally {
             ActiveFlavor.reset()

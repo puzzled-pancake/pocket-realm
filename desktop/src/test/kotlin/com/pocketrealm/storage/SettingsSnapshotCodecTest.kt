@@ -7,6 +7,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * DESK-133/134: the desktop Settings twin's shipped defaults and codec
@@ -17,6 +20,20 @@ import org.junit.Test
  * byte-stable; defaults apply to fresh installs only).
  */
 class SettingsSnapshotCodecTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     // ---- DESK-134: shipped defaults ------------------------------------
 
@@ -317,12 +334,11 @@ class SettingsSnapshotCodecTest {
     @Test
     fun impossibleTimeframeStagesDegradeToTheDefaultNeverThrow() {
         // Rejection at the read layer (the degrade-per-field posture): a
-        // stale stage of an unqualified flavor, a never-registered id, and a
-        // case-swapped id all degrade to "" — a flavor change can never
-        // strand a world silently.
+        // never-registered id, an impossible patch, and a case-swapped id
+        // all degrade to "" — a flavor change can never strand a world
+        // silently. (W4 flip: the tbc/wotlk stages are REGISTERED now, so
+        // they survive the read — asserted on the live-registry leg below.)
         listOf(
-            "tbc-2.4.3",
-            "wotlk-3.3.5a",
             "vanilla-9.9",
             "VANILLA-1.5",
             "garbage",
@@ -336,10 +352,25 @@ class SettingsSnapshotCodecTest {
                 degraded.timeframeStage,
             )
         }
+        // W4 flip: the registered tbc/wotlk stages survive the read.
+        listOf("tbc-2.4.3", "wotlk-3.3.5a").forEach { registered ->
+            val kept = Settings.Snapshot.fromJson(
+                JSONObject().put("timeframeStage", registered).toString(),
+            )
+            assertEquals(
+                "the registered stage \"$registered\" must survive the read",
+                registered,
+                kept.timeframeStage,
+            )
+        }
         // The write path normalizes too: an impossible value constructed in
-        // memory never re-persists.
+        // memory never re-persists. (W4 flip: the registered tbc stage is
+        // legitimate state now — it round-trips through the write.)
         assertTrue(
-            !Settings.Snapshot(timeframeStage = "tbc-2.4.3").toJson().contains("tbc-2.4.3"),
+            !Settings.Snapshot(timeframeStage = "vanilla-9.9").toJson().contains("vanilla-9.9"),
+        )
+        assertTrue(
+            Settings.Snapshot(timeframeStage = "tbc-2.4.3").toJson().contains("tbc-2.4.3"),
         )
     }
 

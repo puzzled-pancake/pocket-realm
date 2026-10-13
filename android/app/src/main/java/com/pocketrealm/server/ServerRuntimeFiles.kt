@@ -39,6 +39,11 @@ internal class ServerRuntimeFiles(context: Context) {
     private val normalData = PreparedDataStore(File(roots.content, "o11-server"))
     private val secretFile = File(roots.databaseRoot, "secrets.json")
 
+    /** The conf-stage lane suffix (the same wording worldConfig's persisted
+     * machine resolves) for the database-name and lore-corpus resolvers. */
+    private val serverRuntimeLane =
+        "the server runtime resolves the persisted lane for its conf and logon clients"
+
     /** R1-arch-5/R2-2 (android-core review round 1): the :world process's
      * per-flavor resolver for every data/verify lane. The [ActiveFlavor]
      * holder's selection is :ui-process-local in-memory state (the Home
@@ -58,6 +63,19 @@ internal class ServerRuntimeFiles(context: Context) {
             .resolve(ActiveFlavor.qualifiedFlavors, lane)
     }
 
+    /**
+     * R4-1 (W4 code-red round 4): the ANDROID boot-time lane-vs-runtime
+     * gate — the desktop requireRuntimeLaneMatches twin. The packaged
+     * Android realm runtime is the VANILLA lane's libpocket_world_runtime.so
+     * (android/app/build.gradle.kts stages the single vanilla lockfile
+     * lane; schemas/ carries no Android per-flavor lockfiles), so booting
+     * vanilla core bytes against a tbc/wotlk conf+database family is
+     * refused LOUD before startNative — the exact wrong-core boot the
+     * desktop refuses with RUNTIME-LANE MISMATCH. W5 owns per-flavor
+     * Android runtimes; until then every non-vanilla boot on this device
+     * refuses with the actionable copy.
+     */
+
     fun acquireNormalDataLease(): PreparedDataStore.GenerationLease = normalData.acquireRuntimeLease()
 
     /** Rotate only between native process lifetimes; active writers are never renamed. */
@@ -73,9 +91,12 @@ internal class ServerRuntimeFiles(context: Context) {
         rotateRestartLog(File(logs, "database-errors.log"), MAX_ERROR_LOG_BYTES)
     }
 
-    fun realmdConfig(bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS): File {
+    fun realmdConfig(
+        bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
+        settingsSnapshot: Settings.Snapshot? = null,
+    ): File {
         val bind = ServerRuntimeContract.resolveBindAddress(bindAddress)
-        val databases = serverDatabases()
+        val databases = serverDatabases(settingsSnapshot)
         return secureWrite(
             File(run, "realmd.conf"),
             realmdConfText(
@@ -170,7 +191,9 @@ internal class ServerRuntimeFiles(context: Context) {
             settingsSnapshot,
         )
         val botConfig = if (botProfile != null) {
-            val botConfText = botProfile.playerbotConfig() +
+            // R5-R6-2: the conf VALUES ride the same pinned boot lane as
+            // the staging gate — never the :ui holder.
+            val botConfText = botProfile.playerbotConfig(laneFlavor) +
                 (llmConfigOverrides(botProfile, snapshot) ?: "")
             // W3.4 fail-loud conf staging: an unknown key for the flavor's
             // bots build aborts the start instead of being silently dropped
@@ -186,7 +209,7 @@ internal class ServerRuntimeFiles(context: Context) {
             BotConfStaging.requireStagingSafe(laneFlavor.flavorId, "disabled", disabledConfText)
             secureWrite(File(run, "aiplayerbot-disabled.conf"), disabledConfText)
         }
-        val databases = serverDatabases()
+        val databases = serverDatabases(settingsSnapshot)
         return secureWrite(
             File(run, "mangosd.conf"),
             mangosdConfText(
@@ -255,7 +278,7 @@ internal class ServerRuntimeFiles(context: Context) {
         // lore asset problem must never fail a world start for a feature
         // the user never enabled
         val lore = if (snapshot.llmEnabled || (BuildConfig.DEBUG && model.isFile))
-            runCatching { stageLoreCards().absolutePath }.getOrNull()
+            runCatching { stageLoreCards(snapshot).absolutePath }.getOrNull()
         else
             null
         // Stage the EMPTY default-prompts file under the same gate (the
@@ -382,8 +405,8 @@ internal class ServerRuntimeFiles(context: Context) {
      * "no cards" - the native retrieval loop fails closed to quiet and
      * the entity guard still works.
      */
-    private fun stageLoreCards(): File {
-        val loreCardsFileName = loreCardsFileName()
+    private fun stageLoreCards(settingsSnapshot: Settings.Snapshot? = null): File {
+        val loreCardsFileName = loreCardsFileName(settingsSnapshot)
         val target = File(run, loreCardsFileName)
         val assetPath = "lore/$loreCardsFileName"
         val expected = appContext.assets.open(assetPath).use { it.available() }.toLong()
@@ -457,21 +480,16 @@ internal class ServerRuntimeFiles(context: Context) {
     /**
      * The per-flavor database-name set the conf templates seed, resolved
      * from the flavor registry ([ClientFlavor.databases]) instead of
-     * hard-coded names. The server runtime runs the vanilla lane today,
-     * so exactly one flavor may be qualified: zero or multiple qualified
-     * flavors fail loud here, before the vanilla-lane guard below.
+     * hard-coded names. W4 (D72 retirement, owner ruling 2026-10-12): the
+     * lane is the PERSISTED Home selection through the same machine
+     * [worldLaneFlavor] serves — sole qualified degrades, the pick is
+     * honored, an ambiguous post-flip state refuses loud. The former
+     * exactly-one + vanilla-only requirement (the android W1.2
+     * per-flavor-seeding deferral) is retired with the per-flavor sqlite
+     * seeds (tools/seed_realm_db.py --flavor, S4 item 3).
      */
-    private fun serverDatabases(): ClientFlavor.DatabaseNames {
-        val qualified = ClientFlavors.qualified()
-        require(qualified.size == 1) {
-            "expected exactly one qualified flavor, found ${qualified.size} — " +
-                "the server runtime seeds the qualified lane's databases"
-        }
-        val flavor = qualified.single()
-        require(flavor.flavorId == ClientFlavors.VANILLA.flavorId) {
-            "server runtime resolves only the vanilla lane; pass its ClientFlavor explicitly"
-        }
-        return flavor.databases
+    private fun serverDatabases(settingsSnapshot: Settings.Snapshot? = null): ClientFlavor.DatabaseNames {
+        return worldLaneFlavor(serverRuntimeLane, settingsSnapshot).databases
     }
 
     /**
@@ -484,17 +502,8 @@ internal class ServerRuntimeFiles(context: Context) {
      * native load-time lint (flavor-routed by the active stage's ban
      * lists). Same exactly-one-qualified posture as [serverDatabases].
      */
-    private fun loreCardsFileName(): String {
-        val qualified = ClientFlavors.qualified()
-        require(qualified.size == 1) {
-            "expected exactly one qualified flavor, found ${qualified.size} — " +
-                "the server runtime stages the qualified lane's lore corpus"
-        }
-        val flavor = qualified.single()
-        require(flavor.flavorId == ClientFlavors.VANILLA.flavorId) {
-            "server runtime resolves only the vanilla lane; pass its ClientFlavor explicitly"
-        }
-        return flavor.loreCardsFile
+    private fun loreCardsFileName(settingsSnapshot: Settings.Snapshot? = null): String {
+        return worldLaneFlavor(serverRuntimeLane, settingsSnapshot).loreCardsFile
     }
 
     /**
@@ -561,6 +570,15 @@ internal class ServerRuntimeFiles(context: Context) {
     }
 
     companion object {
+        internal fun requireAndroidRuntimeLaneMatches(bootLane: ClientFlavor) {
+            check(bootLane.flavorId == ClientFlavors.VANILLA.flavorId) {
+                "RUNTIME-LANE MISMATCH: the Android image ships the vanilla " +
+                    "lane's pocket_* runtime only — booting vanilla core bytes " +
+                    "against the ${bootLane.flavorId} database family is refused " +
+                    "(per-flavor Android runtimes are W5 work). Re-pick Vanilla " +
+                    "on Home to boot this device."
+            }
+        }
         private const val MAX_NORMAL_LOG_BYTES = 4L * 1024L * 1024L
         private const val MAX_ERROR_LOG_BYTES = 8L * 1024L * 1024L
 

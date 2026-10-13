@@ -131,13 +131,45 @@ internal class DatabaseSnapshotStore(
         .map { load(it.name) }
         .sortedByDescending { it.root.lastModified() }
 
+    /**
+     * W4 (R4-r2-2): retention is PER FLAVOR — each qualified lane's
+     * snapshots are durable restore points for that lane's database
+     * family, so the newest-[count] window applies within each flavor's
+     * own set (grouped by the manifest's compatibility.flavor; snapshots
+     * with no flavor stamp — the pre-multi-flavor writes — form a legacy
+     * group of their own). The former global recency window deleted the
+     * OLDEST lane's only restore point the moment a newer lane applied.
+     */
     fun retainNewest(count: Int) {
-        snapshotsRoot.listFiles()?.filter { File(it, "manifest.json").isFile }
-            ?.sortedByDescending { it.lastModified() }?.drop(count)?.forEach {
-                check(it.deleteRecursively()) { "DB-SNAPSHOT: could not retire ${it.name}" }
+        val keepPerLane = count.coerceAtLeast(0)
+        val byLane = sortedSnapshotRoots().groupBy { it.second }
+        for ((_, roots) in byLane) {
+            roots.drop(keepPerLane).forEach { (staleDir, staleLane) ->
+                check(staleDir.deleteRecursively()) {
+                    "DB-SNAPSHOT: could not retire ${staleDir.name} (the " +
+                        "$staleLane lane's restore point)"
+                }
             }
+        }
         syncDirectory(snapshotsRoot)
     }
+
+    /** (root, flavor) pairs, newest first; the flavor rides the snapshot
+     * manifest's compatibility.flavor (null/blank = the legacy unlabeled
+     * group). */
+    private fun sortedSnapshotRoots(): List<Pair<File, String>> =
+        snapshotsRoot.listFiles().orEmpty()
+            .filter { validId(it.name) && File(it, "manifest.json").isFile }
+            .map { dir ->
+                val flavor = runCatching {
+                    JSONObject(File(dir, "manifest.json").readText())
+                        .optJSONObject("compatibility")
+                        ?.optString("flavor", "")
+                        ?.ifBlank { null }
+                }.getOrNull() ?: "legacy"
+                dir to flavor
+            }
+            .sortedByDescending { it.first.lastModified() }
 
     private fun copyFsync(source: File, destination: File) {
         destination.parentFile?.mkdirs()

@@ -51,12 +51,32 @@ class DesktopServerRuntimeFilesTest {
 
     private fun files(): Pair<DesktopStorageRoots, ServerRuntimeFiles> {
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        // W4 flip: the sole-qualified degrade is RETIRED - with three
+        // qualified flavors an absent pick refuses loud (the W4
+        // contract). The fixture pins the lane the tests were written
+        // against BOTH ways (persisted + holder); per-test picks
+        // override it (the boot-lane-binding tests write their own).
+        pickVanilla(roots)
         // A per-roots embedded-lane manager (not the process singleton):
         // the tests' staged-model state must never leak across roots.
         return roots to ServerRuntimeFiles(
             roots,
             llmModelManager = com.pocketrealm.desktop.DesktopLlmModelManager(roots),
         )
+    }
+
+    /** W4 flip: pins the fixture's lane BOTH ways the flip contract reads
+     * a lane - the persisted settings pick (the boot path's
+     * worldLaneFlavor) AND the holder's selection (the companion
+     * [ServerRuntimeFiles.serverFlavor]'s ActiveFlavor.resolve default).
+     * The sole-qualified degrade is retired; every lane read needs one. */
+    private fun pickVanilla(roots: DesktopStorageRoots) {
+        com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile).save(
+            com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile)
+                .load().copy(selectedFlavorId = "vanilla"),
+        )
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
     }
 
     @Test
@@ -261,6 +281,40 @@ class DesktopServerRuntimeFilesTest {
     }
 
     /**
+     * W4.1 (the desktop-lane E2E boot defect): the native Config parser
+     * (cmangos Config.cpp Reload) accepts ONLY '#'-/'['-led comment lines
+     * and refuses ANY keyless line - a '//' note line fails the WHOLE
+     * config with POCKET_SERVER_CONFIG and bricks every world boot. The
+     * staged confs are parser-shaped here so the class dies at the gate
+     * instead of at boot: every line carries '=', or is blank, or leads
+     * with '#'/'['.
+     */
+    @Test
+    fun stagedConfsAreShapedForTheNativeConfigParser() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        val run = File(File(roots.runtime, "server"), "run")
+        val staged = listOf(
+            "mangosd.conf" to files.worldConfig(),
+            "realmd.conf" to files.realmdConfig(),
+            "aiplayerbot-disabled.conf" to File(run, "aiplayerbot-disabled.conf"),
+        )
+        staged.forEach { (name, file) ->
+            val body = file.readText()
+            body.lines().forEachIndexed { index, line ->
+                val trimmed = line.trim()
+                val shaped = trimmed.isEmpty() || trimmed.startsWith("#") ||
+                    trimmed.startsWith("[") || trimmed.contains("=")
+                assertTrue(
+                    "$name:${index + 1} is not shaped for the native Config " +
+                        "parser (a keyless line rejects the WHOLE config): [$trimmed]",
+                    shaped,
+                )
+            }
+        }
+    }
+
+    /**
      * DESK-62/93: the conf database names are the QUALIFIED lane's
      * [com.pocketrealm.client.ClientFlavor.databases] — resolved through
      * the shared registry with the exactly-one-qualified fail-loud gate
@@ -273,10 +327,16 @@ class DesktopServerRuntimeFilesTest {
     @Test
     fun confDatabaseNamesResolveThroughTheFlavorRegistry() {
         val (roots, files) = files()
-        // exactly-one-qualified gate precondition: only vanilla qualifies.
+        // W4 flip: all three lanes are qualified and the server lane is
+        // the persisted selection's (default vanilla when the test roots'
+        // settings carry no pick under... the sole-qualified degrade is
+        // RETIRED - the test pins the DEFAULT settings state explicitly:
+        // no persisted pick + several qualified = the loud refusal the
+        // flip contract requires, so the test pins the boot lane through
+        // the persisted pick the harness/UI writes.
         assertEquals(
-            listOf("vanilla"),
-            com.pocketrealm.client.ClientFlavors.qualified().map { it.flavorId },
+            setOf("vanilla", "tbc", "wotlk"),
+            com.pocketrealm.client.ClientFlavors.qualified().map { it.flavorId }.toSet(),
         )
         val databases = ServerRuntimeFiles.serverDatabases()
         assertEquals(com.pocketrealm.client.ClientFlavors.VANILLA.databases, databases)
@@ -330,6 +390,7 @@ class DesktopServerRuntimeFilesTest {
     @Test
     fun mariadbMarkerSwitchesTheConfToTheSharedSocketForm() {
         val roots = DesktopStorageRoots(folder.newFolder("roots")).apply { ensureDirectories() }
+        pickVanilla(roots)
         val secret = "c".repeat(48)
         stageMariadbDurableState(roots, secret)
         val files = ServerRuntimeFiles(roots, providerStagedOverride = true)
@@ -344,6 +405,7 @@ class DesktopServerRuntimeFilesTest {
     @Test
     fun mariadbMarkerWithoutTheStagedDistributionRefusesTheConf() {
         val roots = DesktopStorageRoots(folder.newFolder("roots")).apply { ensureDirectories() }
+        pickVanilla(roots)
         stageMariadbDurableState(roots, "c".repeat(48))
         val files = ServerRuntimeFiles(roots, providerStagedOverride = false)
         try {
@@ -360,6 +422,7 @@ class DesktopServerRuntimeFilesTest {
     @Test
     fun mariadbMarkerWithoutCredentialsRefusesTheConf() {
         val roots = DesktopStorageRoots(folder.newFolder("roots")).apply { ensureDirectories() }
+        pickVanilla(roots)
         stageMariadbDurableState(roots, "c".repeat(48))
         assertTrue(File(roots.database, "secrets.json").delete())
         val files = ServerRuntimeFiles(roots, providerStagedOverride = true)
@@ -417,14 +480,22 @@ class DesktopServerRuntimeFilesTest {
         // A persisted non-default selection rides verbatim (the emission
         // reads the snapshot's resolveStored result through confValue).
         roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(Settings.Snapshot(timeframeStage = "vanilla-1.5").toJson())
+        roots.settingsFile.writeText(
+            Settings.Snapshot(
+                timeframeStage = "vanilla-1.5",
+                selectedFlavorId = "vanilla",
+            ).toJson())
         val chosen = files.worldConfig().readText()
         assertTrue(
             "the chosen stage must ride the conf:\n$chosen",
             "PocketRealm.TimeframeStage = \"vanilla-1.5\"" in chosen,
         )
         // The default selection stores "" and STILL names the final patch.
-        roots.settingsFile.writeText(Settings.Snapshot(timeframeStage = "vanilla-1.12.1").toJson())
+        roots.settingsFile.writeText(
+            Settings.Snapshot(
+                timeframeStage = "vanilla-1.12.1",
+                selectedFlavorId = "vanilla",
+            ).toJson())
         val final = files.worldConfig().readText()
         assertTrue(
             "the final stage must ride the conf:\n$final",
@@ -448,7 +519,11 @@ class DesktopServerRuntimeFilesTest {
         roots.settingsFile.parentFile?.mkdirs()
         // The on-disk store names a DIFFERENT stage than the caller's
         // snapshot; the conf must ride the caller's snapshot alone.
-        roots.settingsFile.writeText(Settings.Snapshot(timeframeStage = "vanilla-1.5").toJson())
+        roots.settingsFile.writeText(
+            Settings.Snapshot(
+                timeframeStage = "vanilla-1.5",
+                selectedFlavorId = "vanilla",
+            ).toJson())
         val conf = files.worldConfig(
             settingsSnapshot = Settings.Snapshot(timeframeStage = "vanilla-1.9"),
         ).readText()
@@ -475,7 +550,7 @@ class DesktopServerRuntimeFilesTest {
         roots.settingsFile.parentFile?.mkdirs()
         // A raw (unvalidated) snapshot write simulates a stale/corrupted
         // persisted value that predates a flavor change or a hand edit.
-        val stale = Settings.Snapshot().toJson()
+        val stale = Settings.Snapshot(selectedFlavorId = "vanilla").toJson()
             .replace("\"timeframeStage\":\"\"", "\"timeframeStage\":\"tbc-2.4.3\"")
         roots.settingsFile.writeText(stale)
         val conf = files.worldConfig().readText()
@@ -527,6 +602,7 @@ class DesktopServerRuntimeFilesTest {
         roots.settingsFile.writeText(
             Settings.Snapshot(
                 tweaks = com.pocketrealm.client.ClientTweaksConfig(quicklootEnabled = true),
+                selectedFlavorId = "vanilla",
             ).toJson(),
         )
         val unproven = files.worldConfig().readText()
@@ -558,7 +634,7 @@ class DesktopServerRuntimeFilesTest {
         val body = botConf.readText()
         assertTrue(
             "the profile conf starts with the profile's population emission",
-            body.startsWith(profile.playerbotConfig()),
+            body.startsWith(profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)),
         )
         assertTrue(
             "no LLM block without the LLM lane enabled",
@@ -576,7 +652,7 @@ class DesktopServerRuntimeFilesTest {
         stageActiveGeneration(roots)
         roots.settingsFile.parentFile?.mkdirs()
         roots.settingsFile.writeText(
-            Settings.Snapshot(llmEnabled = true, llmExternalUrl = "not-a-url").toJson(),
+            Settings.Snapshot(llmEnabled = true, llmExternalUrl = "not-a-url", selectedFlavorId = "vanilla").toJson(),
         )
         val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
         files.worldConfig(botProfile = profile)
@@ -608,6 +684,7 @@ class DesktopServerRuntimeFilesTest {
                 llmExternalUrl = "https://api.openai.com",
                 llmExternalModel = "gpt-test",
                 llmExternalApiKey = "sk-old",
+                selectedFlavorId = "vanilla",
             ).toJson(),
         )
         val runDir = File(File(roots.runtime, "server"), "run")
@@ -632,6 +709,7 @@ class DesktopServerRuntimeFilesTest {
                 llmExternalUrl = "https://api.openai.com",
                 llmExternalModel = "gpt-test",
                 llmExternalApiKey = "sk-new",
+                selectedFlavorId = "vanilla",
             ).toJson(),
         )
         val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
@@ -674,6 +752,7 @@ class DesktopServerRuntimeFilesTest {
                 llmBanter = true,
                 llmAmbience = true,
                 llmCloudChatter = true,
+                selectedFlavorId = "vanilla",
             ).toJson(),
         )
         val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
@@ -777,6 +856,7 @@ class DesktopServerRuntimeFilesTest {
                 llmExternalUrl = "https://api.openai.com",
                 llmExternalModel = "gpt-test",
                 llmExternalApiKey = "sk-test",
+                selectedFlavorId = "vanilla",
             ).toJson(),
         )
         val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
@@ -831,6 +911,7 @@ class DesktopServerRuntimeFilesTest {
                 llmExternalUrl = "https://api.openai.com",
                 llmExternalModel = "gpt-test",
                 llmExternalApiKey = "sk-test",
+                selectedFlavorId = "vanilla",
             ).toJson(),
         )
         val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
@@ -870,6 +951,7 @@ class DesktopServerRuntimeFilesTest {
         // the staged rung exactly like the Android applyRungCap twin.
         listOf(0 to "rung=0", 2 to "rung=2").forEach { (cap, expected) ->
             val roots = DesktopStorageRoots(folder.newFolder("roots-cap-$cap"))
+            pickVanilla(roots)
             val files = ServerRuntimeFiles(roots)
             stageActiveGeneration(roots)
             roots.settingsFile.parentFile?.mkdirs()
@@ -878,7 +960,8 @@ class DesktopServerRuntimeFilesTest {
                     llmEnabled = true,
                     llmExternalUrl = "https://api.openai.com",
                     llmAmbience = true, // the staged file's enabled flag
-                ).toJson(),
+                selectedFlavorId = "vanilla",
+            ).toJson(),
             )
             val base = com.pocketrealm.bots.BotProfiles.defaultProfile
             val capped = base.copy(
@@ -896,7 +979,7 @@ class DesktopServerRuntimeFilesTest {
         val (roots, files) = files()
         stageActiveGeneration(roots)
         roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(Settings.Snapshot(worldDebugLogs = true).toJson())
+        roots.settingsFile.writeText(Settings.Snapshot(worldDebugLogs = true, selectedFlavorId = "vanilla").toJson())
         val conf = files.worldConfig().readText()
         assertTrue("debug toggle must stage LogFileLevel = 3:\n$conf", "LogFileLevel = 3" in conf)
     }
@@ -1169,6 +1252,7 @@ class DesktopServerRuntimeFilesTest {
                 llmEnabled = true,
                 llmExternalMode = false,
                 llmModelId = com.pocketrealm.llm.LlmModelRegistry.BASE_E2B.id,
+                selectedFlavorId = "vanilla",
             ).toJson(),
         )
         val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
@@ -1198,6 +1282,7 @@ class DesktopServerRuntimeFilesTest {
                 llmEnabled = true,
                 llmExternalMode = false,
                 llmExternalUrl = "https://embedded-lane-ignores-this.invalid",
+                selectedFlavorId = "vanilla",
             ).toJson(),
         )
         val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
@@ -1303,6 +1388,7 @@ class DesktopServerRuntimeFilesTest {
     fun projectRealmAdvertisementProjectsTheActiveFlavorsRealmlist() {
         requireNativeIfDemanded("sqlite seam", seamDll)
         val roots = DesktopStorageRoots(folder.newFolder("s5-flip-projection"))
+        pickVanilla(roots)
         // The DESK-5/47/78 default flip made MARIADB the fresh-init default;
         // this projection seeds and asserts the SQLITE datadir, so — like
         // every sibling sqlite-lane projection test — it selects the
@@ -1311,6 +1397,7 @@ class DesktopServerRuntimeFilesTest {
         roots.settingsFile.writeText(
             com.pocketrealm.storage.Settings.Snapshot(
                 databaseProvider = com.pocketrealm.storage.Settings.DatabaseProvider.SQLITE,
+                selectedFlavorId = "vanilla",
             ).toJson(),
         )
         roots.sqliteDatadir.mkdirs()

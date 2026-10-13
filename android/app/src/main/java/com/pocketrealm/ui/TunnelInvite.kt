@@ -37,9 +37,14 @@ object TunnelInvite {
         // fail-loud machine every sibling site uses: the holder's persisted
         // pick in :ui, sole-qualified degrades to it, ambiguous refuses
         // loud with the machine's message.
-        val flavor = ActiveFlavor.resolve(
-            "the tunnel invite renders the qualified lane's client requirement",
-        )
+        // W4 flip: with no pick yet under several qualified flavors the
+        // resolver refuses loud — the invite line renders the honest
+        // first-pick copy instead of crashing composition (there IS no
+        // honest invite before a lane exists).
+        val flavor = ActiveFlavor.displayedId?.let { laneId ->
+            com.pocketrealm.client.ClientFlavors.ALL.first { it.flavorId == laneId }
+        } ?: return "2) Client: pick a game flavor on Home first — " +
+            "the invite then names that lane's client requirement."
         val version = flavor.versionResource.substringBeforeLast('.')
         return "2) Client: WoW $version build ${flavor.build} exactly " +
             "(the realm rejects other builds)."

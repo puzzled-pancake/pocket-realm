@@ -563,9 +563,30 @@ def write_lockfile(backend: str = "sqlite") -> None:
     else:
         # The mariadb lane's runtime lockfile cross-references the provider
         # lockfile (the staged distribution's reviewed bytes) — the two
-        # documents are written together by --write-lockfile.
-        record["provider_lockfile"] = PROVIDER_LOCKFILE.relative_to(ROOT).as_posix()
-        record["provider"] = json.loads(PROVIDER_LOCKFILE.read_text(encoding="utf-8"))
+        # documents are written together by --write-lockfile. R3R1-5 (W4
+        # code-red round 3): a NON-VANILLA lane must reference its OWN
+        # lane-scoped provider document, never the vanilla-scoped shared
+        # one (D60/D86) — the shared document's own lane_scope note says
+        # non-vanilla lanes must not use it, and a future consumer
+        # following the reference would land in a document whose pins
+        # (the vanilla 414-entry manifest) describe a different lane.
+        if o09.ACTIVE_FLAVOR != "vanilla":
+            lane_provider = ROOT / (
+                f"schemas/database-provider-lockfile-win-{o09.ACTIVE_FLAVOR}.json")
+            if not lane_provider.is_file():
+                raise RuntimeError(
+                    f"the {o09.ACTIVE_FLAVOR} runtime lockfile cannot "
+                    f"cross-reference its provider document: "
+                    f"{lane_provider} is missing — write it first (python "
+                    f"tools/build_win_realm_runtime.py --flavor "
+                    f"{o09.ACTIVE_FLAVOR} --database-backend mariadb "
+                    f"--write-lockfile)")
+            record["provider_lockfile"] = lane_provider.relative_to(ROOT).as_posix()
+            record["provider"] = json.loads(
+                lane_provider.read_text(encoding="utf-8"))
+        else:
+            record["provider_lockfile"] = PROVIDER_LOCKFILE.relative_to(ROOT).as_posix()
+            record["provider"] = json.loads(PROVIDER_LOCKFILE.read_text(encoding="utf-8"))
     lockfile.write_bytes((json.dumps(record, indent=2) + "\n").encode("utf-8"))
     world = next(a for a in artifacts if a["path"].endswith("pocket_world_runtime.dll"))
     print(f"wrote {lockfile.relative_to(ROOT)}")
@@ -762,54 +783,90 @@ def verify_mariadb_provider_staging() -> dict:
     }
 
 
-def write_provider_lockfile() -> dict:
-    """Record the staged provider's reviewed bytes into
-    schemas/database-provider-lockfile-win.json — the document the desktop
-    engine verifies the staging against at runtime (staged like the realm
-    DLLs with a lockfile).
+def lane_provider_lockfile_path(flavor_id: str) -> Path:
+    """The lane-scoped provider document's committed path (R3R1-4: hoisted
+    so the unit pin can redirect the WRITE target to tmp_path — a test
+    must never rewrite a committed provenance document from live bytes)."""
+    return ROOT / f"schemas/database-provider-lockfile-win-{flavor_id}.json"
 
-    Review round 2 (R2-3 medium, decision D60): this document and the
-    shared PROVIDER_STAGING root are scoped VANILLA-lane inputs. The
-    staged migration manifest inside the shared root is the vanilla ledger
-    golden (the G3-3 bytes), so a non-vanilla lane writing here either
-    gets refused by the desktop verifier against the vanilla pin or
-    silently re-keys the committed vanilla provenance — both wrong. The
-    record carries `lane_scope` so the scope is machine-readable, and a
-    non-vanilla write refuses loud naming the decision until W1.3 defines
-    per-flavor provider staging."""
+
+def write_provider_lockfile() -> dict:
+    """Record the staged provider's reviewed bytes into the lane's provider
+    document — the document the desktop engine verifies the staging against
+    at runtime.
+
+    Decision history: review round 2 (R2-3 medium, decision D60) scoped the
+    SHARED document + the shared migration-manifest.json golden as
+    VANILLA-lane inputs and refused every non-vanilla write until per-flavor
+    provider staging landed. W4 retires that deferral (D72 retirement, owner
+    ruling 2026-10-12): the non-vanilla mariadb lanes stage their migration
+    sets as SIBLINGS inside the shared closure (never re-keying the vanilla
+    golden) and write their OWN lane-scoped provider document. The vanilla
+    document keeps its historical path and bytes.
+    """
     flavor_id = o09.ACTIVE_FLAVOR
-    if flavor_id != "vanilla":
-        raise RuntimeError(
-            f"write_provider_lockfile refuses the {flavor_id!r} lane: "
-            f"schemas/database-provider-lockfile-win.json and "
-            f"native/.build-win-x86_64/mariadb-provider are scoped "
-            "VANILLA-lane inputs (decision D60) — the staged migration "
-            "manifest inside the shared root is the vanilla ledger golden, "
-            "and re-keying this shared pin to a tbc/wotlk migration set "
-            "would clobber the committed vanilla provenance. W1.3 owns "
-            "per-flavor provider staging; until it lands, a non-vanilla "
-            "mariadb lane verifies against its own "
-            "realm-runtime-lockfile-mariadb-win-<flavor>.json and never "
-            "rewrites the shared provider document")
     record = verify_mariadb_provider_staging()
-    record = {
-        "schema": 1,
-        "abi": "windows-x86_64",
-        "database_backend": "mariadb",
-        "lane_scope": {
-            "flavors": ["vanilla"],
-            "decision": "D60",
-            "note": (
-                "this shared document + the mariadb-provider staging root "
-                "are VANILLA-lane inputs: the staged migration manifest is "
-                "the vanilla ledger golden (migration_manifest_sha256); "
-                "non-vanilla lanes must not write or re-key it until W1.3 "
-                "defines per-flavor provider staging"),
-        },
-        **record,
-    }
-    PROVIDER_LOCKFILE.write_bytes((json.dumps(record, indent=2) + "\n").encode("utf-8"))
-    print(f"wrote {PROVIDER_LOCKFILE.relative_to(ROOT)} "
+    if flavor_id != "vanilla":
+        sibling_manifest = PROVIDER_STAGING / (
+            f"migration-manifest-{flavor_id}.json")
+        if not sibling_manifest.is_file():
+            raise RuntimeError(
+                f"the {flavor_id} lane migration manifest is not staged in "
+                f"the shared closure ({sibling_manifest}); run python "
+                f"tools/stage_mariadb_flavor_migrations.py --flavor "
+                f"{flavor_id} before building this lane")
+        import hashlib as _hashlib
+        sibling_digest = _hashlib.sha256(
+            sibling_manifest.read_bytes()).hexdigest()
+        record = {
+            "schema": 1,
+            "abi": "windows-x86_64",
+            "database_backend": "mariadb",
+            "lane_scope": {
+                "flavors": [flavor_id],
+                "decision": "D60 (scope) + D72 retirement (W4, owner ruling 2026-10-12)",
+                "note": (
+                    "lane-scoped provider document: the SHARED "
+                    "database-provider-lockfile-win.json and the shared "
+                    "migration-manifest.json stay the vanilla golden "
+                    "(D60, untouched); THIS document pins the lane's "
+                    "sibling migration set staged beside it"),
+            },
+            "lane_migrations": {
+                "flavor": flavor_id,
+                "manifest": sibling_manifest.name,
+                "manifest_sha256": sibling_digest,
+                "ledger": f"schemas/database-migrations-{flavor_id}.json",
+                "staging_tool": "tools/stage_mariadb_flavor_migrations.py",
+            },
+            **record,
+        }
+        destination = lane_provider_lockfile_path(flavor_id)
+    else:
+        record = {
+            "schema": 1,
+            "abi": "windows-x86_64",
+            "database_backend": "mariadb",
+            "lane_scope": {
+                "flavors": ["vanilla"],
+                "decision": "D60",
+                "note": (
+                    "this shared document + the mariadb-provider staging root "
+                    "are VANILLA-lane inputs: the staged migration manifest is "
+                    "the vanilla ledger golden (migration_manifest_sha256); "
+                    "non-vanilla lanes write their own lane-scoped document "
+                    "(database-provider-lockfile-win-<flavor>.json, the W4 "
+                    "D72 retirement) and never re-key this one"),
+            },
+            **record,
+        }
+        destination = PROVIDER_LOCKFILE
+    destination.write_bytes((json.dumps(record, indent=2) + "\n").encode("utf-8"))
+    # the print resolves against ROOT when the target lives in the tree
+    # (tests redirect it to tmp_path, where relative_to would fail)
+    shown = (destination.relative_to(ROOT)
+             if destination.is_relative_to(ROOT) else destination)
+    print(f"wrote {shown} "
           f"({record['provider']['id']}, {record['migration_count']} pinned migrations)")
     return record
 

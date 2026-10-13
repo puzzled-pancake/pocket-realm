@@ -16,6 +16,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import org.junit.After
+import org.junit.Before
 
 /**
  * Design-timeframe §2/§4.3: the SHARED stage-overlay decision surface
@@ -27,6 +29,19 @@ import org.junit.Test
  * documented posture for the framework API).
  */
 class TimeframeOverlayPlanTest {
+    /** W4 flip fixture: the overlay plan resolves the ACTIVE lane
+     * through the holder — pin the VANILLA lane (holder select). */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     @Test
     fun defaultStageIsTheQualifiedLanesFinalPatch() {

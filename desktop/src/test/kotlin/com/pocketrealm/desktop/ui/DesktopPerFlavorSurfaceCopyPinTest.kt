@@ -1,6 +1,7 @@
 package com.pocketrealm.desktop.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -146,37 +147,23 @@ class DesktopPerFlavorSurfaceCopyPinTest {
             "(reference-grade evidence, not hardware-tested). " in source,
         )
     }
-
-    @Test fun `the desktop settings screen remainder is recorded for the W4 flip`() {
-        // R6-5 (round 5): the vanilla-catalog references in the desktop
-        // settings screen are a RECORDED W4-owned remainder (not a silent
-        // fork) — the pin enumerates the EXACT distinct symbols and total
-        // call sites so the flip checklist can diff the set when the lane
-        // gains per-flavor settings/bindings catalogs.
+    @Test fun `the desktop settings screen routes through the flavor-routed seam R5-1`() {
+        // R5-1 (W4 code-red round 5): the D83 remainder is RETIRED - the
+        // desktop settings screen resolves every catalog read through the
+        // flavor-routed seam (WowFlavorCatalogs + the editor's ACTIVE
+        // lane), never a hard-coded vanilla object.
         val source = java.io.File(
             "src/main/kotlin/com/pocketrealm/desktop/ui/InGameSettingsScreen.kt",
         ).readText()
-        val refs = Regex(
-            "WowVanillaSettingsCatalog\\.\\w+|WowVanillaBindingCatalog\\.\\w+",
-        ).findAll(source).toList()
-        val distinct = refs.map { it.value }.toSortedSet()
-        assertEquals(
-            "the desktop remainder's call-site count moved — update the W4 " +
-                "flip checklist and this pin together",
-            6, refs.size,
+        assertTrue(
+            "the desktop settings screen lost the flavor-routed catalog " +
+                "reads (R5-1)",
+            "WowFlavorCatalogs" in source,
         )
-        assertEquals(
-            "the desktop remainder's distinct symbols moved — update the W4 " +
-                "flip checklist and this pin together",
-            sortedSetOf(
-                "WowVanillaSettingsCatalog.groups",
-                "WowVanillaSettingsCatalog.forSection",
-                "WowVanillaSettingsCatalog.byId",
-                "WowVanillaBindingCatalog.userFacing",
-                "WowVanillaBindingCatalog.search",
-                "WowVanillaBindingCatalog.reservedKeys",
-            ),
-            distinct,
+        assertFalse(
+            "a hard-coded vanilla catalog reference remains in the desktop " +
+                "settings screen (R5-1)",
+            Regex("WowVanilla(Settings|Binding)Catalog\\.\\w+").containsMatchIn(source),
         )
     }
 }

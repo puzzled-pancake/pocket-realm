@@ -131,7 +131,12 @@ data class BotProfile(
      * battleground/arena/guild growth stay disabled by design.
      * Auction-house automation remains disabled; the core BUILD_AHBOT target is excluded.
      */
-    fun playerbotConfig(): String = """
+    fun playerbotConfig(lane: ClientFlavor): String = playerbotConfigText(lane)
+
+    /** The emission body (extracted for length/complexity). The length
+     * IS the conf's own shape - a config template, not logic. */
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
+    private fun playerbotConfigText(lane: ClientFlavor): String = """
         AiPlayerbot.Enabled = 1
         AiPlayerbot.RandomBotAutologin = 1
         AiPlayerbot.RandomBotLoginAtStartup = ${if (loginAtStartup) 1 else 0}
@@ -143,8 +148,8 @@ data class BotProfile(
         AiPlayerbot.MinRandomBots = $minimumOnline
         AiPlayerbot.MaxRandomBots = $maximumOnline
         AiPlayerbot.RandomBotMinLevel = 1
-        AiPlayerbot.RandomBotMaxLevel = ${flavorBotMaxLevel()}
-        AiPlayerbot.RandomBotMaps = ${flavorBotRandomMaps()}
+        AiPlayerbot.RandomBotMaxLevel = ${flavorBotMaxLevel(lane)}
+        AiPlayerbot.RandomBotMaps = ${flavorBotRandomMaps(lane)}
         AiPlayerbot.RandomBotAccountPrefix = $accountPrefix
         AiPlayerbot.RandomBotAccountCount = $accountCount
         AiPlayerbot.DeleteRandomBotAccounts = 0
@@ -210,24 +215,19 @@ data class BotProfile(
     """.trimIndent() + "\n"
 }
 
-/** The active flavor's bot population ceiling
- * (schemas/flavor.json bot_policy.max_level) — resolved through the
- * multi-flavor [ActiveFlavor] machine at every emission, so the Home
- * flavor switcher's active lane drives the conf, and genuinely ambiguous
- * registry states fail loud instead of silently keeping VANILLA
- * semantics. */
-private fun flavorBotMaxLevel(): Int = qualifiedFlavor().botMaxLevel
+/** The LANE's bot population ceiling (schemas/flavor.json
+ * bot_policy.max_level). R5-R6-2 (W4 code-red round 6): the lane is the
+ * world start's PINNED BOOT LANE, passed in by the conf emitter — never
+ * the :ui ActiveFlavor holder (empty in a headless host, and divergent
+ * from the boot lane the moment the Home switcher races a world start).
+ * This mirrors D86's "resolve the pinned boot lane" law for the engine/
+ * verifier/logon/overlay paths; the bot-emission call site was missed. */
+private fun flavorBotMaxLevel(lane: ClientFlavor): Int = lane.botMaxLevel
 
-/** The active flavor's random-bot spawn maps
+/** The LANE's random-bot spawn maps
  * (schemas/flavor.json bot_policy.random_maps), conf-formatted. */
-private fun flavorBotRandomMaps(): String = qualifiedFlavor().botRandomMaps.joinToString(",")
-
-/** The active flavor of the qualified-flavor list; ambiguous registry
- * states (zero qualified, several qualified without an explicit active
- * selection, a stale non-qualified selection) fail loud. */
-private fun qualifiedFlavor(): ClientFlavor =
-    com.pocketrealm.client.ActiveFlavor
-        .resolve("bot population policy resolves the qualified lane")
+private fun flavorBotRandomMaps(lane: ClientFlavor): String =
+    lane.botRandomMaps.joinToString(",")
 
 /** The "range"/"map" login-criteria line,
  * emitted only when the preset opts in — the default (absent line) keeps
@@ -1669,7 +1669,10 @@ object BotProfiles {
                 append(profile.startupIncreaseStep).append('|')
                 append(profile.startupRampIntervalMs).append('|')
                 append(profile.activationBatchSize).append('|')
-                append(profile.playerbotConfig()).append('|')
+                // the digest is lane-independent by construction: the
+                // canonical text pins the vanilla emission (R5-R6-2 —
+                // the emission itself takes the world start's lane)
+                append(profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)).append('|')
                 append(profile.admission)
             }
         }

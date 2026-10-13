@@ -5,10 +5,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * Merge-order guard for the appended playerbot LLM conf block.
- * ServerRuntimeFiles writes `BotProfile.playerbotConfig() +
+ * ServerRuntimeFiles writes `BotProfile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA) +
  * LlmRuntimePolicy.confBlock(...)`, relying on Config.cpp's sequential
  * last-wins parse for the append to win over the base `LLMEnabled = 0`. The
  * parser below mirrors native/cmangos/src/shared/Config/Config.cpp Reload():
@@ -18,6 +21,19 @@ import org.junit.Test
  * guard also fails if an appended line can ever be malformed.
  */
 class LlmConfMergeOrderTest {
+    /** W4 flip fixture: the conf merge resolves the ACTIVE lane's
+     * known keys — pin the VANILLA lane (holder select). */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     private fun parseConf(text: String): Map<String, String> {
         val entries = mutableMapOf<String, String>()
@@ -42,7 +58,9 @@ class LlmConfMergeOrderTest {
     fun appendedBlockWinsOverTheBaseProfileDisabledLlmContract() {
         launchableProfiles.forEach { profile ->
             val conf = parseConf(
-                profile.playerbotConfig() + LlmRuntimePolicy.confBlock(llmEnabled = true)!!,
+                profile.playerbotConfig(
+                com.pocketrealm.client.ClientFlavors.VANILLA,
+            ) + LlmRuntimePolicy.confBlock(llmEnabled = true)!!,
             )
             assertEquals("2", conf["aiplayerbot.llmenabled"])
             assertEquals("0", conf["aiplayerbot.llmbackend"])
@@ -86,7 +104,7 @@ class LlmConfMergeOrderTest {
         // not by per-key override — so the base profile must not pin any other
         // LLM key that would then linger with a stale value.
         launchableProfiles.forEach { profile ->
-            val llmKeys = parseConf(profile.playerbotConfig()).keys
+            val llmKeys = parseConf(profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)).keys
                 .filter { it.startsWith("aiplayerbot.llm") }
             assertEquals(setOf("aiplayerbot.llmenabled"), llmKeys.toSet())
         }
@@ -96,7 +114,7 @@ class LlmConfMergeOrderTest {
     fun disabledRuntimeLeavesTheBaseContractAtLlmEnabledZero() {
         assertNull(LlmRuntimePolicy.confBlock(llmEnabled = false))
         launchableProfiles.forEach { profile ->
-            val conf = parseConf(profile.playerbotConfig())
+            val conf = parseConf(profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA))
             assertEquals("0", conf["aiplayerbot.llmenabled"])
         }
     }
@@ -105,7 +123,9 @@ class LlmConfMergeOrderTest {
     fun externalBlockWinsOverTheBaseProfileAndSurvivesQuoteTrimming() {
         launchableProfiles.forEach { profile ->
             val conf = parseConf(
-                profile.playerbotConfig() + LlmRuntimePolicy.confBlockExternal(
+                profile.playerbotConfig(
+                com.pocketrealm.client.ClientFlavors.VANILLA,
+            ) + LlmRuntimePolicy.confBlockExternal(
                     endpoint = "https://api.openai.com/v1/chat/completions",
                     model = "gpt-4o-mini",
                     apiKey = "sk-test",
@@ -131,7 +151,7 @@ class LlmConfMergeOrderTest {
 
     @Test
     fun defaultPromptsFileRidesTheAppendedBlockAsAnAbsolutePath() {
-        // The line must ride the APPEND, never playerbotConfig() - the
+        // The line must ride the APPEND, never playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA) - the
         // base profiles are contractually free of LLM keys other than
         // llmenabled (baseProfilesCarryNoOtherLlmKeysThatCouldGoStale...)
         // - and the value must survive the parser's quote trimming as an
@@ -140,7 +160,7 @@ class LlmConfMergeOrderTest {
         // staged empty file exists to silence.
         launchableProfiles.forEach { profile ->
             val conf = parseConf(
-                profile.playerbotConfig() + LlmRuntimePolicy.confBlock(
+                profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA) + LlmRuntimePolicy.confBlock(
                     llmEnabled = true, defaultPromptsFile = "/srv/run/llm_character_card",
                 )!!,
             )

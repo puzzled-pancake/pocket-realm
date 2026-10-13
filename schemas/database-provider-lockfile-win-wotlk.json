@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "abi": "windows-x86_64",
+  "database_backend": "mariadb",
+  "lane_scope": {
+    "flavors": [
+      "wotlk"
+    ],
+    "decision": "D60 (scope) + D72 retirement (W4, owner ruling 2026-10-12)",
+    "note": "lane-scoped provider document: the SHARED database-provider-lockfile-win.json and the shared migration-manifest.json stay the vanilla golden (D60, untouched); THIS document pins the lane's sibling migration set staged beside it"
+  },
+  "lane_migrations": {
+    "flavor": "wotlk",
+    "manifest": "migration-manifest-wotlk.json",
+    "manifest_sha256": "a8363a15301ec8ba6a1de051f48bf74a433a29d56fe0236481f2298558034376",
+    "ledger": "schemas/database-migrations-wotlk.json",
+    "staging_tool": "tools/stage_mariadb_flavor_migrations.py"
+  },
+  "provider": {
+    "id": "mariadb-11.5.2-windows-x86_64",
+    "version": "11.5.2"
+  },
+  "manifest_sha256": "2a09d65349a265ec8e9d8c691c6d0b3ede90a08a7bc9fb7f7ad0cbd43ee76df1",
+  "bootstrap_sha256": "ce5e0d7b5c6552980546a1b7d821c2227ab294852c26024bb497dd0cc89348f9",
+  "migration_manifest_sha256": "3771fc35b4ceddbadd6f786d76b10902db319d07c7d6372156417e4e3d81dc68",
+  "migration_count": 414,
+  "staging_root": "native/.build-win-x86_64/mariadb-provider",
+  "artifacts": [
+    {
+      "name": "bin/mariadbd.exe",
+      "path": "native/.build-win-x86_64/mariadb-provider/bin/mariadbd.exe",
+      "size": 24576,
+      "sha256": "c324874a2a60f6681a7bd159c6048e5718569b49121029b05e9918199034b127"
+    },
+    {
+      "name": "bin/mariadb.exe",
+      "path": "native/.build-win-x86_64/mariadb-provider/bin/mariadb.exe",
+      "size": 4836352,
+      "sha256": "3920144beff5df5c5082c19f391342c4333d6007535864c10f372aa18d24e044"
+    }
+  ],
+  "client_library": {
+    "name": "lib/libmariadb.dll",
+    "path": "native/.build-win-x86_64/mariadb-provider/lib/libmariadb.dll",
+    "size": 344576,
+    "sha256": "65d158594ea4991c2b5720fd7073fcbcbd4585382ad83c9f51357ffc1aea3689"
+  }
+}

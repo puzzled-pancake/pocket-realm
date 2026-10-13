@@ -361,7 +361,13 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    "Native runtime: ${com.pocketrealm.BuildConfig.NATIVE_RUNTIME_BUILD_ID}",
+                    "Native runtime: " + com.pocketrealm.BuildConfig.nativeRuntimeBuildIdFor(
+                        // W4 flip (R6-1): the RENDER line resolves through
+                        // the machine's canonical displayedId — no pick yet
+                        // renders the vanilla lane's telltale rather than
+                        // crashing composition.
+                        com.pocketrealm.client.ActiveFlavor.displayedId ?: "vanilla",
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -447,6 +453,18 @@ private fun NearbyGuardStepper(model: DesktopAppModel, currentMs: Int) {
 internal fun timeframeCardFlavor(): com.pocketrealm.client.ClientFlavor =
     com.pocketrealm.client.ActiveFlavor.resolve(TIMEFRAME_CARD_LANE)
 
+/**
+ * W4 flip: with several qualified flavors and no pick yet the resolver
+ * refuses loud — a render-time card must not crash composition, so the
+ * unresolved state surfaces as null (the cards render the honest
+ * "pick a game flavor" copy; every OPERATION gate keeps the loud refusal).
+ * The resolved id is the machine's own displayedId (selection, else the
+ * sole qualified lane, else null) — the same canonical resolution the
+ * flavor switcher highlights.
+ */
+internal fun renderedFlavorIdOrNull(): String? =
+    com.pocketrealm.client.ActiveFlavor.displayedId
+
 /** GAP-3: the [com.pocketrealm.client.ActiveFlavor] lane suffix naming the
  * timeframe card's resolution gate. */
 private const val TIMEFRAME_CARD_LANE = "the world-timeframe card resolves the qualified lane"
@@ -463,16 +481,28 @@ private const val TIMEFRAME_CARD_LANE = "the world-timeframe card resolves the q
  */
 @Composable
 private fun TimeframeCard(model: DesktopAppModel, storedStage: String, realmRunning: Boolean) {
-    val flavor = remember { timeframeCardFlavor() }
-    val stages = remember(flavor.flavorId) {
-        com.pocketrealm.client.TimeframeStages.stagesFor(flavor.flavorId)
+    // W4 flip: no pick yet under several qualified flavors renders the
+    // first-pick copy instead of crashing composition (the operation gates
+    // keep the loud refusal; see [renderedFlavorIdOrNull]).
+    val flavorId = remember { renderedFlavorIdOrNull() }
+    if (flavorId == null) {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("World timeframe", style = MaterialTheme.typography.titleMedium)
+                Text("Pick a game flavor on the Home screen first — the timeline follows that lane.")
+            }
+        }
+        return
+    }
+    val stages = remember(flavorId) {
+        com.pocketrealm.client.TimeframeStages.stagesFor(flavorId)
     }
     val selectedId = com.pocketrealm.client.TimeframeStages
         .resolveStored(storedStage)
-        .ifEmpty { com.pocketrealm.client.TimeframeStages.defaultStageId(flavor.flavorId) }
+        .ifEmpty { com.pocketrealm.client.TimeframeStages.defaultStageId(flavorId) }
     val selected = requireNotNull(
-        com.pocketrealm.client.TimeframeStages.byId(flavor.flavorId, selectedId),
-    ) { "resolved stage $selectedId must be registered for ${flavor.flavorId}" }
+        com.pocketrealm.client.TimeframeStages.byId(flavorId, selectedId),
+    ) { "resolved stage $selectedId must be registered for $flavorId" }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("World timeframe", style = MaterialTheme.typography.titleMedium)
@@ -490,7 +520,7 @@ private fun TimeframeCard(model: DesktopAppModel, storedStage: String, realmRunn
                                     it.copy(timeframeStage = if (stage.isFinal) "" else stage.id)
                                 }
                             },
-                            label = { Text(stage.id.removePrefix("${flavor.flavorId}-")) },
+                            label = { Text(stage.id.removePrefix("$flavorId-")) },
                         )
                     }
                 }
@@ -562,16 +592,20 @@ private fun realmRunningPhase(phase: com.pocketrealm.supervisor.RuntimePhase): B
 @Composable
 private fun ClientTweaksCard(model: DesktopAppModel, tweaks: ClientTweaksConfig) {
     // R6-w3-1 (code-red round 6): the vanilla tweak set is validated against
-    // the 1.12.1 client only — a non-vanilla lane (reachable at the W4
+    // the 1.12.1 client only — a non-vanilla lane (reachable since the W4
     // qualification flip) must render the honest "not available" copy and
     // NEVER expose the vanilla-client patch-consent toggles (the desktop
     // twin of the android ClientRuntimeContract.flavorTweaksCopy gate).
-    val tweaksUnavailable = com.pocketrealm.client.ClientRuntimeContract
-        .flavorTweaksCopy(
-            com.pocketrealm.client.ActiveFlavor.resolve(
-                "the client-tweaks card resolves the active lane",
-            ),
+    // W4 flip: with several qualified flavors and no pick yet the resolver
+    // refuses loud — render the first-pick copy instead of crashing
+    // composition (the operation gates keep the loud refusal).
+    val tweaksLane = remember { com.pocketrealm.client.ActiveFlavor.displayedId }
+    val tweaksUnavailable = when {
+        tweaksLane == null -> "Pick a game flavor on the Home screen first — tweaks follow that lane."
+        else -> com.pocketrealm.client.ClientRuntimeContract.flavorTweaksCopy(
+            com.pocketrealm.client.ClientFlavors.ALL.first { it.flavorId == tweaksLane },
         )
+    }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Client tweaks", style = MaterialTheme.typography.titleMedium)

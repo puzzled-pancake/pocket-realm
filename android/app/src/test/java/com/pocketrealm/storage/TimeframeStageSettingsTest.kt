@@ -8,6 +8,9 @@ import com.pocketrealm.client.ClientFrameCap
 import com.pocketrealm.client.TimeframeStages
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * Design-timeframe §4.1: the persisted content-patch stage (the World
@@ -18,6 +21,19 @@ import org.junit.Test
  * patch — existing worlds unaffected).
  */
 class TimeframeStageSettingsTest {
+    /** W4 flip fixture: the storage layer resolves against the live
+     * qualified registry — pin the VANILLA lane (holder select). */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     private val display = ClientDisplaySelection.nominal(
         ClientDisplayProfile.BALANCED,
@@ -65,10 +81,14 @@ class TimeframeStageSettingsTest {
             "vanilla-1.12.1",
             TimeframeStages.resolveStored("vanilla-1.12.1"),
         )
+        // W4 flip: the confValue() leg resolves through the ActiveFlavor
+        // HOLDER (no selection argument) — the pinned lane above supplies
+        // it. Under the retired sole-qualified degrade this call never
+        // needed the pin; the flip makes the pin load-bearing here.
         assertEquals(
             "the empty default and the explicit final id name the same conf stage",
-            TimeframeStages.confValue(""),
-            TimeframeStages.confValue("vanilla-1.12.1"),
+            TimeframeStages.confValueFor("", "vanilla"),
+            TimeframeStages.confValueFor("vanilla-1.12.1", "vanilla"),
         )
     }
 
@@ -78,7 +98,9 @@ class TimeframeStageSettingsTest {
         // flavor and a never-registered id both degrade to "" — the reader
         // resolves "" to the final patch, so no lane can be silently pinned.
         listOf(
-            "tbc-2.4.3", // registered flavor, NOT qualified today
+            // W4 flip: tbc-2.4.3 is a REGISTERED stage now — the never-
+            // registered impossibles below are the degrade corpus.
+            "tbc-2.4.4", // never a stage
             "vanilla-9.9", // never a stage
             "garbage",
         ).forEach { impossible ->

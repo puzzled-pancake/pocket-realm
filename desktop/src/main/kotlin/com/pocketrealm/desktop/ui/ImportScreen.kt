@@ -78,7 +78,7 @@ fun ImportScreen(model: DesktopAppModel) {
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
-                            "Importing another 1.12.1 client switches the active generation; " +
+                            "Importing another client switches the active generation; " +
                                 "the previous generation is retired automatically.",
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -161,7 +161,7 @@ private fun ImportLaneCard(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Import from folder", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Choose the extracted 1.12.1 client folder itself (the one that contains " +
+                "Choose the extracted client folder itself (any qualified flavor) (the one that contains " +
                     "WoW.exe and its Data directory) — not an installer or launcher folder.",
                 style = MaterialTheme.typography.bodySmall,
             )

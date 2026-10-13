@@ -411,13 +411,18 @@ fun SettingsScreen(
             // R6-r3-4: the per-flavor graphics-route honest copy — on a
             // non-vanilla lane the GL routes are refused at launch; the
             // renderer surface states it at selection time.
-            val settingsLaneFlavor = remember {
-                com.pocketrealm.client.ActiveFlavor.resolve(
-                    "the renderer card resolves the active lane",
+            // W4 flip: several qualified flavors with no pick yet refuses
+            // loud at the resolver — a render-time card renders the honest
+            // first-pick copy instead of crashing composition.
+            val settingsLaneFlavorId = remember {
+                com.pocketrealm.client.ActiveFlavor.displayedId
+            }
+            val glRouteCopy = settingsLaneFlavorId?.let { laneId ->
+                com.pocketrealm.client.ClientRuntimeContract.flavorGraphicsRouteCopy(
+                    com.pocketrealm.client.ClientFlavors.ALL.first { it.flavorId == laneId },
+                    "opengl",
                 )
             }
-            val glRouteCopy = com.pocketrealm.client.ClientRuntimeContract
-                .flavorGraphicsRouteCopy(settingsLaneFlavor, "opengl")
             if (glRouteCopy != null) {
                 Text(
                     glRouteCopy,
@@ -1182,20 +1187,29 @@ fun SettingsScreen(
         SettingCard("World timeframe") {
             // Round-5 R5-2: resolve through the ActiveFlavor machine — the
             // documented fail-loud resolver; never a silent VANILLA
-            // fallback at the W4 multi-qualified flip.
-            val flavor = remember {
-                com.pocketrealm.client.ActiveFlavor.resolve(
-                    "the world-timeframe card resolves the active lane")
+            // fallback at the W4 multi-qualified flip. W4 flip: with no
+            // pick yet under several qualified flavors the resolver refuses
+            // loud — this render lane surfaces the first-pick copy instead
+            // of crashing composition (operation gates keep the refusal).
+            val flavorId = remember {
+                com.pocketrealm.client.ActiveFlavor.displayedId
             }
-            val stages = remember(flavor.flavorId) {
-                com.pocketrealm.client.TimeframeStages.stagesFor(flavor.flavorId)
+            if (flavorId == null) {
+                Text(
+                    "Pick a game flavor on Home first — the timeline follows that lane.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                return@SettingCard
+            }
+            val stages = remember(flavorId) {
+                com.pocketrealm.client.TimeframeStages.stagesFor(flavorId)
             }
             val selectedId = com.pocketrealm.client.TimeframeStages
                 .resolveStored(snap.timeframeStage)
-                .ifEmpty { com.pocketrealm.client.TimeframeStages.defaultStageId(flavor.flavorId) }
+                .ifEmpty { com.pocketrealm.client.TimeframeStages.defaultStageId(flavorId) }
             val selected = requireNotNull(
-                com.pocketrealm.client.TimeframeStages.byId(flavor.flavorId, selectedId),
-            ) { "resolved stage $selectedId must be registered for ${flavor.flavorId}" }
+                com.pocketrealm.client.TimeframeStages.byId(flavorId, selectedId),
+            ) { "resolved stage $selectedId must be registered for $flavorId" }
             stages.chunked(TIMEFRAME_CHIP_ROW).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     row.forEach { stage ->
@@ -1214,7 +1228,7 @@ fun SettingsScreen(
                                     }
                                 }
                             },
-                            label = { Text(stage.id.removePrefix("${flavor.flavorId}-")) },
+                            label = { Text(stage.id.removePrefix("$flavorId-")) },
                             modifier = Modifier.testTag("timeframe-stage-${stage.id}"),
                         )
                     }
@@ -1353,13 +1367,21 @@ fun SettingsScreen(
         // vanilla-only feature (the manifest's wine.vanilla_tweaks); on a
         // tbc/wotlk lane the honest "not available" copy renders instead of
         // the toggles (the wave's own ClientRuntimeContract.flavorTweaksCopy).
-        val activeSettingsFlavor = remember {
-            com.pocketrealm.client.ActiveFlavor.resolve(
-                "the client-tweaks card resolves the active lane",
+        // W4 flip: no pick yet under several qualified flavors renders the
+        // first-pick copy instead of crashing composition (the operation
+        // gates keep the loud refusal).
+        val activeSettingsFlavorId = remember {
+            com.pocketrealm.client.ActiveFlavor.displayedId
+        }
+        val tweaksUnavailable = when {
+            activeSettingsFlavorId == null ->
+                "Pick a game flavor on Home first — tweaks follow that lane."
+            else -> com.pocketrealm.client.ClientRuntimeContract.flavorTweaksCopy(
+                com.pocketrealm.client.ClientFlavors.ALL.first {
+                    it.flavorId == activeSettingsFlavorId
+                },
             )
         }
-        val tweaksUnavailable = com.pocketrealm.client.ClientRuntimeContract
-            .flavorTweaksCopy(activeSettingsFlavor)
         SettingCard("Client tweaks") {
             Text(
                 tweaksUnavailable
@@ -1468,8 +1490,8 @@ fun SettingsScreen(
                 }
             }
             Text(
-                "Setup covers the game-files import for the WoW 1.12.1 client " +
-                    "and the server's world data, a report of what this " +
+                "Setup covers the game-files import for your flavor's WoW " +
+                    "client and the server's world data, a report of what this " +
                     "device's hardware can run, diagnostics with logs for " +
                     "investigating problems, and the first-run setup guide, " +
                     "which you can replay anytime. Start here on a new install. " +

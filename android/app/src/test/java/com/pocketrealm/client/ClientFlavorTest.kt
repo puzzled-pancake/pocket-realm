@@ -32,19 +32,24 @@ class ClientFlavorTest {
 
     @Test
     fun onlyVanillaIsQualified() {
-        assertEquals(listOf(ClientFlavors.VANILLA), ClientFlavors.qualified())
+        // W4 flip: all three lanes are qualified (owner default, §4 W4.4).
+        assertEquals(
+            listOf(ClientFlavors.VANILLA, ClientFlavors.TBC, ClientFlavors.WOTLK),
+            ClientFlavors.qualified(),
+        )
         assertTrue(ClientFlavors.VANILLA.isQualified)
-        // Declared-but-disabled: import must reject until port plan S5 qualifies them.
-        assertFalse(ClientFlavors.TBC.isQualified)
-        assertFalse(ClientFlavors.WOTLK.isQualified)
+        // W4 flip: the tbc/wotlk identities are qualified too.
+        assertTrue(ClientFlavors.TBC.isQualified)
+        assertTrue(ClientFlavors.WOTLK.isQualified)
     }
 
     @Test
     fun managedClientGateAuthorizesOnlyQualifiedIds() {
         assertFalse(ClientFlavors.isManagedClientId(null))
         assertTrue(ClientFlavors.isManagedClientId(ClientFlavors.VANILLA.clientId))
-        assertFalse(ClientFlavors.isManagedClientId(ClientFlavors.TBC.clientId))
-        assertFalse(ClientFlavors.isManagedClientId(ClientFlavors.WOTLK.clientId))
+        // W4 flip: all three registered lanes authorize import/launch.
+        assertTrue(ClientFlavors.isManagedClientId(ClientFlavors.TBC.clientId))
+        assertTrue(ClientFlavors.isManagedClientId(ClientFlavors.WOTLK.clientId))
         assertFalse(ClientFlavors.isManagedClientId("wow-9.9.9-9999"))
     }
 
@@ -55,8 +60,9 @@ class ClientFlavorTest {
         assertEquals(ClientFlavors.WOTLK, ClientFlavors.byVersionResource("3.3.5.12340"))
         assertNull(ClientFlavors.byVersionResource("9.9.9.9999"))
         assertEquals(ClientFlavors.VANILLA, ClientFlavors.qualifiedByVersionResource("1.12.1.5875"))
-        assertNull(ClientFlavors.qualifiedByVersionResource("2.4.3.8606"))
-        assertNull(ClientFlavors.qualifiedByVersionResource("3.3.5.12340"))
+        // W4 flip: the tbc/wotlk identities resolve qualified now.
+        assertEquals(ClientFlavors.TBC, ClientFlavors.qualifiedByVersionResource("2.4.3.8606"))
+        assertEquals(ClientFlavors.WOTLK, ClientFlavors.qualifiedByVersionResource("3.3.5.12340"))
         assertNull(ClientFlavors.qualifiedByVersionResource("9.9.9.9999"))
     }
 
@@ -181,10 +187,14 @@ class ClientFlavorTest {
         assertEquals(4L * 1024L * 1024L * 1024L, ClientFlavors.VANILLA.extractedEstimateBytes)
         assertEquals(20L * 1024L * 1024L * 1024L, ClientFlavors.VANILLA.maxTotalBytes)
         // Null until measured for the flavor (port plan S5).
-        assertNull(ClientFlavors.TBC.extractedEstimateBytes)
-        assertNull(ClientFlavors.TBC.maxTotalBytes)
-        assertNull(ClientFlavors.WOTLK.extractedEstimateBytes)
-        assertNull(ClientFlavors.WOTLK.maxTotalBytes)
+        // W4 flip (R4-3): the estimates cover the measured client trees (the
+        // managed-copy floor) — 12 GiB tbc / 24 GiB wotlk; caps 24/40 GiB.
+        assertEquals(12L * 1024L * 1024L * 1024L, ClientFlavors.TBC.extractedEstimateBytes)
+        assertEquals(24L * 1024L * 1024L * 1024L,
+            ClientFlavors.TBC.maxTotalBytes)
+        assertEquals(24L * 1024L * 1024L * 1024L, ClientFlavors.WOTLK.extractedEstimateBytes)
+        assertEquals(40L * 1024L * 1024L * 1024L,
+            ClientFlavors.WOTLK.maxTotalBytes)
     }
 
     @Test

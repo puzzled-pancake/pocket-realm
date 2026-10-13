@@ -1,0 +1,484 @@
+{
+  "schema": 1,
+  "abi": "windows-x86_64",
+  "database_backend": "mariadb",
+  "flavor": "tbc",
+  "cmangos_commit": "ffbf97675dc31f845587778f5bb993b232f1b6a2",
+  "playerbots_commit": "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d",
+  "cmangos_source_overlays": [
+    {
+      "id": "authenticated-nearby-use-open",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "paths": [
+        "src/game/World/World.h",
+        "src/game/World/World.cpp",
+        "src/game/Server/WorldSession.h",
+        "src/game/Chat/ChatHandler.cpp",
+        "src/game/Chat/PocketRealmInteraction.cpp"
+      ],
+      "reason": "Let the managed Vanilla addon request one rate-limited nearby corpse/chest/ordinary-object interaction through the authenticated session and existing loot/use handlers."
+    },
+    {
+      "id": "mmap-disabled-load-guard",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "src/game/Maps/GridMap.cpp",
+      "reason": "Do not enter MMapManager::loadMap when mmap.enabled=0; the disabled manager intentionally has no map instance."
+    },
+    {
+      "id": "mmap-loadmap-graceful-miss",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "src/game/MotionGenerators/MoveMap.cpp",
+      "reason": "Entering a map whose navmesh was never registered (missing mmaps/NNN.mmap) must disable pathfinding for that map, not abort the world process."
+    },
+    {
+      "id": "mmap-loadallmaptiles-graceful-miss",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "src/game/MotionGenerators/MoveMap.cpp",
+      "reason": "The Playerbots tile preload path must degrade to a logged skip on an unregistered map instead of aborting the world process."
+    },
+    {
+      "id": "embedded-world-thread-rearm",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "src/mangosd/Master.cpp",
+      "reason": "Re-arm CMaNGOS process-global stop state immediately before each embedded world-thread launch."
+    },
+    {
+      "id": "embedded-io-context-restart",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "src/mangosd/Master.cpp",
+      "reason": "Restart the asio io_context at the top of every embedded network start so network threads service the listener after an in-process stop/start cycle (run() returns immediately after stop() until restart())."
+    },
+    {
+      "id": "embedded-queue-thread-join",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "paths": [
+        "src/mangosd/Master.cpp",
+        "src/game/World/World.h",
+        "src/game/World/World.cpp"
+      ],
+      "reason": "Join the LFG/BattleGround queue threads on embedded stop via World::StopQueueThreads(); a second embedded start would otherwise assign over joinable std::thread slots and std::terminate the host process."
+    },
+    {
+      "id": "result-callback-outside-queue-lock",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "src/shared/Database/SqlOperations.cpp",
+      "reason": "Execute async result callbacks outside the result-queue mutex so callbacks may safely issue direct statements while the database worker publishes another result."
+    },
+    {
+      "id": "llm-companion-event-hooks",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "paths": [
+        "src/game/Entities/Player.cpp",
+        "src/game/Loot/LootHandler.cpp"
+      ],
+      "reason": "Level-up and rare-loot interception points that feed the playerbot LLM companion's event allowlist (bounded party reactions, deterministic relationship milestones, verified-event window for share_gossip)."
+    },
+    {
+      "id": "db-async-null-guard",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "paths": [
+        "src/shared/Database/Database.h",
+        "src/shared/Database/Database.cpp",
+        "src/shared/Database/DatabaseImpl.h"
+      ],
+      "reason": "Route all twelve async enqueue sites through SafeDelayOperation/SafeDelayQueryHolder: HaltDelayThread() nulls m_threadBody while the sticky async flag stays on across embedded restart cycles, so an unguarded enqueue after a halt is a null dereference."
+    },
+    {
+      "id": "win-named-pipe-socket-field",
+      "backends": [
+        "mysql"
+      ],
+      "path": "src/shared/Database/DatabaseMysql.cpp",
+      "reason": "Windows MSVC lane only: host=='.' selects the named-pipe protocol but the native nulls the unix_socket field, so libmariadb dials its DEFAULT pipe name ('MySQL') and the app-private mariadbd pipe (the conf's socket field) never answers. Pass the connection string's second field as the pipe name - the exact mirror of the POSIX '.' branch one #else down (proven live 2026-10-07: realmd failed DB_CONNECT with \"pipe: MySQL\")."
+    },
+    {
+      "id": "fail-loud-backend-selection",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "CMakeLists.txt",
+      "reason": "Refuse the no-op -DDO_MYSQL/-DDO_SQLITE cache defines, refuse PostgreSQL, and print the selected backend at configure time; the real switch is the SQLITE cache variable with MySQL as the else-default."
+    },
+    {
+      "id": "win-static-openssl-only",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "CMakeLists.txt",
+      "reason": "Windows MSVC lane only (POCKET_REALM_WIN_DEPS): route OPENSSL_LIBRARIES/OPENSSL_DEBUG_LIBRARIES and the include dir at the pinned vcpkg STATIC OpenSSL instead of the shipped dep/lib prebuilt IMPORT libs, which silently add a dynamic libssl-3-x64.dll dependency the app image does not carry (MSVC link order lets late playerbots references resolve from whichever OpenSSL library appears later on the link line). No effect on non-WIN32 lanes."
+    },
+    {
+      "id": "runtime-dialect-truncate",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "src/game/Globals/ObjectMgr.cpp",
+      "reason": "Route the two raw TRUNCATE sites through the backend _TRUNCATE_ macro (DELETE FROM under DO_SQLITE; TRUNCATE TABLE - semantically identical - under MySQL)."
+    },
+    {
+      "id": "runtime-dialect-anticheat-prune",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "src/game/Anticheat/module/libanticheat.cpp",
+      "reason": "DELETE..ORDER BY..LIMIT is MySQL-only; under DO_SQLITE use the registered rowid-IN-subquery rewrite with the fingerprint predicate inside the subquery (exactly two positional binds unchanged)."
+    }
+  ],
+  "playerbots_source_overlays": [
+    {
+      "id": "random-bot-pool-provisioning-repair",
+      "paths": [
+        "playerbot/PlayerbotAIConfig.cpp",
+        "playerbot/RandomPlayerbotMgr.cpp"
+      ],
+      "reason": "Keep the random-bot login set yieldable on an accumulated multi-pool datadir (LVF-bot-actors-003+008): scope the GetBots pool view to the allowlist so foreign profiles' 'add' rows can no longer hold the world 'full' and burn the login budget on refused accounts; admit cap-saturated accounts to the allowlist and rotate headroom before minting in GetOrCreateAccount; make the reset op clear the refusal state end-to-end (event table, pick set, allowlist refill, fresh provisioning); re-derive allowlist coverage from the login DB at boot so accounts minted beyond the configured count stay visible."
+    },
+    {
+      "id": "ahbot-config-absent-hard-disable",
+      "paths": [
+        "ahbot/AhBot.cpp",
+        "ahbot/AhBotConfig.cpp"
+      ],
+      "reason": "When ahbot.conf is absent, AhBotConfig::Initialize() returns before writing `enabled`, leaving it UNINITIALIZED, and AhBot::Update() never checks enabled before spawning the detached checker thread - whose ForceUpdate then dereferences garbage config state (updateInterval, item sets). A fresh process zeroes the heap so Android never observed it, but the embedded in-process lane recycles the heap across world boots and the second boot crashed the host JVM. Hard-disable on config-absence and gate Update on enabled: identical no-activity outcome on both platforms, minus the uninitialized read."
+    },
+    {
+      "id": "portable-unary-not-character-query",
+      "paths": [
+        "playerbot/RandomPlayerbotMgr.cpp"
+      ],
+      "reason": "Upstream emits MySQL unary-'!' NOT in the character-selection query (' OR !' + wasRand); SQLite fails the whole query with `unrecognized token: \"!\"`, starving the need-to-increase bot-selection branch on SQLite. Replace with standard NOT (identical semantics in MySQL)."
+    },
+    {
+      "id": "bounded-resumable-mobile-generation",
+      "paths": [
+        "playerbot/PlayerbotAIConfig.h",
+        "playerbot/PlayerbotAIConfig.cpp",
+        "playerbot/RandomPlayerbotFactory.cpp"
+      ],
+      "reason": "Persist each character normally, then yield after a profile-bounded batch so interrupted generation resumes from existing account/character rows."
+    },
+    {
+      "id": "bounded-first-player-activation",
+      "paths": [
+        "playerbot/PlayerbotAIConfig.h",
+        "playerbot/PlayerbotAIConfig.cpp",
+        "playerbot/RandomPlayerbotMgr.cpp"
+      ],
+      "reason": "Limit the synchronous deficit scan to a profile-bounded activation batch so the first real-player login cannot mark hundreds of bots active in one transaction."
+    },
+    {
+      "id": "fresh-coalesced-character-db-probe",
+      "paths": [
+        "playerbot/RandomPlayerbotMgr.h",
+        "playerbot/RandomPlayerbotMgr.cpp",
+        "playerbot/PlayerbotLoginMgr.cpp"
+      ],
+      "reason": "Keep at most one deadline-bounded character-database probe in flight, reject late generations, and permit new bot logins only from a fresh successful result."
+    },
+    {
+      "id": "low-cpu-locality-telemetry",
+      "paths": [
+        "playerbot/RandomPlayerbotMgr.h",
+        "playerbot/RandomPlayerbotMgr.cpp"
+      ],
+      "reason": "Sample bot locality and operation rates once per ten seconds instead of scanning the full population on every manager pass."
+    },
+    {
+      "id": "in-process-llama-backend",
+      "paths": [
+        "playerbot/PlayerbotAIConfig.h",
+        "playerbot/PlayerbotAIConfig.cpp",
+        "playerbot/PlayerbotLLMInterface.h",
+        "playerbot/PlayerbotLLMInterface.cpp",
+        "playerbot/llm_banter_core.h",
+        "playerbot/PlayerbotLlamaRuntime.h",
+        "playerbot/PlayerbotLlamaRuntime.cpp",
+        "playerbot/PlayerbotLlmMemory.h",
+        "playerbot/PlayerbotLlmMemory.cpp",
+        "playerbot/PlayerbotLlmTools.h",
+        "playerbot/PlayerbotLlmTools.cpp",
+        "playerbot/PlayerbotLlmToolsCore.h",
+        "playerbot/PlayerbotLlmPersona.h",
+        "playerbot/PlayerbotLlmPersona.cpp",
+        "playerbot/PlayerbotLlmJson.h",
+        "playerbot/PlayerbotLlmPrompt.h",
+        "playerbot/PlayerbotLlmBridge.h",
+        "playerbot/PlayerbotLlmBridge.cpp",
+        "playerbot/PlayerbotLlmTruthCore.h",
+        "playerbot/PlayerbotLlmEraStages.generated.h",
+        "playerbot/PlayerbotLlmRecallCore.h",
+        "playerbot/PlayerbotLlmFilters.h",
+        "playerbot/PlayerbotLlmFilters.cpp",
+        "playerbot/PlayerbotLlmChatter.h",
+        "playerbot/PlayerbotLlmChatterCore.h",
+        "playerbot/PlayerbotLlmChatter.cpp",
+        "playerbot/PlayerbotLlmGates.h",
+        "playerbot/strategy/actions/SayAction.h",
+        "playerbot/strategy/actions/SayAction.cpp",
+        "playerbot/strategy/actions/RpgSubActions.cpp",
+        "playerbot/strategy/actions/DebugAction.cpp",
+        "playerbot/PlayerbotAI.cpp",
+        "playerbot/PlayerbotAI.h",
+        "aiplayerbot.conf.dist.in"
+      ],
+      "reason": "Link the vendored llama.cpp kai build into the world runtime behind PlayerbotLLMInterface: pinned mid-core worker, watchdog abort, per-bot warm slots, hard-trigger gate with duty-cycle governor, byte-stable memory segments (backstory/facts/relationship/gossip), world-thread tool executor, persona fallbacks, journal surface, and delayed-packet session-lifetime guards."
+    }
+  ],
+  "patches_content": {
+    "native/patches/cmangos/DatabaseSqlite.cpp": "8086ae1fedb5d536e8a33e997b9ec2f752c468d49f777560a3c5891c23f060a7",
+    "native/patches/cmangos/DatabaseSqlite.h": "46e6953dda3d28cc380280a3f15a22b30a1af1dcdc7882d4c3173ecec581b0f6",
+    "native/patches/cmangos/PocketRealmInteraction-tbc.cpp": "659eb57ad8bc96e374111d4d95a3e0ff108b536459f863adadb0d4dd58e33d53",
+    "native/patches/cmangos/PocketRealmInteraction-wotlk.cpp": "e5a34a42f59a7e208773f057bebbff1716cd7bf0b62658ef94a8f15b8ddf4fe2",
+    "native/patches/cmangos/PocketRealmInteraction.cpp": "985b257079e62a7483537cdea4e1ada29103771be5e505000d3a93f54bd67916",
+    "native/patches/cmangos/QueryResultSqlite.cpp": "c7f84c1b7e5e6ea70671a4ab2d7912b50f412916ac131201e35087bded0709b5",
+    "native/patches/cmangos/QueryResultSqlite.h": "122ecdabfafd5492df2ed313e2b6eaf6eb82c25c84930d3c4b7bcf2f9976d810",
+    "native/patches/o11-cmangos-safe-mpq-listfile.patch": "f0103d0aa7426bbfd9237225657e25eb5c3446baefd98cbebb05a72ddefe27d0",
+    "native/patches/playerbots/llm_banter_core.h": "9b460c5e033215c7ba88c4af973042d16206a62fb12ab7f1543a22d311ba2983",
+    "native/patches/playerbots/PlayerbotAIConfig.cpp": "359c50caef0773eea158985db5534d9bdd6ff81de8fa4abf5a61bb71e514b52f",
+    "native/patches/playerbots/PlayerbotLlamaRuntime.cpp": "87f9aa3ffaeb3acaa13a525a87fe7d356aaea7854da7146489583407e6de120b",
+    "native/patches/playerbots/PlayerbotLlamaRuntime.h": "9689f9bc57b27d5b1983c9050e2bd7324ffb02204eeba5dbf6189fc5317e72ab",
+    "native/patches/playerbots/PlayerbotLlmBridge.cpp": "7b30d1bf60c98c47180f00ee2bff048d93a89ff9bdee923d16eade4d5976f83a",
+    "native/patches/playerbots/PlayerbotLlmBridge.h": "ddd787907cb034202246ac6790642a8a6b69d0e50b2e58123ce85bc362006ba2",
+    "native/patches/playerbots/PlayerbotLlmChatter.cpp": "6d78cbbcb4347911b95ae0c9205101bcefa62bf8bfd61b251362a58fe96c8877",
+    "native/patches/playerbots/PlayerbotLlmChatter.h": "ee7ee136495c6a6c483c6eab98c4cea138d0045875387d4d7a4816367c115e77",
+    "native/patches/playerbots/PlayerbotLlmChatterCore.h": "4dd842f2ec54e53fce424b0070b2dfb920d3a1daf24ecf90d3d1cdf4c6ba577d",
+    "native/patches/playerbots/PlayerbotLlmEraStages.generated.h": "d9540fc56f28a45c2021003f7a6e7d9fbaf772663dda77a60ca95769e85c4e49",
+    "native/patches/playerbots/PlayerbotLlmFilters.cpp": "eebeb03494adeb59d30d90df9c12dcd15388cc028b58ab126c85a0d96a60916a",
+    "native/patches/playerbots/PlayerbotLlmFilters.h": "251a0c15331ad7ca51232ac13d67e9944134cdf14c1ecf34259a9d410a93aa53",
+    "native/patches/playerbots/PlayerbotLlmGates.h": "2c7429ac03ca71faaa70c34fae117071d156f8bc6a9f0a884fd93dff62cf9207",
+    "native/patches/playerbots/PlayerbotLlmJson.h": "f33aca69e42a01f9134577d5f77b39f5200116d12243f0fb40b1c52d425db6c8",
+    "native/patches/playerbots/PlayerbotLlmMemory.cpp": "ac22f2d745aa2f37f62f1ee66cf5153e328162bb56e0c8e768413192371b4e56",
+    "native/patches/playerbots/PlayerbotLlmMemory.h": "3d5dec949b59e59c0a79cb6cb751afd86858b74e9499e8a7fbe0478d39041624",
+    "native/patches/playerbots/PlayerbotLlmPersona.cpp": "dbc4ba3119c6b55d95ca2e70331b56b1a7c4d2df5a8f624661e8c8d40718cf8d",
+    "native/patches/playerbots/PlayerbotLlmPersona.h": "9c43e674ec7e5e59d7f00b9f521c40b560be3373b06f7b6369574fc37124cf30",
+    "native/patches/playerbots/PlayerbotLlmPrompt.h": "2acf8fc5438b35f5ca1e8ffa809205283795aabe383f70efd39db042bc3d432a",
+    "native/patches/playerbots/PlayerbotLlmRecallCore.h": "295de7224b25c7677118969d823884e1db35ccb68c1f10f414b4ebc8cc72aa29",
+    "native/patches/playerbots/PlayerbotLlmTools.cpp": "31d3411e1e71c145c46f4793a977dd133ca7cf5236a0674528e8b0e302380d21",
+    "native/patches/playerbots/PlayerbotLlmTools.h": "9898b16015b044b74aced21c6ba757dd2ce3ce8bb870651ac70375656aceaa28",
+    "native/patches/playerbots/PlayerbotLlmToolsCore.h": "eceeea7864c03bc236cf207ecb00313292ac160c786fea8b3f5281c735c52f7e",
+    "native/patches/playerbots/PlayerbotLlmTruthCore.h": "dfa3f9301236bc2c47e3718c4455dadced9fb7642c5bb542f98bfede3724d3b5",
+    "native/patches/playerbots/RandomPlayerbotMgr.cpp": "88cb492a8e70c4f11f406f1211bd9090baf497d1eb187a1a6e84f8658e2894ee"
+  },
+  "artifacts": [
+    {
+      "path": "native/.build-win-x86_64-tbc-mariadb/pocket-runtime-build/pocket_realmd_runtime.dll",
+      "size": 4692992,
+      "sha256": "1099fb4c61899dd63429625480080c01c9eaa7d8c7102a62be8bca26f74cfc6b",
+      "pe_machine": "0x8664",
+      "pe_imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "MSVCP140.dll",
+        "MSWSOCK.dll",
+        "USER32.dll",
+        "VCRUNTIME140.dll",
+        "VCRUNTIME140_1.dll",
+        "WS2_32.dll",
+        "api-ms-win-crt-convert-l1-1-0.dll",
+        "api-ms-win-crt-environment-l1-1-0.dll",
+        "api-ms-win-crt-filesystem-l1-1-0.dll",
+        "api-ms-win-crt-heap-l1-1-0.dll",
+        "api-ms-win-crt-math-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+        "api-ms-win-crt-stdio-l1-1-0.dll",
+        "api-ms-win-crt-string-l1-1-0.dll",
+        "api-ms-win-crt-time-l1-1-0.dll",
+        "api-ms-win-crt-utility-l1-1-0.dll",
+        "libmysql.dll"
+      ]
+    },
+    {
+      "path": "native/.build-win-x86_64-tbc-mariadb/pocket-runtime-build/pocket_world_runtime.dll",
+      "size": 26275840,
+      "sha256": "18ae206fed520c93dd2affe97d078110b27e92834acdf83de4aa0037c3d5dca8",
+      "pe_machine": "0x8664",
+      "pe_imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "MSVCP140.dll",
+        "MSWSOCK.dll",
+        "USER32.dll",
+        "VCRUNTIME140.dll",
+        "VCRUNTIME140_1.dll",
+        "WS2_32.dll",
+        "api-ms-win-crt-conio-l1-1-0.dll",
+        "api-ms-win-crt-convert-l1-1-0.dll",
+        "api-ms-win-crt-environment-l1-1-0.dll",
+        "api-ms-win-crt-filesystem-l1-1-0.dll",
+        "api-ms-win-crt-heap-l1-1-0.dll",
+        "api-ms-win-crt-locale-l1-1-0.dll",
+        "api-ms-win-crt-math-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+        "api-ms-win-crt-stdio-l1-1-0.dll",
+        "api-ms-win-crt-string-l1-1-0.dll",
+        "api-ms-win-crt-time-l1-1-0.dll",
+        "api-ms-win-crt-utility-l1-1-0.dll",
+        "dbgeng.dll",
+        "libmysql.dll"
+      ]
+    },
+    {
+      "path": "native/.build-win-x86_64/sqlite-seam-build/pocket_sqlite.dll",
+      "size": 1362944,
+      "sha256": "b2436d21adda62d0b32587adbd3da23e0b27024e8dd96ede6645106490207108",
+      "pe_machine": "0x8664",
+      "pe_imports": [
+        "KERNEL32.dll",
+        "VCRUNTIME140.dll",
+        "api-ms-win-crt-heap-l1-1-0.dll",
+        "api-ms-win-crt-math-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+        "api-ms-win-crt-stdio-l1-1-0.dll",
+        "api-ms-win-crt-string-l1-1-0.dll",
+        "api-ms-win-crt-time-l1-1-0.dll"
+      ]
+    },
+    {
+      "path": "native/.build-win-x86_64-tbc-mariadb/pocket-runtime-build/libmysql.dll",
+      "size": 344576,
+      "sha256": "65d158594ea4991c2b5720fd7073fcbcbd4585382ad83c9f51357ffc1aea3689",
+      "pe_machine": "0x8664",
+      "pe_imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "SHLWAPI.dll",
+        "Secur32.dll",
+        "WS2_32.dll",
+        "api-ms-win-crt-convert-l1-1-0.dll",
+        "api-ms-win-crt-environment-l1-1-0.dll",
+        "api-ms-win-crt-filesystem-l1-1-0.dll",
+        "api-ms-win-crt-heap-l1-1-0.dll",
+        "api-ms-win-crt-math-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+        "api-ms-win-crt-stdio-l1-1-0.dll",
+        "api-ms-win-crt-string-l1-1-0.dll",
+        "api-ms-win-crt-time-l1-1-0.dll",
+        "bcrypt.dll"
+      ]
+    }
+  ],
+  "seed_transcripts": {
+    "classiccharacters": {
+      "sha256": "6792fdb1eef2e0d80f7048a457a417484b97608212c29b2715ddf4cab7a5e829",
+      "size": 153514454,
+      "gzip_sha256": "42c6e149453702d38de9007f77b2eeab309e5f62d03e2543f6203d436f597ad1",
+      "gzip_size": 7107915
+    },
+    "classiclogs": {
+      "sha256": "e3d37a73da95ed619d1ca28891826d2d6d57631e3bdfccee15c35a076cfa289e",
+      "size": 1382,
+      "gzip_sha256": "758380d63e45b9c7ee4cfb0d836e1fdffe89a8c1ca6b550b743f6f9e0d4e5eaa",
+      "gzip_size": 424
+    },
+    "classicmangos": {
+      "sha256": "f2b8726c5167adc72fb8040169aa96dbf8846a3cd2c783232a4321753982afd6",
+      "size": 122502348,
+      "gzip_sha256": "c8541c9008bef68aeedb48c6b2be95d89f25e17507f785993de05f0455676ce0",
+      "gzip_size": 23231231
+    },
+    "classicrealmd": {
+      "sha256": "cc6eabe3e0739271f2daf18da9e72528389bdf1845aadba5e623949dbbf08a58",
+      "size": 10901,
+      "gzip_sha256": "84cc1ce01dd093bb8c3aa16de908a0c62a874a891e60b1b7eb15d3c8d754a67e",
+      "gzip_size": 3320
+    }
+  },
+  "seed_transcripts_provenance": {
+    "note": "vanilla-transcripts placeholder: this non-vanilla lane seeds the VANILLA classic* transcripts until its own per-flavor transcripts are measured and pinned in sqlite-seed-baseline-<flavor>.json. The supported retire path (decision D59): run `python tools/seed_sqlite_from_manifest.py --flavor <flavor> --out <dir> --transcripts <dir> --write-baseline` (the manifest seeder's merge write \u2014 the only tool that can produce those keys), restage the lane (tools/build_o09_realm_runtime.py --flavor <flavor>), then re-key this lockfile; it then binds the flavor's own digests and this placeholder retires.",
+    "retires": "W2/W5: first per-flavor transcript staging re-keys this block (decision D59)"
+  },
+  "toolchain": {
+    "generator": "Ninja",
+    "openssl": "vcpkg x64-windows-static-md (static; win-static-openssl-only overlay keeps the shipped dep/lib import libs off the link line)",
+    "notable_imports": {
+      "dbgeng.dll": "WheatyExceptionReport crash reporter in the cmangos Windows platform layer"
+    }
+  },
+  "provider_lockfile": "schemas/database-provider-lockfile-win-tbc.json",
+  "provider": {
+    "schema": 1,
+    "abi": "windows-x86_64",
+    "database_backend": "mariadb",
+    "lane_scope": {
+      "flavors": [
+        "tbc"
+      ],
+      "decision": "D60 (scope) + D72 retirement (W4, owner ruling 2026-10-12)",
+      "note": "lane-scoped provider document: the SHARED database-provider-lockfile-win.json and the shared migration-manifest.json stay the vanilla golden (D60, untouched); THIS document pins the lane's sibling migration set staged beside it"
+    },
+    "lane_migrations": {
+      "flavor": "tbc",
+      "manifest": "migration-manifest-tbc.json",
+      "manifest_sha256": "2cdeed3079c59ead5ebf89868db3946ac7819b6bb67a902203cc37a8b66a4f86",
+      "ledger": "schemas/database-migrations-tbc.json",
+      "staging_tool": "tools/stage_mariadb_flavor_migrations.py"
+    },
+    "provider": {
+      "id": "mariadb-11.5.2-windows-x86_64",
+      "version": "11.5.2"
+    },
+    "manifest_sha256": "2a09d65349a265ec8e9d8c691c6d0b3ede90a08a7bc9fb7f7ad0cbd43ee76df1",
+    "bootstrap_sha256": "ce5e0d7b5c6552980546a1b7d821c2227ab294852c26024bb497dd0cc89348f9",
+    "migration_manifest_sha256": "3771fc35b4ceddbadd6f786d76b10902db319d07c7d6372156417e4e3d81dc68",
+    "migration_count": 414,
+    "staging_root": "native/.build-win-x86_64/mariadb-provider",
+    "artifacts": [
+      {
+        "name": "bin/mariadbd.exe",
+        "path": "native/.build-win-x86_64/mariadb-provider/bin/mariadbd.exe",
+        "size": 24576,
+        "sha256": "c324874a2a60f6681a7bd159c6048e5718569b49121029b05e9918199034b127"
+      },
+      {
+        "name": "bin/mariadb.exe",
+        "path": "native/.build-win-x86_64/mariadb-provider/bin/mariadb.exe",
+        "size": 4836352,
+        "sha256": "3920144beff5df5c5082c19f391342c4333d6007535864c10f372aa18d24e044"
+      }
+    ],
+    "client_library": {
+      "name": "lib/libmariadb.dll",
+      "path": "native/.build-win-x86_64/mariadb-provider/lib/libmariadb.dll",
+      "size": 344576,
+      "sha256": "65d158594ea4991c2b5720fd7073fcbcbd4585382ad83c9f51357ffc1aea3689"
+    }
+  },
+  "binaries_stale_for_patches": false
+}

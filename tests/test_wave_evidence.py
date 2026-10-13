@@ -115,6 +115,83 @@ def test_a_re_execution_claim_requires_actually_executed_test_tasks():
                 "the claim to match the run")
 
 
+def test_w4_exit_record_suite_counts_match_the_counts_artifacts():
+    """R4-r4-1/R5-W4r4-1 (W4 code-red round 4): every suite-count figure the
+    W4 exit record quotes ("N classes / M tests", "M/N") must equal the
+    counts artifact whose classes field agrees — a stale mid-wave number
+    (desktop 1434 vs artifact 1439) sat in the record for a full round. The
+    shorthand leg is SUITE-WORD-scoped ("desktop 1441/193") so non-suite
+    numbers (the 222/222 ledger counts) are never held."""
+    import json
+
+    wave_exit = " ".join(
+        (ROOT / "out/completion/w4/WAVE-EXIT.md").read_text(
+            encoding="utf-8").split()
+    )
+    artifacts = {}
+    for name in ("android-unit-counts.json", "desktop-test-counts.json"):
+        path = ROOT / "out/completion/w0" / name
+        if path.is_file():
+            artifacts[name] = json.loads(path.read_text(encoding="utf-8"))
+    if not artifacts:
+        return  # no counts artifacts in this tree
+    quoted = set(re.findall(r"(\d{2,4}) classes / (\d{2,4}) tests", wave_exit))
+    quoted |= set(re.findall(
+        r"(desktop|android)\s+(\d{2,4})/(\d{2,4})\b", wave_exit,
+    ))
+    normalized = set()
+    for entry in quoted:
+        if len(entry) == 3:
+            suite, classes, tests = entry
+            normalized.add((classes, tests))
+        else:
+            normalized.add(entry)
+    for classes, tests in normalized:
+        holders = [
+            (name, a) for name, a in artifacts.items()
+            if str(a.get("classes")) == classes
+        ]
+        # only canonical-suite-shaped pairs are held (other quoted numbers
+        # - e.g. a 45/45 focused battery - have no counts artifact)
+        for name, artifact in holders:
+            assert str(artifact["tests"]) == tests, (
+                f"the W4 exit record quotes {classes} classes / {tests} "
+                f"tests but {name} records {artifact['tests']} - the stale "
+                "mid-wave number must sync to the artifact (R4-r4-1)")
+
+
+def test_xml_tree_digest_matches_the_counts_artifact_it_names():
+    """R6-2 (W4 code-red round 3): xml-tree-digest-<label>.json is the
+    archived snapshot of what the JUnit trees looked like when the counts
+    artifacts were written — its per-tree totals must equal the counts
+    artifact it names (the R4-r3-1 regen-bypass left a digest claiming
+    desktop 1426/192 matches_artifact:true beside an artifact that said
+    1434/193: the pair can never diverge again)."""
+    import json
+
+    digest_path = ROOT / "out/completion/w0/xml-tree-digest-w4.json"
+    if not digest_path.is_file():
+        return  # no digest snapshot in this tree
+    digest = json.loads(digest_path.read_text(encoding="utf-8"))
+    for artifact_name, tree in digest.get("trees", {}).items():
+        artifact_path = ROOT / "out/completion/w0" / artifact_name
+        assert artifact_path.is_file(), (
+            f"the digest snapshot names {artifact_name} which does not "
+            "exist — regenerate the digest and the artifact together")
+        counts = json.loads(artifact_path.read_text(encoding="utf-8"))
+        for field in ("tests", "failures", "errors", "skipped", "classes"):
+            assert tree.get(field) == counts.get(field), (
+                f"{artifact_name}: the digest snapshot records "
+                f"{field}={tree.get(field)} but the artifact says "
+                f"{counts.get(field)} — the snapshot is from a superseded "
+                "run; re-run tools/archive_junit_tree_digest.py --label w4 "
+                "right after regen_counts_w4.py")
+        assert tree.get("matches_artifact") is True, (
+            f"{artifact_name}: the digest itself records matches_artifact="
+            f"{tree.get('matches_artifact')!r} — the exit snapshot was "
+            "taken against a different tree state")
+
+
 def test_era_stages_staging_implies_ledger_524_fixed_disposition():
     """R6-1 (W1 code-red round 1): ledger bug-hunt finding 5.24 is the exact
     defect the W1 charter item 1 closes — the moment the staging fix is

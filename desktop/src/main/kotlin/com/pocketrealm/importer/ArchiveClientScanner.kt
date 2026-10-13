@@ -20,7 +20,8 @@ import java.io.File
  * through the same shared [ClientPeIdentity] parse, so both platforms'
  * scanners refuse the same archives byte-for-byte.
  */
-internal class ArchiveClientScanner(
+internal @Suppress("TooManyFunctions")
+class ArchiveClientScanner(
     private val limits: ImportLimits = ImportLimits(),
     private val policy: ImportExtractionPolicy = ImportExtractionPolicy(limits),
 ) {
@@ -112,18 +113,7 @@ internal class ArchiveClientScanner(
         if (!data.isDirectory) {
             failures += "VAL-04: Data directory is absent"
         } else {
-            val mpqs = data.listFiles().orEmpty().filter { it.isFile && it.name.endsWith(".mpq", true) }
-                .associateBy { it.name.lowercase() }
-            // A foreign client (no qualified flavor matched) already failed
-            // VAL-03; never compare the qualified MPQ union against it.
-            val missing = flavor?.requiredMpqs.orEmpty().filterNot(mpqs::containsKey)
-            if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
-            for (file in mpqs.values) {
-                val header = file.inputStream().use { runCatching { it.readNBytes(4) }.getOrDefault(ByteArray(0)) }
-                if (!header.contentEquals(byteArrayOf(0x4d, 0x50, 0x51, 0x1a))) {
-                    failures += "VAL-04: invalid MPQ header: Data/${file.name}"
-                }
-            }
+            auditMpqSet(data, flavor, failures)
         }
         val supported = failures.isEmpty() && flavor != null
         return DesktopClientScanner.Result(
@@ -153,7 +143,13 @@ internal class ArchiveClientScanner(
         val unified = entries.map { it.name.replace('\\', '/').trimEnd('/') to it }
         fun hasData(parent: String): Boolean {
             val dataPath = if (parent.isEmpty()) "Data" else "$parent/Data"
-            return unified.any { (name, entry) -> entry.directory && name.equals(dataPath, true) }
+            // R4-r5-1: a real client zipped without explicit directory
+            // entries (python zipfile / many Unix tools) still carries
+            // every file path through Data/ - derive the directory from
+            // the file paths instead of demanding a literal dir entry.
+            return unified.any { (name, _) ->
+                name.equals(dataPath, true) || name.startsWith("$dataPath/", true)
+            }
         }
         val candidates = unified.filter { (name, entry) ->
             !entry.directory && name.substringAfterLast('/').equals("WoW.exe", true) &&
@@ -267,4 +263,75 @@ internal class ArchiveClientScanner(
             return bytes.copyOf(minOf(bytes.size, maxBytes))
         }
     }
+
+/** W4: the whole MPQ audit for the desktop archive lane - the locale
+ * walk, the per-form missing check, and the R1-1/R2-5-2 exact-set leg
+ * (an unknown patch-*.mpq on a non-vanilla lane is VAL-04 naming the
+ * file; vanilla keeps its documented tolerance). Extracted from
+ * verifyExtracted for complexity/nesting. */
+private fun auditMpqSet(
+    data: java.io.File,
+    flavor: com.pocketrealm.client.ClientFlavor?,
+    failures: MutableList<String>,
+) {
+    val mpqByRelPath = LinkedHashMap<String, java.io.File>()
+    fun walkMpqTree(dir: java.io.File, rel: String, depth: Int) {
+        if (depth > 4) return
+        for (child in dir.listFiles().orEmpty()) {
+            val childRel =
+                (if (rel.isEmpty()) child.name else "$rel/${child.name}").lowercase()
+            if (child.isDirectory) walkMpqTree(child, childRel, depth + 1)
+            else if (child.name.endsWith(".mpq", true)) {
+                mpqByRelPath.putIfAbsent(childRel, child)
+            }
+        }
+    }
+    walkMpqTree(data, "", 0)
+    appendMissingMpqFailures(mpqByRelPath, flavor, failures)
+    appendExactSetFailures(mpqByRelPath, flavor, failures)
+    appendMpqHeaderFailures(mpqByRelPath, failures)
+}
+
+private fun appendMissingMpqFailures(
+    mpqByRelPath: Map<String, java.io.File>,
+    flavor: com.pocketrealm.client.ClientFlavor?,
+    failures: MutableList<String>,
+) {
+    val missing = flavor?.requiredMpqs.orEmpty().filterNot { key ->
+        val lowered = key.lowercase()
+        if ('/' in lowered) mpqByRelPath.containsKey(lowered)
+        else mpqByRelPath.keys.any { it.substringAfterLast('/') == lowered }
+    }
+    if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
+}
+
+private fun appendExactSetFailures(
+    mpqByRelPath: Map<String, java.io.File>,
+    flavor: com.pocketrealm.client.ClientFlavor?,
+    failures: MutableList<String>,
+) {
+    if (flavor == null || flavor.flavorId == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) return
+    for ((rel, file) in mpqByRelPath) {
+        val base = rel.substringAfterLast('/')
+        val known = flavor.requiredMpqs.any {
+            val lowered = it.lowercase()
+            lowered == rel || lowered.substringAfterLast('/') == base
+        }
+        if (!known && base.startsWith("patch-") && base.endsWith(".mpq")) {
+            failures += "VAL-04: unknown patch MPQ not in the exact set: Data/$rel"
+        }
+    }
+}
+
+private fun appendMpqHeaderFailures(
+    mpqByRelPath: Map<String, java.io.File>,
+    failures: MutableList<String>,
+) {
+    for (file in mpqByRelPath.values) {
+        val header = file.inputStream().use { runCatching { it.readNBytes(4) }.getOrDefault(ByteArray(0)) }
+        if (!header.contentEquals(byteArrayOf(0x4d, 0x50, 0x51, 0x1a))) {
+            failures += "VAL-04: invalid MPQ header: Data/${file.name}"
+        }
+    }
+}
 }

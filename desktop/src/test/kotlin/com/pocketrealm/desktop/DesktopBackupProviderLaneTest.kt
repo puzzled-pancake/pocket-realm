@@ -17,6 +17,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * LV-server-db-37's provider boundary, made ACTIVE (the staged MariaDB
@@ -39,6 +42,20 @@ import org.junit.rules.TemporaryFolder
  * no natives (plain files satisfy the isFile check the verb runs).
  */
 class DesktopBackupProviderLaneTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @get:Rule
     val folder = TemporaryFolder()
 
@@ -153,6 +170,8 @@ class DesktopBackupProviderLaneTest {
                 "pocket_forbidden" in sql -> refused("scripted: account administration denied")
                 "required_z9999_not_real" in sql -> ok("0")
                 "information_schema.COLUMNS" in sql -> ok("1")
+                // W4 (D72 retirement): the per-lane provisioning verb.
+                "CREATE DATABASE IF NOT EXISTS" in sql -> ok()
                 "pocket_admin" in sql -> ok()
                 "migration_ledger" in sql -> ok()
                 else -> refused("scripted: unexpected client sql: ${sql.take(80)}")
@@ -190,7 +209,13 @@ class DesktopBackupProviderLaneTest {
     private fun selectProvider(roots: DesktopStorageRoots, provider: Settings.DatabaseProvider) {
         roots.settingsFile.parentFile?.mkdirs()
         roots.settingsFile.writeText(
-            Settings.Snapshot(databaseProvider = provider).toJson(),
+            // W4 flip: the lane selection rides every settings rewrite (the
+            // engines here are constructed WITHOUT a bootLane supplier, so
+            // they resolve the lane from the persisted pick).
+            Settings.Snapshot(
+                databaseProvider = provider,
+                selectedFlavorId = "vanilla",
+            ).toJson(),
         )
     }
 
@@ -450,6 +475,8 @@ class DesktopBackupProviderLaneTest {
                 repoRootOverride = staging.parentFile.parentFile.parentFile,
             ),
             processes = ScriptedMariaDbProcesses(),
+            // W4 flip: the engine resolves the lane from the persisted pick.
+            bootLane = { null },
         )
         // The crashed process: prepared, a named backup taken, the restore
         // transaction opened — then it dies with the token, before any
@@ -459,8 +486,12 @@ class DesktopBackupProviderLaneTest {
         assertTrue(crashed.applyPinnedMigrations().getBoolean("ok"))
         val datadir = roots.mariadbDatadir
         File(datadir, "realm_note.txt").writeText("before")
-        val snapshot = com.pocketrealm.database.DatabaseSnapshotStore(roots.databaseSnapshots)
-            .create(datadir, "manual-pending-${System.currentTimeMillis()}", databaseStopped = true)
+        val snapshot = com.pocketrealm.database.DatabaseSnapshotStore(
+            roots.databaseSnapshots,
+            // W4 flip: the restore compatibility gate resolves the lane from
+            // the persisted pick — the test pins it through the seam.
+            persistedActiveFlavorId = { "vanilla" },
+        ).create(datadir, "manual-pending-${System.currentTimeMillis()}", databaseStopped = true)
         File(datadir, "realm_note.txt").writeText("moved-on")
         assertTrue(crashed.beginRestore(snapshot.id).getBoolean("ok"))
 

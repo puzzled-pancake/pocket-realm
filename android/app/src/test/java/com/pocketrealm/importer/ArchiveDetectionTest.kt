@@ -8,6 +8,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 class ArchiveFormatSnifferTest {
     @Test
@@ -102,7 +105,22 @@ class ArchiveQuickCheckTest {
 }
 
 class ImportExtractionPolicyTest {
-    private val policy = ImportExtractionPolicy()
+    /** W4 flip fixture: the sole-qualified degrade is retired; the
+     * extraction-policy lanes pin the VANILLA lane (holder select). */
+    @Before
+    fun pinTheVanillaLaneForTheFlipExtraction() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlipExtraction() {
+        ActiveFlavor.reset()
+    }
+
+    // W4 flip: getter — the ImportLimits default resolves the active lane
+    // and fields initialize before the @Before pin.
+    private val policy: ImportExtractionPolicy get() = ImportExtractionPolicy()
 
     private fun clientEntries(vararg extra: String): List<ImportExtractionPolicy.RawEntry> {
         val base = mutableListOf(
@@ -183,6 +201,19 @@ class ImportExtractionPolicyTest {
 }
 
 class ArchiveClientScannerTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired;
+     * the scanner lanes pin the VANILLA lane (holder select). */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @get:Rule
     val folder = TemporaryFolder()
 

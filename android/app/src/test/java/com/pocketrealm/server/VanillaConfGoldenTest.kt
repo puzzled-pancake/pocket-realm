@@ -12,6 +12,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * G3-7: the vanilla lane's generated conf bytes are frozen. Every surface the
@@ -40,6 +43,19 @@ import java.io.File
  * after a vanilla boot) run in the device lane and are deferred here.
  */
 class VanillaConfGoldenTest {
+    /** W4 flip fixture: the golden conf resolves the ACTIVE lane's
+     * stage through the holder — pin the VANILLA lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     private fun fixture(name: String): ByteArray =
         javaClass.getResourceAsStream("/fixtures/g3/conf/$name")!!.readBytes()
@@ -126,7 +142,7 @@ class VanillaConfGoldenTest {
     @Test fun `per profile aiplayerbot conf body matches the golden bytes`() {
         assertGolden(
             "aiplayerbot-mobile-low-b1-25-v1.conf",
-            BotProfiles.LOW_25.playerbotConfig().toByteArray(),
+            BotProfiles.LOW_25.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA).toByteArray(),
         )
     }
 

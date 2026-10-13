@@ -58,6 +58,25 @@ class FirstRunTutorialTest {
         // wording has no desktop leg).
         assertTrue("WoW.exe" in FIRST_RUN_TUTORIAL_STEPS[1].body)
         assertTrue("build 5875" in FIRST_RUN_TUTORIAL_STEPS[1].body)
+        // R6-3 (W4 code-red round 3): the requirement body is derived from
+        // the registry's qualified set — every qualified flavor's version
+        // and build must be named, and the vanilla MPQ list must not be
+        // presented as the generic requirement.
+        val qualified = com.pocketrealm.client.ClientFlavors.qualified()
+        assertEquals(3, qualified.size)
+        for (flavor in qualified) {
+            val version = flavor.versionResource.substringBeforeLast(".")
+            assertTrue(
+                "the requirement body must name the qualified " +
+                    "${flavor.flavorId} build: $version / ${flavor.build}",
+                version in FIRST_RUN_TUTORIAL_STEPS[1].body &&
+                    "build ${flavor.build}" in FIRST_RUN_TUTORIAL_STEPS[1].body,
+            )
+        }
+        assertFalse(
+            "the vanilla MPQ enumeration must not be the generic requirement",
+            "terrain, texture, wmo" in FIRST_RUN_TUTORIAL_STEPS[1].body,
+        )
         assertTrue("world data" in FIRST_RUN_TUTORIAL_STEPS[2].title.lowercase())
         assertTrue("account" in FIRST_RUN_TUTORIAL_STEPS[3].body.lowercase())
     }

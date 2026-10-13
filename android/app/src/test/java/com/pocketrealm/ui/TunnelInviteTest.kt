@@ -6,6 +6,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * Design-tunnel §6/§4.4.3/§5: the tunnel lane's pure contract — the invite
@@ -16,6 +19,20 @@ import org.junit.Test
  * same invite/grammar contract the desktop run built for the Android port.
  */
 class TunnelInviteTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @Test
     fun inviteCarriesTheAdvertisedAddressAndTheBuildPin() {
         val invite = TunnelInvite.inviteText(

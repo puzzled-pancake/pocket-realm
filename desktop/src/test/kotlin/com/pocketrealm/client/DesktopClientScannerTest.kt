@@ -78,6 +78,86 @@ class DesktopClientScannerTest {
     }
 
     @Test
+    fun oversizedWowExeRefusesWithTheVal02SizeCopy() {
+        // R6-7 (W4 code-red round 3): the charter's negative-matrix
+        // "oversized -> VAL codes" leg — a WoW.exe whose size exceeds the
+        // 32 MiB fast-scan cap must refuse with the exact VAL-02 size
+        // copy, on the size check alone (the synthetic PE bytes are
+        // valid; the refusal is the declared entry size).
+        val root = materializeClient(folder.newFolder("client"))
+        val exe = File(root, "WoW.exe")
+        val valid = exe.readBytes()
+        exe.writeBytes(valid + ByteArray(33 * 1024 * 1024))
+        val scan = scanner.scan(root)
+        assertFalse(scan.supported)
+        assertTrue(
+            "must carry the exact VAL-02 size copy: \${scan.failures}",
+            scan.failures.any {
+                it == "VAL-02: selected executable exceeds fast-scan limit"
+            },
+        )
+    }
+
+    fun genuineTbcTreeWithLocaleMpqsScansSupported() {
+        // W4 (the locale-MPQ defect the tbc E2E surfaced): a genuine tbc
+        // tree stages its locale MPQs in Data/enUS/ — the scanner's
+        // bounded-depth walk + basename match must accept it, and a tree
+        // missing a locale MPQ must still refuse naming the slashed key.
+        val root = materializeClient(folder.newFolder("tbc-client"), build = 8606)
+        val exe = File(root, "WoW.exe")
+        exe.writeBytes(
+            com.pocketrealm.importer.SyntheticClientArchives.syntheticPe(
+                build = 8606, versionMajor = 2, versionMinor = 4, versionRev = 3,
+            ),
+        )
+        val locale = File(root, "Data/enUS").apply { mkdirs() }
+        val localeNames = listOf(
+            "locale-enus", "speech-enus", "expansion-locale-enus",
+            "expansion-speech-enus", "patch-enus", "patch-enus-2",
+        )
+        for (name in localeNames) {
+            val source = File(root, "Data/$name.mpq")
+            if (source.isFile) {
+                source.renameTo(File(locale, "$name.MPQ"))
+            } else {
+                File(locale, "$name.MPQ").writeBytes(
+                    com.pocketrealm.importer.SyntheticClientArchives.mpqStub("$name.MPQ"),
+                )
+            }
+        }
+        val scan = scanner.scan(root)
+        assertTrue(
+            "a genuine tbc tree with locale MPQs must scan supported: " +
+                "\${scan.failures}",
+            scan.supported,
+        )
+        assertEquals("tbc", scan.clientId)
+
+        // the negative leg: drop one locale MPQ -> VAL-04 names it
+        File(locale, "expansion-locale-enus.MPQ").delete()
+        val refused = scanner.scan(root)
+        assertFalse(refused.supported)
+        assertTrue(
+            "the refusal names the slashed registry key: \${refused.failures}",
+            refused.failures.any { "enus/expansion-locale-enus.mpq" in it },
+        )
+        // R2-R4-2: a PATH-DOCTORED set (the required locale MPQs under
+        // Data/decoy/, no Data/enUS/) must refuse - the genuine client
+        // loads MPQs from Data\enUS\ only, so the accepted generation
+        // could not boot its data.
+        val decoy = File(root, "Data/decoy").apply { mkdirs() }
+        for (name in localeNames) {
+            val moved = File(locale, "$name.MPQ")
+            if (moved.isFile) moved.renameTo(File(decoy, "$name.MPQ"))
+        }
+        val pathDoctored = scanner.scan(root)
+        assertFalse(
+            "a path-doctored MPQ set must refuse: ${pathDoctored.failures}",
+            pathDoctored.supported,
+        )
+    }
+
+    @Test
     fun nonPeWowExeRefusesWithVal02() {
         val root = materializeClient(folder.newFolder("client"))
         // Replace the synthetic PE with junk: the parse must refuse, naming VAL-02.

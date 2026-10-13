@@ -25,17 +25,29 @@ internal object ServerStatusJson {
     private const val INDEX_ACTIVE_SESSIONS = 7
     private const val DETAIL_MAX_CHARS = 512
 
-    fun realm(values: LongArray, detail: String, listenAddress: String = "127.0.0.1"): JSONObject {
+    fun realm(
+        values: LongArray,
+        detail: String,
+        listenAddress: String = "127.0.0.1",
+        runtimeBuildId: String? = null,
+        nativeCmangosCommit: String? = null,
+    ): JSONObject {
         require(values.size == REALM_STATUS_WIDTH && values[0] == ServerRuntimeContract.ABI_VERSION)
-        return base("realm", values, detail)
+        return base("realm", values, detail, runtimeBuildId, nativeCmangosCommit)
             .put("heartbeatCount", values[INDEX_HEARTBEAT_COUNT])
             .put("listenAddress", listenAddress)
             .put("listenPort", ServerRuntimeContract.REALM_PORT)
     }
 
-    fun world(values: LongArray, detail: String, listenAddress: String = "127.0.0.1"): JSONObject {
+    fun world(
+        values: LongArray,
+        detail: String,
+        listenAddress: String = "127.0.0.1",
+        runtimeBuildId: String? = null,
+        nativeCmangosCommit: String? = null,
+    ): JSONObject {
         require(values.size == WORLD_STATUS_WIDTH && values[0] == ServerRuntimeContract.ABI_VERSION)
-        return base("world", values, detail)
+        return base("world", values, detail, runtimeBuildId, nativeCmangosCommit)
             .put("tickCount", values[INDEX_TICK_COUNT])
             .put("lastTickMs", values[INDEX_LAST_TICK_MS])
             .put("maxTickMs", values[INDEX_MAX_TICK_MS])
@@ -53,7 +65,13 @@ internal object ServerStatusJson {
         .put("nativeCmangosCommit", ServerRuntimeContract.NATIVE_CMANGOS_COMMIT)
         .put("nativePlayerbotsCommit", ServerRuntimeContract.NATIVE_PLAYERBOTS_COMMIT)
 
-    private fun base(component: String, values: LongArray, detail: String) = JSONObject()
+    private fun base(
+        component: String,
+        values: LongArray,
+        detail: String,
+        runtimeBuildId: String? = null,
+        nativeCmangosCommit: String? = null,
+    ) = JSONObject()
         .put("schema", ServerRuntimeContract.CONTROL_SCHEMA).put("ok", true)
         .put("component", component).put("abiVersion", values[0])
         .put("state", ServerRuntimeContract.stateName(values[INDEX_STATE]))
@@ -62,7 +80,7 @@ internal object ServerStatusJson {
         .put("errorCode", values[INDEX_ERROR])
         .put("heartbeatMs", values[INDEX_HEARTBEAT_MS])
         .put("detail", detail.take(DETAIL_MAX_CHARS)).put("pid", ProcessHandle.current().pid())
-        .put("runtimeBuildId", ServerRuntimeContract.RUNTIME_BUILD_ID)
-        .put("nativeCmangosCommit", ServerRuntimeContract.NATIVE_CMANGOS_COMMIT)
+        .put("runtimeBuildId", runtimeBuildId ?: ServerRuntimeContract.RUNTIME_BUILD_ID)
+        .put("nativeCmangosCommit", nativeCmangosCommit ?: ServerRuntimeContract.NATIVE_CMANGOS_COMMIT)
         .put("nativePlayerbotsCommit", ServerRuntimeContract.NATIVE_PLAYERBOTS_COMMIT)
 }

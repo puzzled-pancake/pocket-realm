@@ -326,15 +326,23 @@ fun HomeScreen(
             // answerable next to the realm status, without opening Settings.
             timeframeLine = remember(settings) {
                 // Round-5 R5-2: the ActiveFlavor machine, never a silent
-                // VANILLA fallback at the W4 multi-qualified flip.
-                val flavor = com.pocketrealm.client.ActiveFlavor.resolve(
-                    "the home timeframe line resolves the active lane")
-                val stageId = com.pocketrealm.client.TimeframeStages
-                    .resolveStored(settings.timeframeStage)
-                    .ifEmpty { com.pocketrealm.client.TimeframeStages.defaultStageId(flavor.flavorId) }
-                "World timeframe: " + requireNotNull(
-                    com.pocketrealm.client.TimeframeStages.byId(flavor.flavorId, stageId),
-                ) { "resolved stage $stageId must be registered" }.title
+                // VANILLA fallback at the W4 multi-qualified flip. W4 flip:
+                // with several qualified flavors and no pick yet the
+                // resolver refuses loud — a render-time lane must not crash
+                // composition, so the unresolved state renders the honest
+                // first-pick copy instead (the flavor cards above own the
+                // pick; every OPERATION gate keeps the loud refusal).
+                val flavorId = com.pocketrealm.client.ActiveFlavor.displayedId
+                if (flavorId == null) {
+                    "World timeframe: pick a game flavor above"
+                } else {
+                    val stageId = com.pocketrealm.client.TimeframeStages
+                        .resolveStored(settings.timeframeStage)
+                        .ifEmpty { com.pocketrealm.client.TimeframeStages.defaultStageId(flavorId) }
+                    "World timeframe: " + requireNotNull(
+                        com.pocketrealm.client.TimeframeStages.byId(flavorId, stageId),
+                    ) { "resolved stage $stageId must be registered" }.title
+                }
             },
         )
         // Design-tunnel §4.1/§6/§9.4: the host-over-the-internet card —

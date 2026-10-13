@@ -4,6 +4,7 @@ import com.pocketrealm.database.DatabaseRuntimeContract.WINDOWS_PROVIDER_ID
 import com.pocketrealm.fs.FileDigests
 import java.io.File
 import org.json.JSONArray
+import com.pocketrealm.database.DatabaseDurableState
 import org.json.JSONObject
 
 /**
@@ -67,6 +68,10 @@ internal class DesktopMariaDbProvider(
         val bootstrapSha256: String,
         val migrationManifestSha256: String,
         val migrationCount: Int,
+        /** W4 (R3-1): reads the LANE's digest-verified migration manifest —
+         * production verify() injects the digest gate against the lane
+         * lockfile document. */
+        val laneMigrationReader: (String) -> Pair<JSONObject, DatabaseDurableState.Identity>,
     ) {
         /** The durable identity the seals and transactions record. */
         fun identity(): DatabaseDurableState.Identity = DatabaseDurableState.Identity(
@@ -80,6 +85,30 @@ internal class DesktopMariaDbProvider(
         /** A migration entry's staged .sqlz file (the Android asset path's
          * staging twin: migrations/<migration_id>.sqlz). */
         fun migrationAsset(migrationId: String): File = File(root, "$MIGRATIONS_DIR/$migrationId.sqlz")
+
+        /**
+         * W4 (D72 retirement, owner ruling 2026-10-12): the FLAVOR-RATION of
+         * the pinned migration set. The vanilla files keep their historical
+         * names byte-for-byte (`migration-manifest.json`, `migrations/` —
+         * the verified closure this class has always read); tbc/wotlk stage
+         * SIBLING files (`migration-manifest-<flavor>.json`,
+         * `migrations-<flavor>/<migrationId>.sqlz`) beside them, written by
+         * tools/stage_mariadb_flavor_migrations.py from the per-flavor
+         * staged roots, hash-bound to schemas/database-migrations-<flavor>.json.
+         * A lane whose files are absent refuses HERE naming the staging
+         * remedy — never a silent vanilla-ledger reuse (that substitution
+         * is exactly the cross-flavor lie the per-flavor ledger naming
+         * exists to prevent).
+         */
+        fun migrationManifestFor(flavorId: String): JSONObject {
+            if (flavorId == "vanilla") return migrationManifest
+            return laneMigrationReader(flavorId).first
+        }
+
+        fun migrationAssetFor(flavorId: String, migrationId: String): File {
+            if (flavorId == "vanilla") return migrationAsset(migrationId)
+            return File(root, "$MIGRATIONS_DIR-$flavorId/$migrationId.sqlz")
+        }
     }
 
     class ProviderNotStaged(message: String) : IllegalStateException(message)
@@ -165,6 +194,9 @@ internal class DesktopMariaDbProvider(
             bootstrapSha256 = bootstrapSha256,
             migrationManifestSha256 = migrationManifestSha256,
             migrationCount = migrationManifest.getJSONArray("entries").length(),
+            laneMigrationReader = { lane ->
+                laneMigrationManifest(root, FileDigests.sha256(manifestText), bootstrapSha256, lane)
+            },
         )
     }
 
@@ -203,6 +235,88 @@ internal class DesktopMariaDbProvider(
             "DB-LINK: $which staged bytes disagree with the committed lockfile pin"
         }
         return file
+    }
+
+    /**
+     * W4 (R3-1): the LANE-scoped provider document
+     * (schemas/database-provider-lockfile-win-<flavor>.json), resolved with
+     * the same repo-walk/bundle discipline as [readLockfile] and checked to
+     * name its own flavor. The vanilla shared document never satisfies this.
+     */
+    private fun readLaneLockfile(flavorId: String): JSONObject {
+        val lanePath = "schemas/database-provider-lockfile-win-$flavorId.json"
+        val lockfile = repoRootOverride?.let { File(it, lanePath) }
+            ?: candidateRepoRoots().map { File(it, lanePath) }.firstOrNull { it.isFile }
+            ?: throw ProviderNotStaged(
+                "DB-LINK: the $flavorId lane provider lockfile is missing (expected " +
+                    lanePath + " in the checkout)",
+            )
+        return runCatching { JSONObject(lockfile.readText(Charsets.UTF_8)) }.getOrElse {
+            throw ProviderNotStaged("DB-LINK: the lane provider lockfile is not parseable JSON")
+        }.also { record ->
+            check(record.optString("lane_migrations", "").isNotEmpty() ||
+                record.has("lane_migrations")) {
+                "DB-LINK: the $flavorId lane lockfile carries no lane_migrations pin"
+            }
+            check(record.optString("lane_migrations", "") != "" ||
+                record.optJSONObject("lane_migrations") != null) {
+                "DB-LINK: the $flavorId lane lockfile lane_migrations pin is not an object"
+            }
+        }
+    }
+
+    /**
+     * W4 (R3-1/R3-2, code-red round 1): the LANE's migration manifest,
+     * digest-verified against the lane lockfile document's
+     * `lane_migrations.manifest_sha256` pin
+     * (schemas/database-provider-lockfile-win-<flavor>.json — the same
+     * resolution readLockfile uses for the shared document), returned
+     * as (manifest, laneIdentity) where the identity carries the LANE
+     * manifest's digest + count so the seal/marker/currency gate binds
+     * the lane's own ledger (the shared/vanilla identity would make a
+     * re-staged lane ledger invisible to migrationsCurrent). A drifted
+     * or re-keyed sibling manifest refuses here — never silently
+     * applies.
+     */
+    fun laneMigrationManifest(
+        root: File,
+        runtimeManifestSha256: String,
+        bootstrapSha256: String,
+        flavorId: String,
+    ): Pair<JSONObject, DatabaseDurableState.Identity> {
+        val file = File(root, "migration-manifest-$flavorId.json")
+        checkFile(file)
+        val text = file.readText(Charsets.UTF_8)
+        val manifest = runCatching { JSONObject(text) }.getOrElse {
+        throw ProviderNotStaged(
+            "DB-LINK: staged migration-manifest-$flavorId.json is not parseable JSON")
+        }
+        check(manifest.getJSONArray("entries").length() >= 0) {
+        "DB-LINK: staged $flavorId migration manifest carries no entries array"
+        }
+        val laneLockfile = readLaneLockfile(flavorId)
+        val pinned = laneLockfile.optJSONObject("lane_migrations")
+        ?: throw ProviderNotStaged(
+            "DB-LINK: the $flavorId lane lockfile carries no lane_migrations pin")
+        val digest = FileDigests.sha256(text)
+        check(digest == pinned.optString("manifest_sha256")) {
+        "DB-LINK: staged $flavorId migration manifest does not match the " +
+            "lane lockfile pin (staged $digest != pinned " +
+            "${pinned.optString("manifest_sha256")}) — re-stage with " +
+            "tools/stage_mariadb_flavor_migrations.py --flavor $flavorId"
+        }
+        // the LANE identity: the shared closure fields (bootstrap/provider)
+        // plus the LANE manifest's own digest + count — so the seal, marker,
+        // and migrationsCurrent bind the lane's ledger, never the vanilla
+        // 414-entry identity (R3-2).
+        val identity = DatabaseDurableState.Identity(
+            providerId = WINDOWS_PROVIDER_ID,
+            providerClosureSha256 = runtimeManifestSha256,
+            bootstrapSha256 = bootstrapSha256,
+            migrationManifestSha256 = digest,
+            migrationCount = manifest.getJSONArray("entries").length(),
+        )
+        return manifest to identity
     }
 
     private fun readLockfile(): JSONObject {

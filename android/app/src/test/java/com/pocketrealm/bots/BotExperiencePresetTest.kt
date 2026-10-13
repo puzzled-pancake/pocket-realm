@@ -6,8 +6,24 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 class BotExperiencePresetTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests pin the VANILLA lane (holder select) so resolvers see one lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @Test fun experiencePresetsFormTheCuratedLadderPeakingAtSixHundred() {
         assertEquals(
             listOf(80, 160, 240, 320, 400, 500, 600),
@@ -71,7 +87,7 @@ class BotExperiencePresetTest {
             assertTrue(preset.initialTarget in preset.minimumOnline..preset.selectedTarget)
             // All presets keep human-adjacent bots fast (locality priority).
             assertTrue(preset.forceActiveWhenNearPlayer)
-            val config = preset.playerbotConfig()
+            val config = preset.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
             assertTrue(config.contains("AiPlayerbot.MaxRandomBots = ${preset.maximumOnline}"))
             assertTrue(config.contains("AiPlayerbot.RandomBotAccountCount = ${preset.accountCount}"))
             assertTrue(config.contains("AiPlayerbot.CommandServerPort = 0"))
@@ -155,7 +171,8 @@ class BotExperiencePresetTest {
             BotPresetIdentities.mint("a".repeat(32), 1, configuration), "725 experiment",
         )
         assertEquals(725, profile.selectedTarget)
-        assertTrue(profile.playerbotConfig().contains("AiPlayerbot.MaxRandomBots = 725"))
+        assertTrue(profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
+            .contains("AiPlayerbot.MaxRandomBots = 725"))
     }
 
     @Test fun customPopulationRejectsInvalidShapesAndOverflow() {

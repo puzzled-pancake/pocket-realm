@@ -69,7 +69,10 @@ class DesktopSupportBundle(
             .put("redaction", "structured-plus-regex-v1")
             .put("appVersion", APP_VERSION)
             .put("flavorId", ServerRuntimeFiles.serverFlavor().flavorId)
-            .put("nativeRuntimeBuildId", BuildConfig.NATIVE_RUNTIME_BUILD_ID)
+            .put(
+                "nativeRuntimeBuildId",
+                BuildConfig.nativeRuntimeBuildIdFor(
+                    ServerRuntimeFiles.serverFlavor().flavorId))
             .put(
                 "topology",
                 org.json.JSONObject()

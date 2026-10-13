@@ -13,6 +13,7 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
+import org.junit.After
 
 /**
  * R2 adversarial breaker (android-core round 1): the wrong-flavor manifest
@@ -26,6 +27,20 @@ import java.security.MessageDigest
  * reader refuse it.
  */
 class R2WrongFlavorManifestMatrixTest {
+    /** W4 flip fixture: the bare-root fallback and the wrong-flavor
+     * refusal resolve the ACTIVE lane through the holder — pin the
+     * VANILLA lane so both legs see one lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     @Before
     fun resetFlavorMachine() {

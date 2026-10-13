@@ -62,22 +62,31 @@ class ImportWorkerService : Service() {
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:o11-import")
             .apply { acquire(8L * 60L * 60L * 1000L) }
         task = scope.launch {
-            val importer = if (testProfile) ManagedClientImporter(
-                applicationContext,
-                ImportLimits(minFiles = 3, minTotalBytes = 1, maxFiles = 128, maxTotalBytes = 64L shl 20),
-                storagePlanner = ImportStoragePlanner(
-                    applicationContext, extractedEstimate = 0, wineEstimate = 0,
-                    minimumReserve = 16L shl 20,
-                ),
-                prepareData = false,
-            ) else ManagedClientImporter(
-                applicationContext,
-                // The database-only ARM lane verifies and publishes the
-                // managed client but defers memory-heavy extraction to a
-                // later full runtime APK. Full lanes retain the production
-                // preparation contract.
-                prepareData = BuildConfig.ENABLE_CLIENT_DATA_PREPARATION,
-            )
+            // W4 flip (R4-1): construction resolves the ACTIVE lane — a
+            // multi-qualified no-pick refusal lands in the notification.
+            // R4-r3-1 (code-red round 3): the refusal is a designed
+            // first-run outcome, so it must run the SAME teardown as a
+            // finished run — the wake lock is already held and the
+            // foreground state is set; a bare return@launch leaked one 8h
+            // PARTIAL_WAKE_LOCK per attempt and kept the foreground
+            // service up.
+            val importer = try {
+                buildImporter(testProfile)
+            } catch (lane: IllegalStateException) {
+                getSystemService(NotificationManager::class.java).notify(
+                    NOTIFICATION_ID,
+                    notification(
+                        "Pick a game flavor on Home first — the import follows " +
+                            "that lane (${lane.message ?: "no active lane"})",
+                    ),
+                )
+                ImportProcessMetricsSampler.markStopped(applicationContext)
+                wakeLock?.let { if (it.isHeld) it.release() }
+                wakeLock = null
+                ServiceCompat.stopForeground(this@ImportWorkerService, ServiceCompat.STOP_FOREGROUND_DETACH)
+                stopSelf(startId)
+                return@launch
+            }
             try {
                 importer.run(
                     Uri.parse(rawUri),
@@ -139,18 +148,27 @@ class ImportWorkerService : Service() {
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:o11-import")
             .apply { acquire(8L * 60L * 60L * 1000L) }
         task = scope.launch {
-            val importer = if (testProfile) ManagedClientImporter(
-                applicationContext,
-                ImportLimits(minFiles = 3, minTotalBytes = 1, maxFiles = 128, maxTotalBytes = 64L shl 20),
-                storagePlanner = ImportStoragePlanner(
-                    applicationContext, extractedEstimate = 0, wineEstimate = 0,
-                    minimumReserve = 16L shl 20,
-                ),
-                prepareData = false,
-            ) else ManagedClientImporter(
-                applicationContext,
-                prepareData = BuildConfig.ENABLE_CLIENT_DATA_PREPARATION,
-            )
+            // W4 flip (R4-1): see the folder arm's lane refusal note.
+            val importer = try {
+                buildImporter(testProfile)
+            } catch (lane: IllegalStateException) {
+                getSystemService(NotificationManager::class.java).notify(
+                    NOTIFICATION_ID,
+                    notification(
+                        "Pick a game flavor on Home first — the import follows " +
+                            "that lane (${lane.message ?: "no active lane"})",
+                    ),
+                )
+                // R4-r3-1: same teardown as the folder arm's refusal — the
+                // held wake lock and the foreground state are not the next
+                // try/finally's to clean up (that block is never reached).
+                ImportProcessMetricsSampler.markStopped(applicationContext)
+                wakeLock?.let { if (it.isHeld) it.release() }
+                wakeLock = null
+                ServiceCompat.stopForeground(this@ImportWorkerService, ServiceCompat.STOP_FOREGROUND_DETACH)
+                stopSelf(startId)
+                return@launch
+            }
             try {
                 importer.runArchive(
                     Uri.parse(rawUri),
@@ -221,6 +239,25 @@ class ImportWorkerService : Service() {
      * last copied MPQ for the entire (many-minute) server-data phase. Prefer
      * the running data stage; fall back to the copy-phase file counter.
      */
+    /** W4 flip (R4-1): the importer construction resolves the ACTIVE lane
+     * through the storage planner's flavor budgets — extracted so both
+     * launch arms share one construction and the multi-qualified no-pick
+     * refusal surfaces as the service's honest notification instead of a
+     * process crash. */
+    private fun buildImporter(testProfile: Boolean): ManagedClientImporter =
+        if (testProfile) ManagedClientImporter(
+            applicationContext,
+            ImportLimits(minFiles = 3, minTotalBytes = 1, maxFiles = 128, maxTotalBytes = 64L shl 20),
+            storagePlanner = ImportStoragePlanner(
+                applicationContext, extractedEstimate = 0, wineEstimate = 0,
+                minimumReserve = 16L shl 20,
+            ),
+            prepareData = false,
+        ) else ManagedClientImporter(
+            applicationContext,
+            prepareData = BuildConfig.ENABLE_CLIENT_DATA_PREPARATION,
+        )
+
     private fun updateNotification(importer: ManagedClientImporter, failureMessage: String? = null) {
         val status = importer.status()
         val active = importer.dataCheckpoints(status.importId)

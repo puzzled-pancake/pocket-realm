@@ -23,6 +23,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.junit.After
+import org.junit.Before
 
 /**
  * DESK-12/22/41/59/85/96: the desktop in-game settings editor — direct WTF
@@ -32,6 +34,20 @@ import org.junit.rules.TemporaryFolder
  * it degenerates to an in-process mutex).
  */
 class DesktopInGameSettingsEditorTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     @get:Rule
     val folder = TemporaryFolder()
@@ -449,6 +465,11 @@ class DesktopInGameSettingsEditorTest {
     /** A vanilla-shaped client tree built through the VANILLA layout (the
      * carried state the queue was staged against). */
     private fun syntheticClientRootVanillaShape(): File {
+        // W4 flip: the layout routes resolve the ACTIVE flavor — this helper
+        // builds the VANILLA shape, so it pins the vanilla lane itself (the
+        // calling test's finally may have reset the holder).
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
         val root = folder.newFolder("client-vanilla-shape")
         val config = InGameSettingsFiles.configFile(root)
         config.parentFile.mkdirs()

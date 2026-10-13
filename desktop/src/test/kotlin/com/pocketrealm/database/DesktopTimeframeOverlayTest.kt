@@ -11,6 +11,9 @@ import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * Design-timeframe §2/§4.3: the desktop stage-overlay applier — desired vs
@@ -21,6 +24,20 @@ import org.junit.rules.TemporaryFolder
  * pocket_sqlite seam (skips cleanly where it is not staged).
  */
 class DesktopTimeframeOverlayTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @get:Rule
     val folder = TemporaryFolder()
 
@@ -96,9 +113,9 @@ class DesktopTimeframeOverlayTest {
         requireNativeIfDemanded("sqlite seam", seamDll)
         val datadir = folder.newFolder("sqlite-datadir")
         stageWorldDb(datadir)
-        val defaultStage = TimeframeStages.defaultStageId(
-            com.pocketrealm.client.ClientFlavors.qualified().single().flavorId,
-        )
+        // W4 flip: the lane under test is the vanilla lane (the sole-
+        // qualified .single() degrade is retired).
+        val defaultStage = TimeframeStages.defaultStageId("vanilla")
         val applied = DesktopTimeframeOverlay.prepareForStart(datadir, defaultStage)
         assertEquals(defaultStage, applied.appliedStage)
         assertEquals("default-seed", applied.overlaySha256)
@@ -247,9 +264,9 @@ class DesktopTimeframeOverlayTest {
         assertEquals("vanilla-1.5", applied.appliedStage)
         // The DEFAULT stage routes too — the live provider's ledger is
         // MariaDB's pocketrealm_meta, never the retained SQLite file.
-        val defaultStage = TimeframeStages.defaultStageId(
-            com.pocketrealm.client.ClientFlavors.qualified().single().flavorId,
-        )
+        // W4 flip: the lane under test is the vanilla lane (the sole-
+        // qualified .single() degrade is retired).
+        val defaultStage = TimeframeStages.defaultStageId("vanilla")
         DesktopTimeframeOverlay.prepareForStart(datadir, defaultStage, ::leg)
         assertEquals(listOf("vanilla-1.5", defaultStage), staged)
         // The retained SQLite datadir stays untouched by both legs: no

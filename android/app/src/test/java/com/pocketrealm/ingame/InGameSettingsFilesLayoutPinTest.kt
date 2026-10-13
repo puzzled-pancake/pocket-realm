@@ -5,6 +5,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.File
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * G3-10 work item 2: the `WtfLayout` strategy seam is refactor-by-addition —
@@ -15,6 +18,20 @@ import java.io.File
  * strategy.
  */
 class InGameSettingsFilesLayoutPinTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     private val clientRoot = File("M:/clients/wow-1.12.1-5875")
 
     @Test fun `vanilla strategy produces the pinned build-5875 paths`() {

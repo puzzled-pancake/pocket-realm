@@ -120,6 +120,6 @@ Game audio is supported through the Android audio bridge on the ARM64 route. The
 The final Settings card keeps the maintenance screens together.
 
 - **Game files and import** manages the private client copy and server-data preparation.
-- **Show first-run setup guide** replays the tutorial that opens on a fresh install, including the rules for selecting an already-extracted WoW 1.12.1 client folder.
+- **Show first-run setup guide** replays the tutorial that opens on a fresh install, including the rules for selecting an already-extracted client folder for the selected flavor (any of the three qualified builds).
 - **Device capability report** shows hardware and process details used during device testing.
 - **Diagnostics and logs** provides backups, restore, storage checks, support bundles, and recent logs.

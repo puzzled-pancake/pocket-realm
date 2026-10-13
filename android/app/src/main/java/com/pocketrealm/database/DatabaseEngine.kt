@@ -548,19 +548,43 @@ internal class DatabaseEngine(private val context: Context) {
      * initial-auth bootstrap resolve through THIS one law, so the projection
      * row and the CREATE DATABASE literals can never disagree.
      */
+    /** The bootstrap lane suffix naming this resolver's fail-loud law. */
+    private val dbBootstrapLane =
+        "the MariaDB bootstrap seeds the persisted lane's databases"
+
     private fun bootstrapDatabaseNames(): ClientFlavor.DatabaseNames {
-        val qualified = ClientFlavors.qualified()
-        require(qualified.size == 1) {
-            "expected exactly one qualified flavor, found ${qualified.size} — " +
-                "the MariaDB bootstrap seeds the qualified lane's databases"
-        }
-        val flavor = qualified.single()
-        require(flavor.flavorId == ClientFlavors.VANILLA.flavorId) {
-            "the MariaDB bootstrap resolves only the vanilla lane (the " +
-                "W1.2 per-flavor-seeding deferral); got " + flavor.flavorId
+        // W4 (D72 retirement, owner ruling 2026-10-12): the android twin of
+        // the desktop lane's routing — the lane is the PERSISTED Home
+        // selection (this :database process cannot see the :ui holder, so
+        // the persisted pick is the only cross-process lane source), sole
+        // qualified degrades, an ambiguous post-flip state refuses loud.
+        // The former exactly-one + vanilla-only requirement (the android
+        // W1.2 per-flavor-seeding deferral) is retired with the per-flavor
+        // sqlite seeds (tools/seed_realm_db.py --flavor, S4 item 3) and the
+        // per-flavor ledgers the desktop lane stages.
+        val persisted = kotlinx.coroutines.runBlocking {
+            com.pocketrealm.storage.Settings(context).flow.first()
+        }.selectedFlavorOrNull()
+        val flavor = com.pocketrealm.client.ActiveFlavorState(persisted)
+            .resolve(com.pocketrealm.client.ClientFlavors.qualified(), dbBootstrapLane)
+        // R4-1b (W4 code-red round 4): the ANDROID migration scope is
+        // VANILLA-only until W5 (android/app/build.gradle.kts stages the
+        // single vanilla ledger; there are no android per-flavor ledgers).
+        // Provisioning the persisted lane's tbc*/wotlk* database family
+        // here would strand the datadir — the vanilla-only ledger can
+        // never serve it and re-picking vanilla cannot recover (the
+        // classic* family was never provisioned). Refuse LOUD before any
+        // provisioning, naming the scope and the remedy.
+        check(flavor.flavorId == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
+            "ANDROID-LANE-SCOPE: this device's migration ledger is the " +
+                "vanilla lane's — the ${flavor.flavorId} pick cannot boot " +
+                "the Android server lane (per-flavor Android ledgers are " +
+                "W5 work). Re-pick Vanilla on Home to run the server on " +
+                "this device."
         }
         return MariaDbBootstrap.databaseNames(flavor)
     }
+
 
     /** The realmd database name the MariaDB projection targets — the
      * ServerRuntimeFiles.serverDatabases() gate's twin (the desktop leg's
@@ -3383,7 +3407,13 @@ internal class DatabaseEngine(private val context: Context) {
         private const val TAG = "DatabaseEngine"
         private const val MIN_INITIALIZE_BYTES = 768L * 1024 * 1024
         private const val MIN_START_BYTES = 128L * 1024 * 1024
-        private const val MIN_MIGRATION_BYTES = 1536L * 1024 * 1024
+        // R4-r2-3: the gate is a SNAPSHOT budget — applyPinnedMigrations
+        // takes a full pre-migration datadir snapshot (measured ~1.76 GiB
+        // on the W4 tbc/wotlk lanes) while the live datadir keeps its
+        // bytes, and the post-migration family grows on top. 1.5 GiB sat
+        // BELOW the measured snapshot cost; 3 GiB covers snapshot + live
+        // datadir headroom on the largest qualified lane (wotlk).
+        private const val MIN_MIGRATION_BYTES = 3L * 1024 * 1024 * 1024
         private const val MIN_TRANSLATE_BYTES = 512L * 1024 * 1024
         // The sqlite seed replay: raw transcripts ~119 MiB become ~119 MiB
         // of databases plus a same-order WAL during the single-transaction

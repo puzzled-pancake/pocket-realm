@@ -93,7 +93,13 @@ class FirstRunTutorialTest {
     fun tutorialHasFiveOrderedUsableSteps() {
         assertEquals(5, FIRST_RUN_TUTORIAL_STEPS.size)
         assertEquals("Welcome to Pocket Realm", FIRST_RUN_TUTORIAL_STEPS[0].title)
-        assertEquals("What you need: an extracted WoW 1.12.1 client", FIRST_RUN_TUTORIAL_STEPS[1].title)
+        // R6-2-2: the requirement copy is flavor-neutral — the W4 flip made
+        // tbc/wotlk qualified, so the tutorial no longer names the vanilla
+        // client version as if it were the only lane.
+        assertEquals(
+            "What you need: an extracted WoW client for your flavor",
+            FIRST_RUN_TUTORIAL_STEPS[1].title,
+        )
         assertEquals("How the selection works", FIRST_RUN_TUTORIAL_STEPS[2].title)
         assertEquals("What happens next", FIRST_RUN_TUTORIAL_STEPS[3].title)
         // the optional talking-bots step points at the LLM submenu +
@@ -147,6 +153,29 @@ class FirstRunTutorialTest {
         assertTrue("unpacked on device" in text)
         // …while Windows installers you must run yourself stay refused.
         assertTrue("must not be a windows installer" in text)
+        // R6-3 (W4 code-red round 3): the body is derived from the
+        // registry's qualified set — every qualified flavor's version and
+        // build must be named, and the vanilla MPQ list must not be
+        // presented as the generic requirement (the required set differs
+        // per game version).
+        val qualified = com.pocketrealm.client.ClientFlavors.qualified()
+        assertEquals(3, qualified.size)
+        for (flavor in qualified) {
+            val version = flavor.versionResource.substringBeforeLast(".")
+            assertTrue(
+                "the requirement body must name the qualified " +
+                    "${flavor.flavorId} build: $version / ${flavor.build}",
+                version in text && "build ${flavor.build}" in text,
+            )
+        }
+        assertFalse(
+            "the vanilla MPQ enumeration must not be the generic requirement",
+            "terrain, texture, wmo" in text,
+        )
+        assertTrue(
+            "the body must say the required MPQ set differs per game version",
+            "differs per game version" in text,
+        )
     }
 
     @Test

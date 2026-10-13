@@ -41,6 +41,8 @@ import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.junit.After
+import org.junit.Before
 
 /**
  * The real DesktopRuntimeBackend contract. The database-component legs
@@ -49,6 +51,42 @@ import org.junit.rules.TemporaryFolder
  * them — the live 3724 listener gate is gradlew bootRealmd).
  */
 class DesktopRuntimeBackendTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
+    /** W4 flip: the MARIADB provider + the persisted vanilla lane pick —
+     * the settings stamp the mariadb arm's tests share. */
+    private fun selectMariadbProvider(roots: DesktopStorageRoots) {
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(
+            com.pocketrealm.storage.Settings.Snapshot(
+                databaseProvider = com.pocketrealm.storage.Settings.DatabaseProvider.MARIADB,
+                selectedFlavorId = "vanilla",
+            ).toJson(),
+        )
+    }
+
+    /** W4 flip: persists the VANILLA pick into these roots' settings — the
+     * per-boot lane the backend/engine resolve when a test constructs its
+     * own roots (the fixture pin covers only the holder). */
+    private fun pickVanilla(roots: DesktopStorageRoots) {
+        com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile).save(
+            com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile)
+                .load().copy(selectedFlavorId = "vanilla"),
+        )
+    }
+
     @get:Rule
     val folder = TemporaryFolder()
 
@@ -171,6 +209,10 @@ class DesktopRuntimeBackendTest {
         roots.settingsFile.writeText(
             com.pocketrealm.storage.Settings.Snapshot(
                 databaseProvider = com.pocketrealm.storage.Settings.DatabaseProvider.SQLITE,
+                // W4 flip: the lane selection rides EVERY settings rewrite —
+                // a snapshot without it wipes the persisted pick and the
+                // boot-lane resolver refuses the lane under test.
+                selectedFlavorId = "vanilla",
             ).toJson(),
         )
     }
@@ -288,6 +330,8 @@ class DesktopRuntimeBackendTest {
                 "pocket_forbidden" in sql -> refused("scripted: account administration denied")
                 "required_z9999_not_real" in sql -> ok("0")
                 "information_schema.COLUMNS" in sql -> ok("1")
+                // W4 (D72 retirement): the per-lane provisioning verb.
+                "CREATE DATABASE IF NOT EXISTS" in sql -> ok()
                 "pocket_admin" in sql -> ok()
                 "migration_ledger" in sql -> ok()
                 else -> refused("scripted: unexpected client sql: ${sql.take(80)}")
@@ -327,13 +371,10 @@ class DesktopRuntimeBackendTest {
         // whenever the daemon is not RUNNING (the SQLite lane's honest null,
         // now the MariaDB lane's too).
         val roots = DesktopStorageRoots(folder.newFolder("mariadb-daemon-pid"))
+        
+        pickVanilla(roots)
         roots.ensureDirectories()
-        roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(
-            com.pocketrealm.storage.Settings.Snapshot(
-                databaseProvider = com.pocketrealm.storage.Settings.DatabaseProvider.MARIADB,
-            ).toJson(),
-        )
+        selectMariadbProvider(roots)
         val staging = stageMariaDbProvider(folder.newFolder("repo-root"))
         val processes = ScriptedMariaDbProcesses()
         val engine = com.pocketrealm.database.DesktopMariaDbEngine(
@@ -384,6 +425,8 @@ class DesktopRuntimeBackendTest {
         // default-flip's LEGACY guard first — never a silent fork over the
         // user's legacy state.
         val roots = DesktopStorageRoots(folder.newFolder("mariadb-selected"))
+        
+        pickVanilla(roots)
         roots.ensureDirectories()
         // Seed the SQLITE datadir too: even a fully seeded SQLite lane must
         // NOT be admitted while the MARIADB provider is selected.
@@ -391,12 +434,7 @@ class DesktopRuntimeBackendTest {
             DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, database)
                 .apply { parentFile?.mkdirs(); writeText("seed") }
         }
-        roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(
-            com.pocketrealm.storage.Settings.Snapshot(
-                databaseProvider = com.pocketrealm.storage.Settings.DatabaseProvider.MARIADB,
-            ).toJson(),
-        )
+        selectMariadbProvider(roots)
         val nowhere = DesktopMariaDbProvider(
             stagedRootOverride = folder.newFolder("no-staged-provider"),
         )
@@ -450,13 +488,10 @@ class DesktopRuntimeBackendTest {
         // refusal whose remedies (initialize, recover) both refuse on the
         // clean-sealed candidate the interrupted beginRestore left behind.
         val roots = DesktopStorageRoots(folder.newFolder("mariadb-restore-crash"))
+        
+        pickVanilla(roots)
         roots.ensureDirectories()
-        roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(
-            com.pocketrealm.storage.Settings.Snapshot(
-                databaseProvider = com.pocketrealm.storage.Settings.DatabaseProvider.MARIADB,
-            ).toJson(),
-        )
+        selectMariadbProvider(roots)
         val staging = stageMariaDbProvider(folder.newFolder("repo-root"))
         val processes = ScriptedMariaDbProcesses()
         fun freshEngine() = com.pocketrealm.database.DesktopMariaDbEngine(
@@ -533,13 +568,10 @@ class DesktopRuntimeBackendTest {
         // HERE: the ordinary recover() refuses on that clean seal
         // ("recovery requested for a clean generation") and wedges.
         val roots = DesktopStorageRoots(folder.newFolder("mariadb-restore-recover"))
+        
+        pickVanilla(roots)
         roots.ensureDirectories()
-        roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(
-            com.pocketrealm.storage.Settings.Snapshot(
-                databaseProvider = com.pocketrealm.storage.Settings.DatabaseProvider.MARIADB,
-            ).toJson(),
-        )
+        selectMariadbProvider(roots)
         val staging = stageMariaDbProvider(folder.newFolder("repo-root"))
         val processes = ScriptedMariaDbProcesses()
         fun freshEngine() = com.pocketrealm.database.DesktopMariaDbEngine(
@@ -615,6 +647,8 @@ class DesktopRuntimeBackendTest {
         // shipped default): the selection never touches the engine lane, and
         // a seeded SQLite datadir admits exactly as before.
         val roots = DesktopStorageRoots(folder.newFolder("sqlite-selected"))
+        
+        pickVanilla(roots)
         roots.ensureDirectories()
         selectSqliteProvider(roots)
         DatabaseSqliteControlPlane.DATABASES.forEach { database ->
@@ -643,6 +677,8 @@ class DesktopRuntimeBackendTest {
             DesktopSeedLocator.locate() == null,
         )
         val roots = DesktopStorageRoots(folder.newFolder("empty"))
+        
+        pickVanilla(roots)
         selectSqliteProvider(roots)
         val backend = DesktopRuntimeBackend(roots)
         val result = runBlocking { backend.preflight(spec()) }
@@ -653,6 +689,8 @@ class DesktopRuntimeBackendTest {
     @Test
     fun preflightAcceptsAMatchingRevisionDatadir() {
         val roots = DesktopStorageRoots(folder.newFolder("seeded"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots)
         val backend = DesktopRuntimeBackend(roots)
         val result = runBlocking { backend.preflight(spec()) }
@@ -689,6 +727,8 @@ class DesktopRuntimeBackendTest {
     @Test
     fun proofBootDoesNotProvisionBotPopulation() {
         val roots = DesktopStorageRoots(folder.newFolder("roots-proof-bots"))
+        
+        pickVanilla(roots)
         roots.ensureDirectories()
         // Settings select a real built-in bot profile: the ordinary boot
         // stages aiplayerbot-<id>.conf and a nonzero BotTarget.
@@ -756,6 +796,7 @@ class DesktopRuntimeBackendTest {
     fun resolveClientDirResolvesTheActiveLaneWhenTwoFlavorsQualify() {
         val roots = DesktopStorageRoots(folder.newFolder("two-qualified-clientdir"))
             .also { it.ensureDirectories() }
+            pickVanilla(roots)
         // A vanilla generation imports under today's registry state; the S5
         // flip (TwoQualifiedFlavors) then re-targets the resolution reads.
         val clientRoot = folder.newFolder("client").also { root ->
@@ -811,6 +852,7 @@ class DesktopRuntimeBackendTest {
     fun createNamedBackupResolvesTheActiveLaneWhenTwoFlavorsQualify() {
         val roots = DesktopStorageRoots(folder.newFolder("two-qualified-backup"))
             .also { it.ensureDirectories() }
+            pickVanilla(roots)
         selectSqliteProvider(roots)
         materializeDatadir(roots)
         val backend = DesktopRuntimeBackend(roots)
@@ -867,6 +909,8 @@ class DesktopRuntimeBackendTest {
         // datadir stamps the FIXTURE identity so the override differs in
         // exactly one identity field (the corpus).
         val roots = DesktopStorageRoots(folder.newFolder("seeded"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots, withSeals = false)
         stampSeals(roots, identity = fixtureIdentity())
         val backend = DesktopRuntimeBackend(roots, seedSourceOverride = stageSeedSource("e".repeat(64)))
@@ -880,6 +924,8 @@ class DesktopRuntimeBackendTest {
     @Test
     fun preflightRefusesAProviderClosureChangeWithItsOwnCode() {
         val roots = DesktopStorageRoots(folder.newFolder("seeded"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots, withSeals = false)
         stampSeals(roots, identity = fixtureIdentity())
         // Same corpus, different provider closure (the non-seed fields).
@@ -897,6 +943,8 @@ class DesktopRuntimeBackendTest {
         // A pre-seal desktop datadir (the old seeder's output) is
         // unprovable: DESK-19's pending-maintenance refusal.
         val roots = DesktopStorageRoots(folder.newFolder("legacy"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots, withSeals = false)
         val backend = DesktopRuntimeBackend(roots)
         val result = runBlocking { backend.preflight(spec()) }
@@ -908,6 +956,8 @@ class DesktopRuntimeBackendTest {
     @Test
     fun startDatabaseRefusesATamperedMigrationMarker() {
         val roots = DesktopStorageRoots(folder.newFolder("seeded"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots)
         // Byte-level tamper: valid JSON, wrong bytes (the digest no
         // longer matches the generation marker's record).
@@ -931,6 +981,8 @@ class DesktopRuntimeBackendTest {
     @Test
     fun startDatabaseRefusesADirtyGenerationWithItsCode() {
         val roots = DesktopStorageRoots(folder.newFolder("seeded"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots)
         assertTrue(DesktopSqliteSealMarkers.cleanMarkerFile(roots.sqliteDatadir).delete())
         val backend = DesktopRuntimeBackend(roots)
@@ -951,6 +1003,8 @@ class DesktopRuntimeBackendTest {
         // (that copy is the genuinely pre-seal datadir's, which carries no
         // sealed ledger at all).
         val roots = DesktopStorageRoots(folder.newFolder("seeded"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots)
         assertTrue(DesktopSqliteSealMarkers.generationMarkerFile(roots.sqliteDatadir).delete())
         val backend = DesktopRuntimeBackend(roots)
@@ -970,6 +1024,8 @@ class DesktopRuntimeBackendTest {
         // discipline, and the bootstrapped datadir then starts clean.
         requireNativeIfDemanded("sqlite seam", seamDll)
         val roots = DesktopStorageRoots(folder.newFolder("fresh"))
+        
+        pickVanilla(roots)
         selectSqliteProvider(roots)
         val backend = DesktopRuntimeBackend(roots, seedSourceOverride = syntheticTranscriptSource())
         val preflight = runBlocking { backend.preflight(spec()) }
@@ -1075,6 +1131,8 @@ class DesktopRuntimeBackendTest {
     fun worldStartWithoutPreparedDataFailsWithTheDataMissingPosture() {
         assumeNativesStaged()
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots)
         val backend = DesktopRuntimeBackend(roots)
         try {
@@ -1132,6 +1190,8 @@ class DesktopRuntimeBackendTest {
     fun recoverDatabaseRestoresADirtyDatadirToAtRest() {
         assumeNativesStaged()
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        
+        pickVanilla(roots)
         stageCrashSnapshotDatadir(roots)
         val backend = DesktopRuntimeBackend(roots)
         try {
@@ -1181,6 +1241,8 @@ class DesktopRuntimeBackendTest {
         // reaching the refusal at all proves the ordering).
         assumeNativesStaged()
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots)
         val marker = DesktopSqliteSealMarkers.migrationMarkerFile(roots.sqliteDatadir)
         DesktopSqliteSealMarkers.atomicWriteMarker(
@@ -1201,6 +1263,8 @@ class DesktopRuntimeBackendTest {
     fun recoverDatabaseRefusesWithoutSeeds() {
         assumeNativesStaged()
         val roots = DesktopStorageRoots(folder.newFolder("empty-roots"))
+        
+        pickVanilla(roots)
         selectSqliteProvider(roots)
         val backend = DesktopRuntimeBackend(roots)
         val result = runBlocking { backend.recoverDatabase() }
@@ -1215,6 +1279,8 @@ class DesktopRuntimeBackendTest {
     fun realmStartLaunchesAsynchronouslyAndStopsClean() {
         assumeNativesStaged()
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots) // files exist but carry no schema
         val backend = DesktopRuntimeBackend(roots)
         try {
@@ -1254,6 +1320,8 @@ class DesktopRuntimeBackendTest {
     fun projectRealmEndpointUpdatesTheRealmlistRow() {
         requireNativeIfDemanded("sqlite seam", seamDll)
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        
+        pickVanilla(roots)
         selectSqliteProvider(roots)
         roots.sqliteDatadir.mkdirs()
         // DESK-93: the projected database resolves through the flavor
@@ -1288,6 +1356,8 @@ class DesktopRuntimeBackendTest {
     @Test
     fun startClaimsOwnershipAndEveryObservationEchoesIt() {
         val roots = DesktopStorageRoots(folder.newFolder("seeded"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots)
         val backend = DesktopRuntimeBackend(roots)
         val observation = runBlocking { backend.start(RuntimeComponent.DATABASE, owner, spec()) }
@@ -1307,6 +1377,8 @@ class DesktopRuntimeBackendTest {
     @Test
     fun stopWithForeignOwnerIsWithheld() {
         val roots = DesktopStorageRoots(folder.newFolder("seeded"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots)
         val backend = DesktopRuntimeBackend(roots)
         runBlocking { backend.start(RuntimeComponent.DATABASE, owner, spec()) }
@@ -1325,6 +1397,8 @@ class DesktopRuntimeBackendTest {
     @Test
     fun adoptRefusesEverythingButOwnerlessRunningComponents() {
         val roots = DesktopStorageRoots(folder.newFolder("seeded"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots)
         val backend = DesktopRuntimeBackend(roots)
         runBlocking { backend.start(RuntimeComponent.DATABASE, owner, spec()) }
@@ -1389,8 +1463,10 @@ class DesktopRuntimeBackendTest {
     fun doubleLaunchRefusesWhenAWowExeIsAlreadyUnderTheClientDirectory() {
         val dir = folder.newFolder("client")
         File(dir, "WoW.exe").writeText("placeholder: the guard fires before any launch")
+        val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        pickVanilla(roots)
         val backend = DesktopRuntimeBackend(
-            DesktopStorageRoots(folder.newFolder("roots")),
+            roots,
             clientDir = dir,
             clientProcessScanner = ClientProcessScanner { listOf(scanRow(dir, 4242)) },
         )
@@ -1462,6 +1538,8 @@ class DesktopRuntimeBackendTest {
     fun projectRealmEndpointAcceptsTheLanAddress() {
         requireNativeIfDemanded("sqlite seam", seamDll)
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        
+        pickVanilla(roots)
         selectSqliteProvider(roots)
         roots.sqliteDatadir.mkdirs()
         val realmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "classicrealmd")
@@ -1495,6 +1573,8 @@ class DesktopRuntimeBackendTest {
     fun lanHostSpecEmitsTheLanBindConf() {
         assumeNativesStaged()
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        
+        pickVanilla(roots)
         materializeDatadir(roots)
         // D1 (design-lan §2.4): the start-time interface re-check runs before
         // the native; the test's purpose is the conf emission + the honest
@@ -1677,6 +1757,8 @@ class DesktopRuntimeBackendTest {
         val dir = folder.newFolder("client")
         stageGatePassingClientDir(dir)
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        
+        pickVanilla(roots)
         val backend = DesktopRuntimeBackend(
             roots,
             clientDir = dir,
@@ -1770,6 +1852,8 @@ class DesktopRuntimeBackendTest {
         val original = "set realmlist 9.9.9.9\r\nset patchlist \"\"\r\n# a user comment\r\n"
         File(dir, "realmlist.wtf").writeText(original)
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        
+        pickVanilla(roots)
         val backend = DesktopRuntimeBackend(
             roots,
             clientDir = dir,
@@ -1834,10 +1918,13 @@ class DesktopRuntimeBackendTest {
         val dir = folder.newFolder("client")
         stageGatePassingClientDir(dir)
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        
+        pickVanilla(roots)
         roots.settingsFile.parentFile?.mkdirs()
         roots.settingsFile.writeText(
             com.pocketrealm.storage.Settings.Snapshot(
                 audioMode = com.pocketrealm.storage.Settings.AudioMode.OFF,
+                selectedFlavorId = "vanilla",
             ).toJson(),
         )
         val muteCalls = mutableListOf<Pair<Int, Boolean>>()
@@ -1967,6 +2054,8 @@ class DesktopRuntimeBackendTest {
     @Test
     fun launchProfileResolvesTheAdvancedBranchThroughThePersistedOverride() {
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        
+        pickVanilla(roots)
         roots.ensureDirectories()
         val builtIn = BotProfiles.LOW_CPU_160
         val advanced = com.pocketrealm.bots.BotAdvancedSettings.fromProfile(

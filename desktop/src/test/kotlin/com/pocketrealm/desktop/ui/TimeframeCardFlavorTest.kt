@@ -47,10 +47,13 @@ class TimeframeCardFlavorTest {
     }
 
     @Test
-    fun timeframeCardFlavorResolvesTheSoleQualifiedLaneWithoutASelection() {
-        // Today's registry state (vanilla only): the card keeps resolving
-        // vanilla with no explicit selection — the byte-identical
-        // single-qualified behavior the machine guarantees.
+    fun timeframeCardFlavorResolvesThePersistedPickUnderTheFlip() {
+        // W4 flip: the sole-qualified degrade is retired — the card's
+        // render-time lane resolves through the machine's displayedId
+        // (the holder's selection); the test pins vanilla the way the
+        // Home card's tap persists it.
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
         assertEquals(ClientFlavors.VANILLA, timeframeCardFlavor())
     }
 }

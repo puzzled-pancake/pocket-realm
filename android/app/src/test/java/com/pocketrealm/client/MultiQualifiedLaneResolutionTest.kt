@@ -107,9 +107,16 @@ class MultiQualifiedLaneResolutionTest {
     fun persistedPickLanesRefuseADeclaredButUnqualifiedPick() {
         TwoQualifiedFlavors.install()
         for (site in persistedPickLanes) {
+            // W4 flip: wotlk is QUALIFIED now, so the stale-pick refusal uses
+            // a synthetic unqualified lane (the contract is the pick's own
+            // qualification, not wotlk's registry state).
+            val disabled = ClientFlavors.WOTLK.copy(qualified = false)
             val failure = assertThrows(IllegalStateException::class.java) {
-                ActiveFlavorState(ClientFlavors.WOTLK.flavorId)
-                    .resolve(ActiveFlavor.qualifiedFlavors, site.lane)
+                // the pick is absent from the qualified list entirely (a
+                // stale registry read): the machine refuses the stale pick
+                // by name instead of downgrading.
+                ActiveFlavorState(disabled.flavorId)
+                    .resolve(listOf(ClientFlavors.VANILLA), site.lane)
             }
             assertEquals(
                 "${site.name}: a stale or declared-but-disabled pick never downgrades the lane",
@@ -176,12 +183,21 @@ class MultiQualifiedLaneResolutionTest {
     // ---- the shared honesty laws under the flip ----
 
     @Test
-    fun theFlipNeverTouchesTheProductionRegistryRead() {
+    fun theFlipFixtureIsSeamOnly() {
         TwoQualifiedFlavors.install()
+        // W4 flip: the PRODUCTION registry now qualifies all three lanes
+        // (the real flip, decision D86) — the fixture's two-lane list stays
+        // a test-only seam and never mutates it. The seam's list is still
+        // distinguishable from production's THREE (wotlk absent).
         assertEquals(
-            "ClientFlavors.qualified() stays vanilla-only — the fixture is seam-only",
-            listOf(ClientFlavors.VANILLA),
-            ClientFlavors.qualified(),
+            "the two-lane fixture stays a seam: vanilla+tbc, wotlk absent",
+            listOf(ClientFlavors.VANILLA, TwoQualifiedFlavors.TBC),
+            TwoQualifiedFlavors.lanes,
+        )
+        assertEquals(
+            "the production registry carries all three qualified lanes",
+            setOf("vanilla", "tbc", "wotlk"),
+            ClientFlavors.qualified().map { it.flavorId }.toSet(),
         )
     }
 }

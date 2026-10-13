@@ -181,7 +181,12 @@ class WorldRuntimeService : Service() {
                 settingsSnapshot = settingsSnapshot,
             )
             bootLane = worldLaneFlavor(PreparedDataStore.SERVER_DATA_LANE, settingsSnapshot)
-                applyStageOverlayOrRefuse(settingsSnapshot)
+            // R4-1: the boot-time lane-vs-runtime gate (BEFORE any native
+            // call) — the packaged Android runtime is vanilla-lane only.
+            ServerRuntimeFiles.requireAndroidRuntimeLaneMatches(
+                checkNotNull(bootLane) { "the world boot lane resolved null" },
+            )
+            applyStageOverlayOrRefuse(settingsSnapshot)
             val rc = WorldNative.startNative(config.absolutePath)
             if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             ServerStatusJson.operation("world", "start", rc)

@@ -7,7 +7,7 @@ Pocket Realm is a self-contained Android home for a classic local game world. It
 Pocket Realm brings these parts together:
 
 - A simple Android launcher with Home, Add-ons, Controls, and Settings areas.
-- A managed copy of a user-supplied World of Warcraft 1.12.1 build 5875 client.
+- A managed copy of a user-supplied World of Warcraft client for the selected flavor (Vanilla 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340).
 - A private local realm that normally runs only on the handheld.
 - Local player account creation and optional automatic login.
 - Computer-controlled residents, usually called bots, with several population presets.
@@ -43,5 +43,5 @@ For a full explanation of the combined software, see [Projects and technologies 
 - It is not an official Blizzard product.
 - It does not include the original game client.
 - It is not a public Internet realm service.
-- It does not promise modern World of Warcraft features inside a 1.12.1 client.
+- It does not promise modern World of Warcraft features inside any of the supported classic-era clients (Vanilla 1.12.1, TBC 2.4.3, WotLK 3.3.5a).
 - The experimental LAN option is not the same as the normal offline mode.

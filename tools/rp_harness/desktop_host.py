@@ -58,7 +58,8 @@ class DesktopHost:
                  client_dir: str | None = None, account: str | None = None,
                  password: str | None = None, bots: int = 0,
                  stderr_path: str | Path | None = None,
-                 workdir: str | Path | None = None) -> None:
+                 workdir: str | Path | None = None,
+                 flavor: str | None = None) -> None:
         self.repo = Path(repo_root)
         self.desktop = self.repo / "desktop"
         self.workdir = Path(workdir) if workdir else self.repo / "build" / "rp-desktop"
@@ -78,6 +79,12 @@ class DesktopHost:
             argv.append(f"-PrpPassword={password}")
         if bots > 0:
             argv.append(f"-PrpBots={bots}")
+        # W4 flip: a non-vanilla lane loads its OWN MariaDB win runtime
+        # (gradle -PrpFlavor routes the per-flavor DLL root) and the
+        # engine's per-lane migration state keys off the persisted pick
+        # the driver writes before this boot.
+        if flavor and flavor != "vanilla":
+            argv.append(f"-PrpFlavor={flavor}")
         env = dict(os.environ)
         # Round-5 R5-1 (D50): the child rpHost JVM must resolve the SAME
         # product data root the harness tools do - set the override

@@ -10,8 +10,25 @@ import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.CancellationException
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 class AddonArchiveValidatorTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @Test fun `GitHub URL parser accepts only exact public repository URLs`() {
         assertEquals("owner/repo", GitHubRepoRef.parse("https://github.com/owner/repo.git").slug)
         assertThrows(IllegalArgumentException::class.java) { GitHubRepoRef.parse("http://github.com/owner/repo") }

@@ -13,6 +13,7 @@ import glob
 import json
 import os
 import re
+import sys
 import subprocess
 import time
 import xml.etree.ElementTree as ET
@@ -216,6 +217,65 @@ def test_wave_exit_test_counts_match_the_archived_artifacts():
         )
 
 
+def test_wave_exit_per_class_counts_cite_their_own_counts_artifact():
+    """R6-8 (W4 code-red round 3): per-class focused-suite claims in the
+    W4 exit record ("AuthGateTest 8, ... — w43-desktop-friend-suite.log")
+    are bare-Gradle-tail unverifiable — the D49-12/D83 class again. Every
+    per-class claim must equal the XML-aggregated counts artifact named by
+    the record's evidence section (the writer side is the w43 aggregation
+    into out/completion/w4/w43-*-counts.json). The pin fails on any
+    per-class count whose artifact disagrees, and on a per-class claim
+    with no artifact at all."""
+    import json
+
+    wave_exit = ROOT / "out/completion/w4/WAVE-EXIT.md"
+    if not wave_exit.is_file():
+        return
+    text = wave_exit.read_text(encoding="utf-8")
+    # per-class claims inside the W4.3 section, row-scoped: each bullet
+    # cites its own suite log (w43-<lane>-friend-suite.log) — the claim
+    # must equal the SAME lane's counts artifact, never a sibling lane's
+    # (ProvisioningListenerTest exists on both lanes with different
+    # battery sizes).
+    section = text.split("### W4.3", 1)[-1].split("###", 1)[0]
+    # bullets wrap: the log citation may trail the class list — scope by
+    # paragraph (each W4.3 bullet cites exactly one suite log)
+    lane_for_class = {}
+    current_lane = None
+    for line in section.splitlines():
+        m = re.search(r"w43-(desktop|android)-friend-\w+\.json", line)
+        if m:
+            current_lane = m.group(1)
+        if current_lane is None:
+            continue
+        for class_name, claimed in re.findall(r"([A-Z]\w+Test) (\d+)", line):
+            lane_for_class[(class_name, claimed)] = current_lane
+    if not lane_for_class:
+        return  # no per-class claims this record
+    artifacts = {}
+    for path in sorted((ROOT / "out/completion/w4").glob("w43-*-counts.json")):
+        artifacts[path.name] = json.loads(path.read_text(encoding="utf-8"))
+    assert artifacts, (
+        "the W4.3 rows carry per-class claims but no w43-*-counts.json "
+        "artifact exists — aggregate the focused suites' XML trees (the "
+        "w43 regen) instead of quoting bare logs")
+    for (class_name, claimed), lane in lane_for_class.items():
+        artifact = artifacts.get(f"w43-{lane}-friend-counts.json")
+        assert artifact is not None, (
+            f"the {lane} per-class claim '{class_name} {claimed}' has no "
+            "w43-<lane>-friend-counts.json artifact")
+        holders = [c for c, n in artifact.get("classes", {}).items()
+                   if c == class_name]
+        assert holders, (
+            f"the {lane} artifact holds no {class_name} row for the "
+            f"per-class claim '{class_name} {claimed}'")
+        actual = artifact["classes"][class_name]
+        assert str(actual) == claimed, (
+            f"WAVE-EXIT claims {class_name} {claimed} but "
+            f"w43-{lane}-friend-counts.json says {actual} - sync the "
+            "record to the artifact")
+
+
 def test_timeframe_ui_surfaces_resolve_through_active_flavor():
     """Round-5 R5-2: the world-timeframe card (Android SettingsScreen) and
     the home timeframe line (desktop HomeScreen) must resolve their flavor
@@ -230,7 +290,13 @@ def test_timeframe_ui_surfaces_resolve_through_active_flavor():
         assert "singleOrNull()\n" not in text or "ClientFlavors.qualified().singleOrNull()" not in text, (
             f"{rel}: the silent singleOrNull()?:VANILLA fallback returned"
         )
-        assert "ActiveFlavor.resolve(" in text, (
+        # W4 flip: the RENDER surfaces resolve through the machine's
+        # canonical displayedId (selection, else sole-qualified, else the
+        # first-pick copy) — the operation gates keep the loud resolve().
+        # Either ActiveFlavor form proves the surface never hardcodes a
+        # lane; BOTH fail on the silent fallback above.
+        assert ("ActiveFlavor.resolve(" in text
+                or "ActiveFlavor.displayedId" in text), (
             f"{rel}: the timeframe surface must resolve through ActiveFlavor"
         )
 
@@ -632,6 +698,97 @@ def test_wave_exit_cited_fix_mechanisms_are_index_tracked():
         f"WAVE-EXIT.md cites fix mechanisms that are NOT index-tracked: "
         f"{untracked} — git add them (the convergence commit would drop "
         "the wave's own fix products, R5-r4-2)")
+
+
+def test_w4_exit_record_leak_sweep_quote_matches_the_live_tool():
+    """R6-r6-3/R4-r5-3 (W4 code-red rounds 5-6): the wave record's own copy
+    of the leak-sweep line must resolve against the LIVE tool — the W1-pack
+    pin covers the W1 files only, and the W4 record's copy of the number
+    was left stale ('1538/2205' against a live 1539/2202)."""
+    import re as _re
+    import subprocess
+
+    wave_exit = ROOT / "out/completion/w4/WAVE-EXIT.md"
+    if not wave_exit.is_file():
+        return
+    quoted = _re.findall(
+        r"OK \((\d+) files scanned, (\d+) allowlisted findings\)",
+        wave_exit.read_text(encoding="utf-8", errors="replace"),
+    )
+    if not quoted:
+        return  # the record quotes no leak-sweep line
+    live = subprocess.run(
+        [sys.executable, str(ROOT / "tools/leak_sweep.py")],
+        capture_output=True, text=True, cwd=ROOT,
+    )
+    m = _re.search(
+        r"OK \((\d+) files scanned, (\d+) allowlisted findings\)", live.stdout)
+    assert live.returncode == 0 and m is not None, (
+        f"the live leak_sweep run is not OK: rc={live.returncode}")
+    for files, findings in quoted:
+        assert (files, findings) == m.groups(), (
+            f"WAVE-EXIT quotes leak_sweep 'OK ({files} files scanned, "
+            f"{findings} allowlisted findings)' but the live tool prints "
+            f"'OK ({m.group(1)} files, {m.group(2)} findings)' — refresh the "
+            "record's copy (the D70 rule)")
+
+
+def test_w4_wave_new_sources_and_lockfiles_are_index_tracked():
+    """R6-1/R4-r3-2 (W4 code-red round 3): the convergence commit must not
+    silently drop the wave's own fix products. Three tracked-reference
+    classes are held against `git ls-files --cached`:
+      1. every tools/tests path cited by the W4 exit record (the
+         W1-shaped leg, pointed at this wave's record);
+      2. every schemas/*lockfile*.json present on disk — the committed
+         provider/runtime gates digest-verify against them
+         (DesktopMariaDbProvider.readLaneLockfile, requireLaneRuntimePinned,
+         tests/test_win_lockfile.py), so an untracked one is a gate red at
+         commit;
+      3. every desktop JavaExec mainClass source (the tracked build script
+         registers e.g. com.pocketrealm.desktop.FlavorE2eProbeKt) — an
+         untracked main source ships a build whose task references an
+         absent class.
+    Failed live on W4: all 8 wave products were untracked."""
+    import re
+    import subprocess
+
+    def tracked(rel):
+        return subprocess.run(
+            ["git", "ls-files", "--cached", "--error-unmatch", rel],
+            cwd=ROOT, capture_output=True,
+        ).returncode == 0
+
+    offenders = []
+    wave_exit = ROOT / "out/completion/w4/WAVE-EXIT.md"
+    if wave_exit.is_file():
+        cited = sorted(set(re.findall(
+            r"(?m)(?:tools|tests)/[\w./-]+\.(?:py|kts)\b",
+            wave_exit.read_text(encoding="utf-8", errors="replace"),
+        )))
+        offenders += [
+            f"cited-but-untracked: {rel}" for rel in cited if not tracked(rel)
+        ]
+    for lockfile in sorted((ROOT / "schemas").glob("*lockfile*.json")):
+        rel = lockfile.relative_to(ROOT).as_posix()
+        if not tracked(rel):
+            offenders.append(f"lockfile-untracked: {rel}")
+    gradle = (ROOT / "desktop/build.gradle.kts").read_text(
+        encoding="utf-8", errors="replace")
+    for main_class in sorted(set(re.findall(
+        r'mainClass\.set\("([\w.]+Kt)"\)', gradle,
+    ))):
+        rel = (
+            "desktop/src/main/kotlin/"
+            + main_class.removesuffix("Kt").replace(".", "/")
+            + ".kt"
+        )
+        if not tracked(rel):
+            offenders.append(f"mainClass-untracked: {main_class} -> {rel}")
+    assert not offenders, (
+        "W4 wave products referenced by tracked code are NOT index-tracked: "
+        + "; ".join(offenders) +
+        " — git add them (the convergence commit would drop the wave's own "
+        "fix products; R6-1/R4-r3-2)")
 
 
 def test_counts_artifact_generated_prose_resolves_into_its_own_suite():

@@ -8,6 +8,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * G3-9: snapshot manifests created by the current release keep validating on
@@ -22,6 +25,20 @@ import java.nio.file.Files
  * refused with a `DB-SNAPSHOT:` error naming both flavors.
  */
 class DatabaseSnapshotFlavorShimTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     private val tempRoots = mutableListOf<File>()
 
     private fun tempRoot(prefix: String): File =
@@ -96,7 +113,11 @@ class DatabaseSnapshotFlavorShimTest {
         source.resolve("classic/characters.ibd").apply {
             parentFile.mkdirs(); writeText("character-sentinel")
         }
-        val store = DatabaseSnapshotStore(File(root, "snapshots"), syncDirectory = { })
+        val store = DatabaseSnapshotStore(
+            File(root, "snapshots"),
+            syncDirectory = { },
+            persistedActiveFlavorId = { "vanilla" },
+        )
         val snapshot = store.create(
             source, "flavored", databaseStopped = true,
             compatibility = JSONObject()
@@ -113,20 +134,31 @@ class DatabaseSnapshotFlavorShimTest {
         store.restore(snapshot, File(root, "restored"), databaseStopped = true)
     }
 
-    @Test fun `tbc flavored snapshot refuses the vanilla lane naming both flavors`() {
+    @Test fun `a foreign-flavor snapshot refuses the active lane naming both flavors`() {
+        // W4 flip: tbc is QUALIFIED, so this test's cross-flavor refusal
+        // uses a synthetic unqualified flavor id — the compatibility gate's
+        // law (the snapshot's flavor must equal the ACTIVE lane) is
+        // unchanged; only the registry state that made "tbc" foreign is.
         val root = tempRoot("g3-snap-cross")
         val source = File(root, "source").apply { mkdirs() }
         source.resolve("ibdata1").writeText("canonical-ibdata1")
-        val store = DatabaseSnapshotStore(File(root, "snapshots"), syncDirectory = { })
+        val store = DatabaseSnapshotStore(
+            File(root, "snapshots"),
+            syncDirectory = { },
+            // the gate resolves the lane from the PERSISTED pick (the
+            // cross-process sites' shape) — the test pins it through the
+            // seam, exactly the production wiring threads it.
+            persistedActiveFlavorId = { "vanilla" },
+        )
         val snapshot = store.create(
             source, "cross-flavor", databaseStopped = true,
-            compatibility = JSONObject().put("flavor", ClientFlavors.TBC.flavorId),
+            compatibility = JSONObject().put("flavor", "stranger-things"),
         )
         val failure = assertThrows(IllegalStateException::class.java) {
             store.restore(snapshot, File(root, "restored"), databaseStopped = true)
         }
         assertEquals(
-            "DB-SNAPSHOT: snapshot flavor tbc does not match the active lane vanilla",
+            "DB-SNAPSHOT: snapshot flavor stranger-things does not match the active lane vanilla",
             failure.message,
         )
     }

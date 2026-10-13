@@ -14,6 +14,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.junit.Before
+import org.junit.After
 
 /**
  * DESK-135: the client-selection affordance's UI-less state leg. The
@@ -24,10 +26,24 @@ import org.junit.rules.TemporaryFolder
  * managed generations exist (the switcher half).
  */
 class DesktopClientSelectionStateTest {
+    /** W4 flip fixture: these tests read the SELECTION resolution
+     * (folder/managed/none), not the no-pick refusal - the holder is
+     * pinned to the vanilla lane so resolveClientDir sees one lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
     @get:Rule
     val folder = TemporaryFolder()
 
-    private val limits = ImportLimits(minFiles = 1, minTotalBytes = 0L)
+    private val limits: ImportLimits get() = ImportLimits(minFiles = 1, minTotalBytes = 0L)
 
     /** The lanes under test exercise scan/copy/publish, not the storage budget:
      * a fixed generous allocatable keeps the preflight off the host TEMP

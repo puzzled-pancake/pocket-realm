@@ -273,7 +273,6 @@
     <ID>LargeClass:DatabaseEngine.kt$DatabaseEngine</ID>
     <ID>LargeClass:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor : AutoCloseable</ID>
     <ID>LargeClass:DurableRuntimeSupervisorTest.kt$DurableRuntimeSupervisorTest</ID>
-    <ID>LargeClass:GeneratedBotConfKeyCatalog.kt$GeneratedBotConfKeyCatalog</ID>
     <ID>LargeClass:InputContract.kt$InputContract</ID>
     <ID>LargeClass:InputContractTest.kt$InputContractTest</ID>
     <ID>LargeClass:WineRuntimeStore.kt$WineRuntimeStore</ID>
@@ -757,7 +756,6 @@
     <ID>MagicNumber:ClientScreen.kt$0.95f</ID>
     <ID>MagicNumber:ClientScreen.kt$1.05f</ID>
     <ID>MagicNumber:ClientScreen.kt$1_000</ID>
-    <ID>MagicNumber:ClientScreen.kt$1_000_000_000.0</ID>
     <ID>MagicNumber:ClientScreen.kt$2_000</ID>
     <ID>MagicNumber:ClientTweaks.kt$ClientTweaksConfig$0.5f</ID>
     <ID>MagicNumber:ClientTweaks.kt$ClientTweaksConfig$100f</ID>
@@ -1873,6 +1871,7 @@
     <ID>TooManyFunctions:ImportJournal.kt$ImportJournal : AutoCloseable</ID>
     <ID>TooManyFunctions:ImportProcessMetrics.kt$ImportProcessMetricsSampler</ID>
     <ID>TooManyFunctions:ImportProgressPresentation.kt$com.pocketrealm.importer.ImportProgressPresentation.kt</ID>
+    <ID>TooManyFunctions:ImportWorkerService.kt$ImportWorkerService : Service</ID>
     <ID>TooManyFunctions:InGameSettingsEditor.kt$InGameSettingsEditor</ID>
     <ID>TooManyFunctions:InGameSettingsFiles.kt$InGameSettingsFiles</ID>
     <ID>TooManyFunctions:InnoDataReader.kt$InnoDataReader</ID>
@@ -1930,7 +1929,6 @@
     <ID>UnusedPrivateProperty:StorageRoots.kt$StorageRoots.Companion$private const val TAG = "PR/StorageRoots"</ID>
     <ID>UnusedPrivateProperty:UserVulkanDriverValidator.kt$UserVulkanDriverValidator$val libraryPath = optionalString(icd, "library_path") ?: return IcdOutcome.Rejected("The ICD JSON has no ICD.library_path entry.")</ID>
     <ID>UnusedPrivateProperty:WineRuntimeStore.kt$WineRuntimeStore.Companion$private const val TAG = "WineRuntimeStore"</ID>
-    <ID>UnusedPrivateProperty:WowGameSettingsDeliveryTest.kt$GameSettingsDeliveryPlannerTest$val tbcDefinition = com.pocketrealm.ingame.WowFlavorCatalogs .settingsById(com.pocketrealm.client.ClientFlavors.TBC)</ID>
     <ID>UseCheckOrError:DatabaseEngine.kt$DatabaseEngine$throw IllegalStateException( "DB-ABI: unsupported device ABI list ${Build.SUPPORTED_ABIS.joinToString(",")}", )</ID>
     <ID>UseCheckOrError:DatabaseUserStateBridgeTest.kt$DatabaseUserStateBridgeTest$throw IllegalStateException("$name not found from ${System.getProperty("user.dir")}")</ID>
     <ID>UseCheckOrError:DurableRuntimeSupervisorTest.kt$DurableRuntimeSupervisorTest.FakeBackend$throw IllegalStateException("database is owned by another runtime session")</ID>

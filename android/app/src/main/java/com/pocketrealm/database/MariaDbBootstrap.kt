@@ -146,4 +146,42 @@ object MariaDbBootstrap {
         FLUSH PRIVILEGES;
         """.trimIndent()
     }
+
+    /**
+     * W4 (D72 retirement, owner ruling 2026-10-12): the IDEMPOTENT per-lane
+     * provisioning SQL the engines run before a lane's migration ledger
+     * applies — the four CREATE DATABASE IF NOT EXISTS of [names] plus the
+     * pocket_core grants scoped to exactly those databases. The first
+     * initialize() created only the FIRST lane's family; every further
+     * qualified lane provisions its own here. The same shape/secret guards
+     * as [initialAuthSql] apply (the interpolation point IS the guard).
+     */
+    fun laneProvisionSql(
+        names: ClientFlavor.DatabaseNames,
+    ): String {
+        for ((role, name) in listOf(
+            "realmd" to names.realmd,
+            "characters" to names.characters,
+            "logs" to names.logs,
+            "world" to names.world,
+        )) {
+            require(NAME_REGEX.matches(name)) {
+                "laneProvisionSql: $role database name '$name' is not a plain " +
+                    "identifier (must match ${NAME_PATTERN}) — resolve the " +
+                    "names through databaseNames(), never compose SQL from " +
+                    "unvalidated literals"
+            }
+        }
+        return """
+        CREATE DATABASE IF NOT EXISTS ${names.realmd} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        CREATE DATABASE IF NOT EXISTS ${names.characters} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        CREATE DATABASE IF NOT EXISTS ${names.logs} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        CREATE DATABASE IF NOT EXISTS ${names.world} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,LOCK TABLES,CREATE TEMPORARY TABLES ON ${names.realmd}.* TO 'pocket_core'@'localhost';
+        GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,LOCK TABLES,CREATE TEMPORARY TABLES ON ${names.characters}.* TO 'pocket_core'@'localhost';
+        GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,LOCK TABLES,CREATE TEMPORARY TABLES ON ${names.logs}.* TO 'pocket_core'@'localhost';
+        GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,LOCK TABLES,CREATE TEMPORARY TABLES,EXECUTE,CREATE ROUTINE,ALTER ROUTINE ON ${names.world}.* TO 'pocket_core'@'localhost';
+        FLUSH PRIVILEGES;
+        """.trimIndent()
+    }
 }

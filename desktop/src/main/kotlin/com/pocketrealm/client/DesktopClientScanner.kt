@@ -11,7 +11,7 @@ import java.io.File
  */
 internal const val DESKTOP_VAL01_LAUNCHER_ONLY_SELECTION: String =
     "VAL-01: launcher-only selection; direct WoW.exe is absent — " +
-        "choose the extracted 1.12.1 client folder itself, not the installer/launcher"
+        "choose the extracted client folder itself (Vanilla, TBC, or WotLK), not the installer/launcher"
 
 /**
  * DESK-52/68: the desktop folder-lane twin of SafClientScanner's fast scan —
@@ -29,6 +29,104 @@ internal const val DESKTOP_VAL01_LAUNCHER_ONLY_SELECTION: String =
  * means, and the VAL wording is pinned by the same registry the Android JVM
  * suite pins.
  */
+/** W4: the whole MPQ audit for the desktop folder lane — the locale walk,
+ * the per-form missing check, and the R1-1/R2-5-2 exact-set leg (an
+ * unknown patch-*.mpq on a non-vanilla lane is VAL-04 naming the file;
+ * vanilla keeps its documented tolerance). Extracted from scanAccess for
+ * nesting depth. */
+private fun auditMpqSet(
+    access: DesktopClientScanner.Access,
+    data: DesktopClientScanner.Entry,
+    flavor: ClientFlavor?,
+    failures: MutableList<String>,
+) {
+    val mpqByRelPath = collectMpqTree(access, data)
+    appendMissingMpqFailures(mpqByRelPath, flavor, failures)
+    appendExactSetFailures(mpqByRelPath, flavor, failures)
+    appendMpqHeaderFailures(access, mpqByRelPath, failures)
+}
+
+private const val MPQ_WALK_MAX_DEPTH = 4
+private val MPQ_MAGIC: ByteArray =
+    byteArrayOf(0x4d.toByte(), 0x50.toByte(), 0x51.toByte(), 0x1a.toByte())
+private const val MPQ_MAGIC_LEN = 4
+
+private fun collectMpqTree(
+    access: DesktopClientScanner.Access,
+    data: DesktopClientScanner.Entry,
+): LinkedHashMap<String, DesktopClientScanner.Entry> {
+    val mpqByRelPath = LinkedHashMap<String, DesktopClientScanner.Entry>()
+    fun walkMpqTree(dirId: String, rel: String, depth: Int) {
+        if (depth >= MPQ_WALK_MAX_DEPTH) return
+        for (entry in access.children(dirId)) {
+            val childRel =
+                (if (rel.isEmpty()) entry.name else "$rel/${entry.name}").lowercase()
+            if (entry.directory) walkMpqTree(entry.id, childRel, depth + 1)
+            else if (entry.name.endsWith(".mpq", ignoreCase = true)) {
+                mpqByRelPath.putIfAbsent(childRel, entry)
+            }
+        }
+    }
+    walkMpqTree(data.id, "", 0)
+    return mpqByRelPath
+}
+
+/** R2-R4-2: a slash key must resolve at that path RELATIVE to Data (a
+ * basename-only match accepted a path-doctored Data/decoy/ set with no
+ * Data/enUS/); a bare key by basename. A foreign client (no qualified
+ * flavor matched) already failed VAL-03; never compare the qualified MPQ
+ * union against it. */
+private fun appendMissingMpqFailures(
+    mpqByRelPath: Map<String, DesktopClientScanner.Entry>,
+    flavor: ClientFlavor?,
+    failures: MutableList<String>,
+) {
+    val missing = flavor?.requiredMpqs.orEmpty().filterNot { key ->
+        val lowered = key.lowercase()
+        if ('/' in lowered) mpqByRelPath.containsKey(lowered)
+        else mpqByRelPath.keys.any { it.substringAfterLast('/') == lowered }
+    }
+    if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
+}
+
+/** R1-1/R2-5-2: the tbc/wotlk mpq_set notes promise exact-set semantics
+ * for the patch train — an unknown patch-*.mpq (not in the flavor's own
+ * set) is VAL-04 naming the file, enforced now that both flavors qualify.
+ * Vanilla keeps its documented tolerance (its own mpq_set note: the
+ * official patch train drops unknown patch MPQs freely). */
+private fun appendExactSetFailures(
+    mpqByRelPath: Map<String, DesktopClientScanner.Entry>,
+    flavor: ClientFlavor?,
+    failures: MutableList<String>,
+) {
+    if (flavor == null || flavor.flavorId == ClientFlavors.VANILLA.flavorId) return
+    for ((rel, entry) in mpqByRelPath) {
+        val base = rel.substringAfterLast('/')
+        val known = flavor.requiredMpqs.any {
+            val lowered = it.lowercase()
+            lowered == rel || lowered.substringAfterLast('/') == base
+        }
+        if (!known && base.startsWith("patch-") && base.endsWith(".mpq")) {
+            failures += "VAL-04: unknown patch MPQ not in the exact set: Data/$rel"
+        }
+    }
+}
+
+private fun appendMpqHeaderFailures(
+    access: DesktopClientScanner.Access,
+    mpqByRelPath: Map<String, DesktopClientScanner.Entry>,
+    failures: MutableList<String>,
+) {
+    for (entry in mpqByRelPath.values) {
+        val header = runCatching {
+            access.read(entry.id, MPQ_MAGIC_LEN)
+        }.getOrDefault(ByteArray(0))
+        if (!header.contentEquals(MPQ_MAGIC)) {
+            failures += "VAL-04: invalid MPQ header: Data/${entry.name}"
+        }
+    }
+}
+
 internal class DesktopClientScanner {
 
     data class Result(
@@ -108,19 +206,26 @@ internal class DesktopClientScanner {
         if (data == null) {
             failures += "VAL-04: Data directory is absent"
         } else {
-            val mpqs = access.children(data.id)
-                .filter { !it.directory && it.name.endsWith(".mpq", ignoreCase = true) }
-                .associateBy { it.name.lowercase() }
-            // A foreign client (no qualified flavor matched) already failed
-            // VAL-03; never compare the qualified MPQ union against it.
-            val missing = flavor?.requiredMpqs.orEmpty().filterNot(mpqs::containsKey)
-            if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
-            for ((_, entry) in mpqs) {
-                val header = runCatching { access.read(entry.id, 4) }.getOrDefault(ByteArray(0))
-                if (!header.contentEquals(byteArrayOf(0x4d, 0x50, 0x51, 0x1a))) {
-                    failures += "VAL-04: invalid MPQ header: Data/${entry.name}"
+            // W4 (the locale-MPQ defect the tbc E2E surfaced): genuine
+            // tbc/wotlk trees stage their locale MPQs inside
+            // Data/<locale>/ subdirectories while the registry's required
+            // keys carry the locale-slash path — the direct-children-only
+            // walk refused EVERY genuine later-expansion client with
+            // VAL-04. Walk Data (bounded depth) and match required keys
+            // by lowercase basename.
+            val mpqByRelPath = LinkedHashMap<String, DesktopClientScanner.Entry>()
+            fun walkMpqTree(dirId: String, rel: String, depth: Int) {
+                if (depth >= MPQ_WALK_MAX_DEPTH) return
+                for (entry in access.children(dirId)) {
+                    val childRel =
+                        (if (rel.isEmpty()) entry.name else "$rel/${entry.name}").lowercase()
+                    if (entry.directory) walkMpqTree(entry.id, childRel, depth + 1)
+                    else if (entry.name.endsWith(".mpq", ignoreCase = true)) {
+                        mpqByRelPath.putIfAbsent(childRel, entry)
+                    }
                 }
             }
+            auditMpqSet(access, data, flavor, failures)
             warnings += "VAL-05: FLAT_ENGLISH_LOCALE_INFERRED"
         }
 

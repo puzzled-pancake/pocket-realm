@@ -56,7 +56,7 @@ fun AddonsHubScreen(
     onInstalled: () -> Unit,
     onBrowse: () -> Unit,
     onCustom: () -> Unit,
-) {
+) = renderSafePickGate {
     val context = LocalContext.current
     val repository = remember(context) { AddonRepository.get(context) }
     val catalog = remember(context) { AddonCatalog.load(context) }
@@ -167,8 +167,30 @@ fun AddonsHubScreen(
 internal fun activeFlavorForAddons(): ClientFlavor =
     ActiveFlavor.resolve("add-ons resolve the qualified lane")
 
+/**
+ * W4 flip: with several qualified flavors and no pick yet, the resolver
+ * refuses loud (by design — never a silent vanilla list). A RENDER lane
+ * must not crash composition, so every entry screen checks
+ * [ActiveFlavor.displayedId] first and renders the honest first-pick copy
+ * instead of resolving ([renderSafePickGate]); the operation gates (install,
+ * seed, projection) keep the loud refusal.
+ */
 @Composable
-fun RecommendedAddonsScreen(onOpenAddon: (String) -> Unit) {
+private fun renderSafePickGate(content: @Composable () -> Unit) {
+    if (ActiveFlavor.displayedId == null) {
+        Text(
+            "Pick a game flavor on the Home screen first — the add-on catalog follows that lane.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(24.dp),
+        )
+        return
+    }
+    content()
+}
+
+@Composable
+fun RecommendedAddonsScreen(onOpenAddon: (String) -> Unit) = renderSafePickGate {
     val context = LocalContext.current
     val repository = remember(context) { AddonRepository.get(context) }
     val catalog = remember(context) { AddonCatalog.load(context) }
@@ -230,7 +252,7 @@ fun RecommendedAddonsScreen(onOpenAddon: (String) -> Unit) {
 fun InstalledAddonsScreen(
     onOpenCatalogAddon: (String) -> Unit,
     onOpenCustomAddon: (String) -> Unit,
-) {
+) = renderSafePickGate {
     val context = LocalContext.current
     val repository = remember(context) { AddonRepository.get(context) }
     val catalog = remember(context) { AddonCatalog.load(context) }
@@ -309,7 +331,7 @@ internal fun installedAddonPresentations(
 }
 
 @Composable
-fun BrowseAddonsScreen(onOpenAddon: (String) -> Unit) {
+fun BrowseAddonsScreen(onOpenAddon: (String) -> Unit) = renderSafePickGate {
     val context = LocalContext.current
     val repository = remember(context) { AddonRepository.get(context) }
     val catalog = remember(context) { AddonCatalog.load(context) }
@@ -369,7 +391,7 @@ fun BrowseAddonsScreen(onOpenAddon: (String) -> Unit) {
 }
 
 @Composable
-fun CatalogAddonDetailScreen(matrixId: String) {
+fun CatalogAddonDetailScreen(matrixId: String) = renderSafePickGate {
     val context = LocalContext.current
     val repository = remember(context) { AddonRepository.get(context) }
     val catalog = remember(context) { AddonCatalog.load(context) }
@@ -415,7 +437,7 @@ fun CatalogAddonDetailScreen(matrixId: String) {
 }
 
 @Composable
-fun InstalledAddonDetailScreen(installId: String) {
+fun InstalledAddonDetailScreen(installId: String) = renderSafePickGate {
     val context = LocalContext.current
     val repository = remember(context) { AddonRepository.get(context) }
     val state by repository.state.collectAsState()
@@ -452,7 +474,7 @@ fun InstalledAddonDetailScreen(installId: String) {
 }
 
 @Composable
-fun CustomAddonInstallScreen() {
+fun CustomAddonInstallScreen() = renderSafePickGate {
     val context = LocalContext.current
     val repository = remember(context) { AddonRepository.get(context) }
     val state by repository.state.collectAsState()

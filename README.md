@@ -1,7 +1,7 @@
 # Pocket Realm
 
 Pocket Realm turns one Android handheld into
-both a World of Warcraft 1.12.1 "private realm" server and its game client,
+World of Warcraft "private realm" servers (Vanilla 1.12.1, TBC 2.4.3, and WotLK 3.3.5a) and their game clients,
 fully offline. It builds CMaNGOS (realmd + mangosd) and Playerbots as Android-native
 libraries and MariaDB as a supervised native executable, all in fault-isolated
 processes bound to loopback,
@@ -51,7 +51,7 @@ Reports from any device, especially Mali or 6 GB ones, are welcome (see
 
 ## What you need
 
-- **Your own copy of the WoW 1.12.1 client (build 5875).** Pocket Realm never
+- **Your own copy of the Windows game client for the flavor you play** (WoW 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340). Pocket Realm never
   bundles or distributes any Blizzard asset: no executables, MPQs, DBCs,
   maps, models, or textures. You import a client you are entitled to use; Pocket
   Realm makes a private managed copy and prepares its data on-device. The

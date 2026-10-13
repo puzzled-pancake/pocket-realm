@@ -38,10 +38,12 @@ import com.pocketrealm.client.DesktopRealmlist
 import com.pocketrealm.client.DesktopVanillaTweaksPatcher
 import com.pocketrealm.client.ManagedClientStore
 import com.pocketrealm.client.nearbyUseEnabledForExecutable
+import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.importer.ClientGenerationStore
 import com.pocketrealm.ingame.DesktopConfigWtf
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.WorldPresenceSample
+import com.pocketrealm.BuildConfig
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -213,6 +215,18 @@ class DesktopRuntimeBackend(
     @Volatile
     private var bootLaneSnapshot: Settings.Snapshot? = null
 
+    init {
+        // W4 flip (D72 retirement): the timeframe overlay's lane resolver
+        // threads the PINNED boot lane — a headless host (RpHost) never
+        // populates the :ui holder, whose multi-qualified no-pick state
+        // would refuse a legitimate lane boot. Production start() pins
+        // _bootLane before any component leg, so the resolver sees the
+        // same lane the conf writer staged.
+        com.pocketrealm.database.TimeframeOverlayPlan.installLaneResolver {
+            bootLane ?: ServerRuntimeFiles.serverFlavor()
+        }
+    }
+
     @Volatile
     private var mariaDbService: DesktopDatabaseService? = null
 
@@ -232,10 +246,131 @@ class DesktopRuntimeBackend(
 
     internal fun mariadbVerifierSeeding(): DesktopDatabaseService = mariaDbLane()
 
+    /**
+     * W4 (D72 retirement): pins the boot lane from the persisted settings
+     * BEFORE any engine op — the same read-and-pin start() performs at the
+     * top of every component leg, exposed for the headless harness lane
+     * (RpHost) whose pre-start migration apply must resolve the LANE's
+     * ledger, not the empty :ui holder. Production start() keeps its own
+     * pin (this is idempotent).
+     */
+    /**
+     * R1-2 (code-red round 1): the WORLD-START runtime-lane identity gate.
+     * The shipped image loads the VANILLA lane's pocket_*.dll; a non-vanilla
+     * boot is refused loud naming both lanes UNLESS that lane's own runtime
+     * is actually present (the dev `-PrpFlavor` lane root), in which case
+     * the boot proceeds against its per-lane lockfile. This is the
+     * wire-instrument law (fail loud on drift) applied to the product boot
+     * path — never silently boot vanilla core bytes against a tbc/wotlk
+     * database family.
+     */
+    internal fun requireRuntimeLaneMatches(bootLane: ClientFlavor) {
+        if (bootLane.flavorId == "vanilla") return
+        val lane = bootLane.flavorId
+        // R3-W4-2 (code-red round 3): the lane ROOT loads TWO DLLs at boot
+        // (Main.kt: pocket_realmd_runtime then pocket_world_runtime) and
+        // the lane lockfile pins BOTH — the gate verifies BOTH rows, so a
+        // partial/stale rebuild that replaced only the realmd DLL is
+        // refused exactly like a stale world DLL.
+        val runtimeRoot = "native/.build-win-x86_64-$lane-mariadb/pocket-runtime-build"
+        val dllRelatives = listOf(
+            "$runtimeRoot/pocket_realmd_runtime.dll",
+            "$runtimeRoot/pocket_world_runtime.dll",
+        )
+        val lockfileRelative = "schemas/realm-runtime-lockfile-mariadb-win-$lane.json"
+        // candidate runtime DLLs: the dev lane resolves the repo root from
+        // the working directory (the Gradle harness tasks run with
+        // cwd = desktop/, so the repo root is the parent) AND from the
+        // database root walked up (a roots tree inside the repo); the
+        // packaged image has neither and refuses — correct. R3-3: existence
+        // is not identity — the same root must hold the lane lockfile and
+        // the staged bytes must match its pin, or a stale/partial rebuild
+        // would boot unnoticed against the lane's database family.
+        val bases = mutableListOf<String?>()
+        bases.add(System.getProperty("user.dir"))
+        bases.add(File(System.getProperty("user.dir")).parentFile?.absolutePath)
+        var walked: File? = roots.database
+        repeat(6) {
+            walked = walked?.parentFile
+            bases.add(walked?.absolutePath)
+        }
+        for (base in bases) {
+            if (base == null) continue
+            val laneLockfile = File(File(base), lockfileRelative)
+            val candidates = dllRelatives.map { File(File(base), it) }
+            if (candidates.all { it.isFile } && laneLockfile.isFile) {
+                dllRelatives.zip(candidates).forEach { (relative, candidate) ->
+                    requireLaneRuntimePinned(lane, laneLockfile, relative, candidate)
+                }
+                return
+            }
+        }
+        error(
+            "RUNTIME-LANE MISMATCH: the boot lane is '$lane' but " +
+                "this image loads the vanilla lane's pocket_*.dll — booting " +
+                "vanilla core bytes against the $lane database " +
+                "family is refused. Build the $lane runtime " +
+                "(tools/build_win_realm_runtime.py --flavor $lane " +
+                "--database-backend mariadb) and run the harness task with " +
+                "-PrpFlavor=$lane, or boot the vanilla lane.",
+        )
+    }
+
+    /** R3-3: the staged lane runtime must be the lane lockfile's pinned
+     * bytes (size + sha256), not merely a file at the lane path. */
+    private fun requireLaneRuntimePinned(
+        lane: String,
+        laneLockfile: File,
+        dllRelative: String,
+        candidate: File,
+    ) {
+        val pin = runCatching {
+            org.json.JSONObject(laneLockfile.readText(Charsets.UTF_8))
+                .optJSONArray("artifacts")?.asSequence()
+                ?.mapNotNull { it as? org.json.JSONObject }
+                ?.firstOrNull { it.optString("path") == dllRelative }
+        }.getOrNull()
+        check(pin != null) {
+            "RUNTIME-LANE MISMATCH: the $lane lane lockfile " +
+                "(${laneLockfile.name}) pins no artifact at $dllRelative — the " +
+                "staged DLL cannot be proven to be the $lane lane's bytes. " +
+                "Rebuild the lane (tools/build_win_realm_runtime.py --flavor $lane " +
+                "--database-backend mariadb) or boot the vanilla lane."
+        }
+        val digest = com.pocketrealm.fs.FileDigests.sha256(candidate)
+        check(
+            pin.getLong("size") == candidate.length() &&
+                pin.getString("sha256").equals(digest, ignoreCase = true),
+        ) {
+            "RUNTIME-LANE MISMATCH: the staged $lane " +
+                "${dllRelative.substringAfterLast('/')} " +
+                "(size ${candidate.length()}, sha256 $digest) disagrees with the " +
+                "$lane lane lockfile pin (size ${pin.getLong("size")}, sha256 " +
+                "${pin.getString("sha256")}) — a stale or foreign core build must " +
+                "not boot against the $lane database family. Rebuild with " +
+                "tools/build_win_realm_runtime.py --flavor $lane --database-backend mariadb."
+        }
+    }
+
+    internal fun pinBootLaneFromSettings(): ClientFlavor {
+        val startSnapshot = DesktopSettingsStore(roots.settingsFile).load()
+        val lane = files.bootLaneFlavor(startSnapshot)
+        _bootLane.value = lane
+        bootLaneSnapshot = startSnapshot
+        System.err.println("PIN-BOOT-LANE flavor=" + lane.flavorId + " roots=" + roots.settingsFile)
+        return lane
+    }
+
     private fun mariaDbLane(): DesktopDatabaseService =
         mariaDbService ?: synchronized(this) {
             mariaDbService ?: DesktopDatabaseService(
-                mariaDbEngineOverride ?: DesktopMariaDbEngine(roots),
+                mariaDbEngineOverride ?: DesktopMariaDbEngine(
+                    roots,
+                    // W4 flip: the engine resolves the START's pinned boot
+                    // lane (the persisted pick read once at start), never
+                    // the :ui holder a headless host never populates.
+                    bootLane = { bootLane },
+                ),
             ).also { mariaDbService = it }
         }
 
@@ -814,6 +949,33 @@ class DesktopRuntimeBackend(
             )
         }
 
+    /** R3-6-2 (W4 code-red round 6): the SQLite provider ships only the
+     * VANILLA classic* datadir/seed transcripts — a tbc/wotlk boot lane on
+     * the SQLite provider dies late with the non-actionable 'tbcrealmd is
+     * not seeded' whose remedy can only produce vanilla again. Refuse LOUD
+     * before the legacy gate, naming the MariaDB remedy (the android
+     * twin's ANDROID-LANE-SCOPE shape). Internal for the JVM pin. */
+    internal fun requireSqliteLaneMatchesProvider() {
+        if (selectedDatabaseProvider() != Settings.DatabaseProvider.SQLITE) return
+        // no persisted pick: the existing DB-NOT-SEEDED gate owns the
+        // refusal (the D19 unseeded leg) — never a second ambiguous-lane
+        // error ahead of it.
+        val persistedPick = DesktopSettingsStore(roots.settingsFile).load()
+            .selectedFlavorOrNull() ?: return
+        val sqliteBootLane = files.bootLaneFlavor(
+            DesktopSettingsStore(roots.settingsFile).load()
+                .copy(selectedFlavorId = persistedPick),
+        )
+        check(sqliteBootLane.flavorId == ClientFlavors.VANILLA.flavorId) {
+            "SQLITE-LANE-SCOPE: the SQLite provider ships the vanilla " +
+                "classic* datadir and seed transcripts only — the " +
+                "${sqliteBootLane.flavorId} lane cannot boot on SQLite. " +
+                "Switch Settings → Database provider to MariaDB (the " +
+                "shipped default, which provisions the " +
+                "${sqliteBootLane.flavorId} family) or re-pick Vanilla on Home."
+        }
+    }
+
     /** The pre-D1 datadir/provider gate, verbatim (provider selection,
      * bootstrap, seal proof) — extracted so the D1 mode legs wrap it. */
     private fun preflightDatadir(): RuntimeActionResult {
@@ -826,6 +988,9 @@ class DesktopRuntimeBackend(
         if (selectedDatabaseProvider() == Settings.DatabaseProvider.MARIADB) {
             return preflightMariaDb()
         }
+        // R3-6-2: the SQLite provider is vanilla-scoped — refuse a
+        // tbc/wotlk boot lane loud before the legacy gate.
+        requireSqliteLaneMatchesProvider()
         val missing = DATABASES.filterNot { database ->
             DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, database).isFile
         }
@@ -988,6 +1153,14 @@ class DesktopRuntimeBackend(
             _bootLane.value = files.bootLaneFlavor(startSnapshot)
             bootLaneSnapshot = startSnapshot
         }
+        // R1-2 (code-red round 1): the boot lane must match the loaded
+        // native runtime BEFORE any server native starts — the shipped
+        // image carries the VANILLA lane's pocket_*.dll, so a non-vanilla
+        // boot without its own per-lane runtime present refuses loud naming
+        // both lanes, never silently boots vanilla core bytes against a
+        // tbc/wotlk database family.
+        bootLane?.let { requireRuntimeLaneMatches(it) }
+
         when (component) {
             RuntimeComponent.DATABASE ->
                 if (selectedDatabaseProvider() == Settings.DatabaseProvider.MARIADB) {
@@ -2271,12 +2444,22 @@ class DesktopRuntimeBackend(
      * null when the native lane is not staged — never a throw into the
      * UI poll path. */
     fun worldTelemetry(): org.json.JSONObject? = runCatching {
-        ServerStatusJson.world(WorldNative.statusNative(), WorldNative.detailNative())
+        val lane = bootLane?.flavorId ?: "vanilla"
+        ServerStatusJson.world(
+            WorldNative.statusNative(), WorldNative.detailNative(),
+            runtimeBuildId = BuildConfig.nativeRuntimeBuildIdFor(lane),
+            nativeCmangosCommit = BuildConfig.nativeCmangosCommitFor(lane),
+        )
     }.getOrNull()
 
     /** DESK-127: the realm status telemetry (heartbeatCount et al). */
     fun realmTelemetry(): org.json.JSONObject? = runCatching {
-        ServerStatusJson.realm(RealmNative.statusNative(), RealmNative.detailNative())
+        val lane = bootLane?.flavorId ?: "vanilla"
+        ServerStatusJson.realm(
+            RealmNative.statusNative(), RealmNative.detailNative(),
+            runtimeBuildId = BuildConfig.nativeRuntimeBuildIdFor(lane),
+            nativeCmangosCommit = BuildConfig.nativeCmangosCommitFor(lane),
+        )
     }.getOrNull()
 
     /**
@@ -2503,8 +2686,19 @@ class DesktopRuntimeBackend(
         // GAP-3: same ACTIVE-lane resolution as resolveManagedClient — the
         // former `.single()` here sat OUTSIDE the runCatching and crashed
         // the status/preflight paths at the second qualification.
-        val flavor = ActiveFlavor.resolve(MANAGED_CLIENT_LANE)
-        if (ClientGenerationStore(roots).activeGeneration(flavor) != null) return null
+        // W4 flip (R6-2): the render/status path resolves through the
+        // machine's canonical displayedId — no persisted pick under the
+        // flipped registry is the honest "no client" state (fail closed as
+        // no client), never an ambiguous-registry crash.
+        val flavor = ActiveFlavor.displayedId?.let { laneId ->
+            ClientFlavors.ALL.first { it.flavorId == laneId }
+        }
+        // no pick yet → no managed generation exists → straight to the
+        // legacy folder candidate (the same shape the pre-pick state had
+        // under the sole-qualified degrade).
+        if (flavor == null || ClientGenerationStore(roots).activeGeneration(flavor) != null) {
+            return null
+        }
         return legacyClientDirCandidate()?.takeIf { dir -> DesktopClientScanner().scan(dir).supported }
     }
 
@@ -2675,7 +2869,14 @@ class DesktopRuntimeBackend(
     // in the manifest's compatibility object.
 
     private val snapshotStore by lazy {
-        com.pocketrealm.database.DatabaseSnapshotStore(roots.databaseSnapshots)
+        com.pocketrealm.database.DatabaseSnapshotStore(
+            roots.databaseSnapshots,
+            // W4 flip (D86 routing law): the compatibility gate resolves
+            // the lane from the pinned boot lane (the persisted pick), the
+            // same routing the engine's store uses — a headless backend
+            // never populates the :ui holder.
+            persistedActiveFlavorId = { bootLane?.flavorId },
+        )
     }
 
     /** One listed named backup (the Diagnostics card's row). [provider] is
@@ -2699,11 +2900,15 @@ class DesktopRuntimeBackend(
         val digest: String? = null,
     )
 
-    /** A begun restore: the token the commit/rollback legs consume. */
+    /** A begun restore: the token the commit/rollback legs consume, plus
+     * the R2-R4-3 disclosure — the qualified lanes whose migration seals
+     * exist in the LIVE datadir but are ABSENT from the snapshot, i.e.
+     * lanes this whole-datadir rollback rolls back to backup time. */
     class BegunRestore internal constructor(
         val token: String,
         val snapshotId: String,
         val digest: String,
+        val rollsBackLanes: List<String> = emptyList(),
     )
 
     /** One in-flight restore's durable-ish footprint (the Android engine's
@@ -2958,6 +3163,11 @@ class DesktopRuntimeBackend(
      * bookkeeping the model's COMMIT/ROLLBACK legs key on.
      */
     fun beginSnapshotRestore(snapshotId: String): BegunRestore = synchronized(transitionLock) {
+        // W4 flip: the restore targets the PERSISTED lane — pin the boot
+        // lane before the engine's compatibility gate resolves it (a
+        // restore is an operation leg like start; a headless or idle
+        // backend never pinned it).
+        pinBootLaneFromSettings()
         runtimesAtRestRefusal()?.let { refusal -> error(refusal) }
         val leftovers = roots.database.listFiles { file ->
             file.isDirectory && (file.name.startsWith("restore-candidate-") ||
@@ -2984,7 +3194,11 @@ class DesktopRuntimeBackend(
                 "${selected.name}; pick a ${selected.name} backup or switch the selection"
         }
         if (selected == Settings.DatabaseProvider.MARIADB) {
-            return@synchronized beginMariaDbSnapshotRestore(snapshot.id)
+            val begun = beginMariaDbSnapshotRestore(snapshot.id)
+            return@synchronized BegunRestore(
+                begun.token, begun.snapshotId, begun.digest,
+                lanesRolledBackBy(snapshot.id, snapshot.root),
+            )
         }
         val token = java.util.UUID.randomUUID().toString()
         val candidate = File(roots.database, "restore-candidate-$token")
@@ -3019,6 +3233,51 @@ class DesktopRuntimeBackend(
      * stopOwned released on the way to rest cannot cover the COMMIT that
      * follows the verification stop); the engine's own
      * restore token becomes this transaction's token. */
+    /**
+     * R2-R4-3 (W4 code-red round 4): the snapshot store snapshots the
+     * WHOLE shared datadir while seals/ledgers are lane-scoped — restoring
+     * an older backup on lane A silently rolls lane B's family back to
+     * backup time (its seal vanishes; its next boot re-applies, and
+     * post-backup accounts/characters are gone). The cross-flavor LABELED
+     * restore is already refused; this is the residual same-provider
+     * shape, surfaced as an explicit disclosure instead of a silent
+     * rollback: every lane sealed in the LIVE datadir whose seal is absent
+     * from the snapshot.
+     */
+    private fun lanesRolledBackBy(
+        snapshotId: String,
+        snapshotRoot: File,
+    ): List<String> {
+        val liveLanes = roots.mariadbDatadir
+            .listFiles { file -> file.name.startsWith(".pocketrealm-migrations") }
+            .orEmpty()
+            .mapNotNull { file ->
+                lanedSealRegex.find(file.name)?.groupValues?.getOrNull(1) ?: "vanilla"
+            }
+            .toSet()
+        val snapshotLanes = snapshotRoot
+            .listFiles { file -> file.name.startsWith(".pocketrealm-migrations") }
+            .orEmpty()
+            .mapNotNull { file ->
+                lanedSealRegex.find(file.name)?.groupValues?.getOrNull(1) ?: "vanilla"
+            }
+            .toSet()
+        val rolledBack = liveLanes - snapshotLanes
+        if (rolledBack.isNotEmpty()) {
+            DesktopLog.w(
+                "Snapshots",
+                "RESTORE-DISCLOSURE: restoring " + snapshotId + " rolls back the " +
+                    rolledBack.sorted() + " database family/families to backup time " +
+                    "(their migration seals are absent from the snapshot)",
+            )
+        }
+        return rolledBack.sorted()
+    }
+
+    private val lanedSealRegex = Regex(
+        "^\\.pocketrealm-migrations(?:-(\\w+))?\\.json$",
+    )
+
     private fun beginMariaDbSnapshotRestore(snapshotId: String): BegunRestore {
         val begun = mariaDbLane().beginRestore(snapshotId)
         check(begun.optBoolean("ok")) {

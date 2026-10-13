@@ -6,8 +6,24 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.json.JSONObject
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 class WowVanillaSettingsCatalogTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests pin the VANILLA lane (holder select) so resolvers see one lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     private fun idOrderSha256(): String {
         val digest = java.security.MessageDigest.getInstance("SHA-256")
@@ -129,6 +145,20 @@ class WowGameSettingsConfigTest {
 }
 
 class GameSettingsDeliveryPlannerTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; the planner
+     * resolves the ACTIVE flavor's catalog through the holder — pin the
+     * VANILLA lane so the resolvers see one lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     private fun plan(
         config: WowGameSettingsConfig,
@@ -328,6 +358,20 @@ class GameSettingsDeliveryPlannerTest {
 }
 
 class ManagedConfigPolicyTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; the planner
+     * resolves the ACTIVE flavor's catalog through the holder — pin the
+     * VANILLA lane so the resolvers see one lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     private fun conditions(audio: String, renderer: String = "dxvk") =
         ManagedConfigPolicy.LaunchConditions(

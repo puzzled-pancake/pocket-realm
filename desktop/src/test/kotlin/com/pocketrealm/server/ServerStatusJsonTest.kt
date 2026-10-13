@@ -89,4 +89,47 @@ class ServerStatusJsonTest {
         val json = ServerStatusJson.world(worldStatus, "x".repeat(4096), listenAddress = "127.0.0.1")
         assertEquals(512, json.getString("detail").length)
     }
+
+    /** W4 flip (R3-4): a tbc/wotlk boot must never report the vanilla lane's
+     * build id — the status telemetry carries the ACTIVE lane's own id and
+     * core commit, exactly what DesktopRuntimeBackend.worldTelemetry()
+     * threads from BuildConfig.nativeRuntimeBuildIdFor(lane). */
+    @Test
+    fun aPerLaneBootReportsItsOwnBuildIdAndCoreCommit() {
+        for (lane in listOf("tbc", "wotlk", "vanilla")) {
+            val json = ServerStatusJson.world(
+                worldStatus, "detail",
+                runtimeBuildId = BuildConfig.nativeRuntimeBuildIdFor(lane),
+                nativeCmangosCommit = BuildConfig.nativeCmangosCommitFor(lane),
+            )
+            assertEquals(
+                "the $lane telemetry must carry the $lane build id",
+                BuildConfig.nativeRuntimeBuildIdFor(lane), json.getString("runtimeBuildId"),
+            )
+            assertEquals(
+                "the $lane telemetry must carry the $lane core commit",
+                BuildConfig.nativeCmangosCommitFor(lane), json.getString("nativeCmangosCommit"),
+            )
+        }
+        // the vanilla defaults stay the shared constants
+        assertEquals(BuildConfig.NATIVE_RUNTIME_BUILD_ID, BuildConfig.nativeRuntimeBuildIdFor("vanilla"))
+        assertEquals(BuildConfig.NATIVE_CMANGOS_COMMIT, BuildConfig.nativeCmangosCommitFor("vanilla"))
+    }
+
+    /** The per-lane ids embed their core commit prefix — the same formula
+     * tests/test_win_lockfile.py recomputes from the lane lockfiles, so a
+     * drifted constant pair fails here before it fails the pin. */
+    @Test
+    fun perLaneBuildIdsEmbedTheirCoreCommitPrefix() {
+        assertEquals(
+            BuildConfig.NATIVE_CMANGOS_COMMIT_TBC.take(8),
+            BuildConfig.NATIVE_RUNTIME_BUILD_ID_TBC
+                .substringAfter("cmangos-").substringBefore("-playerbots"),
+        )
+        assertEquals(
+            BuildConfig.NATIVE_CMANGOS_COMMIT_WOTLK.take(8),
+            BuildConfig.NATIVE_RUNTIME_BUILD_ID_WOTLK
+                .substringAfter("cmangos-").substringBefore("-playerbots"),
+        )
+    }
 }

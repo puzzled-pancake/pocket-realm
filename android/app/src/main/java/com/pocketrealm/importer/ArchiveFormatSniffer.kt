@@ -51,10 +51,19 @@ object ArchiveQuickCheck {
         data class Reject(val failure: String) : Verdict
     }
 
-    const val VAL11_ISO = "VAL-11: disc images are not supported — the 1.12.1 ISOs ship older " +
-        "installers (1.0.1 / 1.10.0); Pocket Realm needs the extracted 1.12.1.5875 client, not an installer"
-    const val VAL12_NOT_INNO = "VAL-12: this archive carries a Windows installer payload Pocket Realm " +
-        "cannot use (only original Inno Setup-based 1.12.1 installers are extractable on device) — " +
+    // R6-r6-1 (W4 code-red round 6): the copy derives the accepted set from
+    // the registry's qualified flavors (the same source VAL-03's
+    // expectedVersions uses) — never a hard-coded vanilla version, so the
+    // copy cannot drift from the registry again.
+    private val acceptedVersions: String =
+        com.pocketrealm.client.ClientPeIdentity.expectedVersions
+
+    val VAL11_ISO = "VAL-11: disc images are not supported — disc images ship older " +
+        "installers; Pocket Realm needs the extracted client for a qualified " +
+        "game version ($acceptedVersions), not an installer"
+    val VAL12_NOT_INNO = "VAL-12: this archive carries a Windows installer payload Pocket Realm " +
+        "cannot use (only original Inno Setup-based installers for a qualified game " +
+        "version are extractable on device; the qualified set is $acceptedVersions) — " +
         "select an archive that directly contains WoW.exe and Data"
     const val VAL13_UNSUPPORTED = "VAL-13: unsupported or unrecognized archive — expected .zip, .7z or .rar"
 

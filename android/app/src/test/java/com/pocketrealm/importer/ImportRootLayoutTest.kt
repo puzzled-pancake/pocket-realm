@@ -3,6 +3,9 @@ package com.pocketrealm.importer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * Census lanes item 17: the per-flavor [RootLayout] rows and the
@@ -26,6 +29,19 @@ import org.junit.Test
  * are never root-gated by any layout.
  */
 class ImportRootLayoutTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; the
+     * root-layout lanes pin the VANILLA lane (holder select). */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     private fun entries(vararg names: String): List<ImportExtractionPolicy.RawEntry> =
         names.map { ImportExtractionPolicy.RawEntry(it, false, 10) }

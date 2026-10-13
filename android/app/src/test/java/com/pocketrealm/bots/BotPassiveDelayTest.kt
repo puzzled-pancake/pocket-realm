@@ -3,16 +3,33 @@ package com.pocketrealm.bots
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * The per-profile PassiveDelay field and the benchmark-twin presets.
  *
  * Byte-identity: the DEFAULT 10_000 keeps every non-experience preset's
- * playerbotConfig() emission byte-identical (the adv/usr5 identity-digest
+ * playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA) emission byte-identical (the adv/usr5 identity-digest
  * inputs must not shift); the seven experience presets emit 3_000 so a
  * greeted bot answers inside the 5 s greet bound.
  */
 class BotPassiveDelayTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests that do not exercise the Home pick flow pin the VANILLA lane
+     * (holder select) so the resolvers see one honest lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     @Test
     fun everyNonExperiencePresetKeepsTheLegacyTenSecondEmission() {
@@ -50,11 +67,12 @@ class BotPassiveDelayTest {
     @Test
     fun playerbotConfigEmitsTheFieldAndLegacyEmissionIsByteIdentical() {
         val legacy = BotProfiles.find("mobile-quiet-b25-v1")!!
-        val conf = legacy.playerbotConfig()
+        val conf = legacy.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
         assertTrue("the emission carries the field", conf.contains("AiPlayerbot.PassiveDelay = 10000"))
         val tuned = BotProfiles.experiencePresets.first()
         assertTrue(
-            tuned.playerbotConfig().contains("AiPlayerbot.PassiveDelay = 3000"),
+            tuned.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
+            .contains("AiPlayerbot.PassiveDelay = 3000"),
         )
     }
 

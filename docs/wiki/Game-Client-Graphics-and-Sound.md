@@ -4,7 +4,7 @@ Pocket Realm does not replace the original game client. It prepares and runs a p
 
 ## Supported client
 
-The importer accepts World of Warcraft 1.12.1 build 5875. The selected source folder stays read-only. Pocket Realm copies files into private storage, checks every copied file, and publishes a complete managed client generation only after verification succeeds.
+The importer accepts any qualified client: Vanilla 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340 (each with its own MPQ set). The selected source folder stays read-only. Pocket Realm copies files into private storage, checks every copied file, and publishes a complete managed client generation only after verification succeeds.
 
 Unexpected root programs and injected libraries are not accepted as part of the managed client. Standard files needed by the supported client are preserved.
 

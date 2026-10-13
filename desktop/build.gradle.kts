@@ -71,6 +71,40 @@ fun nativeRuntimePathEnv(): Map<String, String> = mapOf(
     "PATH" to nativeRuntimeDir.absolutePath + File.pathSeparator + (System.getenv("PATH") ?: ""),
 )
 
+/**
+ * W4 flip (D72 retirement): the per-flavor MariaDB win runtime roots — the
+ * vanilla lane keeps its historical dir; tbc/wotlk get their own
+ * `native/.build-win-x86_64-<flavor>-mariadb/pocket-runtime-build` (the
+ * tools/build_win_realm_runtime.py --flavor <f> --database-backend mariadb
+ * output, lane lockfiles
+ * schemas/realm-runtime-lockfile-mariadb-win-<flavor>.json). The rpHost
+ * harness task routes via -PrpFlavor=<tbc|wotlk>; every default (no flag)
+ * stays byte-identical to the vanilla lane.
+ */
+val flavorRuntimeDirs: Map<String, String> = mapOf(
+    "tbc" to "../native/.build-win-x86_64-tbc-mariadb/pocket-runtime-build",
+    "wotlk" to "../native/.build-win-x86_64-wotlk-mariadb/pocket-runtime-build",
+)
+
+fun flavorNativeLibraryPath(flavor: String?): String {
+    val dir = flavor?.let { flavorRuntimeDirs[it.lowercase()] }
+        ?: return nativeLibraryPath
+    return listOf(dir, "../native/.build-win-x86_64/sqlite-seam-build")
+        .joinToString(File.pathSeparator) {
+            rootProject.projectDir.resolve(it).normalize().toString()
+        }
+}
+
+fun flavorRuntimePathEnv(flavor: String?): Map<String, String> {
+    if (flavor == null) return nativeRuntimePathEnv()
+    val dir = rootProject.projectDir.resolve(
+        flavorRuntimeDirs[flavor.lowercase()] ?: return nativeRuntimePathEnv(),
+    ).normalize()
+    return mapOf(
+        "PATH" to dir.absolutePath + File.pathSeparator + (System.getenv("PATH") ?: ""),
+    )
+}
+
 kotlin {
     jvmToolchain(17)
 }
@@ -445,6 +479,26 @@ tasks.register<JavaExec>("whisperGate") {
     environment(nativeRuntimePathEnv())
 }
 
+// W4.1: the per-flavor desktop end-to-end qualification probe (see
+// FlavorE2eProbe.kt). -DflavorId + -DclientDir (or -Darchive / -DskipImport).
+tasks.register<JavaExec>("flavorE2eProbe") {
+    group = "bring-up"
+    description = "Per-flavor desktop end-to-end: import -> prep -> boot READY -> auto-login -> Save & Exit."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.FlavorE2eProbeKt")
+    val e2eFlavor = if (project.hasProperty("rpFlavor")) {
+        project.property("rpFlavor")?.toString()
+    } else null
+    jvmArgs("-Djava.library.path=${flavorNativeLibraryPath(e2eFlavor)}")
+    environment(flavorRuntimePathEnv(e2eFlavor))
+    listOf("flavorId", "clientDir", "archive", "skipImport", "e2eUser", "e2ePass")
+        .forEach { key ->
+            if (project.hasProperty(key)) {
+                jvmArgs("-D${key}=${project.property(key)}")
+            }
+        }
+}
+
 // Harness lane: the stdio JSON-line RP host (see RpHost.kt). One JSON op
 // per stdin line -> one JSON response per stdout line; EOF drains with a
 // save. -PrpClient=1 also launches WoW.exe (needs -PclientDir=...);
@@ -454,8 +508,13 @@ tasks.register<JavaExec>("rpHost") {
     description = "Boot the stack and serve the world console ops over stdio JSON lines."
     classpath = sourceSets.named("main").get().runtimeClasspath
     mainClass.set("com.pocketrealm.desktop.RpHostKt")
-    jvmArgs("-Djava.library.path=$nativeLibraryPath")
-    environment(nativeRuntimePathEnv())
+    // W4 flip: -PrpFlavor=<tbc|wotlk> loads that lane's MariaDB win runtime
+    // (the per-flavor build root); the default stays the vanilla lane.
+    val rpFlavor = if (project.hasProperty("rpFlavor")) {
+        project.property("rpFlavor")?.toString()
+    } else null
+    jvmArgs("-Djava.library.path=${flavorNativeLibraryPath(rpFlavor)}")
+    environment(flavorRuntimePathEnv(rpFlavor))
     standardInput = System.`in`
     if (project.hasProperty("clientDir")) {
         jvmArgs("-DclientDir=${project.property("clientDir")}")

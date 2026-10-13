@@ -46,6 +46,11 @@ class RealmRuntimeService : Service() {
             files.prepareRealmLogsForStart(currentNativeState())
             files.writeLifecycle("realm", false, "start", bind)
             activeBindAddress = bind
+            // R4-1: the boot-time lane-vs-runtime gate (BEFORE any native
+            // call) — the packaged Android runtime is vanilla-lane only.
+            ServerRuntimeFiles.requireAndroidRuntimeLaneMatches(
+                files.worldLaneFlavor("the realmd boot resolves the active lane"),
+            )
             val rc = RealmNative.startNative(files.realmdConfig(bind).absolutePath)
             if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             ServerStatusJson.operation("realm", "start", rc)

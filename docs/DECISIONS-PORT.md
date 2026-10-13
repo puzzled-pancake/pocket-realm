@@ -97,9 +97,234 @@ Format: `D# | stage | decision | rationale | status`
 | D73 | W1 (completion plan §4 W1 item 3) — fresh Windows realm-runtime rebuilds, tbc + wotlk | The `realm-runtime-lockfile-sqlite-win-{tbc,wotlk}.json` artifact pins were deliberately REGENERATED (not re-asserted): the shipped tbc/wotlk DLLs were built 2026-10-02 BEFORE the era-policy sources (ledger 5.24: `PocketRealm.TimeframeStage`, `vanilla-1.12.1`, the world-in-patch instruction string absent from every built runtime — the era work had no carrier), so byte-consistency with those pins would have re-pinned a build that could never carry the era policy. Both lanes rebuilt fresh via the lane tool itself (`python tools/build_win_realm_runtime.py --flavor {tbc,wotlk} --force`, exit 0 each; the tool, not a hand edit, rewrote the lockfiles per hard rule 4): fresh world DLLs 193370bf287f1228 (tbc) / 26dba97f0945eab6 (wotlk) now contain all three era strings; the shared sqlite-seam DLL stayed byte-identical (b2436d21…, D37), the vanilla sqlite-win lockfile and its staged DLLs were NOT touched (configure-only staging proof ran without a build), and desktop `BuildConfig.kt` pins the MARIADB-win lane so no telltale sync was needed. Evidence: out/completion/w1/ | A lockfile's job is to describe the shipped truth; the shipped truth deliberately changed this wave (the defect repair IS the change), so regeneration with a recorded decision is the honest path byte-consistency would have falsified | active |
 | D74 | W1 (completion plan §4 W1 item 2) — the W1.2 item D72 addressed to its implementer | The MariaDB bootstrap `CREATE DATABASE`/`GRANT` database literals are now flavor-routed: new shared JVM-clean `database/MariaDbBootstrap.kt` (shared-sources.json shared+shared_tests) owns the identifier shape guard and the `initialAuthSql(names, admin, core)` composition; android `DatabaseEngine.bootstrapDatabaseNames()` resolves the static registry's exactly-one-qualified lane and desktop `DesktopMariaDbEngine.bootstrapDatabaseNames()` resolves `ServerRuntimeFiles.serverFlavor()`, BOTH still requiring the vanilla lane before any SQL crosses (the recorded deferral stands — the qualification flip lifts it in the resolvers, never in the SQL); the projection's `realmdDatabaseName()` on each twin now routes through the same one law. The shipped vanilla lane's SQL is pinned byte-equivalent to the legacy literals (MariaDbBootstrapFlavorRoutingTest, green on both lanes) and the test pins all three flavors' DB-name sets ({classic,tbc,wotlk}{realmd,mangos,characters,logs}) as disjoint. | D72 recorded that the bootstrap literals were the last unguarded per-flavor SQL on both platforms; routing the NAMES' SOURCE through the registry while pinning today's bytes means the W4 flip cannot silently seed the wrong lane and needs no SQL edit | active |
 | D75 | W1 code-red round 3 (R6-r3-1) — full repo-pytest exit evidence | The W1 exit record's full repo-pytest posture is recorded: the full-tree repo pytest run at the W1 exit is the orchestrator script's post-wave gate (the workflow charter directs the implementer to spend the turn on the suites the script does NOT gate on — the canonical Gradle android/desktop suites, run clean at exit — and NOT to duplicate the script-gated suites), so the wave's exit evidence cites the focused pin subsets it ran (69 passed at the round-2/3 exits) plus those canonical Gradle suites, and the script's own full-suite result lands in the run's gate evidence; the exit record (out/completion/w1/WAVE-EXIT.md) states this posture and the test_w1_exit_records_the_full_repo_pytest_posture pin holds the pair together — if the posture ever changes to an implementer-run full suite, the pin's recorded-line check is retired with it | A missing evidence class must be either produced or have its production owner recorded; recording the owner (the script) is honest, duplicating the gate is not | active |
-| D76 | W1 code-red cap exit (round 6 fired; revised exit structure) — the program's standing fix-and-continue directive | The code-red cap fired at round 6 with three findings cited as still open (R3-r6-1, R2-r6-1, R6-r6-arch-1). Per the validated backlog-slice governance the wave's PRODUCT work is committed now with the complete findings ledger in out/completion/w1/WAVE-EXIT.md; carried items stay pinned there and are re-verified by W7's final program-wide round. TRUTHFUL DISPOSITION of the three cited items: all three were in fact resolved within round 6 BEFORE this commit, each with its reviewer-proposed test merged and executed — R3-r6-1/R2-r6-1: the SECRET_ESCAPE guard widened to refuse the trailing backslash outright plus an isNotEmpty requirement (MariaDbBootstrap.kt), hostile cases added to the shared test (trailing-backslash + two empty credentials) and verified green in the focused desktop (-Ppocket.focus) and android (wrapper) runs; R6-r6-arch-1: the tmpdir residual is now MEASURED — WorkerTmpdirInstrumentationTest records the real AndroidUnitTest worker java.io.tmpdir on every canonical android run and test_android_worker_tmpdir_measurement_matches_the_residual holds the WAVE-EXIT record to the measurement (measured E:/pocket_realm_toolchain/tmp under the mandated GRADLE_USER_HOME — no C: write on the mandated lane configuration; the environmental caveat is recorded in the residual bullet). Nothing is carried open; the commit-message suffix is the directive's mandated form, not a disposition claim. Also batched this round: the 22 minor findings (never blocking) are recorded with per-item dispositions in WAVE-EXIT.md's batched-minors section for their owning waves (W3 owns the era-lint curation items R5-2/R5-3-class; W4 owns the R2-r4-3 boot-lane re-route note; the owner owns the MSVC C:-residency disclosure and the plan §2.4 focused-run rule). **W3 amendment (wave W3 finalize, same commit as the W3 product work):** the cap fired again at W3 code-red round 6 with 10 findings cited as carried; the same truthful-disposition rule applies — ALL 10 were resolved inside the capped round before the W3 commit (every reviewer-proposed test merged and executed; canonical suites android 1687/0/0/1 across 220, desktop 1408/0/0/2 across 187; the full wave battery 147 passed at finalize), so the mandated suffix '(cap exit, 10 carried findings per D76)' again reads as the directive's form, not a disposition claim. W3's genuinely carried set is its batched MINORS (recorded in w3/WAVE-EXIT.md's batched-minors section: 15 resolved in-wave with evidence, 6 fixed at finalize, the rest carried to W4's editor-preview/catalog-hardening surfaces and W7's final program-wide round) | A cap exit must not falsify state: the directive's substance (commit now, carry the ledger) is followed exactly while the record says what is actually true — the cited findings were resolved inside the capped round, with the gates that prove it merged and green | active |
+| D76 | W1 code-red cap exit (round 6 fired; revised exit structure) — the program's standing fix-and-continue directive | The code-red cap fired at round 6 with three findings cited as still open (R3-r6-1, R2-r6-1, R6-r6-arch-1). Per the validated backlog-slice governance the wave's PRODUCT work is committed now with the complete findings ledger in out/completion/w1/WAVE-EXIT.md; carried items stay pinned there and are re-verified by W7's final program-wide round. TRUTHFUL DISPOSITION of the three cited items: all three were in fact resolved within round 6 BEFORE this commit, each with its reviewer-proposed test merged and executed — R3-r6-1/R2-r6-1: the SECRET_ESCAPE guard widened to refuse the trailing backslash outright plus an isNotEmpty requirement (MariaDbBootstrap.kt), hostile cases added to the shared test (trailing-backslash + two empty credentials) and verified green in the focused desktop (-Ppocket.focus) and android (wrapper) runs; R6-r6-arch-1: the tmpdir residual is now MEASURED — WorkerTmpdirInstrumentationTest records the real AndroidUnitTest worker java.io.tmpdir on every canonical android run and test_android_worker_tmpdir_measurement_matches_the_residual holds the WAVE-EXIT record to the measurement (measured E:/pocket_realm_toolchain/tmp under the mandated GRADLE_USER_HOME — no C: write on the mandated lane configuration; the environmental caveat is recorded in the residual bullet). Nothing is carried open; the commit-message suffix is the directive's mandated form, not a disposition claim. Also batched this round: the 22 minor findings (never blocking) are recorded with per-item dispositions in WAVE-EXIT.md's batched-minors section for their owning waves (W3 owns the era-lint curation items R5-2/R5-3-class; W4 owns the R2-r4-3 boot-lane re-route note; the owner owns the MSVC C:-residency disclosure and the plan §2.4 focused-run rule). **W3 amendment (wave W3 finalize, same commit as the W3 product work):** the cap fired again at W3 code-red round 6 with 10 findings cited as carried; the same truthful-disposition rule applies — ALL 10 were resolved inside the capped round before the W3 commit (every reviewer-proposed test merged and executed; canonical suites android 1687/0/0/1 across 220, desktop 1408/0/0/2 across 187; the full wave battery 147 passed at finalize), so the mandated suffix '(cap exit, 10 carried findings per D76)' again reads as the directive's form, not a disposition claim. W3's genuinely carried set is its batched MINORS (recorded in w3/WAVE-EXIT.md's batched-minors section: 15 resolved in-wave with evidence, 6 fixed at finalize, the rest carried to W4's editor-preview/catalog-hardening surfaces and W7's final program-wide round) | A cap exit must not falsify state: the directive's substance (commit now, carry the ledger) is followed exactly while the record says what is actually true — the cited findings were resolved inside the capped round, with the gates that prove it merged and green  **W4 amendment (wave W4 finalize, same commit as the W4 product work):** the cap fired again at W4 code-red round 6 with 13 medium findings cited as carried; the truthful-disposition rule applies — ALL 13 were addressed in-wave before the commit (every proposed test merged and executed): the exact-set MPQ enforcement in all four scanner twins, the standalone archive lane + the tbc archive E2E chain, the zero-flavors fail-closed instrument boundary, the settings screens flavor-routed re-point (D83 remainder RETIRED), the tripwire batteries, the quote syncs, the stager family check + the apply-loop family backstop + the family-purity pins, initialize() kind-aware pending-migration defer, the bot conf lane-parameterized emission on both platforms, VAL-11/12 registry-derived copy, the storage multiplier arithmetic, the parity gate W3-era fields, the Troubleshooting VAL rows, and the W4-record leak-quote linter. Two standing dispositions are recorded, not silently carried: (1) WAIVER — the wotlk ARCHIVE-lane E2E full chain is storage-bound on this volume (88 GB planned need vs 36 GB allocatable; e2e-probe-wotlk-archive.log archived); the tbc archive chain is GREEN end to end and the wotlk folder chain is GREEN; remedy = provision ~90 GB and re-run. (2) The canonical JUnit trees + counts artifacts were regenerated TOGETHER as the LAST test-executing action before this commit (desktop 1446/0/0/2 across 194, android 1701/0/0/1 across 223) and remain process-sensitive to post-commit focused runs — W7 re-runs them. Batched minors are recorded in out/completion/w4/WAVE-EXIT.md's batched-minors section for their owning waves. | active |
 | D77 | W2 (completion plan §4 W2.3; owner decision table #1, owner-approved default) — desktop-assisted preparation is the OFFICIAL WotLK lane; on-device preparation is BEST-EFFORT | The official WotLK data-preparation story is the desktop lane: `tools/win_prepare_data.py --flavor wotlk` against the staged genuine 3.3.5a client (`E:\Wow clients\World.of.Warcraft.3.3.5a.Truewow`, exe identity verified against the S5.1 pins) publishes the generation the device consumes through the per-flavor PreparedDataStore pointer (active-wotlk.json, DESK-128). W2's measured first generation: 09613a74-1b08-4993-9cb0-4dc1e716eb16, 22696 files, counts dbc=247 / maps=5744 / vmapTrees=101 / mmapMaps=103 / mmapTiles=4105, wall 810 s (MoveMapGen 694 s) on the 16-thread desktop lane, cold-leg timings ad 30 s / vmap_extractor 68 s / vmap_assembler 26 s, peak 3555 MB workspace and 10805 MB datadir — evidence archived under out/completion/w2/. The on-device/DataPreparationStore walk remains best-effort for wotlk. The same run surfaced and fixed the per-flavor mmtile defect: wotlk's extractor legitimately emits the alt tile form %03u%02i%02i_NN.mmtile (cmangos-wotlk MapBuilder.cpp:1090; its runtime loads both forms via TILE_ALT_FILE_NAME_FORMAT, MoveMap.cpp:28) and silently yields zero navmesh tiles for maps 605/606 (the no-vertices skip branch, MapBuilder.cpp:1042-1050) — win_prepare_data.py gained FLAVOR_MMTILE_NAME plus the wotlk-only failure-clean-stdout waiver for tile-less maps, the desktop twin gained the mirrored mmtileNamePattern, vanilla/tbc keep the strict 7-digit contract, and the wotlk publication floors were re-derived from the measured generation (200/5000/80/80/3500; placeholder retired per test_min_count_floors_carry_measured_provenance_or_a_named_placeholder) | The desktop lane owns the qualified extractor builds and finishes the whole WotLK prep in minutes on owner hardware; an on-device hours-long MoveMapGen buys nothing the per-flavor pointer cannot deliver, and the W7 device checkpoint verifies import → play, never device-side prep. The owner approved the default recommendation at plan approval | active |
+| D87 | W4 round-6 waiver (R5-R6-4) — wotlk ARCHIVE-lane E2E storage bound | The wotlk archive-lane E2E full chain is WAIVED for wave W4: the import's own storage preflight refuses on this volume (88 GB planned need vs 36 GB allocatable under post-import contention; e2e-probe-wotlk-archive.log archived), while the tbc archive chain is GREEN end to end and the wotlk folder-lane chain is GREEN (e2e-probe-wotlk-final.log + -final2.log). The exact-set and archive-member gates are JVM-pinned (FlavorE2eProbePinTest), so the lane is proven even where the full copy is not. Remedy: provision ~90 GB and re-run `gradlew flavorE2eProbe -PrpFlavor=wotlk -PflavorId=wotlk -Parchive=<stored genuine client zip>`; W7 re-verifies. Sign-off: recorded by the W4 round-6 disposition entry in D86 per §2.2 (disclosed, fail-closed, remedy named) | A missing evidence class is either produced or its production owner recorded; the storage bound is environmental and the lane remains proven by the pair-of-logs evidence the exit pin holds | active |
 
 | D78 | W2 code-red cap exit (round 6 fired; revised exit structure, the standing D76 fix-and-continue directive reapplied to W2) — W2 item-2b evidence chain + the exe-identity gate's data-keyed posture | The cap fired at round 6 with two findings cited as carried (R2-6-1, R2-6-2). TRUTHFUL DISPOSITION, the D76 pattern: BOTH were in fact resolved within round 6 BEFORE this commit, each with its reviewer-proposed test merged and executed — R2-6-1: the probe line-count citation is now byte-based end to end (the tool comment cites 161,404 bytes = 2,407 LF + 2,945 CR — the round-5 '2946 lines' figure was decoded read_text()'s universal-newline translation — and test_wotlk_waiver_provenance_resolves_into_the_archived_evidence counts probe_bytes.count(b'
 ')/count(b'
 '), holding the comment's cited byte size and LF/CR shape to the raw artifact, so a translated-count citation or a 'zero CRs' claim can never pass); R2-6-2: the exe-identity gate is fail-closed BY CODE, not by data — assert_client_shape refuses any flavor whose registered pins are missing (VAL-IDENTITY-PINS-MISSING) instead of silently skipping both legs, publish()'s sha gate has three explicit refusal legs (no registered pin → 'unverifiable'; digest-less marker → 'attests nothing'; mismatch), and two pins merged (test_every_registered_flavor_carries_exe_identity_pins — id-set equality + both pins non-null; test_publish_refuses_when_the_lane_has_no_registered_pin — the reviewer's LATENT (None, None)-pins probe now refusing exit 3 with no pointer flip). Final focused verification at the cap: python -m pytest tests/test_win_prepare_data_flavors.py tests/test_win_prepare_data.py → 38 passed with all three pins named above passing individually; the canonical Gradle state from the round-5 exits stands (desktop 1385/183/0/2, android 1634/213/0/1, both BUILD SUCCESSFUL; no Gradle-lane code changed after those runs). The wave's remaining minors are batched in out/completion/w2/WAVE-EXIT.md with per-item dispositions and owning waves (11 resolved in-wave, 18 batched open) for W7's final program-wide round | A cap exit must not falsify state: findings cited as carried that were in fact fixed inside the capped round are recorded as resolved-with-evidence, the mandated commit suffix stays the directive's form rather than a disposition claim, and the batched minors stay pinned for the program-wide re-verification | active |
+
+## D86 — W4 qualification flip (tbc + wotlk qualified; single_qualified_lane retired) + D72 retirement (per-flavor MariaDB seeding)
+
+**Wave:** W4 (completion plan §4 W4.4). **Owner decisions:** flip default approved
+(completion-plan table #3); the W4 stop-condition ruling (2026-10-12, mid-wave):
+option (A) — retire the W1.2 MariaDB per-flavor-seeding deferral (D72) IN WAVE and
+land all per-flavor desktop evidence on the shipped-default MariaDB lane; option
+(B) (sqlite-lane evidence) exists only as an owner-approved fallback and was NOT
+used.
+
+**The flip:** `schemas/flavor.json` — tbc and wotlk `qualified: true`,
+top-level `single_qualified_lane: false` (the D9 one-lane contract retires
+explicitly). `ClientFlavor.kt` mirrors both flags + the W4-measured storage
+blocks. `check_flavor` runs green in multi-qualified mode. An ABSENT active
+selection under several qualified flavors refuses loud
+(`ActiveFlavorState.resolve` — the machine's documented law; the Home flavor
+cards own the first pick, the pick persists). The W3-era render-time resolve
+sites (Home timeframe line, Settings timeframe/tweaks/renderer cards, Add-ons
+catalog, Client import copy, the tunnel-invite line) surface the honest
+"pick a game flavor" copy instead of crashing composition; every OPERATION
+gate (import, boot, prep, addons install, editor) keeps the loud refusal.
+
+**Storage accounting (measured 2026-10-12, E:\Wow clients + the published
+prepared generations):** vanilla client 5,526,986,723 B / 57 files;
+tbc 8,579,714,973 B / 976 files (largest 3,838,254,210 B), prepared
+generation 84002584 = 3,217,410,914 B / 15,199 files; wotlk 17,856,619,157 B /
+185 files (largest 4,005,207,489 B), prepared generation 09613a74 =
+3,309,122,582 B / 22,697 files. tbc storage: extracted 12 GiB (>= the 8.0 GiB
+client tree — the managed-copy floor the planner reserves for — and ~3.7x the
+measured prepared generation; R4-3 code-red round 1 raised it from the
+under-stated 6 GiB), max_total 24 GiB; wotlk: extracted 24 GiB (>= the 16.6 GiB
+client tree, ~7.3x the measured prepared generation; R4-3 raised it from the
+under-stated 6 GiB), max_total 40 GiB; platform caps (8 GiB max file, 100k
+files, 110k entries) unchanged.
+
+**D72 retirement (the blocking discovery + ruling):** the W1.2 deferral made
+the MariaDB bootstrap refuse every non-vanilla lane before any SQL — observed
+2026-10-12 as the tbc lane's realmd `DB_CONNECT` (access denied to tbcrealmd).
+Retired by owner ruling: the per-flavor migration ledgers
+(`schemas/database-migrations-{tbc,wotlk}.json`, each carrying the flavor's
+base schemas + Full_DB world dump + migrations, S4/W2 artifacts) now stage as
+SIBLINGS in the shared Windows provider closure (`migration-manifest-<flavor>.json`
++ `migrations-<flavor>/` via the new hash-verifying
+`tools/stage_mariadb_flavor_migrations.py` — every asset verified against its
+ledger entry's compressed and decompressed digests before it lands). The
+engine routes per lane: manifest/assets (`DesktopMariaDbProvider.Closure.
+migrationManifestFor/migrationAssetFor`), the pocketrealm_meta ledger table
+(`migration_ledger_<flavor>`; vanilla's table name unchanged), the migration
+seal marker (`.pocketrealm-migrations-<flavor>.json`; vanilla's name
+unchanged), the pre-apply lane database provisioning
+(`MariaDbBootstrap.laneProvisionSql` — idempotent CREATE IF NOT EXISTS +
+core grants), the revision verifier (the former vanilla-literal probes made
+every non-vanilla apply fail with "realm missing
+required_s2474_01_realmd_joindate_datetime"), and the timeframe overlay lane
+resolver (installed from the pinned boot lane). `migrationsCurrent()` is
+lane-aware. D60 holds: the SHARED provider document + the shared
+migration-manifest.json stay the vanilla golden (byte-untouched, tested);
+non-vanilla lanes write lane-scoped provider documents
+(`database-provider-lockfile-win-<flavor>.json`) and lane runtime lockfiles
+(`realm-runtime-lockfile-mariadb-win-<flavor>.json`). The tbc (135/135) and
+wotlk (222/222) ledgers applied green on the live MariaDB datadir and both
+lanes boot.
+
+**The per-lane win runtimes:** `tools/build_win_realm_runtime.py --flavor
+{tbc,wotlk} --database-backend mariadb` produced
+`native/.build-win-x86_64-{tbc,wotlk}-mariadb/pocket-runtime-build` DLLs +
+their lane lockfiles; desktop BuildConfig carries per-lane telltale ids
+(`NATIVE_RUNTIME_BUILD_ID_{TBC,WOTLK}`, pinned by test_win_lockfile's
+per-lane rows); the Gradle rpHost harness routes the DLL root via
+`-PrpFlavor=`.
+
+**Three product defects the W4 boots surfaced and fixed (why this wave
+exists):** (1) the W3 timeframe comment block emitted `//`-led lines into
+mangosd.conf — the native Config parser (Config.cpp Reload) refuses ANY
+keyless line, so EVERY native world boot since W3 failed with
+POCKET_SERVER_CONFIG; the conf block re-emits as `#` comments + a
+parser-shape tripwire test. (2) the engine/verifier/logon/overlay paths
+resolved the flavor through the :ui ActiveFlavor holder, which a headless
+host never populates (now resolve the pinned boot lane). (3) the client
+scanner's MPQ gate compared the registry's locale-slash requiredMpqs keys
+against Data's DIRECT children only — every genuine tbc/wotlk client
+(staging locale MPQs inside `Data/<locale>/`) refused VAL-04 with a
+missing-set of exactly the slashed entries (the S5-era deferral
+MpqSetKeyFormTripwireTest pinned as its own precondition); all three
+scanner twins (Saf/Archive/Desktop) now walk Data at bounded depth and
+match required keys by lowercase basename — the tripwire re-pinned as the
+fix's behavioral battery (genuine locale-subdir tree supported; missing
+locale MPQ still refuses naming the slashed key; flat layout still
+supported).
+
+**Code-red round 6 additions:** (R3-6-1/R2-r6-1) the claimed-but-missing
+family check in the per-flavor migration stager is ENFORCED (a ledger
+entry whose target database is outside the flavor's family refuses before
+any file lands; the committed ledgers are verified family-pure and the
+stager's wrong-family attack is pinned) AND the desktop apply loop gained
+the matching mandatory backstop (a ledger entry naming a database outside
+the boot lane's own family refuses BEFORE runClient executes the SQL).
+(R5-R6-1) `initialize()` now proves a pending MIGRATION journal
+kind-aware (the R3-2 lane identity), so a kill-mid-migration on a
+tbc/wotlk lane answers the documented DEFER_MIGRATION
+(migrationTransactionPending=true, deferredTo=applyPinnedMigrations)
+instead of the false FAIL_CLOSED; pinned by initializeOnAKilledLane...
+(R5-R6-2) the bot conf VALUES (RandomBotMaxLevel/RandomBotMaps) resolve
+the world start's PINNED BOOT LANE via the lane-parameterized emission —
+never the :ui holder — on both platforms, pinned by
+BotConfLaneEmissionTest (android) + BotConfLaneEmissionTest (desktop
+source shape) and the lane-parameterized BotFlavorResolutionTest legs.
+(R6-r6-1) VAL-11/VAL-12 rejection copy derives the accepted set from
+ClientPeIdentity.expectedVersions (no hard-coded vanilla version).
+(R6-R4-1) the storage notes' multiplier arithmetic corrected (tbc 4.0x,
+wotlk 7.8x) and pinned by test_storage_note_multipliers.
+(R6-R1-1) FlavorManifestParityTest now covers the four W3-era shared
+fields (lore_cards/prompt_identity/graphics_routes/vanilla_tweaks).
+(R6-r6-2) Troubleshooting.md documents the exact-set VAL-04 and the
+VAL-02 size cap, pinned by the wiki coverage pin. (R5-R6-4) WAIVER — the
+wotlk ARCHIVE-lane E2E full chain is waived for this volume: the import's
+own storage preflight refuses (88 GB planned need vs 36 GB allocatable
+under post-import contention; e2e-probe-wotlk-archive.log archived), the
+tbc archive chain is GREEN end to end, and the wotlk folder-lane chain is
+GREEN; provisioning ~90 GB and re-running
+`gradlew flavorE2eProbe -DflavorId=wotlk -Darchive=...` is the recorded
+remedy. Reviewer sign-off recorded by this round's disposition entry.
+
+**Code-red round 5 additions:** (R1-1/R2-5-2) the tbc/wotlk mpq_set
+notes' exact-set semantics are ENFORCED — an unknown patch-*.mpq (not in
+the flavor's own set) is VAL-04 naming the file in all four scanner twins
+(Saf, desktop folder, both archive scanners; vanilla keeps its documented
+tolerance), with the positive bothGates source pin, the per-flavor refusal
+tests, and the vanilla documented-gap pin unchanged. (R1-2/R4-r5-1) the
+W4.1 archive lane stands ALONE (-DclientDir pairing no longer required —
+the archive's own WoW.exe member is the S5.1 evidence) and its detection
+derives the Data directory from file paths (zips without explicit dir
+entries import); the TBC archive-lane E2E chain is GREEN end to end
+(import=archive -> boot -> auto-login -> saveExit); the wotlk archive
+import was attempted and is storage-bound on this volume (88 GB planned
+need vs 36 GB allocatable under post-import contention) — recorded as the
+wotlk known bound with the folder-lane chain green, pinned by the updated
+exit-evidence pin. (R2-5-1) the auth-matrix instrument fails closed at
+the zero-flavors boundary (manifest_pins refuses <1 registered flavor;
+the merged pin holds it). (R5-1) the D83 settings/bindings/controls
+remainder is RETIRED — all three android screens + the desktop settings
+screen resolve every catalog read through the flavor-routed seam
+(WowFlavorCatalogs' extended render side: settingsForSection/groups/
+fixedReasonRenderer/bindings*), the count pins are replaced with
+behavior/source pins, and the tbc lane renders its own authored settings
+instead of 98 vanilla rows resolving null. (R4-r5-3) the WAVE-EXIT quote
+syncs (leak 1539/2206, canonical durations/battery counts re-measured). (R5-1) the D83 settings/bindings/controls
+remainder is RETIRED: all three android screens (InGameSettingsScreens/
+InGameBindingsScreen/ControlsScreen) + the desktop settings screen resolve
+every catalog read through the flavor-routed seam (WowFlavorCatalogs'
+extended render side), so a tbc lane renders its own authored settings
+instead of 98 vanilla rows resolving null; the D83 count pins are replaced
+with behavior/source pins asserting the seam reads and zero hard-coded
+vanilla references.
+
+**Code-red round 4 additions:** (R4-1/R4-1b serious) the ANDROID lane got
+its missing boot-time gates — `requireAndroidRuntimeLaneMatches` (the
+desktop requireRuntimeLaneMatches twin: the packaged Android runtime is
+vanilla-only; the world AND realmd services gate BEFORE any startNative;
+AndroidBootLaneGateTest pins the refusals + the ordering) and the engine's
+ANDROID-LANE-SCOPE refusal (the android ledger is vanilla-only until W5 —
+bootstrapDatabaseNames refuses a non-vanilla persisted pick BEFORE
+provisioning its family, so the stuck-datadir state is unreachable;
+RealmBuildsProjectionContractTest pins the law) — with the wiki
+Home-Screen/Getting-Started naming the per-platform truth (wiki pins
+added). (R4-5/R5-W4r4-3/R2-R4-3) the deferred W4.4 adversarial legs LANDED:
+the engine-level kill-mid-switch test (a RUNNING lane journal injected
+through the engine's own durable writer, the flip lane boots green on its
+own scope, the killed lane's next apply recovers its own snapshot with the
+loud recoveredInterruptedTransaction disclosure) — which surfaced and
+fixed TWO more production defects: the lane journal's malformed name
+("database-transaction.json-tbc.json" — the suffix composed onto a name
+already carrying .json) and the MIGRATION snapshot's compatibility stamping
+the SHARED identity while the recovery proves the LANE identity (the
+historical-compatibility mismatch), plus the shared 6-vs-7-field
+compatibility check widening for the R4-r2-2 flavor stamp.
+
+**Code-red rounds 1–2 (30 + 24 findings, all fixed at root in-wave, every
+proposed test merged):** (R1-1) the vanilla-only `requires` lane law retired —
+the android engine's `bootstrapDatabaseNames` resolves the PERSISTED pick via
+`ActiveFlavorState(persisted).resolve(ClientFlavors.qualified(), …)` so a
+headless :database process never needs the UI holder; the whole flip-crash
+class this exposed (holder-based resolves in headless processes) is closed by
+threading the pinned boot lane through ServerRuntimeFiles, the engines, the
+snapshot store, and status JSON. (R1-2/R3-1) `FlavorE2eProbe.importLane`
+routes per flavor with the production `requirePinnedSha` client-hash gate
+(FlavorE2eProbePinTest drives the production path). (R2-W4-1/R4-r2-1) the
+auth-matrix instrument's draft stub removed; `run_lane` proven live by
+test_rp_harness_auth_matrix_pin. (R4-1) `MariaDbBootstrap.laneProvisionSql`
+(idempotent per-lane CREATE + grants, name-regex-guarded) with
+MariaDbBootstrapLaneProvisionTest. (R4-2/R4-3) per-lane BuildConfig telltale
+ids + the under-stated storage blocks raised (tbc 12 GiB / wotlk 24 GiB) with
+the measured provenance notes; ServerStatusJson now reports the ACTIVE lane's
+build id + core commit (R3-4; `BuildConfig.nativeCmangosCommitFor`). (R3-3)
+`requireRuntimeLaneMatches` sha256-gates the staged lane
+pocket_world_runtime.dll against the lane lockfile artifact pin — presence is
+not identity (stale/pinless/unpinned refusals pinned in RuntimeLaneGateTest;
+the staged tbc/wotlk DLLs digest-match their committed lane pins). (R5-2)
+the migration transaction journal is lane-scoped; (R4-r2-2) snapshot
+retention is per-lane (`coerceAtLeast(0)`); (R4-r2-3) `MIN_MIGRATION_BYTES`
+raised to 3 GiB — the gate is a SNAPSHOT budget (measured ~1.76 GiB) and the
+static floor sat BELOW the measured cost. (R6-2-1..7) the vanilla-catalog
+copy sites made flavor-neutral or lane-routed (ImportScreen, FirstRunTutorial,
+both scanner VAL-01 lines, the wiki set), the D83 remainder recorded with
+exact call-site pins (19 android / 6 desktop), the D86 storage paragraph
+synced, the W1 pack's leak quote refreshed to live. (R5-1) AddonsScreen
+initializes the repository before its first-pick guard so a non-vanilla lane
+still renders the honest copy instead of an uninitialized repo. (R7-1)
+detekt baselines re-derived with reviewed deltas; both lanes 0 weighted
+issues live at close. **Close-out defects found by the final canonical
+capture, both root-caused:** the wave's python `write_text` edits had
+silently converted 117 touched files to CRLF (breaking raw-bytes `\n` needle
+pins — normalized back to the repo's LF convention), and
+DesktopDatabaseServiceTest had missed the wave's vanilla-lane fixture pin
+(status()'s lane-keyed read correctly hit the multi-qualified no-pick
+refusal; fixture added). Both canonical suites re-run clean AFTER the fixes:
+desktop 1446/0/0/2 across 194 classes, android 1701/0/0/1 across 223
+classes (full logs archived under out/completion/w0/; the round-4 close
+re-measure re-ran both canonical suites on the final tree and regenerated
+the counts artifacts + the xml-tree digest together).
+
+**Flip gate:** the flip commits only when the full W4 evidence set is green
+on MariaDB — the 3×3 auth matrix, the per-flavor desktop E2E, and the
+coexistence runs.

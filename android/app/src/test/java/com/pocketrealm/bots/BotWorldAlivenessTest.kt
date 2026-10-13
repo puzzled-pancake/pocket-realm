@@ -5,13 +5,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * World aliveness without reducing bot counts.
  *
  * The seven experience presets enable the existing "range"/"map" login
  * criteria — the emitted line is conditional, so every other preset's
- * playerbotConfig() (and thus its adv identity-digest input, which hashes
+ * playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA) (and thus its adv identity-digest input, which hashes
  * that text) stays byte-identical.
  *
  * The village-ring preset fields ship dark: count 0 on every catalog
@@ -24,6 +27,19 @@ import org.junit.Test
  * masterless-say capacity (RandomBotSayWithoutMaster stays 0 everywhere).
  */
 class BotWorldAlivenessTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+     * tests pin the VANILLA lane (holder select) so resolvers see one lane. */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     @Test
     fun everyExperiencePresetEnablesTheRangeAndMapLoginCriteria() {
@@ -32,7 +48,7 @@ class BotWorldAlivenessTest {
             assertTrue("experience preset ${profile.id} must prefer near-player logins", profile.loginPreferNearPlayer)
             assertTrue(
                 "experience preset ${profile.id} must emit the criteria line",
-                profile.playerbotConfig()
+                profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
                     .contains("AiPlayerbot.DefaultLoginCriteria = maxbots,spareroom,offline,range,map"),
             )
         }
@@ -45,7 +61,7 @@ class BotWorldAlivenessTest {
         val nonExperience = BotProfiles.ids() - BotProfiles.experiencePresets.map { it.id }.toSet()
         assertTrue("catalog must have non-experience profiles", nonExperience.size >= 10)
         for (id in nonExperience) {
-            val conf = BotProfiles.find(id)!!.playerbotConfig()
+            val conf = BotProfiles.find(id)!!.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
             assertFalse("$id must not emit DefaultLoginCriteria", conf.contains("DefaultLoginCriteria"))
             assertFalse("$id must not emit VillageRing keys", conf.contains("VillageRing"))
         }
@@ -80,7 +96,7 @@ class BotWorldAlivenessTest {
     fun anOptedInProfileEmitsExactlyTheThreeVillageRingKeys() {
         val conf = BotProfiles.experiencePresets.first()
             .copy(villageRingCount = 5)
-            .playerbotConfig()
+            .playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
         assertTrue(conf.contains("AiPlayerbot.VillageRingCount = 5"))
         assertTrue(conf.contains("AiPlayerbot.VillageRingMinYd = 10"))
         assertTrue(conf.contains("AiPlayerbot.VillageRingMaxYd = 25"))
@@ -94,7 +110,9 @@ class BotWorldAlivenessTest {
         for (id in BotProfiles.ids()) {
             assertTrue(
                 "$id must keep RandomBotSayWithoutMaster = 0",
-                BotProfiles.find(id)!!.playerbotConfig().contains("AiPlayerbot.RandomBotSayWithoutMaster = 0"),
+                BotProfiles.find(id)!!.playerbotConfig(
+                    com.pocketrealm.client.ClientFlavors.VANILLA,
+                ).contains("AiPlayerbot.RandomBotSayWithoutMaster = 0"),
             )
         }
     }

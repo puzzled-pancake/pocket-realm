@@ -8,6 +8,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import com.pocketrealm.client.ActiveFlavor
+import org.junit.After
+import org.junit.Before
 
 /**
  * JVM tests for the installer-payload lane seam: the quick-check verdict,
@@ -15,6 +18,19 @@ import org.junit.rules.TemporaryFolder
  * with its chunk-ordered inventory.
  */
 class InnoLaneTest {
+    /** W4 flip fixture: the sole-qualified degrade is retired;
+     * the scanner lanes pin the VANILLA lane (holder select). */
+    @Before
+    fun pinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLaneForTheFlip() {
+        ActiveFlavor.reset()
+    }
+
 
     @get:Rule val temp = TemporaryFolder()
 

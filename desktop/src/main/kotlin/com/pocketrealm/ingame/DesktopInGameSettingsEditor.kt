@@ -274,6 +274,11 @@ class DesktopInGameSettingsEditor(
     private fun activeFlavor(): com.pocketrealm.client.ClientFlavor =
         com.pocketrealm.client.ActiveFlavor.resolve(DESKTOP_EDITOR_LANE)
 
+    /** R5-1: the render-side screens share the editor's ACTIVE lane
+     * resolution so their catalog reads route through the same seam. */
+    internal fun activeLaneForCatalog(): com.pocketrealm.client.ClientFlavor =
+        activeFlavor()
+
     private fun settingsById(): (String) -> WowSettingDefinition? =
         WowFlavorCatalogs.settingsById(activeFlavor())
 

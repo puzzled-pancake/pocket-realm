@@ -23,6 +23,15 @@ import org.json.JSONObject
  * same layout the desktop ClientGenerationStore twin publishes into).
  */
 internal class ManagedClientStore(roots: DesktopStorageRoots) {
+
+    /** The base-data gate's bounded Data walk depth (locale dirs + a
+     * wrapper level; W4 defect 3b). */
+    private companion object {
+        const val MPQ_WALK_MAX_DEPTH = 4
+        const val BACKSLASH = '\\'
+        const val FORWARD_SLASH = '/'
+    }
+
     data class ManagedClient(
         val id: String,
         val generation: String,
@@ -127,9 +136,30 @@ internal class ManagedClientStore(roots: DesktopStorageRoots) {
         check(sha256(executable) == expectedExecutableSha) {
             "managed WoW.exe hash mismatch"
         }
-        check(File(root, "Data/base.MPQ").isFile && File(root, "Data/interface.MPQ").isFile) {
-            "managed client base data is incomplete"
-        }
+        // W4 (defect 3's sibling, the tbc E2E surfaced it): the base-data
+        // gate named VANILLA's base.MPQ/interface.MPQ literals — a tbc/
+        // wotlk generation (locale MPQs, no base/interface) refused its
+        // own boot. The gate resolves the generation's OWN flavor's
+        // required set over a bounded-depth basename walk.
+        // R2-R4-2: match each registry key by its own form — a slash key
+        // at that path RELATIVE to Data (a basename-only match accepted a
+        // path-doctored generation whose client cannot load its data), a
+        // bare key by basename.
+        val dataDir = java.io.File(root, "Data")
+        val presentMpqRelPaths = dataDir.walkTopDown()
+            .maxDepth(MPQ_WALK_MAX_DEPTH)
+            .filter { it.isFile && it.name.endsWith(".mpq", ignoreCase = true) }
+            .map { it.relativeTo(dataDir).path.replace(BACKSLASH, FORWARD_SLASH).lowercase() }
+            .toSet()
+        check(
+            flavor.requiredMpqs.all { key ->
+                val lowered = key.lowercase()
+                if ('/' in lowered) presentMpqRelPaths.contains(lowered)
+                else presentMpqRelPaths.any {
+                    it.substringAfterLast('/') == lowered
+                }
+            }
+        ) { "managed client base data is incomplete" }
         val realmlistFile = File(root, "realmlist.wtf")
         check(realmlistFile.isFile && realmlistFile.canonicalFile.parentFile == root &&
             !Files.isSymbolicLink(realmlistFile.toPath()) && realmlistFile.length() in 1..64) {

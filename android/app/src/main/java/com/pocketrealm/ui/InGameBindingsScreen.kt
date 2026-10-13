@@ -130,7 +130,8 @@ internal fun InGameBindingsScreen() {
             applyBinding(commandId, surviving.getOrNull(0), surviving.getOrNull(1))
             return
         }
-        check(key !in WowVanillaBindingCatalog.reservedKeys) {
+        check(key !in com.pocketrealm.ingame.WowFlavorCatalogs
+            .bindingsReservedKeys(activeBindingLane())) {
             "$key is used by the controller overlay"
         }
         val displaced = bindings?.entries
@@ -154,11 +155,14 @@ internal fun InGameBindingsScreen() {
      * resolve silently, exactly like the in-game reset.
      */
     fun resetCategory() {
-        val targets = WowVanillaBindingCatalog.inCategory(selectedCategory)
+        val targets = com.pocketrealm.ingame.WowFlavorCatalogs
+            .bindingsInCategory(activeBindingLane(), selectedCategory)
             .mapNotNull { binding ->
-                WowVanillaBindingCatalog.stockDefaultKeys(binding.id)
+                com.pocketrealm.ingame.WowFlavorCatalogs
+            .bindingsStockDefaultKeys(activeBindingLane(), binding.id)
                     ?.slots
-                    ?.filter { it !in WowVanillaBindingCatalog.reservedKeys }
+                    ?.filter { it !in com.pocketrealm.ingame.WowFlavorCatalogs
+            .bindingsReservedKeys(activeBindingLane()) }
                     ?.takeIf { it.isNotEmpty() }
                     ?.let { binding.id to it }
             }
@@ -247,7 +251,8 @@ internal fun InGameBindingsScreen() {
         )
 
         val matches = remember(search, selectedCategory) {
-            WowVanillaBindingCatalog.search(
+            com.pocketrealm.ingame.WowFlavorCatalogs.bindingsSearch(
+                activeBindingLane(),
                 search,
                 categories = if (search.isBlank()) setOf(selectedCategory) else emptySet(),
             )
@@ -323,7 +328,9 @@ internal fun InGameBindingsScreen() {
     }
     conflict?.let { (commandId, key, slot) ->
         val displacedLabel = bindings?.get(key)?.let { id ->
-            WowVanillaBindingCatalog.find(id)?.label ?: id
+            com.pocketrealm.ingame.WowFlavorCatalogs.bindingFind(
+                activeBindingLane(),
+            )(id)?.label ?: id
         } ?: "another action"
         AlertDialog(
             onDismissRequest = { conflict = null },
@@ -424,11 +431,14 @@ private fun BindingRow(
     onEdit: (String, Int) -> Unit,
     onUnbind: (String, Int) -> Unit,
 ) {
-    val defaults = WowVanillaBindingCatalog.stockDefaultKeys(binding.id)
+    val defaults = com.pocketrealm.ingame.WowFlavorCatalogs
+            .bindingsStockDefaultKeys(activeBindingLane(), binding.id)
     val defaultKeys = defaults?.slots.orEmpty()
     // A reserved default key is never a valid modification baseline: the
     // controller overlay owns whatever the stock default was.
-    val reservedDefault = defaultKeys.any { it in WowVanillaBindingCatalog.reservedKeys }
+    val reservedDefault = defaultKeys.any { 
+        it in com.pocketrealm.ingame.WowFlavorCatalogs
+            .bindingsReservedKeys(activeBindingLane()) }
     val liveKeys = bindings?.filterValues { it == binding.id }?.keys?.toList()
     val primary = queued?.primary ?: liveKeys?.getOrNull(0)
     val secondary = queued?.secondary ?: liveKeys?.getOrNull(1)
@@ -483,7 +493,8 @@ private fun BindingRow(
                             .heightIn(min = 48.dp)
                             .testTag("ingame-binding-${binding.id}-slot$slot"),
                     ) { Text(key ?: "Unbound") }
-                    if (key != null && key !in WowVanillaBindingCatalog.reservedKeys) {
+                    if (key != null && key !in com.pocketrealm.ingame.WowFlavorCatalogs
+            .bindingsReservedKeys(activeBindingLane())) {
                         TextButton(onClick = { onUnbind(binding.id, slot) }) { Text("✕") }
                     }
                 }
@@ -524,7 +535,9 @@ private fun KeyPickerDialog(
     onPick: (String?) -> Unit,
 ) {
     var modifier by remember { mutableStateOf("") }
-    val label = WowVanillaBindingCatalog.find(commandId)?.label ?: commandId
+    val label = com.pocketrealm.ingame.WowFlavorCatalogs.bindingFind(
+        activeBindingLane(),
+    )(commandId)?.label ?: commandId
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Assign key — $label") },
@@ -558,7 +571,8 @@ private fun KeyPickerDialog(
                         Row(Modifier.horizontalScroll(rememberScrollState())) {
                             rowKeys.forEach { key ->
                                 val chord = modifier + key
-                                val reserved = chord in WowVanillaBindingCatalog.reservedKeys
+                                val reserved = chord in com.pocketrealm.ingame.WowFlavorCatalogs
+            .bindingsReservedKeys(activeBindingLane())
                                 FilterChip(
                                     selected = false,
                                     enabled = !reserved,
@@ -589,3 +603,13 @@ private fun KeyPickerDialog(
         },
     )
 }
+
+/** R5-1: the bindings screens resolve every catalog read through the
+ * ACTIVE lane's own catalog (the flavor-routed seam), never a hard-coded
+ * vanilla object. Non-null by the in-game surfaces' own precondition:
+ * these screens render inside a booted game whose boot gate required a
+ * lane pick; an unpicked state fails loud via the machine's resolve. */
+internal fun activeBindingLane(): com.pocketrealm.client.ClientFlavor =
+    com.pocketrealm.client.ActiveFlavor.resolve(
+        "the in-game bindings screens resolve the active lane's catalog",
+    )

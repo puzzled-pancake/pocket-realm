@@ -45,6 +45,55 @@ import kotlin.system.exitProcess
  */
 // Bring-up gate: any failure exits honestly with the stop attempted.
 @Suppress("TooGenericExceptionCaught", "LongMethod")
+/**
+ * DESK-93 + R1-r3-5 (desktop-twin round 3), extracted for the harness ops
+ * (W4.2): the SRP verifier row lands where the database realmd.conf's
+ * LoginDatabaseInfo points — PROVIDER-AWARE. The shipped-default MariaDB
+ * lane routes through the engine's owner-gated SQL (seedSrpVerifierRow,
+ * the projection's path); the sqlite datadir leg stays the dev opt-in
+ * lane's. Returns the sqlite realmd path when the sqlite leg was used
+ * (null on the MariaDB lane), so callers can report where the row went.
+ */
+internal fun seedSrpVerifierRowForLane(
+    backend: DesktopRuntimeBackend,
+    roots: DesktopStorageRoots,
+    account: String,
+    srp: VsrpMath.Verifier,
+): String? {
+    if (backend.isMariadbLane()) {
+        val seeded = backend.mariadbVerifierSeeding()
+            .seedSrpVerifierRow(account, srp.vHex, srp.sHex)
+        check(seeded.optBoolean("ok")) {
+            "MariaDB SRP verifier seeding refused: ${seeded.optString("reason", seeded.toString())}"
+        }
+        println(
+            "seeded SRP verifier row for $account in ${seeded.optString("database")} " +
+                "(v=${srp.vHex.take(HEX_ECHO_CHARS)}…, s=${srp.sHex.take(HEX_ECHO_CHARS)}…)",
+        )
+        return null
+    }
+    val realmd = DatabaseSqliteControlPlane.databaseFile(
+        roots.sqliteDatadir,
+        ServerRuntimeFiles.serverDatabases().realmd,
+    )
+    DesktopSqliteConnection(realmd.absolutePath).use { db ->
+        db.exec("DELETE FROM account WHERE username = '$account';")
+        db.exec(
+            "INSERT INTO account (username, gmlevel, v, s, joindate, lockedIp, last_module, locale, os, platform) " +
+                "VALUES ('$account', 0, '${srp.vHex}', '${srp.sHex}', " +
+                    "'2026-01-01 00:00:00', '0.0.0.0', '', 'enUS', 'Win', 'x86');",
+        )
+        check(db.queryLong("SELECT COUNT(*) FROM account WHERE username = '$account';") == 1L) {
+            "verifier row did not land"
+        }
+    }
+    println(
+        "seeded SRP verifier row for $account " +
+            "(v=${srp.vHex.take(HEX_ECHO_CHARS)}…, s=${srp.sHex.take(HEX_ECHO_CHARS)}…)"
+    )
+    return realmd.absolutePath
+}
+
 fun main() {
     val roots = DesktopStorageRoots()
     roots.ensureDirectories()
@@ -75,40 +124,9 @@ fun main() {
     val srp = VsrpMath.verifierFor(account, password)
     // DESK-93 + R1-r3-5 (desktop-twin round 3): the verifier row lands in
     // the database realmd.conf's LoginDatabaseInfo points at — PROVIDER-
-    // AWARE: the shipped-default MariaDB lane routes through the engine's
-    // owner-gated SQL (seedSrpVerifierRow, the projection's path), so the
-    // proto-login verifier lands where the MariaDB realmd actually reads;
-    // the sqlite datadir leg stays the dev opt-in lane's.
-    var sqliteRealmd: String? = null
-    if (backend.isMariadbLane()) {
-        val seeded = backend.mariadbVerifierSeeding()
-            .seedSrpVerifierRow(account, srp.vHex, srp.sHex)
-        println(
-            "seeded SRP verifier row for $account in ${seeded.getString("database")} " +
-                "(v=${srp.vHex.take(HEX_ECHO_CHARS)}…, s=${srp.sHex.take(HEX_ECHO_CHARS)}…)",
-        )
-    } else {
-        val realmd = DatabaseSqliteControlPlane.databaseFile(
-            roots.sqliteDatadir,
-            ServerRuntimeFiles.serverDatabases().realmd,
-        )
-        sqliteRealmd = realmd.absolutePath
-        DesktopSqliteConnection(realmd.absolutePath).use { db ->
-            db.exec("DELETE FROM account WHERE username = '$account';")
-            db.exec(
-                "INSERT INTO account (username, gmlevel, v, s, joindate, lockedIp, last_module, locale, os, platform) " +
-                    "VALUES ('$account', 0, '${srp.vHex}', '${srp.sHex}', " +
-                        "'2026-01-01 00:00:00', '0.0.0.0', '', 'enUS', 'Win', 'x86');",
-            )
-            check(db.queryLong("SELECT COUNT(*) FROM account WHERE username = '$account';") == 1L) {
-                "verifier row did not land"
-            }
-        }
-        println(
-            "seeded SRP verifier row for $account " +
-                "(v=${srp.vHex.take(HEX_ECHO_CHARS)}…, s=${srp.sHex.take(HEX_ECHO_CHARS)}…)"
-        )
-    }
+    // AWARE (the extracted [seedSrpVerifierRowForLane] the harness ops
+    // share; W4.2).
+    val sqliteRealmd = seedSrpVerifierRowForLane(backend, roots, account, srp)
 
     kotlinx.coroutines.runBlocking { backend.start(RuntimeComponent.REALM, owner, spec) }
     // Wait for READY (not a connect probe: the probe's instant
@@ -133,6 +151,13 @@ fun main() {
     val sessionKeyHex = try {
         VsrpClient.logon(LOOPBACK, ServerRuntimeContract.REALM_PORT.toInt(), account, srp)
     } catch (failure: Throwable) {
+        // R2-4/W4-R7-2 (code-red round 1): the catch stays Throwable — the
+        // wire client's connect/read legs throw IO failures (ConnectException,
+        // SocketTimeoutException) that are NOT ISE, and the bring-up contract
+        // ("any failure exits honestly with the stop attempted") requires
+        // the REALM stop to run for those too, else the native lane
+        // processes are orphaned. The expected refusals are ISE subtypes;
+        // everything else still stops and exits EXIT_HANDSHAKE.
         DesktopLog.e("AuthGate", "SRP handshake failed: ${failure.message}")
         kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.REALM, owner) }
         exitProcess(EXIT_HANDSHAKE)
@@ -323,6 +348,15 @@ internal object VsrpClient {
     internal const val VANILLA_PROOF_RESPONSE_BYTES = 2 + PROOF_BYTES + LOGIN_FLAGS_BYTES
 
     /**
+     * W4.2 (the 3×3 auth matrix): the tbc/wotlk proof-response frame —
+     * cmd + error + M2[20] + uint32 accountFlags + uint32 surveyId +
+     * uint16 unkFlags = 32 (the S8-verified sAuthLogonProof_S layout of
+     * the later branches' AuthSocket.cpp). The registry pins the
+     * same 32 as those flavors' [ClientFlavor.proofResponseBytes].
+     */
+    internal const val TBC_WOTLK_PROOF_RESPONSE_BYTES = 2 + PROOF_BYTES + 4 + 4 + 2
+
+    /**
      * DESK-94: platform/os/locale have no per-flavor registry field yet,
      * so they stay the vanilla client's constants — the
      * [com.pocketrealm.client.ClientFlavors.AUTH_CHALLENGE_OPCODE]
@@ -340,11 +374,24 @@ internal object VsrpClient {
     // The 1.12 wire format is fixed-width fields; every literal names its
     // field in the adjacent comment (per-field constants would obscure it).
     @Suppress("LongMethod", "MagicNumber")
+    /** W4.2 (the 3×3 auth matrix): the harness's logon-identity overrides.
+     * [buildOverride] presents an explicit CLIENT build in the logon
+     * challenge instead of the boot lane's own — the wrong-build cells (a
+     * mismatched pairing must refuse at the challenge, never authenticate).
+     * [lane] is the caller's PINNED boot lane (RpHost threads it; the :ui
+     * holder is empty in a headless host). Null keeps every production
+     * caller's behavior (the boot lane's identity, the holder resolution). */
+    data class LogonIdentity(
+        val buildOverride: Int? = null,
+        val lane: ClientFlavor? = null,
+    )
+
     fun logon(
         host: String,
         port: Int,
         accountUpper: String,
         verifier: VsrpMath.Verifier,
+        identity: LogonIdentity? = null,
     ): String {
         Socket().use { socket ->
             socket.connect(InetSocketAddress(host, port), GATE_CONNECT_TIMEOUT_MS)
@@ -354,9 +401,11 @@ internal object VsrpClient {
 
             // DESK-94: the challenge identity rides the one qualified
             // flavor (ClientFlavor.build / versionResource), never a
-            // hard-coded build constant.
-            val flavor = ServerRuntimeFiles.serverFlavor()
-            val body = challengeBody(accountUpper, flavor)
+            // hard-coded build constant. W4 flip: the caller's pinned
+            // boot lane first — a headless harness never populates the
+            // :ui holder, whose multi-qualified no-pick state refuses loud.
+            val flavor = identity?.lane ?: ServerRuntimeFiles.serverFlavor()
+            val body = challengeBody(accountUpper, flavor, identity?.buildOverride)
             out.write(byteArrayOf(CMD_AUTH_LOGON_CHALLENGE.toByte(), 0) +
                 byteArrayOf((body.size and 0xFF).toByte(), (body.size shr 8).toByte()) + body)
             out.flush()
@@ -414,32 +463,107 @@ internal object VsrpClient {
             out.flush()
 
             // DESK-94: the proof-response frame LENGTH is per-flavor data
-            // (ClientFlavor.proofResponseBytes — "null until verified").
-            // A flavor with no verified length, or one whose verified
-            // length does not fit the parsed layout, fails loud here
-            // instead of silently mis-parsing the wire; the vanilla
-            // pairing (26 == 26) is the AuthGateTest frame pin.
+            // (ClientFlavor.proofResponseBytes). A flavor with no verified
+            // length, or one whose verified length does not fit a parsed
+            // layout, fails loud here instead of silently mis-parsing the
+            // wire; the vanilla pairing (26 == 26) is the AuthGateTest
+            // frame pin. W4.2: the two verified layouts are the vanilla
+            // 26-byte frame (cmd+error+M2+uint32 LoginFlags) and the
+            // tbc/wotlk 32-byte frame (cmd+error+M2+uint32 accountFlags+
+            // uint32 surveyId+uint16 unkFlags — S8-verified against the
+            // branches' AuthSocket.cpp); the zero-tail check below is
+            // layout-uniform (a non-zero tail is refused naming the
+            // flavor's own layout).
             val proofResponseBytes = flavor.proofResponseBytes
                 ?: error("qualified flavor ${flavor.flavorId} has no verified proof-response frame length")
-            check(proofResponseBytes == VANILLA_PROOF_RESPONSE_BYTES) {
+            check(
+                proofResponseBytes == VANILLA_PROOF_RESPONSE_BYTES ||
+                    proofResponseBytes == TBC_WOTLK_PROOF_RESPONSE_BYTES,
+            ) {
                 "proof-response frame layout mismatch: flavor ${flavor.flavorId} pins " +
-                    "$proofResponseBytes bytes, the client parses $VANILLA_PROOF_RESPONSE_BYTES " +
-                    "(cmd + error + M2[$PROOF_BYTES] + uint32 LoginFlags)"
+                    "$proofResponseBytes bytes, the client parses only the verified " +
+                    "$VANILLA_PROOF_RESPONSE_BYTES (vanilla: cmd + error + M2[$PROOF_BYTES] + " +
+                    "uint32 LoginFlags) or $TBC_WOTLK_PROOF_RESPONSE_BYTES (tbc/wotlk: cmd + " +
+                    "error + M2[$PROOF_BYTES] + uint32 accountFlags + uint32 surveyId + " +
+                    "uint16 unkFlags) layouts"
             }
             val response = input.readExactly(proofResponseBytes, "logon proof response")
+            // R2-R4-1 (W4 code-red round 4): the pinned length is the
+            // MEASURED frame — a realmd serving a LONGER frame must refuse
+            // loud, never pass silently truncated (readExactly(N) alone
+            // discarded the trailing bytes and the 'drift fails loud'
+            // invariant was unfalsifiable up-drift). Any byte still queued
+            // after the pinned frame is frame drift-up.
+            runCatching {
+                socket.soTimeout = FRAME_DRIFT_PROBE_TIMEOUT_MS
+                val trailing = input.read()
+                // a queued byte past the pinned frame is drift-up; a read
+                // timeout (no trailing byte) or a clean EOF is the honest
+                // measured frame
+                if (trailing >= 0) {
+                    error(
+                        "proof-response frame drift-up: the realmd served " +
+                            "more than $proofResponseBytes bytes " +
+                            "(${flavor.flavorId} pins the $proofResponseBytes-byte frame)"
+                    )
+                }
+            }.onFailure { failure ->
+                if (failure is IllegalStateException) throw failure
+                // SocketTimeoutException/IO here mean no trailing byte
+                // arrived inside the probe window: the frame measured clean
+            }
             check(response[0] == CMD_AUTH_LOGON_PROOF.toByte()) { "proof response cmd ${response[0]}" }
             check(response[1] == AUTH_LOGON_SUCCESS.toByte()) {
                 "logon proof REJECTED (result=${response[1].toInt() and 0xFF})"
             }
             val m2 = response.copyOfRange(2, 2 + PROOF_BYTES)
-            val loginFlags = response.copyOfRange(2 + PROOF_BYTES, response.size)
-            check(loginFlags.all { it == 0.toByte() }) {
-                "unexpected LoginFlags ${loginFlags.toHex()}"
-            }
+            verifyProofFrameTail(response, proofResponseBytes, flavor)
             val expected = VsrpMath.serverProof(aPub, m1, sessionKey)
             check(m2.contentEquals(expected)) { "server M2 mismatch" }
             println("logon proof accepted; M2 verified; account=$accountUpper")
             return sessionKey.toString(16)
+        }
+    }
+
+    /** The bounded drift-up probe window after the pinned frame read. */
+    private const val FRAME_DRIFT_PROBE_TIMEOUT_MS = 250
+
+    /** M[2] ends at this offset in every verified proof-response layout. */
+    private const val M2_END = 2 + PROOF_BYTES
+
+    /** The accountFlags field's offset in the tbc/wotlk 32-byte frame. */
+    private const val ACCOUNT_FLAGS_BYTES = 4
+
+    /**
+     * W4.2: the proof-response TAIL check, LAYOUT-SHAPED. The vanilla
+     * frame's LoginFlags are zero on the green wire (pinned). The
+     * tbc/wotlk frame carries uint32 accountFlags (the branches send
+     * 0x8000 — observed on the live lanes' green matching cells) + uint32
+     * surveyId + uint16 unkFlags; surveyId/unkFlags must be zero,
+     * accountFlags is recorded. A non-conforming tail is refused naming
+     * the flavor's own pinned layout.
+     */
+    private fun verifyProofFrameTail(
+        response: ByteArray,
+        proofResponseBytes: Int,
+        flavor: ClientFlavor,
+    ) {
+        if (proofResponseBytes == TBC_WOTLK_PROOF_RESPONSE_BYTES) {
+            val surveyId = response.copyOfRange(
+                M2_END + ACCOUNT_FLAGS_BYTES, M2_END + ACCOUNT_FLAGS_BYTES + 4)
+            val unkFlags = response.copyOfRange(
+                M2_END + ACCOUNT_FLAGS_BYTES + 4, response.size)
+            check(surveyId.all { it == 0.toByte() } && unkFlags.all { it == 0.toByte() }) {
+                "unexpected tbc/wotlk proof-response surveyId/unkFlags " +
+                    "${(surveyId + unkFlags).toHex()} " +
+                    "(${flavor.flavorId} pins the $proofResponseBytes-byte frame)"
+            }
+        } else {
+            val loginFlags = response.copyOfRange(M2_END, response.size)
+            check(loginFlags.all { it == 0.toByte() }) {
+                "unexpected proof-response LoginFlags ${loginFlags.toHex()} " +
+                    "(${flavor.flavorId} pins the $proofResponseBytes-byte frame)"
+            }
         }
     }
 
@@ -449,14 +573,22 @@ internal object VsrpClient {
      * (DESK-56): gamename[4] "WoW\0", the version resource's
      * major.minor.patch, the build (LE u16), platform/os/locale
      * REVERSED (the server un-reverses), timezone bias, ip, name.
+     * W4.2: [buildOverride] substitutes the challenge's build (the
+     * matrix's wrong-build cells); the version bytes stay the boot
+     * lane's own — the SERVER gates the build (realmbuilds), and the
+     * mismatch cell is exactly build≠lane with everything else honest.
      */
     @Suppress("MagicNumber") // fixed-width 1.12 challenge fields
-    internal fun challengeBody(accountUpper: String, flavor: ClientFlavor): ByteArray {
+    internal fun challengeBody(
+        accountUpper: String,
+        flavor: ClientFlavor,
+        buildOverride: Int? = null,
+    ): ByteArray {
         val version = flavor.versionResource.split(".")
         check(version.size >= 3) {
             "versionResource ${flavor.versionResource} is not major.minor.patch[.build]"
         }
-        val build = flavor.build
+        val build = buildOverride ?: flavor.build
         check(build in 0..0xFFFF) { "build $build does not fit the challenge's u16 field" }
         val name = accountUpper.toByteArray(Charsets.US_ASCII)
         return "WoW".toByteArray(Charsets.US_ASCII) + byteArrayOf(0) +

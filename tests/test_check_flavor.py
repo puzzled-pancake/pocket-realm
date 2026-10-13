@@ -142,7 +142,12 @@ def test_current_manifest_is_valid():
 
 
 def test_two_qualified_flavors_error_under_default_single_lane(tmp_path):
+    # W4 flip: the shipped manifest carries the explicit
+    # single_qualified_lane=false opt-out, so the DEFAULT (key absent)
+    # contract is exercised by popping it - two qualified flavors without
+    # the opt-out still fail loud (D9's gate never silently retires).
     manifest = load_manifest()
+    manifest.pop("single_qualified_lane", None)
     promote_to_qualified(flavor_by_id(manifest, "tbc"))
     errors = validate_manifest(manifest, tmp_path)
     assert any(
@@ -248,9 +253,15 @@ def test_qualified_extractors_patch_that_exists_passes(tmp_path):
 
 def test_unqualified_extractors_patch_is_not_checked(tmp_path):
     # Only qualified flavors carry the file-existence bar: an unqualified
-    # lane's pins are placeholders until its S5 qualification.
+    # lane's pins are placeholders until its qualification. W4 flip: the
+    # live manifest qualifies tbc, so the UNQUALIFIED branch is exercised
+    # by explicitly de-qualifying it here (storage back to null - the
+    # unqualified rule).
     manifest = load_manifest()
-    flavor_by_id(manifest, "tbc")["extractors"]["patch"] = (
+    tbc = flavor_by_id(manifest, "tbc")
+    tbc["qualified"] = False
+    tbc["storage"] = None
+    tbc["extractors"]["patch"] = (
         "native/patches/not-staged-yet.patch"
     )
     assert validate_manifest(manifest, tmp_path) == []
@@ -368,22 +379,33 @@ def test_vanilla_may_keep_its_gl_routes(tmp_path):
     assert validate_manifest(manifest, tmp_path) == []
 
 
-def test_s51_registration_is_complete_for_both_declared_flavors():
-    # Lanes item 13: the staged genuine clients' identity is registered as a
-    # COMPLETE tuple on both unqualified flavors — hashes, size, build list,
-    # and MPQ exact set — with the build list naming exactly the flavor's own
-    # build. Import still rejects on qualified=false (pinned above).
+def test_s51_registration_is_complete_for_all_three_qualified_flavors():
+    # Lanes item 13 (S5.1) + the W4 flip (completion-plan §4 W4.4): the
+    # staged genuine clients' identity is a COMPLETE tuple on every
+    # qualified flavor — hashes, size, build list, and MPQ exact set —
+    # with the build list naming exactly the flavor's own build, and the
+    # storage budgets are the W4-MEASURED blocks (no null remains).
     manifest = load_manifest()
-    for fid, build in (("tbc", 8606), ("wotlk", 12340)):
+    for fid, build in (("vanilla", 5875), ("tbc", 8606), ("wotlk", 12340)):
         flavor = flavor_by_id(manifest, fid)
-        assert flavor["qualified"] is False
-        assert flavor["client_binary"]["known_exe_md5"] is not None
+        assert flavor["qualified"] is True
         assert flavor["client_binary"]["known_exe_size_bytes"] > 0
         assert flavor["wine"]["known_exe_sha256"] is not None
-        assert flavor["supported_client_builds"] == [build]
+        # vanilla's list predates S5.1 and stays [] with its explanatory
+        # note (the qualified branch only requires a note for the empty
+        # list); the S5.1-registered lanes carry exactly their own build.
+        if fid != "vanilla":
+            assert flavor["supported_client_builds"] == [build]
         assert flavor["mpq_set"]["required"], f"{fid} MPQ exact set is empty"
-        # ... while storage stays a measured-later field (P5 first-extraction).
-        assert flavor["storage"] is None
+        storage = flavor["storage"]
+        assert isinstance(storage, dict), f"{fid} storage must be the measured block"
+        assert storage["extracted_estimate_bytes"] > 0
+        assert storage["max_total_bytes"] > 0
+        # the W4-measured tbc/wotlk blocks carry the measurement
+        # provenance; vanilla's pre-W4 block predates the note convention.
+        if fid != "vanilla":
+            assert "measured" in storage.get("note", ""), (
+                f"{fid} storage note must carry the measurement provenance")
 
 
 def test_partial_s51_registration_errors(tmp_path):
@@ -392,7 +414,12 @@ def test_partial_s51_registration_errors(tmp_path):
     # registration. Stripping one member of the tuple (the build list) must
     # fail loud, naming the completeness rule.
     manifest = load_manifest()
-    flavor_by_id(manifest, "wotlk")["supported_client_builds"] = []
+    wotlk = flavor_by_id(manifest, "wotlk")
+    # W4 flip: the live manifest qualifies wotlk, so the UNQUALIFIED
+    # branch under test is reached by explicitly de-qualifying it.
+    wotlk["qualified"] = False
+    wotlk["storage"] = None
+    wotlk["supported_client_builds"] = []
     errors = validate_manifest(manifest, tmp_path)
     assert any(
         "partial S5.1 identity registration" in error
@@ -406,7 +433,12 @@ def test_unqualified_supported_client_builds_must_name_only_the_own_build(tmp_pa
     # claims a client that was never measured — the exact drift the
     # registration rule refuses.
     manifest = load_manifest()
-    flavor_by_id(manifest, "tbc")["supported_client_builds"] = [8606, 10505]
+    tbc = flavor_by_id(manifest, "tbc")
+    # W4 flip: the live manifest qualifies tbc, so the UNQUALIFIED branch
+    # under test is reached by explicitly de-qualifying it.
+    tbc["qualified"] = False
+    tbc["storage"] = None
+    tbc["supported_client_builds"] = [8606, 10505]
     errors = validate_manifest(manifest, tmp_path)
     assert any(
         "must be exactly [8606]" in error and "[8606, 10505]" in error
@@ -804,3 +836,29 @@ def test_golden_tables_cover_every_manifest_flavor():
     manifest = load_manifest()
     assert (set(GOLDEN_ADDON_INTERFACES) | set(GOLDEN_MPQ_SETS)
             == {f["id"] for f in manifest["flavors"]})
+
+def test_storage_extracted_estimate_covers_the_measured_client_tree():
+    """R4-3 (code-red round 1): the extracted_estimate_bytes is the planner's
+    managed-copy floor — it must be >= the genuine client tree bytes the
+    same storage block's note records, and the Kotlin registry must mirror
+    both numbers (a low estimate under-reserves the import's own copy)."""
+    import re
+    manifest = json.loads(
+        (ROOT / "schemas" / "flavor.json").read_text(encoding="utf-8"))
+    tree_bytes = {
+        "tbc": 8_579_714_973,
+        "wotlk": 17_856_619_157,
+    }
+    for fid, tree in tree_bytes.items():
+        flavor = flavor_by_id(manifest, fid)
+        storage = flavor["storage"]
+        assert storage["extracted_estimate_bytes"] >= tree, (
+            f"{fid}: extracted_estimate_bytes "
+            f"{storage['extracted_estimate_bytes']} is below the measured "
+            f"client tree {tree} — the managed-copy floor is under-reserved")
+        # the Kotlin registry mirrors the manifest numbers
+        kotlin = (ROOT / "android/app/src/main/java/com/pocketrealm/client/"
+                  "ClientFlavor.kt").read_text(encoding="utf-8")
+        assert f"{storage['extracted_estimate_bytes'] // (1024**3)}L * 1024L * 1024L * 1024L" in kotlin, (
+            f"{fid}: the Kotlin extractedEstimateBytes must mirror the "
+            "manifest's GiB value")

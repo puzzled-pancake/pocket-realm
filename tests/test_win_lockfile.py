@@ -1263,29 +1263,43 @@ def test_provider_lockfile_is_scoped_to_the_vanilla_lane() -> None:
             "- the D60 scope was clobbered")
 
 
-def test_write_provider_lockfile_refuses_non_vanilla_lanes(
+def test_write_provider_lockfile_scopes_non_vanilla_lanes_to_their_own_document(
         tmp_path, monkeypatch) -> None:
-    """A tbc --write-lockfile run against the shared root fails loud naming
-    the D60 scope decision — never silently re-keying the committed vanilla
-    pin (the lockfile target is redirected to tmp_path so even a broken
-    guard cannot touch the real document)."""
+    """W4 flip (D72 retirement, superseding the W1.3-era refusal this test
+    used to pin): a tbc --write-lockfile run writes the LANE-SCOPED document
+    (database-provider-lockfile-win-tbc.json) pinning the tbc sibling
+    migration manifest, and NEVER rewrites the shared vanilla document (D60's
+    scope holds; both targets are redirected to tmp_path so even a broken
+    guard cannot touch the real documents)."""
     import hashlib
     import build_win_realm_runtime as w
 
-    redirected = tmp_path / "database-provider-lockfile-win.json"
-    monkeypatch.setattr(w, "PROVIDER_LOCKFILE", redirected)
-    monkeypatch.setattr(w, "ROOT", tmp_path)  # the guard's message uses relative_to
+    # R3R1-4 (W4 code-red round 3): BOTH write targets are redirected to
+    # tmp_path — a unit test must never rewrite a committed provenance
+    # document from live staged bytes (the lane target previously wrote
+    # the REAL file, silently healing committed-vs-staged drift instead
+    # of failing; the never-rekey pin then compared against the same
+    # staged bytes and could never fire). The staged sibling manifest is
+    # still read in place (read-only verification).
+    redirected_shared = tmp_path / "database-provider-lockfile-win.json"
+    redirected_lane = tmp_path / "database-provider-lockfile-win-tbc.json"
+    monkeypatch.setattr(w, "PROVIDER_LOCKFILE", redirected_shared)
+    monkeypatch.setattr(
+        w, "lane_provider_lockfile_path", lambda flavor_id: redirected_lane)
     monkeypatch.setattr(w.o09, "ACTIVE_FLAVOR", "tbc")
-    with pytest.raises(RuntimeError) as excinfo:
-        w.write_provider_lockfile()
-    message = str(excinfo.value)
-    assert "D60" in message and "vanilla" in message
-    assert "W1.3" in message
-    assert not redirected.exists(), "the refused write produced no document"
-    # and the committed document is byte-untouched
-    committed = (ROOT / "schemas" / "database-provider-lockfile-win.json")
-    assert hashlib.sha256(committed.read_bytes()).hexdigest() == \
-        hashlib.sha256(committed.read_bytes()).hexdigest()
+    # the REAL staged sibling manifest (tools/stage_mariadb_flavor_migrations.py
+    # output) — the writer verifies it in place, only the WRITE targets move.
+    sibling = (ROOT / "native" / ".build-win-x86_64" / "mariadb-provider"
+               / "migration-manifest-tbc.json")
+    record = w.write_provider_lockfile()
+    assert redirected_lane.is_file(), "the lane document was not written"
+    assert not redirected_shared.exists(), (
+        "the shared vanilla document must never be rewritten by a lane run")
+    assert record["lane_scope"]["flavors"] == ["tbc"]
+    assert record["lane_migrations"]["flavor"] == "tbc"
+    assert record["lane_migrations"]["manifest"] == "migration-manifest-tbc.json"
+    assert record["lane_migrations"]["manifest_sha256"] == hashlib.sha256(
+        sibling.read_bytes()).hexdigest()
 
 
 def test_write_provider_lockfile_records_the_scope_on_vanilla(
@@ -1316,3 +1330,116 @@ def test_write_provider_lockfile_records_the_scope_on_vanilla(
     assert record["lane_scope"]["flavors"] == ["vanilla"]
     persisted = json.loads(redirected.read_text(encoding="utf-8"))
     assert persisted["lane_scope"]["decision"] == "D60"
+
+def _world_digest_id(lockfile: Path) -> str:
+    """The lane's BuildConfig id, recomputed with the same formula the
+    telltale test pins for the vanilla lane (prefix + backend + commit
+    prefixes + the world DLL digest prefix)."""
+    record = json.loads(lockfile.read_text(encoding="utf-8"))
+    world = next(a for a in record["artifacts"]
+                 if a["path"].endswith("pocket_world_runtime.dll"))
+    return (
+        f"win-x86_64-{record['database_backend']}"
+        f"-cmangos-{record['cmangos_commit'][:8]}"
+        f"-playerbots-{record['playerbots_commit'][:8]}"
+        f"-{world['sha256'][:12]}"
+    )
+
+
+def test_tbc_mariadb_win_lane_lockfile_and_telltale_are_pinned() -> None:
+    """W4 flip (D72 retirement): the tbc MariaDB win lane's runtime lockfile
+    exists and its BuildConfig id is pinned — a lane nobody can rebuild or
+    verify is a lane the flip cannot boot honestly."""
+    lockfile = ROOT / "schemas" / "realm-runtime-lockfile-mariadb-win-tbc.json"
+    assert lockfile.is_file(), (
+        "the tbc mariadb win lane lockfile is missing; build the lane with "
+        "python tools/build_win_realm_runtime.py --flavor tbc "
+        "--database-backend mariadb")
+    record = json.loads(lockfile.read_text(encoding="utf-8"))
+    assert record["database_backend"] == "mariadb"
+    assert record["flavor"] == "tbc"
+    # R3R1-5 (W4 code-red round 3): the runtime lockfile must cross-
+    # reference its OWN lane-scoped provider document — the shared
+    # document is the vanilla golden (D60/D86) and its lane_scope says
+    # non-vanilla lanes must not use it; the embedded provider record
+    # must be the lane's own (its lane_scope + lane_migrations pin name
+    # THIS lane), so a future consumer following the reference lands in
+    # the lane's own pins, never the vanilla 414-entry manifest.
+    assert record["provider_lockfile"] == (
+        "schemas/database-provider-lockfile-win-tbc.json")
+    assert record["provider"]["lane_scope"]["flavors"] == ["tbc"]
+    assert record["provider"]["lane_migrations"]["flavor"] == "tbc"
+    assert record["provider"]["lane_migrations"]["manifest_sha256"] == (
+        json.loads((ROOT / "schemas" / "database-provider-lockfile-win-tbc.json")
+                   .read_text(encoding="utf-8"))["lane_migrations"]["manifest_sha256"])
+    text = BUILD_CONFIG.read_text(encoding="utf-8")
+    match = re.search(r'const val NATIVE_RUNTIME_BUILD_ID_TBC[^=]*=\s*"([^"]+)"', text)
+    assert match, "BuildConfig.kt lost the NATIVE_RUNTIME_BUILD_ID_TBC constant"
+    expected = _world_digest_id(lockfile)
+    assert match.group(1) == expected, (
+        f"BuildConfig NATIVE_RUNTIME_BUILD_ID_TBC {match.group(1)!r} != "
+        f"lockfile-derived {expected!r}")
+
+
+def test_wotlk_mariadb_win_lane_lockfile_and_telltale_are_pinned() -> None:
+    """W4 flip (D72 retirement): the wotlk MariaDB win lane's runtime
+    lockfile + BuildConfig id (same contract as the tbc lane row)."""
+    lockfile = ROOT / "schemas" / "realm-runtime-lockfile-mariadb-win-wotlk.json"
+    assert lockfile.is_file(), (
+        "the wotlk mariadb win lane lockfile is missing; build the lane with "
+        "python tools/build_win_realm_runtime.py --flavor wotlk "
+        "--database-backend mariadb")
+    record = json.loads(lockfile.read_text(encoding="utf-8"))
+    assert record["database_backend"] == "mariadb"
+    assert record["flavor"] == "wotlk"
+    # R3R1-5 (W4 code-red round 3): the runtime lockfile must cross-
+    # reference its OWN lane-scoped provider document — the shared
+    # document is the vanilla golden (D60/D86) and its lane_scope says
+    # non-vanilla lanes must not use it; the embedded provider record
+    # must be the lane's own (its lane_scope + lane_migrations pin name
+    # THIS lane), so a future consumer following the reference lands in
+    # the lane's own pins, never the vanilla 414-entry manifest.
+    assert record["provider_lockfile"] == (
+        "schemas/database-provider-lockfile-win-wotlk.json")
+    assert record["provider"]["lane_scope"]["flavors"] == ["wotlk"]
+    assert record["provider"]["lane_migrations"]["flavor"] == "wotlk"
+    assert record["provider"]["lane_migrations"]["manifest_sha256"] == (
+        json.loads((ROOT / "schemas" / "database-provider-lockfile-win-wotlk.json")
+                   .read_text(encoding="utf-8"))["lane_migrations"]["manifest_sha256"])
+    text = BUILD_CONFIG.read_text(encoding="utf-8")
+    match = re.search(r'const val NATIVE_RUNTIME_BUILD_ID_WOTLK[^=]*=\s*"([^"]+)"', text)
+    assert match, "BuildConfig.kt lost the NATIVE_RUNTIME_BUILD_ID_WOTLK constant"
+    expected = _world_digest_id(lockfile)
+    assert match.group(1) == expected, (
+        f"BuildConfig NATIVE_RUNTIME_BUILD_ID_WOTLK {match.group(1)!r} != "
+        f"lockfile-derived {expected!r}")
+
+
+def test_flavor_provider_lockfiles_never_rekey_the_vanilla_golden() -> None:
+    """D60 holds at the W4 D72 retirement: the SHARED provider document's
+    migration manifest sha is still the VANILLA ledger golden, and the
+    per-flavor documents scope their own sibling manifest + ledger."""
+    import hashlib
+    shared = json.loads(
+        (ROOT / "schemas" / "database-provider-lockfile-win.json").read_text(
+            encoding="utf-8"))
+    shared_manifest = (ROOT / "native" / ".build-win-x86_64" / "mariadb-provider"
+                       / "migration-manifest.json").read_bytes()
+    assert shared["migration_manifest_sha256"] == hashlib.sha256(
+        shared_manifest).hexdigest(), (
+        "the shared provider document no longer pins the vanilla ledger "
+        "golden (D60 breach)")
+    for flavor in ("tbc", "wotlk"):
+        lane = json.loads(
+            (ROOT / f"schemas/database-provider-lockfile-win-{flavor}.json")
+            .read_text(encoding="utf-8"))
+        lane_manifest = (ROOT / "native" / ".build-win-x86_64" /
+                         "mariadb-provider" /
+                         f"migration-manifest-{flavor}.json").read_bytes()
+        assert lane["lane_migrations"]["manifest_sha256"] == hashlib.sha256(
+            lane_manifest).hexdigest(), (
+            f"the {flavor} lane provider document does not pin its staged "
+            "sibling migration manifest")
+        assert lane["lane_migrations"]["flavor"] == flavor
+        assert lane["lane_migrations"]["ledger"] == (
+            f"schemas/database-migrations-{flavor}.json")

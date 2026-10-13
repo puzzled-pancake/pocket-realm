@@ -26,22 +26,36 @@ import kotlinx.coroutines.flow.asStateFlow
  * step. Single source: only the tutorial and its JVM tests consume this
  * constant — the import screen and the docs carry their own shorter
  * sentences so no dialog repeats the full paragraph.
+ *
+ * R6-3 (W4 code-red round 3): the body is DERIVED from the registry's
+ * qualified set, never a hard-coded vanilla version — the W4 flip made
+ * tbc/wotlk qualified, and a "1.12.1 (build 5875)"-only requirement was
+ * the exact hard-coded-1.12 class the flip retires. The MPQ enumeration
+ * is likewise gone: the required base set differs per game version, so
+ * the vanilla list must not be presented as the generic requirement.
  */
-internal const val UNCOMPRESSED_CLIENT_REQUIREMENT: String =
-    "You need your own copy of the World of Warcraft 1.12.1 (build 5875) " +
-        "client that you are entitled to use. Bring either a plain, " +
-        "already-extracted, uncompressed client folder — the folder that " +
-        "directly contains WoW.exe and a Data folder with its complete base " +
-        "set of .MPQ files (base, dbc, fonts, interface, misc, model, sound, " +
-        "speech, terrain, texture, wmo) — or a single .zip/.7z/.rar archive " +
-        "of that folder; Pocket Realm can extract it for you on device. " +
-        "The original installer archive (setup.exe with its setup-*.bin " +
-        "files, zipped or re-packed as .zip/.7z/.rar) is unpacked on device " +
-        "too. It must NOT be a Windows installer or setup you must run " +
-        "yourself, a downloader/launcher, a password-protected or split " +
-        "archive, or a disc image. If your copy is compressed differently " +
-        "(or encrypted), extract it first (on a PC or with a file manager " +
-        "app), then select the extracted folder itself — not a parent folder."
+internal val UNCOMPRESSED_CLIENT_REQUIREMENT: String = run {
+    val qualified = com.pocketrealm.client.ClientFlavors.qualified()
+    val builds = qualified.joinToString(", ") { flavor ->
+        val version = flavor.versionResource.substringBeforeLast(".")
+        "${flavor.expansion} $version (build ${flavor.build})"
+    }
+    "You need your own copy of the game client for one of the qualified " +
+        "expansions — $builds — that you are entitled to use. Bring either " +
+        "a plain, already-extracted, uncompressed client folder — the " +
+        "folder that directly contains WoW.exe and a Data folder with its " +
+        "complete base set of .MPQ files (the exact set differs per game " +
+        "version) — or a single .zip/.7z/.rar archive of that folder; " +
+        "Pocket Realm can extract it for you on device. The original " +
+        "installer archive (setup.exe with its setup-*.bin files, zipped " +
+        "or re-packed as .zip/.7z/.rar) is unpacked on device too. It must " +
+        "NOT be a Windows installer or setup you must run yourself, a " +
+        "downloader/launcher, a password-protected or split archive, or a " +
+        "disc image. If your copy is compressed differently (or " +
+        "encrypted), extract it first (on a PC or with a file manager " +
+        "app), then select the extracted folder itself — not a parent " +
+        "folder."
+}
 
 internal data class TutorialStep(val title: String, val body: String)
 
@@ -54,7 +68,7 @@ internal val FIRST_RUN_TUTORIAL_STEPS: List<TutorialStep> = listOf(
             "or downloads them.",
     ),
     TutorialStep(
-        title = "What you need: an extracted WoW 1.12.1 client",
+        title = "What you need: an extracted WoW client for your flavor",
         body = UNCOMPRESSED_CLIENT_REQUIREMENT,
     ),
     TutorialStep(

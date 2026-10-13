@@ -481,12 +481,6 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "UX copy describes tweaks in terms of the genuine 1.12.1 build 5875 client",
         "retires": "S7 retires: per-flavor client datasets and UX copy",
     },
-    {
-        "path": "android/app/src/main/java/com/pocketrealm/importer/ArchiveFormatSniffer.kt",
-        "literals": ("1.12.1.5875",),
-        "reason": "importer UX copy: rejects installers, asks for the extracted 1.12.1.5875 client",
-        "retires": "S7 retires: per-flavor client datasets and UX copy",
-    },
     # Retire at S4 (per-flavor DB routing): the gradle build gate verifies the
     # staged seed assets of the four vanilla databases against the sibling
     # lockfile before they ship in the APK.
@@ -658,12 +652,11 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "device probe harness: probes the vanilla realmd datadir, forges build-5875 auth packets",
         "retires": "S4 retires: per-flavor ledger routing; S5 retires: client identity qualification",
     },
-    {
-        "path": "tools/rp_harness/probe_world_auth.py",
-        "literals": ("5875", "classicrealmd"),
-        "reason": "device probe harness: probes the vanilla realmd datadir, forges build-5875 auth packets",
-        "retires": "S4 retires: per-flavor ledger routing; S5 retires: client identity qualification",
-    },
+    # tools/rp_harness/probe_world_auth.py: the W4.2 3x3 auth-matrix
+    # instrument now derives every per-flavor identity (build/db/frame)
+    # from schemas/flavor.json - it carries NO banned literal and needs
+    # no allowlist entry (the former build-5875 probe entry went stale
+    # with the rewrite and was removed, per the stale-entry rule).
     # v2 git-tracked sweep (D18): trees newly covered, allowlisted by class.
     {
         "path_prefix": "docs/",
@@ -673,9 +666,13 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "README.md",
-        "literals": ("5875",),
-        "reason": "project README prose names the 1.12.1 build 5875 requirement",
-        "retires": "never (prose is not a code literal); reword per flavor when multi-flavor ships",
+        "literals": ("5875", "8606", "12340"),
+        "reason": (
+            "project README prose names the qualified lanes' genuine client "
+            "builds as user requirements — W4 flip (D86) widened the row "
+            "from the vanilla-only 5875 form"
+        ),
+        "retires": "never while the lanes are qualified (product claims)",
     },
     {
         "path": "schemas/flavor.json",
@@ -728,6 +725,47 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
             "identical, backend pins differ)"
         ),
         "retires": "S4 retires: per-flavor ledgers",
+    },
+    {
+        "path": "desktop/src/test/kotlin/com/pocketrealm/database/MariaDbBootstrapLaneProvisionTest.kt",
+        "literals": VANILLA_DB_NAMES,
+        "reason": (
+            "R2-5 pin: the laneProvisionSql golden shape asserts each "
+            "qualified lane's CREATE/GRANT families — the vanilla names are "
+            "one of the three pinned lanes (tbc/wotlk legs pin their own)"
+        ),
+        "retires": "D72 retirement: the pin lives as long as the lane "
+                   "provision emitter does",
+    },
+    {
+        "path": "schemas/realm-runtime-lockfile-mariadb-win-tbc.json",
+        "literals": VANILLA_DB_NAMES,
+        "reason": (
+            "tbc lane lockfile, vanilla-transcripts placeholder (the written "
+            "note in the document): the lane's own sqlite seed transcripts "
+            "are not yet measured, so the seed_transcripts pins are the "
+            "vanilla classic* digests with the placeholder naming the D59 "
+            "retire path (seed_sqlite_from_manifest --transcripts "
+            "--write-baseline, then restage + re-key)"
+        ),
+        "retires": "D59 retires: the flavor's own transcript digests land in "
+                   "sqlite-seed-baseline-tbc.json and the lane lockfile "
+                   "re-keys to them",
+    },
+    {
+        "path": "schemas/realm-runtime-lockfile-mariadb-win-wotlk.json",
+        "literals": VANILLA_DB_NAMES,
+        "reason": (
+            "wotlk lane lockfile, vanilla-transcripts placeholder (the written "
+            "note in the document): the lane's own sqlite seed transcripts "
+            "are not yet measured, so the seed_transcripts pins are the "
+            "vanilla classic* digests with the placeholder naming the D59 "
+            "retire path (seed_sqlite_from_manifest --transcripts "
+            "--write-baseline, then restage + re-key)"
+        ),
+        "retires": "D59 retires: the flavor's own transcript digests land in "
+                   "sqlite-seed-baseline-wotlk.json and the lane lockfile "
+                   "re-keys to them",
     },
     {
         "path": "desktop/build.gradle.kts",
@@ -945,11 +983,14 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "desktop patcher applies byte-addressed vanilla tweaks pinned to the build-5875 image",
         "retires": "S7 retires: per-flavor client datasets",
     },
+    # W4 (R6-3): the tutorial requirement body is DERIVED from the
+    # registry's qualified set — the main-source literals moved to the
+    # test batteries that pin the derived copy.
     {
-        "path": "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/FirstRunTutorial.kt",
+        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/FirstRunTutorialTest.kt",
         "literals": ("5875",),
-        "reason": "desktop UX copy names the client the user must supply (the vanilla twin's S7 entry class)",
-        "retires": "S7 retires: per-flavor UX copy",
+        "reason": "the tutorial test pins the derived requirement names every qualified build (vanilla's build stays a test literal)",
+        "retires": "W7 retires: final program-wide literal round",
     },
     # Per-flavor win lockfiles (tool-written by the W0 rebuilds).
     {
@@ -1307,8 +1348,8 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "android/app/src/test/java/com/pocketrealm/client/MpqSetKeyFormTripwireTest.kt",
-        "literals": ("5875",),
-        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "literals": ("5875", "8606",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note); W4 round-3 adds the locale-traversal battery's tbc fixture (build 8606)",
         "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {
@@ -1391,8 +1432,8 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "desktop/src/test/kotlin/com/pocketrealm/client/DesktopClientScannerTest.kt",
-        "literals": ("6005",),
-        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "literals": ("6005", "8606",),
+        "reason": "owning surface (see ALLOWLIST_CORE family note); W4 round-3 adds the locale-traversal + VAL-02 controls' tbc fixture (build 8606)",
         "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {

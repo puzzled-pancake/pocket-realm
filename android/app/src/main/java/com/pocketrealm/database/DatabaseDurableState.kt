@@ -287,7 +287,15 @@ internal object DatabaseDurableState {
         expectedGenerationUuid: String,
     ): Boolean = runCatching {
         val record = checkNotNull(parseCompatibleMigrationTransaction(recordText, identity))
-        check(snapshotCompatibility.length() == SNAPSHOT_COMPATIBILITY_FIELDS)
+        // W4 (R4-r2-2): the desktop lane stamps the snapshot's FLAVOR into
+        // the compatibility (7 fields) while the android lane keeps the
+        // 6-field form — both are the reviewed shapes, and a lane-stamped
+        // snapshot must still recover. Anything else (a missing identity
+        // field, a stray extra) fails.
+        check(
+            snapshotCompatibility.length() == SNAPSHOT_COMPATIBILITY_FIELDS ||
+                snapshotCompatibility.length() == SNAPSHOT_COMPATIBILITY_FIELDS + 1,
+        )
         check(ownershipMatches(snapshotCompatibility, identity))
         check(snapshotCompatibility.getString("generationUuid") == expectedGenerationUuid)
         check(record.getString("generationUuid") == expectedGenerationUuid)

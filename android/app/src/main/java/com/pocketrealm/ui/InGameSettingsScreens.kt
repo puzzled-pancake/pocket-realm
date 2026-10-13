@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.X86DirectWineRuntime
 import com.pocketrealm.ingame.ConfigWtfCodec
 import com.pocketrealm.ingame.InGameSettingsEditor
@@ -270,6 +271,17 @@ internal fun InGameSettingsHubScreen(
                 scope.launch { runCatching { state.editor.discardAll() } }
             },
         )
+        // R5-1: the hub counts render the ACTIVE lane's own catalog sizes
+        // (the flavor-routed seam), never a hard-coded vanilla count.
+        val hubLane = ActiveFlavor.displayedId?.let { id ->
+            com.pocketrealm.client.ClientFlavors.ALL.firstOrNull { it.flavorId == id }
+        }
+        val settingsForSection = hubLane?.let {
+            com.pocketrealm.ingame.WowFlavorCatalogs.settingsForSection(it)
+        }
+        val bindingsUserFacing = hubLane?.let {
+            com.pocketrealm.ingame.WowFlavorCatalogs.bindingsUserFacing(it)
+        }
         listOf(
             WowSettingSection.GRAPHICS,
             WowSettingSection.SOUND,
@@ -279,7 +291,7 @@ internal fun InGameSettingsHubScreen(
             HubCategoryRow(
                 title = section.hubLabel,
                 description = section.hubDescription,
-                count = WowVanillaSettingsCatalog.forSection(section).size,
+                count = settingsForSection?.invoke(section)?.size ?: 0,
                 tag = "ingame-hub-" + section.name.lowercase(),
                 onClick = { onOpenRoute(InGameRoutes.routeFor(section)) },
             )
@@ -287,7 +299,7 @@ internal fun InGameSettingsHubScreen(
         HubCategoryRow(
             title = "Key Bindings",
             description = "Stock commands, slots, and controller-overlay keys",
-            count = com.pocketrealm.client.WowVanillaBindingCatalog.userFacing.size,
+            count = bindingsUserFacing?.size ?: 0,
             tag = "ingame-hub-bindings",
             onClick = { onOpenRoute(InGameRoutes.BINDINGS) },
         )
@@ -388,13 +400,27 @@ private fun HubCategoryRow(
 // -------------------------------------------------------- category screens
 
 @Composable
+@Suppress("CyclomaticComplexMethod", "LongMethod", "FunctionNaming")
 internal fun InGameCategoryScreen(section: WowSettingSection) {
     val context = LocalContext.current
     val settings = remember { Settings(context) }
     val snap by settings.flow.collectAsState(initial = Settings.Snapshot())
     val state = rememberInGameSettingsState()
-    val definitions = remember { WowVanillaSettingsCatalog.forSection(section) }
-    val groups = remember { WowVanillaSettingsCatalog.groups(section) }
+    // R5-1: the rows render the ACTIVE lane's own catalog (the flavor-
+    // routed seam), never a hard-coded vanilla list.
+    val lane = ActiveFlavor.displayedId?.let { id ->
+        com.pocketrealm.client.ClientFlavors.ALL.firstOrNull { it.flavorId == id }
+    }
+    val definitions = remember(lane) {
+        lane?.let {
+            com.pocketrealm.ingame.WowFlavorCatalogs.settingsForSection(it)(section)
+        } ?: emptyList()
+    }
+    val groups = remember(lane) {
+        lane?.let {
+            com.pocketrealm.ingame.WowFlavorCatalogs.settingsGroups(it)(section)
+        } ?: emptyList()
+    }
     var selectedGroup by remember { mutableStateOf(groups.firstOrNull() ?: "") }
 
     Column(Modifier.fillMaxSize().padding(12.dp)) {
@@ -500,7 +526,11 @@ private fun SettingDefinitionRow(
     val defaultStored = definition.defaultValue
 
     val requirementBlocking = definition.requires.firstOrNull { requirement ->
-        val gate = WowVanillaSettingsCatalog.byId(requirement.id)
+        val gate = ActiveFlavor.displayedId?.let { id ->
+            com.pocketrealm.client.ClientFlavors.ALL.firstOrNull { it.flavorId == id }
+        }?.let {
+            com.pocketrealm.ingame.WowFlavorCatalogs.settingsById(it)(requirement.id)
+        }
         val gateQueued = gate?.let {
             when (it.backend) {
                 WowSettingBackend.CVAR -> snap.gameSettings.cvar[it.id]?.value
@@ -521,8 +551,13 @@ private fun SettingDefinitionRow(
     val selectedRenderer = ArmClientRendererCatalog.find(snap.selectedArmRendererId())
     val legacyRenderer = selectedRenderer == ArmClientRenderer.LEGACY_GLADIO ||
         selectedRenderer == ArmClientRenderer.MESA_VIRGL
+    val rowLane = ActiveFlavor.displayedId?.let { id ->
+        com.pocketrealm.client.ClientFlavors.ALL.firstOrNull { it.flavorId == id }
+    }
     val rendererFixedReason = if (definition.legacyRendererOnly && legacyRenderer) {
-        WowVanillaSettingsCatalog.FIXED_REASON_RENDERER
+        rowLane?.let {
+            com.pocketrealm.ingame.WowFlavorCatalogs.fixedReasonRenderer(it)
+        }
     } else null
     val enabled = definition.fixedReason == null && rendererFixedReason == null &&
         definition.backend != WowSettingBackend.FUNCTION &&

@@ -114,7 +114,12 @@ class R2WorldStartLaneSplitTest {
 
     @Test
     fun `control - today's single-qualified registry makes both machines coincide`() {
+        // W4 flip: three lanes are qualified and the sole-qualified degrade
+        // is retired — the holder leg needs a selection to coincide with the
+        // persisted leg, so the control pins the vanilla pick it compares
+        // against.
         ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
         for (stored in listOf("", "vanilla-1.9", "vanilla-1.12.1", "tbc-2.0.1", "garbage")) {
             assertEquals(
                 "stored=$stored must resolve identically through both machines today",
