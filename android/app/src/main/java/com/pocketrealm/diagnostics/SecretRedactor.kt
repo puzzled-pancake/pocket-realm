@@ -51,7 +51,9 @@ class SecretRedactor(private val explicitSecrets: Collection<String> = emptyList
 
     companion object {
         private val SENSITIVE_KEY = Regex(
-            "password|passwd|secret|credential|instance.?token|owner.?token|document.?uri|source.?uri|absolute.?path|android.?account",
+            "password|passwd|secret|credential|instance.?token|owner.?token|" +
+                "document.?uri|source.?uri|absolute.?path|android.?account|" +
+                "private.?key|nostr",
             RegexOption.IGNORE_CASE,
         )
         private val CONTENT_URI = Regex("content://[^\\s\\\"']+", RegexOption.IGNORE_CASE)

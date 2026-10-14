@@ -164,6 +164,41 @@ class DesktopSupportBundleTest {
         }
     }
 
+    /** R7-r2-1/R3-r2-1 (W6-N1 round 2, serious): the realm's Nostr
+     * identity key (nostrPrivateKeyHex) must never survive the bundle —
+     * parsed member AND corrupt-raw member, mirroring the API-key
+     * precedent. */
+    @Test
+    fun nostrPrivateKeyNeverSurvivesIntoTheSettingsMember() {
+        val roots = newRoots("nostr-key")
+        val nostrCanary = "4f5e6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091"
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(
+            """{"schema": 2, "nostrDiscoveryEnabled": true, "nostrPrivateKeyHex": "$nostrCanary"}""",
+        )
+        val evidence = DesktopCrashEvidence(
+            localDumpsDir = File(folder.root, "no-dumps-dir"),
+            eventLog = { "" },
+        )
+        DesktopSupportBundle(roots, null, evidence).export()
+        val zipPath = roots.logs
+            .listFiles { file -> file.name.startsWith("support-bundle-") }!!
+            .single()
+        java.util.zip.ZipFile(zipPath).use { zip ->
+            for (entry in zip.entries().asSequence()) {
+                val text = zip.entryText(entry.name)
+                assertFalse(
+                    "the Nostr identity key leaked into ${entry.name}",
+                    text.contains(nostrCanary),
+                )
+            }
+            assertTrue(
+                "the settings member must carry the redacted marker",
+                zip.entryText("settings.json").contains("<redacted>"),
+            )
+        }
+    }
+
     @Test
     fun corruptSettingsFileStillRedactsItsApiKeyFromTheRawMember() {
         val roots = newRoots("corrupt-settings")

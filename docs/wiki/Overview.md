@@ -42,6 +42,6 @@ For a full explanation of the combined software, see [Projects and technologies 
 
 - It is not an official Blizzard product.
 - It does not include the original game client.
-- It is not a public Internet realm service.
+- It is not a public Internet realm service by default. The one opt-in exception is the Realms browser's Public realms lane (desktop): an explicit publish switch (off by default) posts a small world-readable listing to community Nostr relays while your realm is up and the status page is Public — see Home-Screen. Nothing is published unless you flip that switch, and no router port is ever opened.
 - It does not promise modern World of Warcraft features inside any of the supported classic-era clients (Vanilla 1.12.1, TBC 2.4.3, WotLK 3.3.5a).
 - The experimental LAN option is not the same as the normal offline mode.

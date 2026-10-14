@@ -35,8 +35,8 @@ sealed class Route(val label: String) {
     data object Players : Route("Players")
 
     /** The realm browser: LAN realms over the shared LanJoinProbe seam, the
-     * hosted realm-status page link, and the honest internet-discovery
-     * empty state (relay/Nostr discovery is a future arc). */
+     * hosted realm-status page link, and the W6-N1 Public realms section
+     * (Nostr discovery: the shared discovery/nostr module). */
     data object Realms : Route("Realms")
 
     data object Diagnostics : Route("Diagnostics")

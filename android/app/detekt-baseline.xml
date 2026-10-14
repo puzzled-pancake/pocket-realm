@@ -33,7 +33,6 @@
     <ID>CyclomaticComplexMethod:ArchiveFormatSniffer.kt$ArchiveFormatSniffer$fun sniff(header: ByteArray): ArchiveFormat</ID>
     <ID>CyclomaticComplexMethod:ArmRootfsProvisioner.kt$ArmRootfsProvisioner$private fun extractArchive(assetPath: String, destination: File)</ID>
     <ID>CyclomaticComplexMethod:BotAdmissionController.kt$BotAdmissionController$fun observe(sample: BotResourceSample): BotAdmissionState</ID>
-    <ID>CyclomaticComplexMethod:BotProfiles.kt$BotProfile$fun playerbotConfig(): String</ID>
     <ID>CyclomaticComplexMethod:BotsScreen.kt$@Composable fun BotsScreen()</ID>
     <ID>CyclomaticComplexMethod:BotsScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun BasicsContent( target: EditorTarget?, working: BotCustomConfiguration, running: Boolean, savedPreset: BotPresetStore.SavedPreset?, applied: Boolean, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
     <ID>CyclomaticComplexMethod:ClientDisplayHost.kt$ClientDisplayHost$private fun attemptClose()</ID>
@@ -218,7 +217,6 @@
     <ID>FunctionNaming:InGameBindingsScreen.kt$@Composable private fun BindingRow( binding: com.pocketrealm.client.WowBindingDefinition, bindings: Map&lt;String, String&gt;?, queued: com.pocketrealm.ingame.BindingOverride?, onEdit: (String, Int) -&gt; Unit, onUnbind: (String, Int) -&gt; Unit, )</ID>
     <ID>FunctionNaming:InGameBindingsScreen.kt$@Composable private fun CategoryRail( selected: WowBindingCategory, onSelect: (WowBindingCategory) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:InGameBindingsScreen.kt$@Composable private fun KeyPickerDialog( commandId: String, bindings: Map&lt;String, String&gt;?, onDismiss: () -&gt; Unit, onPick: (String?) -&gt; Unit, )</ID>
-    <ID>FunctionNaming:InGameSettingsScreens.kt$@Composable internal fun InGameCategoryScreen(section: WowSettingSection)</ID>
     <ID>FunctionNaming:InGameSettingsScreens.kt$@Composable internal fun InGameSettingsHubScreen( onOpenRoute: (String) -&gt; Unit, )</ID>
     <ID>FunctionNaming:InGameSettingsScreens.kt$@Composable private fun HubCategoryRow( title: String, description: String, count: Int, tag: String, onClick: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:InGameSettingsScreens.kt$@Composable private fun HubStatusCard( activity: InGameSettingsEditor.ClientActivity, queued: Int, blocked: Int, summary: InGameSettingsEditor.ReconcileSummary?, onDiscardAll: () -&gt; Unit, )</ID>
@@ -235,6 +233,8 @@
     <ID>FunctionNaming:LanScreen.kt$@Composable private fun RealmBrowserCard( state: RealmState, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:PocketRealmApp.kt$@Composable private fun PocketRealmTopBar( title: String, topLevel: Boolean, realmState: RealmState, onBack: () -&gt; Unit, onSettings: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:PocketRealmApp.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PocketRealmApp()</ID>
+    <ID>FunctionNaming:PublicRealmsSection.kt$@Composable fun PublicRealmsSection(browser: PublicRealmBrowser)</ID>
+    <ID>FunctionNaming:PublicRealmsSection.kt$@Composable private fun PublicRealmListingRow(row: RealmBrowserModel.Row.PublicRealms.PublicRealm)</ID>
     <ID>FunctionNaming:SettingsRows.kt$@Composable internal fun ChoiceRow( label: String, selectedId: String?, choices: List&lt;Pair&lt;String, String&gt;&gt;, tag: String, support: String? = null, enabled: Boolean = true, onSelect: (String) -&gt; Unit, )</ID>
     <ID>FunctionNaming:SettingsRows.kt$@Composable internal fun FloatSteppedSlider( label: String, value: Float?, valueText: String, range: ClosedFloatingPointRange&lt;Float&gt;, step: Float, tag: String, enabled: Boolean = true, onCommit: (Float) -&gt; Unit, )</ID>
     <ID>FunctionNaming:SettingsRows.kt$@Composable internal fun SettingRowLabel( label: String, support: String? = null, modifier: Modifier = Modifier, )</ID>
@@ -293,7 +293,6 @@
     <ID>LongMethod:BotAdmissionController.kt$BotAdmissionController$fun observe(sample: BotResourceSample): BotAdmissionState</ID>
     <ID>LongMethod:BotPresetStore.kt$BotPresetStore.Companion$internal fun readConfiguration(json: JSONObject): BotCustomConfiguration</ID>
     <ID>LongMethod:BotPresetStore.kt$BotPresetStore.Companion$internal fun writeConfiguration(configuration: BotCustomConfiguration): JSONObject</ID>
-    <ID>LongMethod:BotProfiles.kt$BotProfile$fun playerbotConfig(): String</ID>
     <ID>LongMethod:BotProfiles.kt$BotProfiles$private fun advancedFromBase( prefix: String, target: Int, settings: BotAdvancedSettings, base: BotProfile, ): BotProfile</ID>
     <ID>LongMethod:BotsScreen.kt$@Composable fun BotsScreen()</ID>
     <ID>LongMethod:BotsScreen.kt$@Composable private fun PresetList( presets: List&lt;BotPresetStore.SavedPreset&gt;, selectedSavedId: String?, selectedBuiltinId: String?, search: String, onSearch: (String) -&gt; Unit, onSelectBuiltIn: (com.pocketrealm.bots.BotProfile) -&gt; Unit, onSelectSaved: (BotPresetStore.SavedPreset) -&gt; Unit, onNew: () -&gt; Unit, onImport: () -&gt; Unit, onExport: (BotPresetStore.SavedPreset) -&gt; Unit, onToggleFavorite: (String, Boolean) -&gt; Unit, onDuplicate: (String) -&gt; Unit, onRename: (String) -&gt; Unit, onDelete: (String) -&gt; Unit, listModifier: Modifier = Modifier, )</ID>
@@ -340,7 +339,6 @@
     <ID>LongMethod:InGameBindingsScreen.kt$@Composable internal fun InGameBindingsScreen()</ID>
     <ID>LongMethod:InGameBindingsScreen.kt$@Composable private fun BindingRow( binding: com.pocketrealm.client.WowBindingDefinition, bindings: Map&lt;String, String&gt;?, queued: com.pocketrealm.ingame.BindingOverride?, onEdit: (String, Int) -&gt; Unit, onUnbind: (String, Int) -&gt; Unit, )</ID>
     <ID>LongMethod:InGameBindingsScreen.kt$@Composable private fun KeyPickerDialog( commandId: String, bindings: Map&lt;String, String&gt;?, onDismiss: () -&gt; Unit, onPick: (String?) -&gt; Unit, )</ID>
-    <ID>LongMethod:InGameSettingsScreens.kt$@Composable internal fun InGameCategoryScreen(section: WowSettingSection)</ID>
     <ID>LongMethod:InGameSettingsScreens.kt$@Composable internal fun InGameSettingsHubScreen( onOpenRoute: (String) -&gt; Unit, )</ID>
     <ID>LongMethod:InGameSettingsScreens.kt$@Composable private fun SettingDefinitionRow( definition: WowSettingDefinition, snap: Settings.Snapshot, state: InGameSettingsState, )</ID>
     <ID>LongMethod:InnoHeaderParser.kt$InnoHeaderParser$private fun parseHeaderFields(): HeaderFields</ID>
@@ -538,12 +536,7 @@
     <ID>MagicNumber:AndroidRuntimeBackend.kt$AndroidRuntimeBackend$500</ID>
     <ID>MagicNumber:AndroidRuntimeBackend.kt$AndroidRuntimeBackend$512</ID>
     <ID>MagicNumber:AndroidRuntimeBackend.kt$AndroidRuntimeBackend$750</ID>
-    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$0x1a</ID>
-    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$0x4d</ID>
-    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$0x50</ID>
-    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$0x51</ID>
     <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$1024</ID>
-    <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$4</ID>
     <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$4096</ID>
     <ID>MagicNumber:ArchiveClientScanner.kt$ArchiveClientScanner$64</ID>
     <ID>MagicNumber:ArchiveFormatSniffer.kt$ArchiveFormatSniffer$0x07</ID>
@@ -1909,7 +1902,6 @@
     <ID>UnusedParameter:InGameBindingsScreen.kt$bindings: Map&lt;String, String&gt;?</ID>
     <ID>UnusedParameter:InputContract.kt$InputContract$src: Int</ID>
     <ID>UnusedParameter:InputProfile.kt$InputProfile.Companion$cameraLock: Boolean</ID>
-    <ID>UnusedPrivateMember:ArchiveClientScanner.kt$ArchiveClientScanner$private fun depth(name: String): Int</ID>
     <ID>UnusedPrivateMember:ArchiveClientScanner.kt$ArchiveClientScanner$private fun lastSegment(name: String): String</ID>
     <ID>UnusedPrivateMember:ClientRuntimeService.kt$ClientRuntimeService$private fun readTail(file: File): String</ID>
     <ID>UnusedPrivateProperty:BotsScreen.kt$val selection = BotSelection.resolve( savedPresetId = snapshot.botSavedPresetId, advancedEnabled = snapshot.botAdvancedEnabled, advancedTarget = snapshot.botPopulationTarget, advanced = snapshot.botAdvanced, profileId = snapshot.botProfileId, )</ID>

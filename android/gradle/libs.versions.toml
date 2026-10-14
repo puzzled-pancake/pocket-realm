@@ -14,6 +14,14 @@ androidxTestCore = "1.6.1"
 coroutinesTest = "1.8.1"
 coroutinesAndroid = "1.8.1"
 okhttp = "5.3.0"
+# BIP-340 Schnorr for the Nostr discovery listing signatures (W6-N1; the
+# Acinq multiplatform build ships the Android JNI AAR and, via
+# secp256k1-kmp-jvm, the desktop JVM natives). 0.16.0 is the newest line
+# whose secp256k1-kmp-jni-jvm Gradle metadata carries org.gradle.jvm.version
+# = 17 — 0.17.x declares JVM 21 and the pinned JDK-17 toolchain refuses it
+# (resolution fails, not a bytecode problem). API (signSchnorr/
+# verifySchnorr/pubkeyCreate/pubKeyCompress/secKeyVerify) is identical.
+secp256k1Kmp = "0.16.0"
 commonsCompress = "1.28.0"
 xzForJava = "1.10"
 libarchiveAndroid = "1.1.6"
@@ -46,6 +54,13 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-tls = { group = "com.squareup.okhttp3", name = "okhttp-tls", version.ref = "okhttp" }
 mockwebserver3 = { group = "com.squareup.okhttp3", name = "mockwebserver3", version.ref = "okhttp" }
+# BIP-340 Schnorr (Nostr listing signatures): the Android JNI variant for
+# the device, plus the JVM artifact for the host-JVM unit-test lane (its
+# natives load through the same java.io.tmpdir contract as every lane).
+secp256k1-kmp = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp", version.ref = "secp256k1Kmp" }
+secp256k1-kmp-jvm = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp-jvm", version.ref = "secp256k1Kmp" }
+secp256k1-kmp-jni-android = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp-jni-android", version.ref = "secp256k1Kmp" }
+secp256k1-kmp-jni-jvm = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp-jni-jvm", version.ref = "secp256k1Kmp" }
 commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
 xz = { group = "org.tukaani", name = "xz", version.ref = "xzForJava" }
 # Clean-room BSD-2 RAR4/RAR5 readers (GPL-3.0-compatible); Apache-2.0 Java bindings.

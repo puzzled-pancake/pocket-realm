@@ -2540,6 +2540,17 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+    // W6-N1: BIP-340 Schnorr for the Nostr discovery listing signatures
+    // (the shared discovery/nostr module; the Android JNI variant here).
+    implementation(libs.secp256k1.kmp)
+    // R4-1 (code-red round 1, serious): the 0.16.0 root artifact publishes
+    // NO android target variant (secp256k1-kmp-android does not exist at
+    // this version; the root .module carries only common/ios/jvm variants),
+    // so AGP resolves the JVM shard whose getSecpk256k1() throws on a
+    // device. The jni-android AAR ships NativeSecp256k1AndroidLoader (the
+    // JVM shard's first-choice loader) plus libsecp256k1-jni.so for all
+    // four ABIs — the device verify path works only with it.
+    implementation(libs.secp256k1.kmp.jni.android)
     implementation(libs.commons.compress)
     // 7z LZMA/LZMA2 entry streams in commons-compress need the tukaani codec;
     // even COPY-method SevenZ files touch FilterOptions at open time.
@@ -2563,6 +2574,12 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockwebserver3)
+    // W6-N1: the JVM secp256k1 variant + natives for the host-JVM unit-test
+    // lane (the Android JNI variant's .so does not load on a plain JVM;
+    // the JVM artifact shadows the identical fr.acinq classes first on the
+    // test classpath).
+    testImplementation(libs.secp256k1.kmp.jvm)
+    testImplementation(libs.secp256k1.kmp.jni.jvm)
     // TLS mock server for the community downloader's https-only redirect hops.
     testImplementation(libs.okhttp.tls)
     testImplementation("org.json:json:20240303")

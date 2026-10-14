@@ -45,6 +45,8 @@ import com.pocketrealm.client.GladioCapability
 import com.pocketrealm.client.SystemVulkanCapabilities
 import com.pocketrealm.client.UserVulkanDriverResolution
 import com.pocketrealm.client.VulkanDriverCatalog
+import com.pocketrealm.discovery.nostr.PublicRealmBrowser
+import com.pocketrealm.discovery.nostr.RelayUrls
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.server.FriendAccessClient
 import com.pocketrealm.supervisor.AdvertisedAddress
@@ -352,6 +354,13 @@ private fun RealmBrowserCard(
     var browserAddress by remember { mutableStateOf("") }
     var probing by remember { mutableStateOf(false) }
     var probeStatus by remember { mutableStateOf<String?>(null) }
+    // The live Public realms browser (W6-N1): connected while the card
+    // shows, honestly idle when it does not.
+    val publicBrowser = remember { PublicRealmBrowser(scope, RelayUrls.DEFAULTS) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { publicBrowser.browse() }
+    androidx.compose.runtime.DisposableEffect(publicBrowser) {
+        onDispose { publicBrowser.idle() }
+    }
     val running = state as? RealmState.Running
     val hosting = running?.mode == RuntimeMode.LAN_HOST
     val joined = running?.mode == RuntimeMode.LAN_JOIN
@@ -427,11 +436,7 @@ private fun RealmBrowserCard(
             probeStatus?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall)
             }
-            Text(
-                RealmBrowserModel.INTERNET_DISCOVERY_COPY,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.testTag("realm-browser-internet-empty"),
-            )
+            PublicRealmsSection(publicBrowser)
         }
     }
 }

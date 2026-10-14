@@ -187,6 +187,21 @@ dependencies {
     // the same artifact version the Android app pins. The GitHub install
     // twin itself (DesktopAddonRepository) rides java.net.http.
     implementation("com.squareup.okhttp3:okhttp:5.3.0")
+    // W6-N1: BIP-340 Schnorr for the shared discovery/nostr module (the
+    // Nostr listing signatures). Built with Kotlin 2.1 — the SAME scoped
+    // mitigations as okhttp above carry it (stdlib held at 2.0.21 +
+    // -Xskip-metadata-version-check). The -jvm artifact is the Kotlin API
+    // only; the Windows/mingw native rides the separate secp256k1-kmp-jni-
+    // jvm companion pinned right below.
+    implementation("fr.acinq.secp256k1:secp256k1-kmp-jvm:0.16.0")
+    // The JNI companion ships SEPARATELY (the artifact's own error copy
+    // names it): this drags secp256k1-kmp-jni-jvm-mingw's Windows native,
+    // which NativeLoader extracts to the temp dir and System.load()s. The
+    // temp dir is E:-pinned on EVERY launch lane below (the loader reads
+    // fr.acinq.secp256k1.tmpdir first, java.io.tmpdir as fallback) — the
+    // test-JVM pin alone covered only the unit-test workers, not `run` or
+    // the jpackage image (R3-1/R7-1).
+    implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-jvm:0.16.0")
     // Win32 auto-login (SendInput into the launched WoW.exe): the JVM has
     // no FFI at 17, and JNA keeps the credentials in-process (no helper
     // exe command line). JDK 22+ would allow the FFM API instead.
@@ -205,7 +220,15 @@ application {
     // without it the app's plain `run` crashes on first WorldNative touch
     // (UnsatisfiedLinkError: no pocket_world_runtime) and the save-exit
     // drain shuts the session down.
-    applicationDefaultJvmArgs = listOf("-Djava.library.path=$nativeLibraryPath")
+    applicationDefaultJvmArgs = listOf(
+        "-Djava.library.path=$nativeLibraryPath",
+        // R3-1/R7-1: the secp256k1 JNI loader extracts its Windows native
+        // to the FIRST set property below (fr.acinq.secp256k1.tmpdir) —
+        // without this pin the first host Schnorr sign writes the 1.4 MB
+        // DLL to %TEMP% on C: (hard rule 1). The test workers carry the
+        // same pin through their own java.io.tmpdir systemProperty.
+        "-Dfr.acinq.secp256k1.tmpdir=E:/pocket_realm_toolchain/tmp",
+    )
 }
 
 // `run` rides applicationDefaultJvmArgs, which cannot carry an
@@ -709,6 +732,10 @@ tasks.register("packageApp") {
                 // does NOT chdir, so "." resolved against the caller's cwd
                 // and every loadLibrary-by-name failed in the image.
                 "--java-options", "-Djava.library.path=\$APPDIR",
+                // R3-1/R7-1: same E:-pin as applicationDefaultJvmArgs — the
+                // packaged image's first secp256k1 use must not extract its
+                // native to %TEMP% on C:.
+                "--java-options", "-Dfr.acinq.secp256k1.tmpdir=E:/pocket_realm_toolchain/tmp",
                 "--win-console",
             )
         }

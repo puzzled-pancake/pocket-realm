@@ -141,6 +141,15 @@ class DesktopSupportBundle(
         runCatching { roots.settingsFile.readText() }.getOrNull()?.let { raw ->
             LLM_KEY_JSON_VALUE.findAll(raw).forEach { match -> add(match.groupValues[1]) }
         }
+        // R7-r2-1/R3-r2-1 (W6-N1 code-red round 2): the realm's Nostr
+        // identity key is a BIP-340 signing secret the shared key list
+        // predates — same explicit-canary lane as the external API key,
+        // parsed AND raw-extracted (a corrupt write must not drop it).
+        runCatching { DesktopSettingsStore(roots.settingsFile).load().nostrPrivateKeyHex }
+            .getOrNull()?.let { add(it) }
+        runCatching { roots.settingsFile.readText() }.getOrNull()?.let { raw ->
+            NOSTR_KEY_JSON_VALUE.findAll(raw).forEach { match -> add(match.groupValues[1]) }
+        }
         runCatching {
             val secretsFile = File(roots.database, DesktopMariaDbEngine.SECRETS_FILE_NAME)
             if (secretsFile.isFile) {
@@ -276,6 +285,10 @@ class DesktopSupportBundle(
         /** The raw-settings canary extraction: the stored JSON value of the
          * external LLM API key, matched independently of the parse (a
          * truncated file must still redact its key). */
+        private val NOSTR_KEY_JSON_VALUE = Regex(
+            "\"nostrPrivateKeyHex\"\\s*:\\s*\"([^\"]*)\"",
+            RegexOption.IGNORE_CASE,
+        )
         private val LLM_KEY_JSON_VALUE = Regex(
             "\"llmExternalApiKey\"\\s*:\\s*\"([^\"]*)\"",
         )

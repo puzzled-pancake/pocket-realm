@@ -1433,6 +1433,28 @@ class DesktopAppModel(
         get() = realmStatusLazy.value
 
     // ------------------------------------------------------------------
+    // W6-N1 (docs/NOSTR-IROH-BUILD-PLAN.md): the host-side Nostr listing
+    // heartbeat — publishes the realm listing while the realm is up AND
+    // the realm-status visibility is PUBLIC AND the host's discovery
+    // switch is on; retracts with NIP-09 on any gate drop and on graceful
+    // shutdown. Constructed lazily beside the realm-status controller it
+    // captures from (the payload builder is the single source of truth).
+    // ------------------------------------------------------------------
+
+    private val nostrListingLazy = lazy {
+        com.pocketrealm.desktop.nostr.NostrListingPublisher(this, realmStatus).apply { boot() }
+    }
+
+    /** The Nostr listing publisher (the browser card's host controls). */
+    internal val nostrListing: com.pocketrealm.desktop.nostr.NostrListingPublisher
+        get() = nostrListingLazy.value
+
+    /** The effective relay set (the stored list, else the shipped
+     * defaults) — the read side and the write side always agree. */
+    internal fun effectiveNostrRelays(): List<String> =
+        com.pocketrealm.desktop.nostr.effectiveRelays(_settings.value)
+
+    // ------------------------------------------------------------------
     // Design-tunnel §4/§5/§6: the host-over-the-internet (tunnel) lane's
     // model helpers — the stored advertised address as typed state, the
     // effective advertisement for display/invite, and the §6 invite
@@ -1994,6 +2016,11 @@ class DesktopAppModel(
     }
 
     override fun close() {
+        // W6-N1: the graceful-stop leg of the listing lifecycle — the
+        // NIP-09 retract rides out BEFORE the scopes die (bounded inside).
+        if (nostrListingLazy.isInitialized()) {
+            runCatching { nostrListing.shutdown() }
+        }
         modelScope.cancel()
         // The realm-status page dies with the app process (the §1 rule's
         // app-exit leg); only when the controller was ever constructed.

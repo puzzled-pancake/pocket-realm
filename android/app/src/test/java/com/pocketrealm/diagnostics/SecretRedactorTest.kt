@@ -32,4 +32,16 @@ class SecretRedactorTest {
         assertFalse(output.contains("b".repeat(64)))
         assertTrue(output.contains(hash))
     }
+
+    /** R7-r2-1/R3-r2-1 (W6-N1 round 2): the realm's Nostr identity key is
+     * a signing secret — its key name matches SENSITIVE_KEY and the value
+     * is scrubbed from any structured body. */
+    @Test fun nostrPrivateKeyHexIsRedactedFromStructuredBodies() {
+        val canary = "4f5e6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091"
+        val body = "{\"nostrDiscoveryEnabled\":true,\"nostrPrivateKeyHex\":\"$canary\"}"
+        val output = SecretRedactor(listOf(canary)).redact(body)
+        assertFalse(output.contains(canary))
+        assertTrue(output.contains("nostrPrivateKeyHex"))
+        assertTrue(output.contains("<redacted>"))
+    }
 }

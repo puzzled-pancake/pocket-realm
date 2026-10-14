@@ -412,6 +412,26 @@ object Settings {
          * limiter with a small value instead of 61 requests.
          */
         val pageRateLimitPerMinute: Int = DEFAULT_PAGE_RATE_LIMIT_PER_MINUTE,
+        /**
+         * W6-N1 (docs/NOSTR-IROH-BUILD-PLAN.md): the host-side Nostr
+         * listing heartbeat switch. FAIL-CLOSED default OFF — publishing
+         * a world-readable listing is an explicit host choice, gated
+         * further by the realm-status PUBLIC visibility (never published
+         * while OFF/FRIENDS) and a live world.
+         */
+        val nostrDiscoveryEnabled: Boolean = false,
+        /**
+         * W6-N1: the user-editable relay set (owner decision 4). Empty
+         * means the shipped defaults (damus.io, nos.lol, primal,
+         * nostr.band) apply; a stored list is the effective set verbatim.
+         */
+        val nostrRelays: List<String> = emptyList(),
+        /**
+         * W6-N1: the realm's Nostr identity (a BIP-340 key, not a user
+         * account). Generated once at first enable, persisted here, never
+         * displayed. Empty = not generated yet.
+         */
+        val nostrPrivateKeyHex: String = "",
     ) {
         /** The timings the auto-login automation runs with: the persisted
          * set, normalized into the supported bounds (the desktop has no
@@ -550,6 +570,26 @@ object Settings {
                         "pageRateLimitPerMinute",
                         DEFAULT_PAGE_RATE_LIMIT_PER_MINUTE,
                     ),
+                    // W6-N1: the relay list decodes leniently (blank
+                    // entries drop; a corrupt array degrades to the
+                    // defaults); a corrupt KEY never throws the snapshot.
+                    // R6-6: a valid array of GARBAGE STRINGS degrades to
+                    // the defaults too — each entry re-validates through
+                    // the shared RelayUrls shape/parser gate, so a
+                    // hand-edited settings.json cannot arm an unparseable
+                    // relay for the next browse/publish cycle.
+                    nostrDiscoveryEnabled = value.optBoolean("nostrDiscoveryEnabled", false),
+                    nostrRelays = runCatching {
+                        val arr = value.optJSONArray("nostrRelays") ?: org.json.JSONArray()
+                        val raw = (0 until arr.length()).map { arr.optString(it) }
+                            .filter { it.isNotBlank() }
+                        if (raw.isEmpty()) {
+                            emptyList()
+                        } else {
+                            com.pocketrealm.discovery.nostr.RelayUrls.sanitizeList(raw)
+                        }
+                    }.getOrDefault(emptyList()),
+                    nostrPrivateKeyHex = value.optString("nostrPrivateKeyHex", ""),
                 )
             }
 
@@ -693,6 +733,10 @@ object Settings {
             .put("showCharacterNames", showCharacterNames)
             .put("cloudflaredPath", cloudflaredPath)
             .put("pageRateLimitPerMinute", pageRateLimitPerMinute)
+            // W6-N1: the discovery switch + relay set + realm identity.
+            .put("nostrDiscoveryEnabled", nostrDiscoveryEnabled)
+            .put("nostrRelays", org.json.JSONArray(nostrRelays))
+            .put("nostrPrivateKeyHex", nostrPrivateKeyHex)
             .toString()
     }
 
