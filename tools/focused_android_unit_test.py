@@ -47,6 +47,38 @@ LOCK = ROOT / "android/app/build/test-results/.focused-android.lock"
 ANOTHER_RUN_ACTIVE = "another focused android run is active"
 
 
+def aggregate_counts(results: Path) -> str | None:
+    """W6-N4 code-red R3-1/R6-N4-r1-3: aggregate the FOCUSED run's JUnit
+    XML into one N4-FOCUSED-COUNTS marker line BEFORE the canonical
+    snapshot is restored (the focused tree is disposable by design, so
+    the counts must be printed into the archived log while they exist).
+    Per-class split included so the exit record's per-class numbers are
+    citable to this line. Returns None when no XML was produced (the run
+    never executed)."""
+    import xml.etree.ElementTree as ET
+
+    xmls = sorted(results.glob("TEST-*.xml"))
+    if not xmls:
+        return None
+    total = failures = classes = 0
+    per_class: list[str] = []
+    for xml_path in xmls:
+        try:
+            root = ET.parse(xml_path).getroot()
+        except ET.ParseError:
+            continue
+        tests = int(root.get("tests", "0"))
+        failed = int(root.get("failures", "0")) + int(root.get("errors", "0"))
+        total += tests
+        failures += failed
+        classes += 1
+        per_class.append(f"{root.get('name', '?').rsplit('.', 1)[-1]} {tests}/{failed}")
+    marker = f"# N4-FOCUSED-COUNTS tests={total} classes={classes} failures={failures}"
+    if per_class:
+        marker += " (" + ", ".join(per_class) + ")"
+    return marker
+
+
 def run_focused(
     tests: list[str],
     abi: str,
@@ -82,6 +114,12 @@ def run_focused(
             )
             return run.returncode
         finally:
+            # W6-N4 R3-1/R6-N4-r1-3: aggregate + PRINT the focused
+            # counts while the focused tree still exists (the restore
+            # below deliberately destroys it).
+            marker = aggregate_counts(RESULTS)
+            if marker:
+                print(marker, flush=True)
             # the focused run's own results are disposable: the CANONICAL
             # tree is what every gate reconciles against, so it is restored
             # byte-for-byte

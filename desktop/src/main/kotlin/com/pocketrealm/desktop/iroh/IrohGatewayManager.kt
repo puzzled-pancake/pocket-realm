@@ -44,6 +44,15 @@ internal class IrohGatewayManager(
 
     @Volatile private var hostReady: HostReady? = null
 
+    /** The READY payload's VALIDATED descriptor — built once at parse
+     * time (W6-N4 code-red R2-N4-r2: counting the refusal at READ time
+     * raced the host process's death, because hostDescriptor()'s
+     * liveness gate precedes the validation; validating where the line
+     * is parsed makes the warn+counter deterministic). Null = the relay
+     * spelling was refused (a counted WARN below) or the payload was
+     * malformed. */
+    @Volatile private var hostDescriptorCache: IrohJoinDescriptor? = null
+
     /** The join process (at most one). */
     private var joinProcess: GatewayProcess? = null
 
@@ -76,25 +85,49 @@ internal class IrohGatewayManager(
      * or invented one — the beat with a null descriptor publishes the
      * honest not-joinable listing). */
     fun hostDescriptor(): IrohJoinDescriptor? {
-        val live = hostReady?.takeIf { hostProcess?.isAlive() == true }
+        val live = hostDescriptorCache?.takeIf { hostProcess?.isAlive() == true }
         if (live == null) {
             // A dead process invalidates its cached READY — the next beat
             // sees the honest gateway-down state, never a stale descriptor.
-            if (hostReady != null && hostProcess?.isAlive() == false) hostReady = null
+            if (hostReady != null && hostProcess?.isAlive() == false) {
+                hostReady = null
+                hostDescriptorCache = null
+            }
             return null
         }
-        return descriptorFromReady(live)
+        return live
     }
 
     /** The READY payload → validated descriptor: no relay URL (the
      * endpoint never registered with a home relay) is no descriptor, and
      * the constructor validates the rest — a malformed READY line
-     * degrades to null, never a bad listing. */
+     * degrades to null, never a bad listing. W6-N4 code-red R2-N4-r2:
+     * the refusal is NO LONGER silent — a relay spelling the fence
+     * refuses degrades the listing to join:null, so each refusal is a
+     * WARN (with the fence's own reason) plus a counter the pins read;
+     * the producer-side canonization (GatewayMain.canonicalRelayUrl,
+     * D98) owns keeping the known spellings legal. Called ONCE at parse
+     * time (see [hostDescriptorCache]). */
     private fun descriptorFromReady(ready: HostReady): IrohJoinDescriptor? {
         val relay = ready.relayUrl ?: return null
-        return runCatching { IrohJoinDescriptor(nodeHex = ready.nodeHex, relayUrl = relay) }
-            .getOrNull()
+        val descriptor = runCatching { IrohJoinDescriptor(nodeHex = ready.nodeHex, relayUrl = relay) }
+        return descriptor.getOrElse { refusal ->
+            descriptorRefusals += 1
+            com.pocketrealm.desktop.DesktopLog.w(
+                TAG,
+                "gateway: the READY relay was refused by the descriptor " +
+                    "fence — the host listing stays join:null until the " +
+                    "relay URL is legal: ${refusal.message}",
+            )
+            null
+        }
     }
+
+    /** How many READY relay spellings the descriptor fence has refused
+     * on this manager (each one is a join:null listing beat — the
+     * R2-N4-r2 pin's observation point). */
+    internal var descriptorRefusals: Int = 0
+        private set
 
     /**
      * Ensures the HOST gateway is running (idempotent). The secret is the
@@ -115,6 +148,7 @@ internal class IrohGatewayManager(
             )
             hostProcess = null
             hostReady = null
+            hostDescriptorCache = null
             deadHostDeaths += 1
         }
         hostProcess?.let { return it.isAlive() && hostReady != null }
@@ -130,18 +164,34 @@ internal class IrohGatewayManager(
         )
         hostProcess = process
         hostReady = null
+        hostDescriptorCache = null
+        val generation = process
         scope.launch {
             val line = process.awaitLine(GatewayContract.READY_LINE_PREFIX)
-            if (line != null) {
-                val json = runCatching { JSONObject(line) }.getOrNull()
-                hostReady = json?.let {
-                    HostReady(it.optString("node", ""), it.optString("relay", "").ifEmpty { null })
+            // W6-N4 code-red R2-N4-r4-1: the parse write is keyed to its
+            // PRODUCING process and taken under the manager monitor — a
+            // dead generation's already-queued READY line must never
+            // repopulate the cache over a newer generation (with a
+            // regenerated realm key the stale descriptor would advertise
+            // a dead endpoint until the next self-heal beat).
+            synchronized(this@IrohGatewayManager) {
+                if (hostProcess !== generation) return@launch
+                if (line != null) {
+                    val json = runCatching { JSONObject(line) }.getOrNull()
+                    val ready = json?.let {
+                        HostReady(it.optString("node", ""), it.optString("relay", "").ifEmpty { null })
+                    }
+                    hostReady = ready
+                    // Validated ONCE at parse time — the refusal warn+counter
+                    // below is deterministic (R2-N4-r2), never raced by the
+                    // host process's liveness.
+                    hostDescriptorCache = ready?.let { descriptorFromReady(it) }
+                } else if (!process.isAlive()) {
+                    // The error line (if any) is already on the process's log;
+                    // the descriptor simply stays null — the listing stays
+                    // honest (join:null) until a READY arrives (and the next
+                    // ensure beat relaunches — R2-r5-2).
                 }
-            } else if (!process.isAlive()) {
-                // The error line (if any) is already on the process's log;
-                // the descriptor simply stays null — the listing stays
-                // honest (join:null) until a READY arrives (and the next
-                // ensure beat relaunches — R2-r5-2).
             }
         }
         return true
@@ -153,6 +203,7 @@ internal class IrohGatewayManager(
         hostProcess?.stop()
         hostProcess = null
         hostReady = null
+        hostDescriptorCache = null
     }
 
     /**

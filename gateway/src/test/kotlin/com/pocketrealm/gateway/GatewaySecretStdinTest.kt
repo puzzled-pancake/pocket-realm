@@ -85,4 +85,105 @@ class GatewaySecretStdinTest {
         )
         assertEquals(secret, parsed.secretHex)
     }
+
+
+    /** W6-N4 code-red round 6, R2-6-1's proposed rows: the charset gate
+     * must refuse UNICODE digits — Char.isDigit() (the old check) is
+     * Unicode-aware, and the UTF-8 STDIN leg (the production channel,
+     * R3-3) is where the hole was live: a U+0663-class char rode the
+     * gate and SecretKeys.fromHex would derive identity bytes from a
+     * non-hex spelling. Both legs pinned: the stdin secret and --node. */
+    @Test
+    fun `a unicode-digit stdin secret refuses with the secret gate message`() {
+        val unicodeDigit = "٣" // U+0663 ARABIC-INDIC DIGIT THREE: isDigit() == true
+        val secret = "a".repeat(63) + unicodeDigit
+        assertEquals(64, secret.length)
+        val originalIn = System.`in`
+        System.setIn(secret.byteInputStream(Charsets.UTF_8))
+        try {
+            val outcome = runCatching {
+                Args.parse(
+                    arrayOf(
+                        GatewayContract.ARG_MODE, GatewayContract.MODE_JOIN,
+                        GatewayContract.ARG_SECRET_STDIN,
+                        GatewayContract.ARG_NODE_HEX, "b".repeat(64),
+                        GatewayContract.ARG_FLAVOR, "wotlk",
+                        GatewayContract.ARG_RELAY_URL, "https://usw1-1.relay.n0.iroh.link/",
+                    ),
+                )
+            }
+            System.setIn(originalIn)
+            val failure = outcome.exceptionOrNull()
+            assertTrue(
+                failure is BadArgsExit,
+                "a Unicode-digit secret must refuse as BadArgsExit, got $failure",
+            )
+            assertEquals(
+                "--secret must be 64 hex characters (32 bytes)",
+                failure.message,
+                "the gate's own copy must be TRUE for its production channel",
+            )
+        } catch (t: Throwable) {
+            System.setIn(originalIn)
+            throw t
+        }
+    }
+
+    @Test
+    fun `a unicode-digit node refuses with the node gate message`() {
+        val unicodeDigit = "٣"
+        val node = "b".repeat(63) + unicodeDigit
+        assertEquals(64, node.length)
+        val originalIn = System.`in`
+        System.setIn("a".repeat(64).byteInputStream(Charsets.UTF_8))
+        try {
+            val outcome = runCatching {
+                Args.parse(
+                    arrayOf(
+                        GatewayContract.ARG_MODE, GatewayContract.MODE_JOIN,
+                        GatewayContract.ARG_SECRET_STDIN,
+                        GatewayContract.ARG_NODE_HEX, node,
+                        GatewayContract.ARG_FLAVOR, "wotlk",
+                        GatewayContract.ARG_RELAY_URL, "https://usw1-1.relay.n0.iroh.link/",
+                    ),
+                )
+            }
+            System.setIn(originalIn)
+            val failure = outcome.exceptionOrNull()
+            assertTrue(
+                failure is BadArgsExit,
+                "a Unicode-digit node must refuse as BadArgsExit, got $failure",
+            )
+            assertEquals(
+                "--node must be 64 hex characters",
+                failure.message,
+            )
+        } catch (t: Throwable) {
+            System.setIn(originalIn)
+            throw t
+        }
+    }
+
+    @Test
+    fun `an ascii hex secret still parses after the charset tightening`() {
+        val secret = "a".repeat(63) + "F"
+        val originalIn = System.`in`
+        System.setIn(secret.byteInputStream(Charsets.UTF_8))
+        try {
+            val parsed = Args.parse(
+                arrayOf(
+                    GatewayContract.ARG_MODE, GatewayContract.MODE_JOIN,
+                    GatewayContract.ARG_SECRET_STDIN,
+                    GatewayContract.ARG_NODE_HEX, "b".repeat(64),
+                    GatewayContract.ARG_FLAVOR, "wotlk",
+                    GatewayContract.ARG_RELAY_URL, "https://usw1-1.relay.n0.iroh.link/",
+                ),
+            )
+            // the gateway lowercases the secret (the canonical form)
+            assertEquals(secret.lowercase(), parsed.secretHex)
+        } catch (t: Throwable) {
+            System.setIn(originalIn)
+            throw t
+        }
+    }
 }

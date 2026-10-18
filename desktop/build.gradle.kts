@@ -930,6 +930,45 @@ tasks.withType<Test>().configureEach {
         binaryResultsDirectory.set(
             pocketFocusedResults.map { it.dir("binary") },
         )
+        // W6-N4 code-red R6-N4-r3-2: the focused lane emits its OWN
+        // counts marker (the same shape the android lane's
+        // focused_android_unit_test.py prints) — a TRACKED emitter, so
+        // the archived log's counts line is reproducible by re-running,
+        // never appended text.
+        doLast {
+            val resultsDir = pocketFocusedResults.get().asFile
+            val xmls = resultsDir.walkTopDown()
+                .filter { it.name.startsWith("TEST-") && it.name.endsWith(".xml") }
+                .toList()
+            if (xmls.isEmpty()) return@doLast
+            var tests = 0
+            var failures = 0
+            var classes = 0
+            val perClass = ArrayList<String>()
+            for (xml in xmls.sortedBy { it.name }) {
+                try {
+                    val head = xml.useLines { lines ->
+                        lines.firstOrNull { it.contains("<testsuite") }
+                    } ?: continue
+                    fun attr(name: String): Int =
+                        Regex("$name=\"(\\d+)\"").find(head)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                    val t = attr("tests")
+                    val f = attr("failures") + attr("errors")
+                    tests += t
+                    failures += f
+                    classes += 1
+                    val suite = Regex("name=\"([^\"]+)\"").find(head)
+                        ?.groupValues?.get(1)?.substringAfterLast('.') ?: "?"
+                    perClass += "$suite $t/$f"
+                } catch (_: Exception) {
+                    // an unreadable XML counts as absent, never as a pass
+                }
+            }
+            println(
+                "# N4-FOCUSED-COUNTS tests=$tests classes=$classes " +
+                    "failures=$failures (${perClass.joinToString(", ")})",
+            )
+        }
     }
 }
 

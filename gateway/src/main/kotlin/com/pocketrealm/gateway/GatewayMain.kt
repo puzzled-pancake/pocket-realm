@@ -1,6 +1,7 @@
 package com.pocketrealm.gateway
 
 import com.pocketrealm.discovery.iroh.GatewayContract
+import com.pocketrealm.discovery.iroh.IrohJoinDescriptor
 import com.pocketrealm.discovery.iroh.RealmListRewrite
 import computer.iroh.Endpoint
 import computer.iroh.EndpointOptions
@@ -36,6 +37,24 @@ import java.util.Base64
  * bad args. Nothing is swallowed; the app surfaces the code verbatim.
  */
 fun main(args: Array<String>) {
+    // W6-N4 code-red R2-N4-r3-1: the protocol channel is UTF-8 — the
+    // app's manager decodes the child's stdout with Charsets.UTF_8, but
+    // a piped JVM defaults stdout/stderr to the platform charset
+    // (Cp1252 here), so every em-dash in an error detail surfaced as
+    // U+FFFD in the user-facing Error lane. Pin the streams BEFORE any
+    // protocol line is printed.
+    val utf8Out = java.io.PrintStream(
+        java.io.FileOutputStream(java.io.FileDescriptor.out),
+        true,
+        Charsets.UTF_8,
+    )
+    val utf8Err = java.io.PrintStream(
+        java.io.FileOutputStream(java.io.FileDescriptor.err),
+        true,
+        Charsets.UTF_8,
+    )
+    System.setOut(utf8Out)
+    System.setErr(utf8Err)
     computer.iroh.setLogLevel(LogLevel.WARN)
     System.setProperty(
         "jna.tmpdir",
@@ -85,6 +104,37 @@ fun main(args: Array<String>) {
 
 object GatewayMain {
 
+    /** W6-N4 (found by the first real-relay exercise of the descriptor
+     * ladder): iroh renders N0's relay URLs in the FQDN root-dot form
+     * ("https://usw1-1.relay.n0.iroh.link./" — N2's captured READY line),
+     * and [IrohJoinDescriptor]'s fail-closed host ladder refuses an
+     * empty trailing label — the app would have degraded EVERY host
+     * descriptor to join:null. The fix lives at the PRODUCER: this line
+     * protocol carries the canonical no-dot URL (DNS resolution is
+     * identical for the joiner's RelayMode.customFromUrls), and the
+     * descriptor boundary stays strict (it still refuses the dot form —
+     * canonization never widens the public trust boundary). */
+    fun canonicalRelayUrl(relayUrl: String?): String? {
+        if (relayUrl == null) return null
+        val prefix = "https://"
+        if (!relayUrl.startsWith(prefix)) return relayUrl
+        val body = relayUrl.removePrefix(prefix)
+        val authority = body.substringBefore('/') // host[:port], possibly root-dotted
+        val tail = body.removePrefix(authority) // "" or the "/" + path
+        // R5-4 (round-6 minor): a bracketed IPv6-literal authority is
+        // OUT OF DESIGN (the home relay is FQDN-addressed; the descriptor
+        // fence refuses IP-literal hosts) — pass it through UNTOUCHED
+        // rather than mangling it at the first colon.
+        if (authority.startsWith("[")) return relayUrl
+        val host = authority.substringBefore(':').removeSuffix(".")
+        // R2-N4-r3 (round-6 minor): the root dot is stripped from the
+        // PORT segment too ("relay.example.com:443./") so the doc
+        // comment's 'exactly one FQDN root dot from the authority' holds
+        // for every segment.
+        val port = authority.substringAfter(':', missingDelimiterValue = "").removeSuffix(".")
+        return prefix + host + (if (port.isNotEmpty()) ":$port" else "") + tail
+    }
+
     /** One stdout protocol line, flushed (the app reads line-wise).
      * [boundSockets] carries the endpoint's actual UDP bind addresses —
      * the DIRECT lane's dial input (the one-machine E2E); the app's
@@ -97,7 +147,8 @@ object GatewayMain {
         ports: List<Int>,
         boundSockets: List<String> = emptyList(),
     ) {
-        val relayJson = relayUrl?.let { "\"$it\"" } ?: "null"
+        val relay = canonicalRelayUrl(relayUrl)
+        val relayJson = relay?.let { "\"$it\"" } ?: "null"
         // boundSockets() strings arrive QUOTED (the FFI renders the addr's
         // Debug form) — strip the wrapping quotes so the JSON stays valid.
         val addrsJson = boundSockets.joinToString(",") { socket ->
@@ -230,6 +281,18 @@ data class Args(
                             "default relay set instead of the advertised one",
                     )
                 }
+                // R2N4R2-2 (round-6 minor): a syntactically invalid relay
+                // URL used to defer to the FFI and surface as
+                // GATEWAY-INTERNAL with a NULL detail — refuse at the args
+                // gate by running the SAME fence ladder the descriptor
+                // runs (IrohJoinDescriptor.validateRelayUrl), so the
+                // refusal carries a non-null actionable reason and the
+                // shapes can never drift apart.
+                relay?.let { relayValue ->
+                    IrohJoinDescriptor.validateRelayUrl(relayValue)?.let { refusal ->
+                        throw BadArgsExit("--relay: $refusal")
+                    }
+                }
             }
             // Host-side loopback targets: the contract defaults are the
             // game's fixed ports; the override exists for ONE machine's
@@ -281,7 +344,13 @@ data class Args(
             return line.trim().ifEmpty { null }
         }
 
-        private fun Char.isHexDigit(): Boolean = isDigit() || (this in 'a'..'f') || (this in 'A'..'F')
+        // W6-N4 code-red R2-6-1: ASCII-ONLY — Char.isDigit() is
+        // Unicode-aware (U+0663-class digits pass it), so a UTF-8 stdin
+        // secret rode this check and SecretKeys.fromHex derived identity
+        // bytes from a non-hex spelling. The gate's own copy is true
+        // only for 0-9a-fA-F.
+        private fun Char.isHexDigit(): Boolean =
+            (this in '0'..'9') || (this in 'a'..'f') || (this in 'A'..'F')
     }
 }
 

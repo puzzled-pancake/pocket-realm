@@ -24,6 +24,24 @@ plugins {
 group = "com.pocketrealm"
 version = "0.110.0-alpha"
 
+// W6-N4 code-red R4-r3-1: the -Ppocket.seat whole-build redirect is
+// applied HERE (build-script body — always executed, configuration-cache
+// or not) IN ADDITION to settings.gradle.kts's gradle.beforeProject hook:
+// a seat run once wrote the CANONICAL class tree when the settings-only
+// hook failed to apply under a split daemon/configuration state. Seat
+// runs also compile IN-PROCESS — shared Kotlin daemon sessions were the
+// concurrent-corruption root (NoClassDefFoundError mid-run). Default
+// runs (no property) keep the canonical build/ layout and the daemon.
+val pocketSeat = providers.gradleProperty("pocket.seat").orNull?.takeIf { it.isNotBlank() }
+if (pocketSeat != null) {
+    layout.buildDirectory.set(file("build-seat-$pocketSeat"))
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+        compilerExecutionStrategy.set(
+            org.jetbrains.kotlin.gradle.tasks.KotlinCompilerExecutionStrategy.IN_PROCESS,
+        )
+    }
+}
+
 repositories {
     mavenCentral()
 }
@@ -93,10 +111,67 @@ val fatJar = tasks.register<Jar>("fatJar") {
     }
 }
 
+// W6-N4: the docker reconnect leg's fake-stack jar — the TEST source
+// set's entrypoint (FakeRealmServer/FakeEchoServer + the container
+// main), never a production Main-Class. The ReconnectDockerE2E mounts
+// BOTH jars into the host container (/app, read-only).
+val fakeStackJar = tasks.register<Jar>("fakeStackJar") {
+    archiveBaseName.set("gateway-fakestack")
+    archiveClassifier.set("test-tools")
+    archiveVersion.set("") // the container classpath names the exact file
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest { attributes["Main-Class"] = "com.pocketrealm.gateway.FakeStackMain" }
+    from(sourceSets.test.get().output)
+}
+
 tasks.named("assemble") { dependsOn(fatJar) }
 
 tasks.test {
+    // The docker reconnect leg mounts the CURRENT fake-stack jar.
+    dependsOn(fakeStackJar)
     dependsOn(fatJar) // the subprocess E2E launches the CURRENT jar
+    // W6-N4 code-red R5-N4-r5-2 (the desktop lane's R6-N4-r3-2 ruling,
+    // gateway twin): the archived logs' counts markers must come from a
+    // TRACKED emitter — never appended text. doLast aggregates the
+    // focused/canonical JUnit XML into the SAME marker shapes the exit
+    // record quotes: the hermetic/flags-ON suite marker (with the
+    // opt-in flags state) and the reader-pin counts marker.
+    doLast {
+        val resultsDir = reports.junitXml.outputLocation.get().asFile
+        val xmls = resultsDir.walkTopDown()
+            .filter { it.name.startsWith("TEST-") && it.name.endsWith(".xml") }
+            .toList()
+        if (xmls.isEmpty()) return@doLast
+        var tests = 0
+        var failures = 0
+        var skipped = 0
+        var classes = 0
+        for (xml in xmls.sortedBy { it.name }) {
+            try {
+                val head = xml.useLines { lines ->
+                    lines.firstOrNull { it.contains("<testsuite") }
+                } ?: continue
+                fun attr(name: String): Int =
+                    Regex("$name=\"(\\d+)\"").find(head)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                tests += attr("tests")
+                failures += attr("failures") + attr("errors")
+                skipped += attr("skipped")
+                classes += 1
+            } catch (_: Exception) {
+                // an unreadable XML counts as absent, never as a pass
+            }
+        }
+        val flags = when {
+            System.getProperty("pocket.reconnect.relay") == "true" ||
+                System.getProperty("pocket.reconnect.docker") == "true" -> "on"
+            else -> "off"
+        }
+        println(
+            "# N4-GATEWAY-SUITE-COUNTS tests=$tests skipped=$skipped " +
+                "failures=$failures flags=$flags",
+        )
+        println("# N3-GATEWAY-COUNTS tests=$tests classes=$classes failures=$failures")
+    }
     useJUnitPlatform()
     testLogging {
         events("passed", "failed", "skipped")
@@ -110,6 +185,27 @@ tasks.test {
     // gradle command is NOT visible to test workers — propagate it).
     System.getProperty("pocket.payload.dump")?.let {
         systemProperty("pocket.payload.dump", it)
+    }
+    // W6-N4: the reconnect proofs' opt-in flags ride the same channel
+    // (absent = the suite stays hermetic and the legs SKIP honestly).
+    listOf("pocket.reconnect.relay", "pocket.reconnect.docker").forEach { name ->
+        System.getProperty(name)?.let { systemProperty(name, it) }
+    }
+    // Code-red R4-5/R5-2: concurrent seats on the shared checkout must
+    // not delete each other's in-flight binary results (the
+    // NoSuchFileException in-progress-results-generic.bin class) — a
+    // seat flag redirects BOTH output locations the way -Ppocket.focus
+    // does on the desktop lane. ONE WRITER per (module, results dir):
+    // seats running concurrently pass distinct -Ppocket.seat=<id> values
+    // (their port-bound E2Es then SKIP honestly while the other seat
+    // holds 3724/8085 — see gamePortsFree in the test tree).
+    providers.gradleProperty("pocket.seat").orNull?.takeIf { it.isNotBlank() }?.let { seat ->
+        val seatResults = layout.buildDirectory.dir("test-results-seat-$seat")
+        binaryResultsDirectory.set(seatResults.map { it.dir("binary") })
+        reports.junitXml.outputLocation.set(seatResults)
+        // locateFatJar's seat awareness reads this (a seat run spawns
+        // the jar its OWN build-seat-<id> produced).
+        systemProperty("pocket.seat", seat)
     }
     systemProperty("java.io.tmpdir", "E:/pocket_realm_toolchain/tmp")
 }

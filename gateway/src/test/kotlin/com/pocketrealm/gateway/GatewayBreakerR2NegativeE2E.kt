@@ -3,6 +3,7 @@ package com.pocketrealm.gateway
 import com.pocketrealm.discovery.iroh.GatewayContract
 import com.pocketrealm.discovery.iroh.RealmListRewrite
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.ExtendWith
 import java.io.DataInputStream
 import java.net.ServerSocket
 import java.net.Socket
@@ -26,6 +27,7 @@ import kotlin.test.fail
  * are joined only by coroutine scheduling, which is exactly the seam this
  * test exists to pin.
  */
+@ExtendWith(GamePortsGuard::class)
 class GatewayBreakerR2NegativeE2E {
 
     @Test

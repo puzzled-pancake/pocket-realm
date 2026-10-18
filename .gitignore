@@ -161,3 +161,6 @@ native/.build-win-x86_64/
 # 0..N-byte `nul` file at the cwd (D49/D65 recurrence). The hygiene tripwire
 # catches it; the ignore entry keeps a sweeping `git add` from committing it.
 nul
+
+# W6-N4: per-seat whole-build redirects (-Ppocket.seat=<id>; code-red R4-5/R5-2)
+gateway/build-seat-*/

@@ -246,7 +246,14 @@ class BreakerR3Round3NegativeTest {
             GatewayContract.ARG_REALM_TARGET, "127.0.0.1:99999",
         )
         val thrown = runCatching { Args.parse(raw) }.exceptionOrNull()
-        assertTrue(thrown is IllegalArgumentException, "got: $thrown")
+        // R5-r2-4 (round-6 minor): assert on the concrete refusal path's
+        // CONTENT (the out-of-range port) — never a compiler-tautological
+        // instanceof.
+        assertTrue(
+            thrown is IllegalArgumentException &&
+                thrown.message!!.contains("port out of range"),
+            "got: $thrown",
+        )
         assertTrue(thrown !is BadArgsExit, "not the args-gate class")
     }
 }

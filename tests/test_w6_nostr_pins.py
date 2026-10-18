@@ -457,12 +457,17 @@ def test_wave_exit_n3_focused_numbers_equal_the_archived_counts():
         f"the cited desktop focused log {desktop_cited.group(3)} is missing"
     )
     desktop_text = desktop_path.read_text(encoding="utf-8", errors="replace")
+    # W6-N4 round 3 (R6-N4-r3-2): the desktop focused lane's TRACKED
+    # emitter (desktop/build.gradle.kts Test-task doLast) prints the
+    # N4-FOCUSED-COUNTS marker — the era label moved with the mechanism,
+    # so this pin matches the marker the lane actually emits (either
+    # era-labeled line remains acceptable for N3-era archives).
     desktop_counts = re.search(
-        r"# N3-FOCUSED-COUNTS tests=(\d+) classes=(\d+) failures=(\d+)",
+        r"# N[34]-FOCUSED-COUNTS tests=(\d+) classes=(\d+) failures=(\d+)",
         desktop_text,
     )
     assert desktop_counts, (
-        f"{desktop_cited.group(3)} lost its N3-FOCUSED-COUNTS line"
+        f"{desktop_cited.group(3)} lost its FOCUSED-COUNTS line"
     )
     assert int(desktop_cited.group(1)) == int(desktop_counts.group(1)), (
         f"WAVE-EXIT cites {desktop_cited.group(1)} desktop focused tests "
@@ -525,3 +530,31 @@ def test_realmlist_kdoc_cites_resolve():
             f"line reads {cited.strip()!r} - the citation-precision "
             "contract is violated (R5-r6-1)"
         )
+
+
+def test_wiki_scopes_the_network_change_sentence_and_documents_reconnect():
+    """W6-N4 round 6 (R6-N4-r6-2), the N1 R6-2 wiki-pin pattern: the
+    LAN restart sentence must be scoped to the LAN lane, and the
+    internet lane's verified reconnect behavior must be documented
+    (tunnel loss is loud; re-join the SAME listing; the host does not
+    restart and no new listing is required)."""
+    wiki = ROOT / "docs/wiki/Accounts-Security-and-Networking.md"
+    text = wiki.read_text(encoding="utf-8")
+    assert "On the LAN lane, if the host's active interface or address changes" in text, (
+        "the LAN restart sentence must be scoped to the LAN lane"
+    )
+    assert "Internet play through the iroh gateway behaves differently" in text, (
+        "the internet lane's reconnect behavior must be documented"
+    )
+    assert "rejoining the SAME Public-realms listing reconnects" in text, (
+        "the re-join-the-same-listing remedy must be documented"
+    )
+    assert "no new listing is needed" in text, (
+        "the no-new-listing property must be documented"
+    )
+    # the old unconditional sentence must not return in unscoped form
+    assert not re.search(
+        r"(?m)^If the host's active interface or address changes, the session "
+        r"is no longer", text), (
+        "the unscoped restart sentence came back"
+    )
