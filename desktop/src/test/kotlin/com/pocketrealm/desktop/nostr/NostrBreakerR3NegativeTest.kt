@@ -43,10 +43,12 @@ import org.junit.Test
  *    integer form — connectable on this very JVM);
  *  - the fence vs IDN (non-ASCII) hostnames, whose punycode form the
  *    SAME fence refuses — one hostname, two spellings, one verdict;
- *  - the inbound store must refuse a NON-NULL join (the frozen schema
- *    keeps it null until N3): today any value rides in UNBOUNDED, so a
- *    hostile signed listing pins megabytes past the 256-entry admission
- *    cap (the cap counts entries, not bytes);
+ *  - the inbound store must refuse a HOSTILE join (W6-N3 flipped the
+ *    frozen schema to CARRY a well-formed descriptor, but the admission
+ *    shape stays bounded: exactly type/node/relay, a 64-hex node, a
+ *    hostname-only https relay) — any other shape is refused, so a
+ *    hostile signed listing still cannot pin megabytes past the
+ *    256-entry admission cap (the cap counts entries, not bytes);
  *  - the merge-evidence contract: a relay that delivered an OLDER,
  *    different-id echo must NOT be recorded as having seen the stored
  *    newest id (the "seen on N relays" copy would lie);
@@ -162,11 +164,10 @@ class NostrBreakerR3NegativeTest {
 
     // -------------------------------------------- inbound store contract
 
-    /** NEGATIVE (expected FAILING on the current tree): the frozen schema
-     * keeps `join` NULL until stage N3. Inbound, any JSON object rides in
-     * UNBOUNDED and is RETAINED on the entry — a hostile host pins
-     * megabytes per listing and the 256-entry admission cap counts
-     * entries, not bytes (256 x N MB defeats the R2-4 memory fence). */
+    /** NEGATIVE (W6-N3 posture): the join descriptor is now CARRIED, but
+     * only in the pinned bounded shape — an object carrying unknown keys
+     * (here a 2 MB "pad") refuses at admission, so the unbounded
+     * retention hole the R3-2 fence closed stays closed. */
     @Test
     fun inboundNonNullJoinIsRefusedUntilN3() {
         val store = ListingStore { (NOW_SECONDS + 60) * 1000 }
@@ -176,10 +177,10 @@ class NostrBreakerR3NegativeTest {
         )
         val result = store.accept(event, "wss://relay")
         assertTrue(
-            "a non-null join (frozen-schema null until N3) with a $pad.length-byte " +
-                "payload was ACCEPTED and retained (${store.retainedCount()} entry(ies), " +
-                "live=${store.live().size}) — the admission cap counts entries, not " +
-                "bytes, so 256 hostile keys pin ~512 MB in the browser lane",
+            "a hostile join (unknown key, $pad.length-byte " +
+                "payload) was ACCEPTED and retained (${store.retainedCount()} entry(ies), " +
+                "live=${store.live().size}) — the admission shape must stay " +
+                "bounded (the cap counts entries, not bytes)",
             result is ListingStore.AcceptResult.Refused,
         )
         assertEquals(0, store.live().size)

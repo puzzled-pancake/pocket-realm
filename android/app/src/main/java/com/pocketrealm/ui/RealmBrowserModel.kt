@@ -20,7 +20,10 @@ object RealmBrowserModel {
      * platforms, not only on the desktop publish card.
      */
     const val RELAY_IP_DISCLOSURE: String =
-        "Connecting to the public relays discloses your IP address to them."
+        "Connecting to the public relays discloses your IP address to " +
+            "them (as does the iroh relay that carries internet joins), " +
+            "and a player who connects to a realm directly may learn its " +
+            "host's IP address."
 
     /**
      * The Public realms empty state (W6-N1, relay-aware per code-red
@@ -102,7 +105,31 @@ object RealmBrowserModel {
                 /** How many relays of the read set carried this exact
                  * event (the write-ALL/read-ALL merge evidence). */
                 val relaysSeen: Int = 1,
+                /** W6-N3: the honest join posture — [JoinAvailability]
+                 * drives the row's action copy (never an address; the
+                 * descriptor itself never renders). */
+                val joinAvailability: JoinAvailability = JoinAvailability.None,
+                /** The listing event id this row's join action resolves
+                 * through (the renderer keys its descriptor map by THIS,
+                 * never by name). */
+                val joinKey: String? = null,
             )
+
+            /** W6-N3: whether this listing is joinable from THIS device,
+             * as the row must say it. */
+            enum class JoinAvailability {
+                /** The listing carries no descriptor: the host's gateway
+                 * is down — honest "not joinable right now". */
+                None,
+
+                /** A descriptor is carried and this device's active flavor
+                 * matches the listing's — the join action may show. */
+                Joinable,
+
+                /** A descriptor is carried but this device's active client
+                 * is another flavor — the copy names the switch. */
+                FlavorMismatch,
+            }
         }
     }
 
@@ -131,6 +158,9 @@ object RealmBrowserModel {
      * nostr.PublicRealmBrowser.ListingCard]'s fields, bundled so the row
      * projection takes one argument). */
     data class PublicRealmListing(
+        /** The listing event's id — the join action's identity key
+         * (code-red R1-3/R4-3/R6-2: never the name). */
+        val eventId: String,
         val name: String,
         val flavor: String,
         val build: Int,
@@ -142,6 +172,9 @@ object RealmBrowserModel {
         val publishedAtSeconds: Long,
         val statusPageUrl: String?,
         val relaysSeen: Int = 1,
+        /** W6-N3: the listing's join descriptor presence (never rendered
+         * itself — the availability copy is what shows). */
+        val joinCarried: Boolean = false,
     )
 
     /**
@@ -150,7 +183,11 @@ object RealmBrowserModel {
      * the counts ride the frozen-schema content the store verified, never
      * a padded total.
      */
-    fun publicRealmRow(listing: PublicRealmListing, nowSeconds: Long): Row.PublicRealms.PublicRealm {
+    fun publicRealmRow(
+        listing: PublicRealmListing,
+        nowSeconds: Long,
+        activeFlavorId: String? = null,
+    ): Row.PublicRealms.PublicRealm {
         val ageMinutes =
             ((nowSeconds - listing.publishedAtSeconds).coerceAtLeast(0L)) / SECONDS_PER_MINUTE
         val rates = listing.rates
@@ -159,6 +196,18 @@ object RealmBrowserModel {
         } else {
             " · rates " + (rates.xpKill ?: 1.0) + "x/" +
                 (rates.xpQuest ?: 1.0) + "x/" + (rates.xpHonor ?: 1.0) + "x"
+        }
+        // W6-N3: the join availability — honest per posture, never an
+        // address (the descriptor's node id/relay never render). Round-4
+        // R1-r4-2 alignment: a device with NO flavor picked (the ambiguous
+        // state the desktop guard refuses with the pick-first row) is NOT
+        // "Joinable" here either — the flavor lane is simply not matched
+        // yet, so the row shows the mismatch copy.
+        val joinAvailability = when {
+            !listing.joinCarried -> Row.PublicRealms.JoinAvailability.None
+            activeFlavorId != null && activeFlavorId == listing.flavor ->
+                Row.PublicRealms.JoinAvailability.Joinable
+            else -> Row.PublicRealms.JoinAvailability.FlavorMismatch
         }
         return Row.PublicRealms.PublicRealm(
             name = listing.name,
@@ -174,7 +223,19 @@ object RealmBrowserModel {
             },
             statusPageUrl = listing.statusPageUrl,
             relaysSeen = listing.relaysSeen,
+            joinAvailability = joinAvailability,
+            joinKey = listing.eventId,
         )
+    }
+
+    /** W6-N3: the row's join-action copy (the renderer shows it verbatim;
+     * "Join" is a VERB the caller wires, the rest is honest posture). */
+    fun joinActionCopy(availability: Row.PublicRealms.JoinAvailability): String? = when (availability) {
+        Row.PublicRealms.JoinAvailability.Joinable -> "Join over the internet"
+        Row.PublicRealms.JoinAvailability.FlavorMismatch ->
+            "Internet join: switch to this realm's flavor first"
+        Row.PublicRealms.JoinAvailability.None ->
+            "Internet join: the host's gateway is offline right now"
     }
 
     /** The relay connectivity a renderer passes in (from the browser

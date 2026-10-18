@@ -489,15 +489,50 @@ class ListingStoreTest {
 
     // ------------------------- round-3 pins (R3-2/R3-5/R5-r3-1/R6-3-7)
 
-    /** R3-2/R6-3-4: join is null until N3 — a non-null join (the frozen
-     * schema's one unbounded retained value) is refused inbound. */
+    /**
+     * W6-N3 (the stage-3 flip of the R3-2/R6-3-4 fence): the join
+     * descriptor is CARRIED when it parses — node id + home relay URL
+     * only — and a WELL-FORMED descriptor survives the admission ladder
+     * intact (the joiner dials exactly what the listing says).
+     */
     @Test
-    fun inboundNonNullJoinIsRefusedUntilN3() {
+    fun inboundWellFormedJoinIsAcceptedAndRetained() {
         val t0 = RealmListingEventTest.GOLDEN_CREATED
         val store = storeAt((t0 + 120) * 1000)
-        val joinObj = org.json.JSONObject().put("node", "x".repeat(64))
+        val descriptor = com.pocketrealm.discovery.iroh.IrohJoinDescriptor(
+            nodeHex = "ab".repeat(32),
+            relayUrl = "https://usw1-1.relay.n0.iroh.link",
+        )
+        val content = goldenContent("J").copy(join = descriptor)
+        val result = store.accept(
+            NostrEvent.create(
+                key = NostrPrivateKey.generate(),
+                pending = PendingEvent(
+                    createdAtSeconds = t0,
+                    kind = RealmListingContract.KIND,
+                    tags = listOf(
+                        listOf("d", RealmListingContract.D_TAG),
+                        listOf("t", RealmListingContract.T_TAG),
+                    ),
+                    content = content.toJsonString(),
+                ),
+                auxRand32 = ByteArray(32),
+            ),
+            "r",
+        )
+        assertTrue("a well-formed join must be accepted: $result", result is ListingStore.AcceptResult.Accepted)
+        assertEquals(descriptor, store.live().single().content.join)
+    }
+
+    /** The fence's teeth stay: a HOSTILE join (unknown keys, a padded
+     * payload) is still refused at admission — bounded, never retained. */
+    @Test
+    fun inboundHostileJoinIsRefused() {
+        val t0 = RealmListingEventTest.GOLDEN_CREATED
+        val store = storeAt((t0 + 120) * 1000)
+        val pad = "A".repeat(2_000_000)
         val content = org.json.JSONObject(goldenContent("J").toJsonString())
-            .put("join", joinObj)
+            .put("join", org.json.JSONObject().put("pad", pad))
         val result = store.accept(
             NostrEvent.create(
                 key = NostrPrivateKey.generate(),
@@ -515,8 +550,44 @@ class ListingStoreTest {
             "r",
         )
         assertTrue(result is ListingStore.AcceptResult.Refused)
-        assertTrue((result as ListingStore.AcceptResult.Refused).reason.contains("join"))
+        assertTrue((result as ListingStore.AcceptResult.Refused).reason.contains("VAL-IROH-JOIN"))
         assertEquals(0, store.live().size)
+    }
+
+    /** An IP-literal relay host is refused inbound (the NEVER-list holds
+     * for the descriptor too — any spelling). */
+    @Test
+    fun inboundIpRelayJoinIsRefused() {
+        val t0 = RealmListingEventTest.GOLDEN_CREATED
+        for (relay in listOf("https://203.0.113.9", "https://2130706433")) {
+            val store = storeAt((t0 + 120) * 1000)
+            val content = org.json.JSONObject(goldenContent("J").toJsonString())
+                .put(
+                    "join",
+                    org.json.JSONObject()
+                        .put("type", "iroh")
+                        .put("node", "ab".repeat(32))
+                        .put("relay", relay),
+                )
+            val result = store.accept(
+                NostrEvent.create(
+                    key = NostrPrivateKey.generate(),
+                    pending = PendingEvent(
+                        createdAtSeconds = t0,
+                        kind = RealmListingContract.KIND,
+                        tags = listOf(
+                            listOf("d", RealmListingContract.D_TAG),
+                            listOf("t", RealmListingContract.T_TAG),
+                        ),
+                        content = content.toString(),
+                    ),
+                    auxRand32 = ByteArray(32),
+                ),
+                "r",
+            )
+            assertTrue("relay $relay must refuse", result is ListingStore.AcceptResult.Refused)
+            assertEquals(0, store.live().size)
+        }
     }
 
     /** R5-r3-1: the timeframe stage must be a REGISTERED stage of the

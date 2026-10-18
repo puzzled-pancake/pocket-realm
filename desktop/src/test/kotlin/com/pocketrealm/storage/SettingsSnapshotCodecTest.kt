@@ -71,6 +71,41 @@ class SettingsSnapshotCodecTest {
         assertFalse(decoded.autoLoginOnLaunch)
     }
 
+    // ---- W6-N3: the iroh relay-only switch + transport identity ---------
+
+    /** The relay-only switch DEFAULTS ON (owner-adopted ruling 3): a
+     * fresh snapshot and a settings JSON with the key ABSENT both land on
+     * relay-only — only an explicit false turns it off. */
+    @Test
+    fun irohRelayOnlyDefaultsOnEvenForExistingFiles() {
+        assertTrue(
+            "a fresh snapshot ships relay-only",
+            Settings.Snapshot().irohRelayOnly,
+        )
+        val absent = Settings.Snapshot.fromJson("""{"runtimeMode":"LOCAL"}""")
+        assertTrue(
+            "an older settings.json without the key must decode to relay-only",
+            absent.irohRelayOnly,
+        )
+        val off = Settings.Snapshot.fromJson("""{"runtimeMode":"LOCAL","irohRelayOnly":false}""")
+        assertFalse("an explicit false must decode false", off.irohRelayOnly)
+        // Round-trips.
+        val rewritten = Settings.Snapshot(irohRelayOnly = false)
+            .toJson().toString()
+        assertTrue(rewritten.contains("\"irohRelayOnly\":false"))
+    }
+
+    /** The transport identity persists (a stable node id across restarts —
+     * the listing's join descriptor derives from it). */
+    @Test
+    fun irohGatewaySecretHexRoundTrips() {
+        val secret = "cd".repeat(32)
+        val decoded = Settings.Snapshot.fromJson(
+            Settings.Snapshot(irohGatewaySecretHex = secret).toJson().toString(),
+        )
+        assertEquals(secret, decoded.irohGatewaySecretHex)
+    }
+
     // ---- DESK-133: the timing surface ----------------------------------
 
     @Test

@@ -120,7 +120,7 @@ def test_publish_copy_enumerates_fields_and_discloses_the_link_hostname():
     pub = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/nostr/"
            "NostrListingPublisher.kt").read_text(encoding="utf-8")
     start = pub.index("private const val OFF_COPY")
-    end = pub.index('your IP."', start)
+    end = pub.index('may learn it."', start) + len('may learn it."')
     off_copy = pub[start:end]
     assert "description (MOTD)" in off_copy, "OFF_COPY must name the description/MOTD field"
     assert "timeframe stage" in off_copy, "OFF_COPY must name the timeframe stage"
@@ -129,9 +129,18 @@ def test_publish_copy_enumerates_fields_and_discloses_the_link_hostname():
         "(R7-r4-1)"
     )
     # the precision predicate: the copy claims no IP (true) and never a
-    # blanket 'no hostname' (the status-page link IS one)
+    # blanket 'no hostname' (the status-page link IS one); the N3
+    # disclosure names the iroh relay + the direct-connection leg.
     assert "No IP address is ever in a listing" in off_copy
     assert "no IP or hostname" not in off_copy
+    assert "iroh home relay see your IP" in off_copy, (
+        "OFF_COPY must disclose that the iroh home relay sees the host IP "
+        "(the N3 gateway registers there)"
+    )
+    assert "directly" in off_copy and "may learn it" in off_copy, (
+        "OFF_COPY must disclose that a directly-connected player may learn "
+        "the host IP (plan ruling 3)"
+    )
 
 
 def test_wiki_discloses_the_status_page_hostname_exception():
@@ -227,10 +236,292 @@ def test_off_copy_discloses_the_status_page_hostname_exception():
     pub = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/nostr/"
            "NostrListingPublisher.kt").read_text(encoding="utf-8")
     start = pub.index("private const val OFF_COPY")
-    end = pub.index('your IP."', start)
+    end = pub.index('may learn it."', start) + len('may learn it."')
     off_copy = pub[start:end]
     assert "description (MOTD)" in off_copy
     assert "timeframe stage" in off_copy
     assert "status-page link" in off_copy
     assert "No IP address is ever in a listing" in off_copy
     assert "no IP or hostname" not in off_copy
+
+
+def test_relay_only_switch_copy_names_the_transport_internal_direct_path():
+    """R7-N3-6: the switch copy must NOT claim relay-only keeps the
+    connection on the relay unconditionally — iroh 1.1.0 has no
+    path-selection knob (D92(2)/D93(5)), so the copy names the
+    transport-internal direct-path possibility."""
+    screen = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/"
+              "RealmBrowserScreen.kt").read_text(encoding="utf-8")
+    assert "the dial is pinned to the" in screen and "home relay" in screen
+    assert "iroh may still move" in screen and "direct path" in screen
+    assert "keeps that connection on the relay" not in screen
+
+
+def test_wiki_relay_only_sentence_names_the_transport_internal_direct_path():
+    """R7-N3-6: the wiki sentence must not claim the switch keeps the
+    connection on the relay unconditionally."""
+    accounts = (ROOT / "docs/wiki/Accounts-Security-and-Networking.md")         .read_text(encoding="utf-8")
+    assert "pins the dial to that relay" in accounts
+    assert "may still move an established connection onto a direct path"         in accounts
+    assert "keeps that connection on the relay" not in accounts
+
+
+def test_iroh_join_client_resolves_through_the_managed_generation_seam():
+    """R6-N3-1: the iroh join launches the client through the SAME
+    managed-generation-first, identity-gated resolution the local lane
+    uses (backend.resolveClientDir) — never the legacy settings clientDir
+    alone, which could spawn a wrong-flavor or unmanaged binary."""
+    model = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/"
+             "DesktopAppModel.kt").read_text(encoding="utf-8")
+    assert "backend.resolveClientDir()" in model, (
+        "launchIrohJoinClient must resolve through the managed-generation "
+        "seam"
+    )
+    join_start = model.index("private fun launchIrohJoinClient")
+    join_fn = model[join_start:model.index(chr(10) + "    /**", join_start)]
+    assert "DesktopSettingsStore" not in join_fn, (
+        "the join client launch must not read the legacy settings "
+        "clientDir directly"
+    )
+    assert "clientDirOverride = resolvedDir" in join_fn
+
+
+def test_gateway_host_role_carries_no_rewrite_symbols():
+    """R2-2-4: the charter invariant — the rewrite happens ONLY in the
+    joiner gateway. The host role references no joiner-side rewrite
+    symbols and carries no realmlist-config write path (source-anchored;
+    the joiner half is pinned by RealmListRewriteTest + the captured-
+    payload greps)."""
+    host = (ROOT / "gateway/src/main/kotlin/com/pocketrealm/gateway/"
+            "HostGateway.kt").read_text(encoding="utf-8")
+    for banned in ("RealmListRewrite", "AuthStreamFilter",
+                   "JOINER_WORLD_TARGET", "realmlist.wtf"):
+        assert banned not in host, (
+            f"the host gateway must not reference {banned!r} — the "
+            "rewrite lives ONLY in the joiner gateway"
+        )
+
+
+def test_join_state_error_lane_is_rendered():
+    """R3-2: a post-READY join failure must render the actionable code +
+    detail in the browser (the stop button and 'Connected' copy must
+    never silently vanish)."""
+    screen = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/"
+              "RealmBrowserScreen.kt").read_text(encoding="utf-8")
+    assert "JoinState.Error" in screen
+    assert "realm-browser-join-error" in screen
+    # Round-4 R6-4-3: the rendered string is the manager's extracted
+    # joinErrorLine (model-level pinned in IrohGatewayWatcherTest) — the
+    # composable must route through it, never a drifted inline copy.
+    assert "IrohGatewayManager.joinErrorLine(" in screen
+    manager = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/iroh/"
+               "IrohGatewayManager.kt").read_text(encoding="utf-8")
+    assert '"Internet join failed: $code: $detail"' in manager
+
+
+def test_n3_canonical_logs_record_the_clean_and_test_executions():
+    """R5-2/R3-r3-3: the N3 canonical-suite logs must show BOTH the
+    clean legs and the plain test tasks EXECUTED (never UP-TO-DATE), and
+    the counts must come from the committed counts JSON artifacts (which
+    the regen scripts write from the XML trees).
+
+    D94 (round-3 probe): the :pocketrealm-llm:cleanTest leg is EXEMPT
+    from the EXECUTED demand because it is structurally incapable of
+    carrying evidence — under AGP the llm module's unit tests compile
+    into the VARIANT task (compileDebugUnitTestKotlin →
+    testDebugUnitTest), so the plain `test` task executes over an empty
+    source set and its build/test-results/test dir stays EMPTY forever;
+    a Gradle Delete task over an empty target reports UP-TO-DATE even
+    under --rerun-tasks (probed on the round-3 canonical re-run: the
+    global force re-executed all 55 other tasks and cleanTest still
+    reported UP-TO-DATE). The pin therefore demands the five legs that
+    CAN carry evidence EXECUTED, and refuses the one shortcut that
+    would make even the empty leg vacuous: a FROM-CACHE cleanTest."""
+    import json
+
+    for rel, tasks in (
+        ("out/completion/w0/n3-canonical-android.log",
+         (":app:cleanTestDebugUnitTest", ":pocketrealm-llm:cleanTestDebugUnitTest",
+          ":app:testDebugUnitTest", ":pocketrealm-llm:testDebugUnitTest",
+          ":pocketrealm-llm:test")),
+        ("out/completion/w0/n3-canonical-desktop.log",
+         (":cleanTest", ":test")),
+    ):
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for task in tasks:
+            executed = re.search(
+                rf"^> Task {re.escape(task)}\s*$", text, re.MULTILINE)
+            assert executed, (
+                f"{rel} must record the EXECUTED (not UP-TO-DATE/FROM-CACHE) "
+                f"{task} line — the canonical evidence is otherwise vacuous"
+            )
+        # D94: the structurally-empty llm clean leg may be UP-TO-DATE but
+        # must never ride the build cache.
+        from_cache = re.search(
+            r"^> Task :pocketrealm-llm:cleanTest FROM-CACHE", text, re.MULTILINE)
+        assert not from_cache, (
+            f"{rel} records :pocketrealm-llm:cleanTest FROM-CACHE — "
+            "the canonical run must not take the build-cache shortcut "
+            "(D94; run with --no-build-cache)")
+    # The counts derive from the committed artifacts, not from prose.
+    for name in ("android-unit-counts.json", "desktop-test-counts.json"):
+        artifact = json.loads(
+            (ROOT / "out/completion/w0" / name).read_text(encoding="utf-8"))
+        assert artifact["failures"] == 0, f"{name} records failures"
+        assert artifact["tests"] > 0 and artifact["classes"] > 0
+
+
+def test_wave_exit_n3_focused_numbers_equal_the_archived_counts():
+    """R6-4-1/R4-N3-1/R3-2/R5-N3-2: every focused count the exit record
+    cites must EQUAL the cited log's own N3-FOCUSED-COUNTS line (the
+    119-vs-64 class: a stale sentence a fresher archive can contradict),
+    and the android focused archive must cover the FULL class set its
+    --tests filter names — the archived classes count equals the tree's
+    @Test census under discovery/iroh + discovery/nostr +
+    RealmBrowserModelTest, so a narrowed re-run can never stand in for
+    the archived focused measurement."""
+    exit_record = ROOT / "out/completion/w6/WAVE-EXIT.md"
+    if not exit_record.is_file():
+        return
+    text = exit_record.read_text(encoding="utf-8")
+    cited = re.search(
+        r"android focused:.*?= (\d+) tests / 0 failed(?: / (\d+) classes)?"
+        r"\s*\((\S+\.log)",
+        text,
+        re.DOTALL,
+    )
+    assert cited, "the exit record lost its android focused sentence"
+    log_path = ROOT / "out/completion/w6" / cited.group(3)
+    assert log_path.is_file(), f"the cited focused log {cited.group(3)} is missing"
+    log_text = log_path.read_text(encoding="utf-8", errors="replace")
+    counts = re.search(
+        r"# N3-FOCUSED-COUNTS tests=(\d+) classes=(\d+) failures=(\d+)",
+        log_text,
+    )
+    assert counts, f"{cited.group(3)} lost its N3-FOCUSED-COUNTS line"
+    assert int(counts.group(1)) == int(cited.group(1)), (
+        f"WAVE-EXIT cites {cited.group(1)} android focused tests but "
+        f"{cited.group(3)} records tests={counts.group(1)} — correct the "
+        "exit record to the measured number (R6-4-1)"
+    )
+    if cited.group(2) is not None:
+        assert int(cited.group(2)) == int(counts.group(2)), (
+            "the exit record's cited classes disagree with the archive"
+        )
+    assert int(counts.group(3)) == 0, "the cited focused run records failures"
+    # R5-N3-2: the archive covers the FULL filter set — the archived
+    # classes count equals the tree census under the three filters.
+    census = 0
+    for pattern in (
+        "android/app/src/test/java/com/pocketrealm/discovery/iroh/*.kt",
+        "android/app/src/test/java/com/pocketrealm/discovery/nostr/*.kt",
+        "android/app/src/test/java/com/pocketrealm/ui/RealmBrowserModelTest.kt",
+    ):
+        for source in sorted(ROOT.glob(pattern)):
+            if "@Test" in source.read_text(encoding="utf-8", errors="replace"):
+                census += 1
+    assert int(counts.group(2)) == census, (
+        f"{cited.group(3)} records classes={counts.group(2)} but the tree "
+        f"holds {census} @Test classes under the cited filters — the "
+        "archived run is narrower than its own filter (R5-N3-2); re-run "
+        "the focused set and re-archive"
+    )
+    # R6-N3-r6-1: the DESKTOP focused sentence is held to the same
+    # census standard — the cited classes count must equal the tree
+    # census of the desktop-lane discovery/iroh + desktop/iroh +
+    # discovery/nostr + desktop/nostr @Test classes, killing the
+    # narrowed-re-run-under-a-wide-label class on this lane too.
+    desktop_cited = re.search(
+        r"desktop code-red focused.*?= (\d+) tests /\s*0 failed / "
+        r"(\d+) classes\s*\((\S+\.log)",
+        text,
+        re.DOTALL,
+    )
+    assert desktop_cited, "the exit record lost its desktop focused sentence"
+    desktop_census = 0
+    for pattern in (
+        "android/app/src/test/java/com/pocketrealm/discovery/iroh/*.kt",
+        "android/app/src/test/java/com/pocketrealm/discovery/nostr/*.kt",
+        "desktop/src/test/kotlin/com/pocketrealm/desktop/iroh/*.kt",
+        "desktop/src/test/kotlin/com/pocketrealm/desktop/nostr/*.kt",
+    ):
+        for source in sorted(ROOT.glob(pattern)):
+            if "@Test" in source.read_text(encoding="utf-8",
+                                           errors="replace"):
+                desktop_census += 1
+    desktop_path = ROOT / "out/completion/w6" / desktop_cited.group(3)
+    assert desktop_path.is_file(), (
+        f"the cited desktop focused log {desktop_cited.group(3)} is missing"
+    )
+    desktop_text = desktop_path.read_text(encoding="utf-8", errors="replace")
+    desktop_counts = re.search(
+        r"# N3-FOCUSED-COUNTS tests=(\d+) classes=(\d+) failures=(\d+)",
+        desktop_text,
+    )
+    assert desktop_counts, (
+        f"{desktop_cited.group(3)} lost its N3-FOCUSED-COUNTS line"
+    )
+    assert int(desktop_cited.group(1)) == int(desktop_counts.group(1)), (
+        f"WAVE-EXIT cites {desktop_cited.group(1)} desktop focused tests "
+        f"but {desktop_cited.group(3)} records "
+        f"tests={desktop_counts.group(1)} (R6-N3-r6-1)"
+    )
+    assert int(desktop_counts.group(2)) == desktop_census, (
+        f"{desktop_cited.group(3)} records "
+        f"classes={desktop_counts.group(2)} but the desktop-lane census "
+        f"is {desktop_census} — a narrowed run cannot stand under the "
+        "wide label (R6-N3-r6-1)"
+    )
+    assert int(desktop_counts.group(3)) == 0, "the desktop archive is red"
+
+
+def test_n3_focused_logs_carry_the_counts_lines():
+    """R4-3-3: the archived N3 focused-run logs must carry the
+    N3-FOCUSED-COUNTS lines (per-test output or a counts artifact — the
+    vacuous-log class never recurs on the N3 evidence)."""
+    for rel in (
+        "out/completion/w6/n3-android-focused.log",
+        "out/completion/w6/n3-desktop-codered.log",
+        "out/completion/w6/n3-round2-gateway.log",
+    ):
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        assert "N3-FOCUSED-COUNTS" in path.read_text(encoding="utf-8",
+                                                    errors="replace"), (
+            f"{rel} carries no N3-FOCUSED-COUNTS line — archive the run "
+            "with its counts"
+        )
+
+
+def test_realmlist_kdoc_cites_resolve():
+    """R5-r6-1: the rewrite KDoc promises citation precision ("each
+    documented ... against its citing source line") — every
+    ByteBuffer.h:<n> cite in RealmListRewrite.kt must resolve into the
+    real file at that line. The :115 raw-append cite was wrong (the
+    append lives at :466 in all three trees)."""
+    kdoc = (ROOT / "android/app/src/main/java/com/pocketrealm/discovery/"
+            "iroh/RealmListRewrite.kt").read_text(encoding="utf-8")
+    buffer = (ROOT / "native/cmangos/src/shared/Util/ByteBuffer.h"
+              ).read_text(encoding="utf-8", errors="replace").split(chr(10))
+    # Each cite carries its OWN verified contract (the raw-append cite
+    # and the C-string cite are different lines with different shapes):
+    must_contain = {
+        "466": "append((uint8*)&value",  # the template append (R5-r6-1)
+        "173": "operator<<(const std::string",  # the CStr bytes+NUL shape
+    }
+    for line_no in re.findall(r"ByteBuffer\.h:(\d+)", kdoc):
+        assert line_no in must_contain, (
+            f"RealmListRewrite.kt cites ByteBuffer.h:{line_no} which has "
+            "no verified contract in this pin — add the cite's expected "
+            "content after checking the source (R5-r6-1)"
+        )
+        cited = buffer[int(line_no) - 1]
+        assert must_contain[line_no] in cited, (
+            f"RealmListRewrite.kt cites ByteBuffer.h:{line_no} but that "
+            f"line reads {cited.strip()!r} - the citation-precision "
+            "contract is violated (R5-r6-1)"
+        )

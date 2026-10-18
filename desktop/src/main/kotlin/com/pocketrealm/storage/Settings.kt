@@ -432,6 +432,21 @@ object Settings {
          * displayed. Empty = not generated yet.
          */
         val nostrPrivateKeyHex: String = "",
+        /**
+         * W6-N3 (owner-adopted ruling 3): the relay-only switch, DEFAULT
+         * ON — a join dialing a PUBLIC realm's listing connects strictly
+         * through the listing's home relay URL and never dials an explicit
+         * (direct) address. OFF is the friend-join affordance (a direct,
+         * hole-punched path is then permitted alongside the relay).
+         */
+        val irohRelayOnly: Boolean = true,
+        /**
+         * W6-N3: the realm's iroh TRANSPORT identity (a 32-byte endpoint
+         * secret). Generated once at first publish need, persisted here —
+         * the node id IN the listing derives from it, so it must survive
+         * restarts. Never displayed. Empty = not generated yet.
+         */
+        val irohGatewaySecretHex: String = "",
     ) {
         /** The timings the auto-login automation runs with: the persisted
          * set, normalized into the supported bounds (the desktop has no
@@ -590,6 +605,10 @@ object Settings {
                         }
                     }.getOrDefault(emptyList()),
                     nostrPrivateKeyHex = value.optString("nostrPrivateKeyHex", ""),
+                    // W6-N3: default ON — an absent key (older settings.json)
+                    // must land on the relay-only posture, never on direct.
+                    irohRelayOnly = value.optBoolean("irohRelayOnly", true),
+                    irohGatewaySecretHex = value.optString("irohGatewaySecretHex", ""),
                 )
             }
 
@@ -737,6 +756,10 @@ object Settings {
             .put("nostrDiscoveryEnabled", nostrDiscoveryEnabled)
             .put("nostrRelays", org.json.JSONArray(nostrRelays))
             .put("nostrPrivateKeyHex", nostrPrivateKeyHex)
+            // W6-N3: the relay-only switch (default ON) + the iroh
+            // transport identity (a stable node id across restarts).
+            .put("irohRelayOnly", irohRelayOnly)
+            .put("irohGatewaySecretHex", irohGatewaySecretHex)
             .toString()
     }
 

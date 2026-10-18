@@ -85,7 +85,15 @@ EXCLUDED_PREFIXES: tuple[str, ...] = (
 # backslash — the file bytes carry `C:\\` as two literal backslashes, which the
 # backslash. The lookbehind keeps prose like "tbc:" inside a message
 # string - a letter can never precede a drive letter - from matching.)
-C_LITERAL_RE = re.compile(r"(?<![A-Za-z0-9])[Cc]:[\\/]")
+# The git-bash spelling (`/c/users/...`) is the same C: path in POSIX
+# form — R3-r2-1 caught a staged script carrying it behind the old
+# regex. The lookbehind keeps prose like "tbc:" from matching.
+# The git-bash spelling (`/c/users/...`) is the same C: path in POSIX
+# form - R3-r2-1 caught a staged script carrying it behind the old
+# regex. The two-segment requirement (`/c/<dir>/`) keeps base64
+# payloads (cacert.pem) and prose (`//c/...`) from false-matching; the
+# lookbehind keeps prose like "tbc:" from matching.
+C_LITERAL_RE = re.compile(r"(?<![A-Za-z0-9])([Cc]:[\\/]|/[Cc]/[A-Za-z0-9._-]+/)")
 
 # literals == None exempts the whole file; the gate itself never uses scoped
 # literal subsets because a C: path is either proven-prose/fixture or a

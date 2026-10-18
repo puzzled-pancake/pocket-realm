@@ -830,9 +830,15 @@ def test_counts_artifact_generated_prose_resolves_into_its_own_suite():
         if not path.is_file():
             continue
         generated = json.loads(path.read_text(encoding="utf-8")).get("generated", "")
+        # Round-6 R4-r6-1: the resolve-to-live rule applies to the NEWEST
+        # segment only - the dated history is provenance and its tuples are
+        # preserved verbatim (they record what WAS measured at their dates;
+        # the round-4 sweep that rewrote them was the falsification class).
+        # The newest segment is the last ' | '-separated one.
+        generated_newest = generated.split(" | ")[-1]
         # a '<lane> counts N/M' tuple must carry the NAMED lane's own numbers
         for lane, n, m in re.findall(
-                r"(android|desktop)[ -]counts (\d+)/(\d+)", generated):
+                r"(android|desktop)[ -]counts (\d+)/(\d+)", generated_newest):
             lane_artifact = fields.get(f"{lane}-unit-counts.json"
                                        if lane == "android"
                                        else "desktop-test-counts.json")
@@ -842,13 +848,15 @@ def test_counts_artifact_generated_prose_resolves_into_its_own_suite():
                 f"records {lane_artifact[0]}/{lane_artifact[1]} — prose numbers "
                 "must resolve into the named lane's own structured fields")
         # python-side test identifiers cannot live in a Gradle suite
-        strays = sorted(set(re.findall(r"\btest_[a-z0-9_]{8,}\b", generated)))
+        # (newest segment only - see the R4-r6-1 note above)
+        strays = sorted(set(re.findall(r"\btest_[a-z0-9_]{8,}\b", generated_newest)))
         assert not strays, (
             f"{name} quotes python-side test identifier(s) {strays} — a "
             "repo-pytest test cannot be in the Gradle suite; cite the Kotlin "
             "pin (its JUnit class) or name the repo-pytest lane's own record")
         # every quoted Kotlin test class must exist in THIS lane's XML tree
-        for klass in sorted(set(re.findall(r"\b([A-Z]\w+Test)\b", generated))):
+        # (newest segment only - see the R4-r6-1 note above)
+        for klass in sorted(set(re.findall(r"\b([A-Z]\w+Test)\b", generated_newest))):
             assert klass in classes[name], (
                 f"{name} quotes '{klass}' but no canonical JUnit XML for that "
                 "class exists in this lane's tree — the citation does not "
@@ -898,4 +906,125 @@ def test_w3_wave_exit_per_file_pytest_counts_match_the_live_collection():
             f"WAVE-EXIT quotes '{quoted} passed' for `{command}` but the "
             f"live collection is {total} — sync the record to the cited "
             "files (the stale-quote class R6-1 found)"
+        )
+
+
+def test_no_tracked_file_embeds_a_hex_secret_assignment():
+    """R3-r5-1 (W6-N3 code-red round 5): committed secret material is this
+    seat's invariant — the spike driver embedded two 64-hex iroh endpoint
+    identities while the canonical store (out/completion/w6/n2/secrets.env)
+    is deliberately gitignored. Every tracked file is grepped for
+    NAME=value assignments whose value is a 64-hex run; a fixture that
+    needs fake hex CONSTRUCTS it (the .repeat pattern), it never embeds a
+    plausible-looking assignment."""
+    import re
+    import subprocess
+    import sys
+
+    tracked = subprocess.run(
+        ["git", "ls-files"], capture_output=True, text=True, cwd=ROOT,
+    ).stdout.splitlines()
+    assert tracked, "git ls-files returned nothing — run from the repo root"
+    assignment = re.compile(
+        r"(?im)^\s*[A-Z_]*SECRET[A-Z_]*\s*=\s*\"?[0-9a-f]{64}\"?")
+    offenders = []
+    for rel in tracked:
+        path = ROOT / rel
+        if not path.is_file() or path.suffix not in {
+            ".sh", ".kt", ".kts", ".py", ".md", ".json", ".properties",
+            ".bat", ".cmd", ".ps1", ".gradle", "", ".txt", ".yml", ".yaml",
+        }:
+            continue  # binaries and vendor trees are the sweep's domain
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        hit = assignment.search(text)
+        if hit:
+            offenders.append(f"{rel}: {hit.group(0).strip()[:90]}")
+    assert not offenders, (
+        "tracked files embed SECRET=<64-hex> assignments (R3-r5-1's "
+        "class) — move them to the gitignored store and read them at "
+        "run time:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_pytest_modules_never_shadow_a_test_definition():
+    """R6-1 (W6-N3 code-red round 5): python re-binds module names
+    silently — two `def test_x` in one file means the FIRST body is dead
+    code that pytest never runs while the module claims the coverage.
+    Every tests/*.py module is AST-walked and top-level test function
+    names must be unique."""
+    import ast
+
+    offenders = []
+    for path in sorted((ROOT / "tests").glob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        names = [
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test_")
+        ]
+        seen: set = set()
+        for name in names:
+            if name in seen:
+                offenders.append(f"{path.name}: {name} defined "
+                                 f"{names.count(name)}x")
+            seen.add(name)
+    assert not offenders, (
+        "pytest modules shadow test definitions (python re-binds the "
+        "name; the earlier body never executes):\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_counts_artifact_generated_prose_preserves_historical_tuples():
+    """R4-r6-1 (W6-N3 code-red round 6): the dated provenance history in
+    the counts artifacts must survive a regeneration VERBATIM — the
+    round-4 regen scripts swept every historical '<lane> counts N/M'
+    tuple to the current measurement, so dated entries asserted
+    measurements that were never taken at their dates (and contradicted
+    the committed W6-N1 WAVE-EXIT). Pins: (a) the N1-finalize segments
+    still record the committed numbers (desktop 1578/202, android
+    1769/226); (b) running the regen scripts twice changes NOTHING
+    outside the newest segment (the history string is stable)."""
+    import json
+    import subprocess
+    import sys
+
+    expected_history = {
+        "android-unit-counts.json": ("1769/226",),
+        "desktop-test-counts.json": ("1578/202",),
+    }
+    histories = {}
+    for name, markers in expected_history.items():
+        path = ROOT / "out/completion/w0" / name
+        if not path.is_file():
+            continue
+        generated = json.loads(path.read_text(encoding="utf-8")).get(
+            "generated", "")
+        for marker in markers:
+            assert marker in generated, (
+                f"{name} lost the N1-finalize history tuple {marker} — "
+                "the dated provenance was rewritten (the R4-r6-1 class)"
+            )
+        histories[name] = generated
+    # Regen twice; the history (everything but the newest segment) must
+    # be byte-stable — the scripts interpolate the NEWEST segment only.
+    for script in ("n3-regen-counts.py", "n3-regen-desktop-counts.py"):
+        subprocess.run(
+            [sys.executable, str(ROOT / "out/completion/w6" / script)],
+            capture_output=True, text=True, cwd=ROOT, timeout=300,
+        )
+    for name, before in histories.items():
+        after = json.loads(
+            (ROOT / "out/completion/w0" / name).read_text(encoding="utf-8"),
+        ).get("generated", "")
+        before_history = " | ".join(before.split(" | ")[:-1])
+        after_history = " | ".join(after.split(" | ")[:-1])
+        assert before_history == after_history, (
+            f"{name}: the dated provenance history changed across a "
+            "regen — the scripts must interpolate the NEWEST segment "
+            "only (R4-r6-1)"
         )

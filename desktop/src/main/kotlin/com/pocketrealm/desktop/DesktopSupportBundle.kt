@@ -150,6 +150,15 @@ class DesktopSupportBundle(
         runCatching { roots.settingsFile.readText() }.getOrNull()?.let { raw ->
             NOSTR_KEY_JSON_VALUE.findAll(raw).forEach { match -> add(match.groupValues[1]) }
         }
+        // R3-1/R6-3 (W6-N3 code-red round 1): the realm's iroh TRANSPORT
+        // secret (the 32-byte endpoint identity the node id derives from)
+        // rides the same lane — parsed AND raw-extracted, so a
+        // corrupt/truncated settings.json cannot ship it verbatim either.
+        runCatching { DesktopSettingsStore(roots.settingsFile).load().irohGatewaySecretHex }
+            .getOrNull()?.let { add(it) }
+        runCatching { roots.settingsFile.readText() }.getOrNull()?.let { raw ->
+            IROH_SECRET_JSON_VALUE.findAll(raw).forEach { match -> add(match.groupValues[1]) }
+        }
         runCatching {
             val secretsFile = File(roots.database, DesktopMariaDbEngine.SECRETS_FILE_NAME)
             if (secretsFile.isFile) {
@@ -287,6 +296,10 @@ class DesktopSupportBundle(
          * truncated file must still redact its key). */
         private val NOSTR_KEY_JSON_VALUE = Regex(
             "\"nostrPrivateKeyHex\"\\s*:\\s*\"([^\"]*)\"",
+            RegexOption.IGNORE_CASE,
+        )
+        private val IROH_SECRET_JSON_VALUE = Regex(
+            "\"irohGatewaySecretHex\"\\s*:\\s*\"([^\"]*)\"",
             RegexOption.IGNORE_CASE,
         )
         private val LLM_KEY_JSON_VALUE = Regex(

@@ -1680,6 +1680,35 @@ android {
     }
 
     sourceSets {
+        // W6-N2 iroh spike (DEBUG-only, opt-in via -PpocketIrohSpike): stage
+        // the uniffi-generated computer.iroh Kotlin + the E:-resident NDK
+        // libiroh_ffi.so jniLibs into the DEBUG variant. The spike artifacts
+        // live under E:\pocket_realm_toolchain\tmp\iroh-ffi-n2-target (built
+        // by scripts/iroh_n2_android_build.sh from iroh-ffi v1.1.0
+        // 5e451092db); a missing tree fails LOUD here, never silently.
+        // Without the property nothing below is wired and the debug lane is
+        // byte-identical to before.
+        if (providers.gradleProperty("pocketIrohSpike").isPresent) {
+            val irohSpikeTarget = File("E:/pocket_realm_toolchain/tmp/iroh-ffi-n2-target")
+            check(irohSpikeTarget.resolve("bindgen-kotlin/computer/iroh/iroh_ffi.kt").isFile) {
+                "POCKET-IROH-SPIKE: run scripts/iroh_n2_android_build.sh first — " +
+                    "missing ${irohSpikeTarget.resolve("bindgen-kotlin/computer/iroh/iroh_ffi.kt")}"
+            }
+            check(irohSpikeTarget.resolve("jniLibs/$pocketAbi/libiroh_ffi.so").isFile) {
+                "POCKET-IROH-SPIKE: missing ${irohSpikeTarget.resolve("jniLibs/$pocketAbi/libiroh_ffi.so")} " +
+                    "for -PpocketAbi=$pocketAbi"
+            }
+            getByName("debug") {
+                // The spike hook itself also rides the flag: it lives in
+                // spikes/iroh-n2/android-spike (NOT src/debug) so the vanilla
+                // debug lane compiles byte-identical without it. AGP 9's
+                // source-directory API is the `directories` mutable set (the
+                // old srcDir() is a deprecation-error on this lane).
+                kotlin.directories.add("E:/pocket_realm_complete/spikes/iroh-n2/android-spike")
+                kotlin.directories.add("E:/pocket_realm_toolchain/tmp/iroh-ffi-n2-target/bindgen-kotlin")
+                jniLibs.directories.add("E:/pocket_realm_toolchain/tmp/iroh-ffi-n2-target/jniLibs")
+            }
+        }
         getByName("main") {
             // Deterministic staged native closure (see stageNativeLibs task).
             // Never references ../../../native — staged inside the module.
@@ -2562,6 +2591,16 @@ dependencies {
     implementation("com.github.luben:zstd-jni:${libs.versions.zstdJni.get()}@aar")
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    // W6-N2 iroh spike (DEBUG-only, opt-in via -PpocketIrohSpike): JNA for the
+    // uniffi-generated computer.iroh bindings staged from the E:-resident NDK
+    // build. The @aar classifier is REQUIRED — the plain JAR ships no
+    // android-x86-64 libjnidispatch.so (first emulator attempt died on
+    // UnsatisfiedLinkError for exactly that path). Without the property the
+    // debug lane is byte-identical to before.
+    if (providers.gradleProperty("pocketIrohSpike").isPresent) {
+        debugImplementation("net.java.dev.jna:jna:5.15.0@aar")
+    }
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)

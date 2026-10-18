@@ -213,7 +213,8 @@ class NostrListingPublisherTest {
         assertNotNull("nothing published", frame)
         val event = NostrEvent.fromRelayFrame(frame!!).single().second
         // The listing verifies and matches the payload (the frozen schema,
-        // bots labeled 3 humans / 12 bots, join null until N3).
+        // bots labeled 3 humans / 12 bots; join null because the test
+        // seams carry no gateway — the honest W6-N3 "not joinable now").
         assertTrue(RealmListingEvent.verifyListing(event).ok)
         val content = event.content
         assertTrue(content.contains("\"name\":\"my realm\""))
@@ -231,6 +232,133 @@ class NostrListingPublisherTest {
         assertTrue(event.tags.contains(listOf("t", RealmListingContract.T_TAG)))
         assertTrue(event.tags.any { it[0] == "flavor" && it[1] == "vanilla" })
         assertEquals(publisher.uiState.value.listingEventId, event.idHex)
+    }
+
+    // ------------------- W6-N3 code-red R5-4: the join-descriptor beats
+
+    /** R5-4: a READY gateway's descriptor rides the published beat (the
+     * pinned serialization) and the ensure leg ran for the beat. The
+     * join-lane spies ride the Seams bundle. */
+    @Test
+    fun joinDescriptorRidesThePublishedBeatWhenTheGatewayIsReady() {
+        val ensureCalls = mutableListOf<Int>()
+        val stopCalls = mutableListOf<Int>()
+        val descriptor = com.pocketrealm.discovery.iroh.IrohJoinDescriptor(
+            nodeHex = "ab".repeat(32),
+            relayUrl = "https://usw1-1.relay.n0.iroh.link",
+        )
+        boot() // the harness (model + server + realmStatus) comes up first
+        val seated = NostrListingPublisher(
+            model = model,
+            realmStatus = realmStatus,
+            seams = Seams(
+                clockMs = { nowMs[0] },
+                client = client,
+                visibilityProvider = { visibility.get() },
+                payloadProvider = { payload.get() },
+                gatePollMs = Long.MAX_VALUE,
+                heartbeatSeconds = RealmListingContract.HEARTBEAT_SECONDS,
+                ensureHostGateway = { ensureCalls += 1 },
+                stopHostGateway = { stopCalls += 1 },
+                joinDescriptorProvider = { descriptor },
+            ),
+        )
+        seated.boot()
+        runBlocking { seated.evaluateGates() }
+        // Code-red round-5 R7-N3-r5-1: TWO publishers (the harness's and
+        // the seated one) share this model and BOTH publish a beat-1
+        // event on the same settings emission — taking the first
+        // non-REQ frame made this test queue-order flaky (2/2 red at
+        // class scale, green in isolation, same two publishes both
+        // ways). Drain until the frame carrying the SEATED publisher's
+        // own beat identity.
+        val seatedId = seated.uiState.value.listingEventId
+        val drained = mutableListOf<String>()
+        var frame: String? = null
+        val deadline = System.currentTimeMillis() + 10_000
+        while (frame == null && System.currentTimeMillis() < deadline) {
+            val candidate = frames.poll(1, TimeUnit.SECONDS) ?: break
+            if (!candidate.startsWith("[\"REQ\"")) {
+                drained += candidate
+                if (candidate.contains("\"id\":\"$seatedId\"")) frame = candidate
+            }
+        }
+        assertNotNull("the seated publisher's own beat never arrived", frame)
+        // The frame-uniqueness pin: exactly ONE drained frame carries the
+        // seated instance's id — a publisher instance publishes its beat
+        // once; a duplicated id would mean a double-publish.
+        assertEquals(
+            "exactly one beat-1 frame per publisher instance",
+            1,
+            drained.count { it.contains("\"id\":\"$seatedId\"") },
+        )
+        val event = NostrEvent.fromRelayFrame(frame!!).single().second
+        assertEquals(
+            "the drained frame is the seated publisher's own beat",
+            seatedId,
+            event.idHex,
+        )
+        val expected = "\"join\":{\"type\":\"iroh\",\"node\":\"" +
+            "ab".repeat(32) + "\",\"relay\":\"https://usw1-1.relay.n0.iroh.link\"}"
+        assertTrue(
+            "the beat must carry the live gateway's descriptor",
+            event.content.contains(expected),
+        )
+        assertEquals("the ensure leg must have run for the beat", 1, ensureCalls.single())
+    }
+
+    /** R5-4: the beat with a NOT-READY gateway publishes join:null — the
+     * honest not-joinable listing, never a stale descriptor. */
+    @Test
+    fun joinStaysNullWhileTheGatewayIsNotReady() {
+        boot()
+        runBlocking { publisher.evaluateGates() }
+        val frame = nextEventFrame(10)
+        assertNotNull(frame)
+        val event = NostrEvent.fromRelayFrame(frame!!).single().second
+        assertTrue(event.content.contains("\"join\":null"))
+    }
+
+    /** R5-4: a gate drop retracts AND stops the host gateway exactly once
+     * (the transport exists exactly as long as the listing does). */
+    @Test
+    fun gateDropStopsTheHostGateway() {
+        var stops = 0
+        boot() // the harness (model + server + realmStatus) comes up first
+        val seated = NostrListingPublisher(
+            model = model,
+            realmStatus = realmStatus,
+            seams = Seams(
+                clockMs = { nowMs[0] },
+                client = client,
+                visibilityProvider = { visibility.get() },
+                payloadProvider = { payload.get() },
+                gatePollMs = Long.MAX_VALUE,
+                heartbeatSeconds = RealmListingContract.HEARTBEAT_SECONDS,
+                ensureHostGateway = { },
+                stopHostGateway = { stops += 1 },
+                joinDescriptorProvider = { null },
+            ),
+        )
+        seated.boot()
+        runBlocking { seated.evaluateGates() }
+        assertNotNull(nextEventFrame(10))
+        visibility.set(RealmStatusVisibility.FRIENDS)
+        runBlocking { seated.evaluateGates() }
+        // Round-6 R4-r6-2's determinism probe: the beat's identity
+        // settings write re-fires the model's settings collector, and the
+        // extra evaluation it triggers can land AFTER the gate drop —
+        // pump it explicitly (a settings write + one more evaluation).
+        // The host-stop latch must keep the stop count at exactly 1; the
+        // pre-latch code double-stopped here (the full-set flake).
+        model.updateSettings { it.copy(nostrDiscoveryEnabled = true) }
+        runBlocking { seated.evaluateGates() }
+        assertEquals(
+            "the gate drop must stop the host gateway exactly once " +
+                "(idempotent deactivate, R4-r6-2)",
+            1,
+            stops,
+        )
     }
 
     @Test

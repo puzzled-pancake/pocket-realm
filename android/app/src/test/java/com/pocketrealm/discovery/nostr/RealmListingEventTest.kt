@@ -221,11 +221,74 @@ class RealmListingEventTest {
     // ------------------------------------------------------- schema edges
 
     @Test
-    fun joinIsNullAndStatusPageOptionalUntilN3() {
+    fun joinIsNullWhileTheGatewayIsDownAndStatusPageOptional() {
+        // W6-N3 semantics: join is the HONEST "host gateway not running"
+        // — a listing still publishes without it, never a stale descriptor.
         val content = goldenContent().copy(statusPageUrl = null)
         val event = RealmListingEvent.build(content, key, GOLDEN_CREATED, auxRand32 = ByteArray(32))
         assertTrue(event.content.contains("\"join\":null"))
         assertTrue(event.content.contains("\"statusPageUrl\":null"))
+    }
+
+    /**
+     * W6-N3 (the stage-3 flip): the join descriptor is CARRIED — node id +
+     * home relay URL ONLY (the constraint-2-narrowed form), serialized in
+     * a pinned key order. Byte-pinned full join serialization (the same
+     * determinism contract as the N1 golden vectors).
+     */
+    @Test
+    fun joinDescriptorRidesTheListingWithPinnedSerialization() {
+        val descriptor = com.pocketrealm.discovery.iroh.IrohJoinDescriptor(
+            nodeHex = "11".repeat(32),
+            relayUrl = "https://usw1-1.relay.n0.iroh.link",
+        )
+        val content = goldenContent().copy(
+            join = descriptor,
+            // A REGISTERED wotlk stage (the store's admission ladder checks
+            // stage registration; the N1 golden fixture's stage predates it).
+            timeframeStage = "wotlk-3.3.5a",
+        )
+        val event = RealmListingEvent.build(content, key, GOLDEN_CREATED, auxRand32 = ByteArray(32))
+        val expectedJoin =
+            "\"join\":{\"type\":\"iroh\",\"node\":\"" + "11".repeat(32) + "\"," +
+                "\"relay\":\"https://usw1-1.relay.n0.iroh.link\"}"
+        assertTrue(
+            "the pinned join serialization drifted:\n${event.content}",
+            event.content.contains(expectedJoin),
+        )
+        // The id commits to the descriptor — the serialization is what
+        // every verifier re-hashes.
+        assertEquals(event.idHex, NostrEvent.computeId(event.serializedForId()))
+        // Round-trips through the store's content parse.
+        val reparsed = ListingStore { (GOLDEN_CREATED + 60) * 1000 }
+            .parseContent(event.content)
+        assertTrue(reparsed is ListingStore.ContentParse.Ok)
+        assertEquals(descriptor, (reparsed as ListingStore.ContentParse.Ok).content.join)
+    }
+
+    /**
+     * W6-N3 privacy pin (extends publishedRecordCarriesNoAddrEntry to the
+     * join-carrying record): a descriptor whose relay URL is an IP literal
+     * must be REFUSED at construction — a public listing never carries a
+     * dialable address, in ANY field.
+     */
+    @Test
+    fun joinDescriptorRefusesIpRelayHosts() {
+        for (relay in listOf(
+            "https://203.0.113.9",
+            "https://203.0.113.9:3340",
+            "https://2130706433",
+        )) {
+            try {
+                com.pocketrealm.discovery.iroh.IrohJoinDescriptor(
+                    nodeHex = "11".repeat(32),
+                    relayUrl = relay,
+                )
+                fail("an IP relay host must refuse: $relay")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message.orEmpty().startsWith("VAL-IROH-JOIN"))
+            }
+        }
     }
 
     @Test
@@ -263,6 +326,49 @@ class RealmListingEventTest {
     }
 
     // ----------------------------------------------------- privacy fence
+
+    /**
+     * W6-N2 gate leg (docs/NOSTR-IROH-BUILD-PLAN.md stage 2; the iroh#4009
+     * relay_only ruling), extended by W6-N3: the published discovery record
+     * must never carry an `addr=` entry — the direct-address vocabulary of
+     * iroh/endpoint discovery — and the join descriptor (now carried)
+     * changes nothing about that: its relay URL is hostname-only, its node
+     * id is opaque hex. Pinned on the FULL serialized event of BOTH the
+     * gateway-down and the gateway-up shapes.
+     */
+    @Test
+    fun publishedRecordCarriesNoAddrEntry() {
+        val descriptor = com.pocketrealm.discovery.iroh.IrohJoinDescriptor(
+            nodeHex = "11".repeat(32),
+            relayUrl = "https://usw1-1.relay.n0.iroh.link",
+        )
+        for (content in listOf(
+            goldenContent().copy(statusPageUrl = "https://quiet-meadow-abc123.trycloudflare.com"),
+            goldenContent().copy(
+                statusPageUrl = "https://quiet-meadow-abc123.trycloudflare.com",
+                join = descriptor,
+            ),
+        )) {
+            val event = RealmListingEvent.build(
+                content, key, GOLDEN_CREATED, auxRand32 = ByteArray(32),
+            )
+            val wire = event.serializedForId()
+            assertFalse("the serialized record carries addr=", wire.contains("addr="))
+            assertFalse("the serialized record carries an addr key", wire.contains("\"addr\""))
+            assertFalse("the record content carries an IP literal", wire.contains("192.168."))
+            // Every content key is from the frozen schema — none is an address key.
+            val allowed = setOf(
+                "name", "motd", "flavor", "build", "timeframe",
+                "rates", "players", "join", "statusPageUrl",
+            )
+            val keys = org.json.JSONObject(event.content).keys().asSequence().toList()
+            assertTrue("unexpected content keys: $keys", keys.all { it in allowed })
+            // Tags stay in the contract families: d / t / expiration / flavor / timeframe.
+            for (tag in event.tags) {
+                assertNotEquals("addr", tag.firstOrNull())
+            }
+        }
+    }
 
     @Test
     fun privacyGuardRefusesIpsHostnamesAndUrls() {

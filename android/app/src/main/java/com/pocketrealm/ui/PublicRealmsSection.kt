@@ -16,10 +16,13 @@ import androidx.compose.ui.unit.dp
 import com.pocketrealm.discovery.nostr.PublicRealmBrowser
 
 /**
- * The Public realms section (W6-N1): the shared relay browser's live
- * listings — or the honest empty-network copy when none are published.
- * Rows are the shared model's projection; internet join is not offered
- * from a listing (it arrives with the N3 gateway, not with discovery).
+ * The Public realms section (W6-N1; rows carry the W6-N3 join posture):
+ * the shared relay browser's live listings — or the honest empty-network
+ * copy when none are published. Rows are the shared model's projection,
+ * INCLUDING the honest internet-join availability copy (code-red R6-7:
+ * the row says when a listing is joinable / flavor-mismatched / gateway-
+ * down — the JOIN ACTION itself is desktop-only this wave, recorded in
+ * D93(8), because the Android lane has no in-app iroh dialer yet).
  */
 @Composable
 fun PublicRealmsSection(browser: PublicRealmBrowser) {
@@ -58,6 +61,7 @@ fun PublicRealmsSection(browser: PublicRealmBrowser) {
             browserState.listings.map { card ->
                 RealmBrowserModel.publicRealmRow(
                     RealmBrowserModel.PublicRealmListing(
+                        eventId = card.eventId,
                         name = card.name,
                         flavor = card.flavor,
                         build = card.build,
@@ -69,8 +73,10 @@ fun PublicRealmsSection(browser: PublicRealmBrowser) {
                         publishedAtSeconds = card.publishedAtSeconds,
                         statusPageUrl = card.statusPageUrl,
                         relaysSeen = card.relaysSeen,
+                        joinCarried = card.join != null,
                     ),
                     nowSeconds = nowSeconds,
+                    activeFlavorId = com.pocketrealm.client.ActiveFlavor.displayedId,
                 )
             }.forEach { row -> PublicRealmListingRow(row) }
         }
@@ -105,6 +111,23 @@ private fun PublicRealmListingRow(row: RealmBrowserModel.Row.PublicRealms.Public
             Text(
                 "Status page: $url",
                 style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        // R6-7: the honest join posture copy (never the descriptor; the
+        // join ACTION is a desktop affordance this wave — D93(8)).
+        RealmBrowserModel.joinActionCopy(row.joinAvailability)?.let { copy ->
+            Text(
+                copy + if (
+                    row.joinAvailability ==
+                    RealmBrowserModel.Row.PublicRealms.JoinAvailability.Joinable
+                ) {
+                    " (join from the desktop app)"
+                } else {
+                    ""
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("realm-browser-join-copy"),
             )
         }
     }

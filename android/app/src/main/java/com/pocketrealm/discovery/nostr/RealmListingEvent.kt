@@ -1,6 +1,7 @@
 package com.pocketrealm.discovery.nostr
 
 import com.pocketrealm.client.ClientFlavors
+import com.pocketrealm.discovery.iroh.IrohJoinDescriptor
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -10,15 +11,20 @@ import java.security.MessageDigest
  * kind-30388 realm listing event — NIP-01 serialization, SHA-256 id, and
  * BIP-340 Schnorr signing, plus the NIP-09 deletion twin.
  *
- * Frozen contract (owner-approved 2026-10-08):
+ * Frozen contract (owner-approved 2026-10-08; join flipped to carried by
+ * stage N3 per the same document):
  *  - kind 30388 (NIP-33 parameterized replaceable), `d` tag
  *    "pocketrealm-v1", `t` tag "pocketrealm";
  *  - tags: ["expiration", now+600] (a HINT only — the client-side 10-minute
  *    freshness rule is the source of truth), ["flavor", ...], ["timeframe", ...];
  *  - content JSON exactly per the frozen schema: name, motd, flavor, build,
  *    timeframe, rates, players{humans,bots} (bots labeled, never padded),
- *    join (null until stage N3), statusPageUrl (optional);
- *  - NEVER an IP address, hostname, geo, or client-download URL.
+ *    join (the iroh join descriptor — node id + home relay URL ONLY, never
+ *    an IP; null while the host's gateway is down), statusPageUrl (optional);
+ *  - NEVER an IP address, geo, or client-download URL; the only
+ *    hostnames a listing may carry are the join descriptor's home-relay
+ *    URL (a validated hostname-only https URL, IrohJoinDescriptor) and
+ *    the optional status-page link.
  *
  * Determinism note: the id serialization and the content string are built
  * with the pinned-order manual serializer in [NostrJson] — NOT through
@@ -69,8 +75,14 @@ data class RealmListingContent(
     val rates: ListingRates?,
     val humans: Int,
     val bots: Int,
-    /** Null until stage N3 (the iroh join descriptor). */
-    val join: JSONObject? = null,
+    /**
+     * The iroh join descriptor (W6-N3: no longer null by contract). Null
+     * means the host's gateway is not running — the honest "not joinable
+     * over the internet right now". A non-null descriptor is validated at
+     * construction ([IrohJoinDescriptor]: node id + home relay URL, never
+     * an IP) and serialized in a pinned key order.
+     */
+    val join: IrohJoinDescriptor? = null,
     /** The realm-status showcase tunnel URL — the ONLY allowed URL, and
      * only in the pinned trycloudflare shape. */
     val statusPageUrl: String? = null,
@@ -99,7 +111,7 @@ data class RealmListingContent(
         append(",\"bots\":")
         append(bots)
         append("},\"join\":")
-        append(join?.toString() ?: "null")
+        append(join?.toJsonString() ?: "null")
         append(",\"statusPageUrl\":")
         if (statusPageUrl == null) {
             append("null")
@@ -223,7 +235,11 @@ data class RealmListingContent(
                 ),
                 humans = humans,
                 bots = bots,
-                join = null, // null until stage N3 (the frozen schema)
+                // W6-N3: the payload has no dial descriptor — the PUBLISHER
+                // attaches the live gateway's join descriptor (node + home
+                // relay) after this builder returns, so the listing only
+                // ever carries a descriptor of a gateway that is UP.
+                join = null,
                 statusPageUrl = publicUrl,
             )
         }
@@ -430,74 +446,6 @@ object PrivacyGuard {
     }
 }
 
-/**
- * Minimal JSON wire helpers: NIP-01's "encode minimally, UTF-8, no
- * whitespace" string escaper and the pinned-order serializers. The
- * escaper passes non-ASCII through (real UTF-8) and escapes only what
- * JSON requires — matching the reference implementations' behavior so a
- * foreign client re-serializes to the same bytes.
- */
-object NostrJson {
-
-    // \u00XX control escapes: hex digits are locale-neutral by definition.
-    private const val HEX_RADIX = 16
-    private const val HEX_DIGITS = 4
-
-    fun quote(raw: String): String = buildString {
-        append('"')
-        for (ch in raw) {
-            when {
-                ch == '"' -> append("\\\"")
-                ch == '\\' -> append("\\\\")
-                ch == '\b' -> append("\\b")
-                ch == '\u000C' -> append("\\f")
-                ch == '\n' -> append("\\n")
-                ch == '\r' -> append("\\r")
-                ch == '\t' -> append("\\t")
-                ch < ' ' -> append(buildControlEscape(ch))
-                else -> append(ch)
-            }
-        }
-        append('"')
-    }
-
-    /** The C0 control-character escape (`\b \t \n \f \r`, else \u00XX):
-     * the only remaining quote() branch, kept out of the when so every
-     * line stays inside the length gate. */
-    private fun buildControlEscape(ch: Char): String =
-        when (ch) {
-            '\b' -> "\\b"
-            '\u000C' -> "\\f"
-            '\n' -> "\\n"
-            '\r' -> "\\r"
-            '\t' -> "\\t"
-            else -> "\\u" + ch.code.toString(HEX_RADIX).padStart(HEX_DIGITS, '0')
-        }
-
-    /** A Double as a JSON number or null — NaN/Infinity are refused (they
-     * are not JSON). */
-    fun numberOrNull(value: Double?): String = when {
-        value == null -> "null"
-        value.isNaN() || value.isInfinite() ->
-            throw IllegalArgumentException("VAL-NOSTR-CONTENT: rates must be finite numbers")
-        else -> value.toString()
-    }
-
-    /** Tags as a JSON array-of-arrays, order preserved. */
-    fun tagsToJson(tags: List<List<String>>): String = buildString {
-        append('[')
-        tags.forEachIndexed { i, tag ->
-            if (i > 0) append(',')
-            append('[')
-            tag.forEachIndexed { j, value ->
-                if (j > 0) append(',')
-                append(quote(value))
-            }
-            append(']')
-        }
-        append(']')
-    }
-}
 
 /**
  * The unsigned body of an event about to be signed (the [NostrEvent.create]

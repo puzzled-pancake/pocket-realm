@@ -32,7 +32,7 @@ This wiki describes the project as it exists now. It is written for players, tes
 
 Pocket Realm turns one Android handheld into both the game machine and the local server. The player supplies a supported game client. Pocket Realm makes a private working copy, starts the local world, manages a local account, opens the game, and closes everything in a safe order when the player finishes.
 
-The normal experience is offline. An optional experimental LAN mode can let another device join a host on the same private network. It does not turn the local realm into a public Internet server.
+The normal experience is offline. An optional experimental LAN mode can let another device join a host on the same private network, and the opt-in Public realms lane (desktop) can publish a listing that desktop browsers join over the iroh relay. Neither turns the local realm into a general public Internet server.
 
 ## Current documentation date
 

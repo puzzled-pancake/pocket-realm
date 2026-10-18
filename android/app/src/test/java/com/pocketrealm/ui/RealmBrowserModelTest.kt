@@ -135,10 +135,109 @@ class RealmBrowserModelTest {
         assertTrue(RealmBrowserModel.PUBLIC_REALMS_IDLE_COPY.contains(RealmBrowserModel.RELAY_IP_DISCLOSURE))
     }
 
+    /** A minimal carried-join listing fixture for the availability legs. */
+    private fun joinListing(carried: Boolean): RealmBrowserModel.PublicRealmListing =
+        RealmBrowserModel.PublicRealmListing(
+            eventId = "e-join-" + System.nanoTime(),
+            name = "Northdale",
+            flavor = "wotlk",
+            build = ClientFlavors.WOTLK.build,
+            timeframeStage = "progression-wotlk-1x",
+            motd = "Casual quests and dungeons, no rush.",
+            rates = com.pocketrealm.discovery.nostr.RealmListingContent.ListingRates(1.0, 1.0, 1.0),
+            humans = 3,
+            bots = 12,
+            publishedAtSeconds = 1_760_000_000L,
+            statusPageUrl = null,
+            joinCarried = carried,
+        )
+
+    @Test
+    fun joinAvailabilityLadderIsHonestPerPosture() {
+        // R6-4-3's proposed legs: no descriptor → None; matching active
+        // flavor → Joinable; different active flavor → FlavorMismatch;
+        // NO flavor picked (the desktop guard refuses with the pick-first
+        // row, R1-r4-2's pinned posture) → FlavorMismatch here too.
+        val none = RealmBrowserModel.publicRealmRow(
+            joinListing(carried = false),
+            nowSeconds = 1_760_000_000L,
+            activeFlavorId = "wotlk",
+        )
+        assertEquals(
+            RealmBrowserModel.Row.PublicRealms.JoinAvailability.None,
+            none.joinAvailability,
+        )
+        val joinable = RealmBrowserModel.publicRealmRow(
+            joinListing(carried = true),
+            nowSeconds = 1_760_000_000L,
+            activeFlavorId = "wotlk",
+        )
+        assertEquals(
+            RealmBrowserModel.Row.PublicRealms.JoinAvailability.Joinable,
+            joinable.joinAvailability,
+        )
+        val mismatch = RealmBrowserModel.publicRealmRow(
+            joinListing(carried = true),
+            nowSeconds = 1_760_000_000L,
+            activeFlavorId = "tbc",
+        )
+        assertEquals(
+            RealmBrowserModel.Row.PublicRealms.JoinAvailability.FlavorMismatch,
+            mismatch.joinAvailability,
+        )
+        val unpicked = RealmBrowserModel.publicRealmRow(
+            joinListing(carried = true),
+            nowSeconds = 1_760_000_000L,
+            activeFlavorId = null,
+        )
+        assertEquals(
+            "the unpicked-flavor state is a mismatch (never Joinable)",
+            RealmBrowserModel.Row.PublicRealms.JoinAvailability.FlavorMismatch,
+            unpicked.joinAvailability,
+        )
+    }
+
+    @Test
+    fun joinActionCopyNamesEachPostureAndNeverTheDescriptor() {
+        // The copy the renderer shows per availability (R6-4-3), and the
+        // never-rendered rule: no node hex, no relay host, no IP literal
+        // in ANY availability copy.
+        val nodeHex = "ab".repeat(32)
+        val relayHost = "usw1-1.relay.n0.iroh.link"
+        val ipLike = Regex("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")
+        val none = RealmBrowserModel.joinActionCopy(
+            RealmBrowserModel.Row.PublicRealms.JoinAvailability.None,
+        )!!
+        val joinable = RealmBrowserModel.joinActionCopy(
+            RealmBrowserModel.Row.PublicRealms.JoinAvailability.Joinable,
+        )!!
+        val mismatch = RealmBrowserModel.joinActionCopy(
+            RealmBrowserModel.Row.PublicRealms.JoinAvailability.FlavorMismatch,
+        )!!
+        assertEquals(
+            "Internet join: the host's gateway is offline right now",
+            none,
+        )
+        assertEquals("Join over the internet", joinable)
+        assertTrue(
+            "the mismatch copy names the switch",
+            mismatch.contains("switch to this realm's flavor first"),
+        )
+        for (copy in listOf(none, joinable, mismatch)) {
+            assertTrue("copy must never carry the node id", !copy.contains(nodeHex))
+            assertTrue("copy must never carry the relay host", !copy.contains(relayHost))
+            assertFalse(
+                "copy must never carry an IP literal: '$copy'",
+                ipLike.containsMatchIn(copy),
+            )
+        }
+    }
+
     @Test
     fun publicRealmRowLabelsBotsAndNamesTheAge() {
         val row = RealmBrowserModel.publicRealmRow(
             RealmBrowserModel.PublicRealmListing(
+                eventId = "e${System.nanoTime()}",
                 name = "Northdale",
                 flavor = "wotlk",
                 build = ClientFlavors.WOTLK.build,
@@ -170,6 +269,7 @@ class RealmBrowserModelTest {
     fun publicRealmRowAgeCopyNeverGoesNegative() {
         val row = RealmBrowserModel.publicRealmRow(
             RealmBrowserModel.PublicRealmListing(
+                eventId = "e${System.nanoTime()}",
                 name = "N", flavor = "vanilla",
                 build = ClientFlavors.VANILLA.build, timeframeStage = "s",
                 motd = "", rates = null,
@@ -188,6 +288,7 @@ class RealmBrowserModelTest {
     fun populatedPublicRealmsRowCarriesTheRelayIpDisclosure() {
         val row = RealmBrowserModel.publicRealmRow(
             RealmBrowserModel.PublicRealmListing(
+                eventId = "e${System.nanoTime()}",
                 name = "Northdale", flavor = "wotlk",
                 build = ClientFlavors.WOTLK.build,
                 timeframeStage = "progression-wotlk-1x", humans = 3, bots = 12,
@@ -218,6 +319,7 @@ class RealmBrowserModelTest {
     fun rowsCarryLanStatusAndPublicRealmsInThePinnedOrder() {
         val row = RealmBrowserModel.publicRealmRow(
             RealmBrowserModel.PublicRealmListing(
+                eventId = "e${System.nanoTime()}",
                 name = "Northdale", flavor = "wotlk",
                 build = ClientFlavors.WOTLK.build,
                 timeframeStage = "progression-wotlk-1x", humans = 3, bots = 12,

@@ -1,5 +1,6 @@
 package com.pocketrealm.discovery.nostr
 
+import com.pocketrealm.discovery.iroh.IrohJoinDescriptor
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -336,21 +337,19 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
             )
         }
         val statusPageUrl = obj.optString("statusPageUrl", "").takeIf { it.isNotEmpty() }
-        // R3-2/R6-3-4: the frozen schema pins join = null until stage N3 —
-        // a non-null join is a hostile/unauthorized schema extension AND
-        // the one unbounded retained value (the admission fence counts
-        // entries, not bytes). Refused, not trimmed.
-        // R4 breaker: EVERY non-null spelling (object, string, number) is
-        // refused — optJSONObject only caught the object shape. The JSON
-        // null sentinel (org.json.NULL) is the schema-honest "absent" and
-        // passes; the sentinel itself is non-null in Kotlin, hence the
-        // identity comparison.
+        // W6-N3: the join descriptor is CARRIED (the stage-3 flip) — but
+        // only a VALID one. The admission ladder keeps the R3-2 posture's
+        // teeth: the descriptor is bounded at admission (exactly the three
+        // keys; node pinned 64 lowercase hex; relay a hostname-only https
+        // URL) so a hostile join still retains nothing unbounded, and an
+        // IP-literal relay host is refused fail-closed (the NEVER-list).
+        // The JSON null sentinel (org.json.NULL) stays the schema-honest
+        // "host gateway down"; the sentinel is non-null in Kotlin, hence
+        // the identity comparison before the descriptor parse.
         val joinValue = obj.opt("join")
-        if (joinValue != null && joinValue !== JSONObject.NULL) {
-            return ContentParse.Refused(
-                "VAL-NOSTR-CONTENT: join must be null until the N3 gateway " +
-                    "stage — a non-null join is not part of the frozen schema",
-            )
+        val join: IrohJoinDescriptor? = when {
+            joinValue == null || joinValue === JSONObject.NULL -> null
+            else -> IrohJoinDescriptor.fromListingJson(joinValue)
         }
         val ratesObj = obj.optJSONObject("rates")
         val refusal = textRefusal(obj, statusPageUrl)
@@ -376,7 +375,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
                 },
                 humans = players.getInt("humans"),
                 bots = players.getInt("bots"),
-                join = null, // null until N3 (non-null joins refused above)
+                join = join,
                 statusPageUrl = statusPageUrl,
             ),
         )

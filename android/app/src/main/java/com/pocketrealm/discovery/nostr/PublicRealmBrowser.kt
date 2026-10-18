@@ -1,5 +1,6 @@
 package com.pocketrealm.discovery.nostr
 
+import com.pocketrealm.discovery.iroh.IrohJoinDescriptor
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -40,8 +41,12 @@ class PublicRealmBrowser(
      * a user's relay edit re-opens the read side on the new set. */
     private var relayUrls: List<String> = relayUrls
 
-    /** One render-ready row (the frozen schema's browsable projection). */
+    /** One render-ready row (the frozen schema's browsable projection).
+     * [eventId] is the listing's identity — the (pubkey,d) merge key's
+     * newest event — and the only safe join-action key (code-red
+     * R1-3/R4-3/R6-2: names are NOT unique across publishers). */
     data class ListingCard(
+        val eventId: String,
         val name: String,
         val motd: String,
         val flavor: String,
@@ -53,6 +58,10 @@ class PublicRealmBrowser(
         val publishedAtSeconds: Long,
         val relaysSeen: Int,
         val statusPageUrl: String?,
+        /** W6-N3: the iroh join descriptor — null when the host's gateway
+         * is down (the honest not-joinable). The card renders its
+         * PRESENCE, never its fields. */
+        val join: IrohJoinDescriptor? = null,
     )
 
     data class State(
@@ -164,9 +173,11 @@ class PublicRealmBrowser(
                 rates = entry.content.rates,
                 humans = entry.content.humans,
                 bots = entry.content.bots,
+                eventId = entry.event.idHex,
                 publishedAtSeconds = entry.event.createdAtSeconds,
                 relaysSeen = entry.seenOn.size,
                 statusPageUrl = entry.content.statusPageUrl,
+                join = entry.content.join,
             )
         }
         _state.value = _state.value.copy(listings = cards)

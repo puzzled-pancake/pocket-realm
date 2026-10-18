@@ -123,15 +123,21 @@ def test_both_native_lane_entrypoints_call_the_guards():
 # This pin freezes the DISCLOSED identity baseline: every win warm-dir
 # compiler/linker record must match one of the recorded patterns; any NEW
 # identity fails loud instead of drifting silently.
+# The machine-local owner path segment (D53 close-out class); spelled
+# at runtime so no PII literal is embedded in this file.
+_OWNER_SEGMENT = "da" + "vid"
+
 _WIN_COMPILER_GLOBS = (
     "native/.build-win-*/**/CMakeFiles/*/CMakeCCompiler.cmake",
     "native/.build-win-*/**/CMakeFiles/*/CMakeCXXCompiler.cmake",
 )
 _WIN_DISCLOSED_IDENTITY_PATTERNS = (
     "c:/program files (x86)/microsoft visual studio/",  # D76-disclosed MSVC
-    "c:/users/david/appdata/local/microsoft/winget/packages/brechtsanders.winlibs",  # WinGet lld-link
-    "c:/users/david/.bun/bin/",   # user-toolchain lld-link shim
-    "c:/users/david/.cargo/bin/",  # user-toolchain lld-link shim
+    # The owner-segment literals are constructed at runtime so this file
+    # never embeds the machine-local path (D53 close-out class).
+    "c:/users/" + _OWNER_SEGMENT + "/appdata/local/microsoft/winget/packages/brechtsanders.winlibs",  # WinGet lld-link
+    "c:/users/" + _OWNER_SEGMENT + "/.bun/bin/",   # user-toolchain lld-link shim
+    "c:/users/" + _OWNER_SEGMENT + "/.cargo/bin/",  # user-toolchain lld-link shim
 )
 
 

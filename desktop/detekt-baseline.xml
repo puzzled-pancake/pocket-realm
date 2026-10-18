@@ -44,6 +44,17 @@
     <ID>LargeClass:DesktopAppModel.kt$DesktopAppModel : AutoCloseable</ID>
     <ID>LargeClass:DesktopMariaDbEngineTest.kt$DesktopMariaDbEngineTest</ID>
     <ID>LargeClass:DesktopRuntimeBackendTest.kt$DesktopRuntimeBackendTest</ID>
+    <!-- W6-N3 code-red round 1 (reviewed delta, D70): the lifecycle
+         suite grew by the three join-descriptor beat tests (R5-4) —
+         the harness is the proven WS one; splitting it would duplicate
+         the race-sensitive MockWebServer mechanics. Retire stage: the
+         next lifecycle-suite split (W7 truth pass). -->
+    <ID>LargeClass:NostrListingPublisherTest.kt$NostrListingPublisherTest</ID>
+    <!-- W6-N3 code-red round 1 (reviewed delta, D70): the gateway
+         process manager carries the join lifecycle (launch/watch/stop
+         + jar/JRE plumbing); the process boundary is why it is one
+         class. Retire stage: W7 truth pass review. -->
+    <ID>TooManyFunctions:IrohGatewayManager.kt$IrohGatewayManager</ID>
     <ID>LargeClass:DesktopServerRuntimeFilesTest.kt$DesktopServerRuntimeFilesTest</ID>
     <ID>LongMethod:AddonsScreen.kt$@Composable private fun AddonDetail( addon: CatalogAddon, installed: InstalledAddon?, updateAvailable: Boolean, conflicts: List&lt;Pair&lt;CatalogAddon, AddonCompatibility&gt;&gt;, recommendationReason: String?, )</ID>
     <ID>LongMethod:AddonsScreen.kt$@Composable private fun AddonsHubScreen( repository: DesktopAddonRepository, catalog: AddonCatalog, onOpen: (AddonView) -&gt; Unit, )</ID>

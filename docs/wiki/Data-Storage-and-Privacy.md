@@ -66,7 +66,7 @@ It excludes the live database and client files. The redactor removes known secre
 
 ## Network use
 
-The Public realms browser (opt-in publishing, always-on browsing on the Realms screen) connects out to community Nostr relays over websockets; those relays see your IP address and can associate it with any listing you publish. Published listings never carry your IP address; the only hostname they can carry is the optional public status-page link (a trycloudflare address that changes each session), and a published listing is retracted when you switch Public off or close the app.
+The Public realms browser (opt-in publishing, always-on browsing on the Realms screen) connects out to community Nostr relays over websockets; those relays see your IP address and can associate it with any listing you publish. Published listings never carry your IP address; the only hostnames they can carry are the optional public status-page link (a trycloudflare address that changes each session) and the join descriptor's iroh home-relay hostname — the descriptor is the realm's iroh node id plus that relay URL, present only while the host's internet gateway runs — and a published listing is retracted when you switch Public off or close the app. Connecting through those relays (Nostr and iroh) shows them your IP address, and a player who joins your realm directly may learn it.
 
 Normal local gameplay uses the device's own loopback network connection. Internet permission is also needed for a player-started GitHub add-on download. The custom add-on path accepts approved GitHub hosts and verifies a fixed commit and archive before installation.
 

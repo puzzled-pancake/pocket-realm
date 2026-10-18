@@ -63,6 +63,10 @@ private const val GATE_POLL_MS = 30_000L
 private const val PROD_TIMEOUT_SECONDS = 5L
 private const val PROD_PING_SECONDS = 30L
 
+/** Production's first-beat wait for the host gateway's READY (the test
+ * bundles keep the seam at 0 — a frozen injected clock must never spin). */
+private const val PROD_HOST_DESCRIPTOR_WAIT_MS = 5_000L
+
 internal data class Seams(
     val clockMs: () -> Long,
     val client: OkHttpClient,
@@ -70,12 +74,33 @@ internal data class Seams(
     val payloadProvider: () -> JSONObject?,
     val gatePollMs: Long,
     val heartbeatSeconds: Long,
+    /**
+     * W6-N3: the host gateway's ensure/stop + the descriptor the listing's
+     * `join` field carries. Production wires the model's iroh gateway
+     * manager (the child-process transport); the lifecycle suite's default
+     * bundle leaves them inert (no process, join:null beats — exactly the
+     * N1 pins).
+     */
+    val ensureHostGateway: (secretHex: String) -> Unit = {},
+    val stopHostGateway: () -> Unit = {},
+    val joinDescriptorProvider: () -> com.pocketrealm.discovery.iroh.IrohJoinDescriptor? = { null },
+    /**
+     * The first-beat wait for a still-starting gateway, in INJECTED-CLOCK
+     * milliseconds. Production gives the endpoint 5s to reach READY; the
+     * test bundles keep 0 — a wait measured on a FROZEN test clock would
+     * never terminate (the R2 breaker clock only advances when the test
+     * bumps it), so the wait itself is a seam.
+     */
+    val hostDescriptorWaitMs: Long = 0L,
 ) {
     companion object {
         /** The production bundle: the wall clock, a bounded client, the
          * realm-status controller's own visibility/payload gates, and the
-         * frozen cadences. */
-        internal fun production(realmStatus: RealmStatusController): Seams = Seams(
+         * frozen cadences; the gateway host rides the SAME gate ladder. */
+        internal fun production(
+            model: com.pocketrealm.desktop.DesktopAppModel,
+            realmStatus: RealmStatusController,
+        ): Seams = Seams(
             clockMs = System::currentTimeMillis,
             client = OkHttpClient.Builder()
                 .connectTimeout(PROD_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -88,6 +113,10 @@ internal data class Seams(
             },
             gatePollMs = GATE_POLL_MS,
             heartbeatSeconds = RealmListingContract.HEARTBEAT_SECONDS,
+            ensureHostGateway = { secret -> model.irohGateway.ensureHost(secret) },
+            stopHostGateway = { model.irohGateway.stopHost() },
+            joinDescriptorProvider = { model.irohGateway.hostDescriptor() },
+            hostDescriptorWaitMs = PROD_HOST_DESCRIPTOR_WAIT_MS,
         )
 
     }
@@ -102,8 +131,8 @@ internal class NostrListingPublisher(
     /** The injected seams (clock, HTTP client, gate providers, cadences):
      * production passes the default bundle — the lifecycle suite passes
      * fixed versions so its evaluations are deterministic and
-     * socket-local. */
-    private val seams: Seams = Seams.production(realmStatus),
+     * socket-local (and spawn no gateway process). */
+    private val seams: Seams = Seams.production(model, realmStatus),
 ) {
 
     private val clockMs get() = seams.clockMs
@@ -164,6 +193,10 @@ internal class NostrListingPublisher(
     private var lastPoolRelays: List<String> = emptyList()
 
     @Volatile private var publishedEvent: com.pocketrealm.discovery.nostr.NostrEvent? = null
+
+    /** Round-6 R4-r6-2: the host-stop latch — true from an ensure until
+     * the next deactivate consumes it; deactivation is idempotent. */
+    @Volatile private var hostStopArmed: Boolean = true
 
     /** Starts the gate watcher. Idempotent. */
     fun boot() {
@@ -458,8 +491,31 @@ internal class NostrListingPublisher(
             return
         }
         val activePool = ensurePool()
+        // W6-N3: the host gateway runs under the SAME gate ladder as the
+        // listing it serves. Ensure it before the beat; the beat carries
+        // the descriptor only when the endpoint actually reached READY (a
+        // still-starting gateway publishes join:null — the honest
+        // not-joinable listing — and the next beat attaches it).
+        runCatching {
+            val secret = model.ensureIrohGatewayIdentity()
+            if (secret != null) {
+                seams.ensureHostGateway(secret)
+                // Round-6 R4-r6-2: the ensure (RE)ARMS the host-stop
+                // latch — deactivate stops the gateway exactly once per
+                // armed cycle. Without the latch, the identity settings
+                // write re-fires the (unmutexed) settings collector into
+                // an extra evaluateGates that can land AFTER a gate drop
+                // and take the retract leg again — a second stop that,
+                // interleaved with the R2-r5-2 relaunch beat, kills a
+                // freshly relaunched gateway.
+                hostStopArmed = true
+            }
+        }.onFailure {
+            DesktopLog.w(TAG, "iroh host gateway ensure failed: ${it.message}")
+        }
+        val descriptor = awaitHostDescriptorBriefly()
         val event = RealmListingEvent.build(
-            content = content,
+            content = content.copy(join = descriptor),
             key = key,
             nowSeconds = clockMs() / MILLIS_PER_SECOND,
         )
@@ -493,6 +549,24 @@ internal class NostrListingPublisher(
         DesktopLog.i(TAG, "nostr listing published ($prefix…), beat ${_uiState.value.beats}")
     }
 
+    /**
+     * Bounded first-beat wait for the host gateway's READY (the endpoint's
+     * relay registration is normally sub-second). The WAIT BUDGET is the
+     * [Seams.hostDescriptorWaitMs] seam — measured on the INJECTED clock,
+     * so a frozen test clock simply means zero wait, and production's
+     * wall clock bounds the wait at 5s. The beat publishes with whatever
+     * the gateway state honestly is either way.
+     */
+    private suspend fun awaitHostDescriptorBriefly(): com.pocketrealm.discovery.iroh.IrohJoinDescriptor? {
+        val deadline = clockMs() + seams.hostDescriptorWaitMs
+        var descriptor = seams.joinDescriptorProvider()
+        while (descriptor == null && clockMs() < deadline) {
+            delay(HOST_DESCRIPTOR_POLL_MS)
+            descriptor = seams.joinDescriptorProvider()
+        }
+        return descriptor
+    }
+
     private fun deactivate(retract: Boolean) {
         heartbeatJob?.cancel()
         heartbeatJob = null
@@ -502,6 +576,17 @@ internal class NostrListingPublisher(
         acksCollectorJob = null
         beatAcks.clear()
         _uiState.value = _uiState.value.copy(paused = false)
+        // W6-N3: a gate drop stops the host gateway too — no listing, no
+        // discovery surface, no listening endpoint (a public realm's
+        // transport exists exactly as long as its listing does). Round-6
+        // R4-r6-2: the stop is LATCHED — exactly one stop per armed
+        // cycle (the latch rearms only on the next ensure), so the
+        // settings-collector's extra evaluation after a drop can never
+        // double-stop (and never kill a freshly relaunched gateway).
+        if (hostStopArmed) {
+            hostStopArmed = false
+            runCatching { seams.stopHostGateway() }
+        }
         if (retract) {
             runCatching {
                 val listing = publishedEvent ?: return
@@ -662,8 +747,11 @@ internal class NostrListingPublisher(
                 "client build, timeframe stage, rates and player counts — " +
                 "plus the optional status-page link (a public " +
                 "trycloudflare.com hostname) when the showcase tunnel is " +
-                "live. No IP address is ever in a listing; Nostr relays see " +
-                "your IP."
+                "live, and the join descriptor (the realm's iroh node id " +
+                "and its home-relay hostname) while the gateway runs. " +
+                "No IP address is ever in a listing. The Nostr relays and " +
+                "the iroh home relay see your IP, and a player who " +
+                "connects to your realm directly may learn it."
 
         private const val PAUSED_COPY =
             "Paused: the live player split is unavailable right now, so no " +
@@ -685,6 +773,9 @@ internal class NostrListingPublisher(
         private const val SHUTDOWN_DRAIN_MS = 2_000L
         private const val SHUTDOWN_POLL_MS = 100L
         private const val SHUTDOWN_SETTLE_MS = 500L
+
+        /** W6-N3: the first-beat wait for the host gateway's READY. */
+        private const val HOST_DESCRIPTOR_POLL_MS = 250L
     }
 }
 

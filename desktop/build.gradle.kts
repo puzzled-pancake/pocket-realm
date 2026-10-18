@@ -920,6 +920,16 @@ tasks.withType<Test>().configureEach {
         .flatMap { layout.buildDirectory.dir(it) }
     if (!providers.gradleProperty("pocket.focus").orNull.isNullOrBlank()) {
         reports.junitXml.outputLocation.set(pocketFocusedResults)
+        // Round-6 R6-N3-r6-2: the JUnit-XML redirect alone was NOT the
+        // fence — the Test task's BINARY results directory stayed
+        // canonical, so every sanctioned focused run still attempted to
+        // delete build/test-results/test/binary (the observed
+        // "Unable to delete directory ... binary" IOException) and could
+        // hollow the canonical tree it was fenced against. Both output
+        // locations move together under -Ppocket.focus.
+        binaryResultsDirectory.set(
+            pocketFocusedResults.map { it.dir("binary") },
+        )
     }
 }
 

@@ -26,9 +26,9 @@ import org.junit.Test
  *  - the frozen-schema TYPE pins must hold for every field org.json
  *    stringifies: a non-string `motd` renders as machine JSON in the
  *    browser row (the R2B-5 class, `name` leg only);
- *  - the N3 non-null-join refusal must refuse EVERY non-null join, not
- *    only the JSONObject spelling (a string join sails past
- *    optJSONObject);
+ *  - the join admission shape (W6-N3) must refuse EVERY non-object join
+ *    spelling (a string join is not a descriptor — refused, never
+ *    stringified into the browser row);
  *  - the timeframe TAG must agree with the content stage and be unique
  *    (the exact rule the flavor tag already carries);
  *  - a second `d` tag is a malformed NIP-33 coordinate — refused, not
@@ -107,10 +107,9 @@ class NostrBreakerR4NegativeTest {
         }
     }
 
-    /** NEGATIVE (expected FAILING on the current tree): the N3 refusal
-     * (R3-2/R6-3-4) checks optJSONObject — a STRING join ("join":
-     * "iroh:…") is a non-null join that sails past it. The frozen schema
-     * pins join = null until N3; every non-null spelling is refused. */
+    /** NEGATIVE (W6-N3 posture): a STRING join ("join": "iroh:…") is not
+     * a descriptor — the admission shape refuses every non-object join,
+     * never stringifying it into the browser row. */
     @Test
     fun nonObjectJoinIsRefusedLikeAnyNonNullJoin() {
         val store = ListingStore { (NOW_SECONDS + 60) * 1000 }
@@ -119,8 +118,8 @@ class NostrBreakerR4NegativeTest {
         if (result is ListingStore.AcceptResult.Accepted) {
             fail(
                 "a string join was accepted (parsed join=" +
-                    "${store.live().single().content.join}) — the frozen " +
-                    "schema pins join=null until stage N3 for EVERY type",
+                    "${store.live().single().content.join}) — the join " +
+                    "admission shape refuses EVERY non-object spelling",
             )
         }
     }

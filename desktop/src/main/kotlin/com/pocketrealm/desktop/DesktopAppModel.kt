@@ -26,6 +26,7 @@ import com.pocketrealm.supervisor.StopMode
 import com.pocketrealm.supervisor.UserAccountStore
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -824,6 +825,16 @@ class DesktopAppModel(
         includeClient: Boolean,
         profileOverride: String? = null,
     ): RuntimeOperation {
+        // W6-N3 clash guard (the symmetric half of startIrohJoin's): an
+        // internet join owns 3724/8085 on this instance — starting a realm
+        // stack now would bind-clash mid-boot. Refuse loudly; the user
+        // stops the join first (never a silent stop of either lane).
+        val joinClash = com.pocketrealm.desktop.iroh.IrohJoinGuards.realmStartRefusal(
+            irohGateway.joinState.value,
+        )
+        if (joinClash != null) {
+            return RuntimeOperation(false, supervisor.state.value, joinClash)
+        }
         // DESK-24: join mode = stop realm/world + launch the client against
         // the remote IP. A join while a local runtime is still up stops that
         // runtime first (graceful, with the world save) — the shared
@@ -1455,6 +1466,183 @@ class DesktopAppModel(
         com.pocketrealm.desktop.nostr.effectiveRelays(_settings.value)
 
     // ------------------------------------------------------------------
+    // W6-N3: the iroh gateway lane — the join verbs over the CHILD
+    // PROCESS transport (the manager owns host + join process lifecycles;
+    // the publisher reads the host descriptor for the listing's `join`
+    // field). The refusal ladder IS the ask's host+join contract: one
+    // instance owns 3724/8085 at a time.
+    // ------------------------------------------------------------------
+
+    private val irohGatewayLazy = lazy { com.pocketrealm.desktop.iroh.IrohGatewayManager() }
+
+    /** The gateway process manager (host + join). */
+    internal val irohGateway: com.pocketrealm.desktop.iroh.IrohGatewayManager
+        get() = irohGatewayLazy.value
+
+    /** The join lane's render state (idle/starting/ready/error). */
+    internal val irohJoinState:
+        kotlinx.coroutines.flow.StateFlow<com.pocketrealm.desktop.iroh.IrohGatewayManager.JoinState>
+        get() = irohGateway.joinState
+
+    /**
+     * Joins a PUBLIC realm over iroh: launches the join gateway against
+     * [descriptor]'s node id + home relay, and on READY launches the local
+     * client with realmlist pointed at 127.0.0.1 (the joiner gateway's own
+     * loopback listeners — the SMSG_REALM_LIST rewrite the gateway does is
+     * what makes the game dial them). The refusal ladder is fail-closed:
+     * a running realm stack (ports), an already-running join, a flavor
+     * mismatch, or a gateway launch failure each refuse LOUDLY before any
+     * side effect.
+     */
+    suspend fun startIrohJoin(
+        descriptor: com.pocketrealm.discovery.iroh.IrohJoinDescriptor,
+        listingFlavorId: String,
+    ): RuntimeOperation {
+        prepareIrohJoin(descriptor, listingFlavorId)?.let { return it }
+        return awaitJoinReadyAndLaunch(descriptor)
+    }
+
+    /** The pre-flight ladder: the pure refusal table (clash + flavor
+     * rows), then the gateway process launch — the FIRST failure wins and
+     * nothing downstream runs. Null = cleared to dial. */
+    private fun prepareIrohJoin(
+        descriptor: com.pocketrealm.discovery.iroh.IrohJoinDescriptor,
+        listingFlavorId: String,
+    ): RuntimeOperation? {
+        val refusal = com.pocketrealm.desktop.iroh.IrohJoinGuards.joinRefusal(
+            phase = supervisor.state.value.phase,
+            joinState = irohGateway.joinState.value,
+            activeFlavorId = com.pocketrealm.client.ActiveFlavor.displayedId,
+            listingFlavorId = listingFlavorId,
+        ) ?: irohGateway.startJoin(
+            descriptor = descriptor,
+            flavorId = listingFlavorId,
+            relayOnly = _settings.value.irohRelayOnly,
+        )
+        return refusal?.let { RuntimeOperation(false, supervisor.state.value, it) }
+    }
+
+    /** Bounded wait for READY (the manager lands Ready/Error on the state
+     * flow; this verb joins the outcome so the caller sees it), then the
+     * client launch. A timeout stops the half-open join loudly. The whole
+     * wait runs on Dispatchers.IO and SUSPENDS between polls (code-red
+     * R1-2/R4-1/R6-1: a Thread.sleep poll here blocked the Compose UI
+     * thread for up to 45 s — the verb is suspend exactly so the caller's
+     * thread never owns this wait). */
+    private suspend fun awaitJoinReadyAndLaunch(
+        descriptor: com.pocketrealm.discovery.iroh.IrohJoinDescriptor,
+    ): RuntimeOperation = withContext(Dispatchers.IO) {
+        val deadline = System.currentTimeMillis() + JOIN_READY_TIMEOUT_MS
+        var outcome: RuntimeOperation? = null
+        while (outcome == null && System.currentTimeMillis() < deadline) {
+            outcome = when (val state = irohGateway.joinState.value) {
+                is com.pocketrealm.desktop.iroh.IrohGatewayManager.JoinState.Ready -> {
+                    DesktopLog.i(
+                        TAG,
+                        "iroh join READY (node " +
+                            "${descriptor.nodeHex.take(IROH_LOG_NODE_CHARS)}…)",
+                    )
+                    launchIrohJoinClient()
+                }
+
+                is com.pocketrealm.desktop.iroh.IrohGatewayManager.JoinState.Error ->
+                    RuntimeOperation(
+                        false,
+                        supervisor.state.value,
+                        "${state.code}: ${state.detail}",
+                    )
+
+                else -> {
+                    delay(JOIN_READY_POLL_MS)
+                    null
+                }
+            }
+        }
+        if (outcome == null) {
+            irohGateway.stopJoin()
+            outcome = RuntimeOperation(
+                false,
+                supervisor.state.value,
+                "VAL-IROH-JOIN-TIMEOUT: the gateway did not become ready within " +
+                    "${JOIN_READY_TIMEOUT_MS / JOIN_READY_TIMEOUT_SECONDS_DIVISOR}s " +
+                    "(host offline? relay unreachable?)",
+            )
+        }
+        outcome
+    }
+
+    /** The client launch after the tunnel is READY: the directory resolves
+     * through the SAME managed-generation-first, identity-gated seam the
+     * local lane uses (code-red R6-N3-1: the legacy settings clientDir
+     * alone launched a wrong-flavor or unmanaged binary against the joined
+     * realm); realmlist then projects to 127.0.0.1 (the joiner gateway's
+     * listeners) — the game sees a loopback realm. */
+    private fun launchIrohJoinClient(): RuntimeOperation {
+        val resolvedDir = backend.resolveClientDir()
+            ?: return run {
+                irohGateway.stopJoin()
+                RuntimeOperation(
+                    false,
+                    supervisor.state.value,
+                    "the tunnel is up but no client is available: import a " +
+                        "managed client or configure the game folder on Home",
+                )
+            }
+        // The client launcher refuses honestly (exe missing, already
+        // running) BEFORE any side effect on the client directory.
+        return try {
+            val launcher = com.pocketrealm.desktop.DesktopClientLauncher(
+                settingsFile = roots.settingsFile,
+                clientDirOverride = resolvedDir,
+            )
+            val observation = launcher.launch(
+                com.pocketrealm.supervisor.RealmEndpoint.LOCAL,
+                owner = null,
+            )
+            DesktopLog.i(
+                TAG,
+                "iroh join client launched (pid ${observation.pid}, " +
+                    "dir ${resolvedDir.name})",
+            )
+            RuntimeOperation(true, supervisor.state.value, "joined over the internet (tunnel up)")
+        } catch (failure: IllegalStateException) {
+            irohGateway.stopJoin()
+            RuntimeOperation(
+                false,
+                supervisor.state.value,
+                "the tunnel is up but the client refused to launch: ${failure.message}",
+            )
+        }
+    }
+
+    /** Stops the internet join (the gateway process; the game session ends
+     * with the tunnel). Safe when nothing is running. */
+    fun stopIrohJoin() {
+        irohGateway.stopJoin()
+    }
+
+    /** The relay-only switch verb (persisted; default ON — the join lane
+     * reads it per start). */
+    fun setIrohRelayOnly(relayOnly: Boolean) {
+        updateSettings { it.copy(irohRelayOnly = relayOnly) }
+    }
+
+    /** The host gateway's descriptor for the listing's `join` field — the
+     * publisher's seam. Ensures the persisted transport identity exists
+     * (generated once; the node id derives from it and must survive
+     * restarts). */
+    @Synchronized
+    internal fun ensureIrohGatewayIdentity(): String? {
+        val stored = _settings.value.irohGatewaySecretHex
+        if (stored.length == IROH_SECRET_HEX_LENGTH) return stored
+        val fresh = ByteArray(IROH_SECRET_BYTES)
+            .also { java.security.SecureRandom().nextBytes(it) }
+            .joinToString("") { "%02x".format(it) }
+        updateSettings { it.copy(irohGatewaySecretHex = fresh) }
+        return fresh
+    }
+
+    // ------------------------------------------------------------------
     // Design-tunnel §4/§5/§6: the host-over-the-internet (tunnel) lane's
     // model helpers — the stored advertised address as typed state, the
     // effective advertisement for display/invite, and the §6 invite
@@ -2021,6 +2209,12 @@ class DesktopAppModel(
         if (nostrListingLazy.isInitialized()) {
             runCatching { nostrListing.shutdown() }
         }
+        // W6-N3: the gateway child processes die with the model (both the
+        // host endpoint and any live join — never an orphaned iroh relay
+        // registration after app exit).
+        if (irohGatewayLazy.isInitialized()) {
+            runCatching { irohGateway.close() }
+        }
         modelScope.cancel()
         // The realm-status page dies with the app process (the §1 rule's
         // app-exit leg); only when the controller was ever constructed.
@@ -2057,6 +2251,16 @@ class DesktopAppModel(
         /** The supervisor launch profile id (not the bot profile — the bot
          * selection rides the settings snapshot into world start). */
         const val DESKTOP_PROFILE = "local"
+
+        /** W6-N3 join-verb budgets: the READY wait (the gateway dial + the
+         * loopback binds) and its poll grain; the persisted transport
+         * identity's byte/hex lengths; the READY log line's node prefix. */
+        const val JOIN_READY_TIMEOUT_MS = 45_000L
+        const val JOIN_READY_POLL_MS = 200L
+        const val JOIN_READY_TIMEOUT_SECONDS_DIVISOR = 1_000L
+        const val IROH_SECRET_HEX_LENGTH = 64
+        const val IROH_SECRET_BYTES = 32
+        const val IROH_LOG_NODE_CHARS = 12
 
         /** Phases a start is accepted in (the shared supervisor's private
          * STARTABLE set, mirrored for the join auto-stop decision: a join

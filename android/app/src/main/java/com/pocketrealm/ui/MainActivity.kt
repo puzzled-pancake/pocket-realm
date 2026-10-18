@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import com.pocketrealm.BuildConfig
 import com.pocketrealm.bots.BotCustomPresets
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.service.RealmService
@@ -31,6 +32,22 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // W6-N2 iroh spike (DEBUG-only, opt-in): the hook lives in the debug
+        // source set (com.pocketrealm.spike.IrohSpike) — release builds never
+        // compile it, so this resolves to a no-op there (ClassNotFound inside
+        // runCatching). Driven by: am start --ez iroh_spike true
+        //   --es iroh_host_id <hex> --ei iroh_host_port <port>
+        if (BuildConfig.DEBUG) {
+            runCatching {
+                Class.forName("com.pocketrealm.spike.IrohSpike")
+                    .getMethod(
+                        "maybeRun",
+                        androidx.lifecycle.LifecycleOwner::class.java,
+                        Intent::class.java,
+                    )
+                    .invoke(null, this, intent)
+            }.onFailure { AppLog.w("UI", "iroh spike hook absent/failed: ${it.javaClass.simpleName}") }
+        }
         // Saved bot presets must resolve in this process (UI selection).
         BotCustomPresets.install(java.io.File(filesDir, "bots"))
         // Construct the addon repository once at app start so the

@@ -105,9 +105,13 @@ fun RealmBrowserScreen(model: DesktopAppModel) {
         else -> null
     }
     val nowSeconds = System.currentTimeMillis() / MILLIS_PER_SECOND
+    val activeFlavorId = com.pocketrealm.client.ActiveFlavor.displayedId
+    // W6-N3: rows carry the honest join posture; the Join action pairs a
+    // row with its live listing card (the descriptor itself never renders).
     val publicRealmRows = browserState.listings.map { card ->
         RealmBrowserModel.publicRealmRow(
             RealmBrowserModel.PublicRealmListing(
+                eventId = card.eventId,
                 name = card.name,
                 flavor = card.flavor,
                 build = card.build,
@@ -119,10 +123,22 @@ fun RealmBrowserScreen(model: DesktopAppModel) {
                 publishedAtSeconds = card.publishedAtSeconds,
                 statusPageUrl = card.statusPageUrl,
                 relaysSeen = card.relaysSeen,
+                joinCarried = card.join != null,
             ),
             nowSeconds = nowSeconds,
+            activeFlavorId = activeFlavorId,
         )
     }
+    // Keyed by the LISTING EVENT ID (code-red R1-3/R4-3/R6-2: names are
+    // not unique across publishers — a name-keyed map dialed the last
+    // same-name listing's node for every row).
+    val joinableCards: MutableMap<String, Pair<String, com.pocketrealm.discovery.iroh.IrohJoinDescriptor>> =
+        HashMap()
+    for (card in browserState.listings) {
+        val join = card.join ?: continue
+        joinableCards[card.eventId] = Pair(card.flavor, join)
+    }
+    var joinStatus by remember { mutableStateOf<String?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -225,6 +241,27 @@ fun RealmBrowserScreen(model: DesktopAppModel) {
         PublicRealmsCard(
             browserState = browserState,
             publicRealmRows = publicRealmRows,
+            joinLane = PublicRealmsJoinLane(
+                joinState = model.irohJoinState.collectAsState().value,
+                relayOnly = model.settings.collectAsState().value.irohRelayOnly,
+                onJoin = { row ->
+                    val target = row.joinKey?.let { joinableCards[it] }
+                    if (target != null) {
+                        scope.launch {
+                            // The verb suspends on Dispatchers.IO (code-red
+                            // R1-2/R4-1/R6-1) — the UI thread only launches it.
+                            val operation = model.startIrohJoin(
+                                target.second, listingFlavorId = target.first,
+                            )
+                            joinStatus = if (operation.ok) null else operation.detail
+                        }
+                    }
+                },
+                onStopJoin = { scope.launch { model.stopIrohJoin() } },
+                onRelayOnlyChange = { model.setIrohRelayOnly(it) },
+            ),
+            joinActionCopy = { availability -> RealmBrowserModel.joinActionCopy(availability) },
+            joinStatus = joinStatus,
         )
         HostPublishControls(
             HostPublishCard(
@@ -254,12 +291,23 @@ private fun DisposableBrowserStop(browser: PublicRealmBrowser) {
     }
 }
 
-/** The Public realms card: the live listings, or the honest empty
- * network — never a placeholder realm. */
+/** The internet-join lane's inputs (code-red round 1: one parameter
+ * object instead of nine — the renderer and the verbs travel together). */
+private data class PublicRealmsJoinLane(
+    val joinState: com.pocketrealm.desktop.iroh.IrohGatewayManager.JoinState,
+    val relayOnly: Boolean,
+    val onJoin: (RealmBrowserModel.Row.PublicRealms.PublicRealm) -> Unit,
+    val onStopJoin: () -> Unit,
+    val onRelayOnlyChange: (Boolean) -> Unit,
+)
+
 @Composable
 private fun PublicRealmsCard(
     browserState: PublicRealmBrowser.State,
     publicRealmRows: List<RealmBrowserModel.Row.PublicRealms.PublicRealm>,
+    joinLane: PublicRealmsJoinLane,
+    joinActionCopy: (RealmBrowserModel.Row.PublicRealms.JoinAvailability) -> String?,
+    joinStatus: String?,
 ) {
     Card(modifier = Modifier.fillMaxWidth().testTag("realm-browser-public")) {
         Column(
@@ -271,6 +319,7 @@ private fun PublicRealmsCard(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
+            JoinLaneControls(joinLane)
             // R6-2-1: the disclosure holds while the browser is connected.
             Text(
                 RealmBrowserModel.RELAY_IP_DISCLOSURE,
@@ -293,15 +342,28 @@ private fun PublicRealmsCard(
                     modifier = Modifier.testTag("realm-browser-public-empty"),
                 )
             } else {
-                publicRealmRows.forEach { row -> PublicRealmRow(row) }
+                publicRealmRows.forEach { row -> PublicRealmRow(row, joinActionCopy, joinLane.onJoin) }
+            }
+            joinStatus?.let { status ->
+                Text(
+                    status,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("realm-browser-join-status"),
+                )
             }
         }
     }
 }
 
-/** One published realm row (bots labeled, never padded). */
+/** One published realm row (bots labeled, never padded); W6-N3 adds the
+ * honest join action (the row's availability posture drives it). */
 @Composable
-private fun PublicRealmRow(row: RealmBrowserModel.Row.PublicRealms.PublicRealm) {
+private fun PublicRealmRow(
+    row: RealmBrowserModel.Row.PublicRealms.PublicRealm,
+    joinActionCopy: (RealmBrowserModel.Row.PublicRealms.JoinAvailability) -> String?,
+    onJoin: (RealmBrowserModel.Row.PublicRealms.PublicRealm) -> Unit,
+) {
     Column(
         Modifier.fillMaxWidth().padding(vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -328,6 +390,25 @@ private fun PublicRealmRow(row: RealmBrowserModel.Row.PublicRealms.PublicRealm) 
                 "Status page: $url",
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+        // W6-N3: the join action — a real button when joinable, the honest
+        // posture copy otherwise (never an address; the descriptor's node
+        // id and relay never render).
+        joinActionCopy(row.joinAvailability)?.let { copy ->
+            if (row.joinAvailability == RealmBrowserModel.Row.PublicRealms.JoinAvailability.Joinable) {
+                androidx.compose.material3.TextButton(
+                    onClick = { onJoin(row) },
+                    modifier = Modifier.testTag("realm-browser-join-button"),
+                ) {
+                    Text(copy)
+                }
+            } else {
+                Text(
+                    copy,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -427,3 +508,70 @@ private fun RelayEditor(relaysText: String, onCommit: (String) -> Unit) {
 }
 
 private const val MILLIS_PER_SECOND = 1_000L
+
+
+/** W6-N3 code-red R1-4/R4-2/R6-4/R6-5/R7-N3-3: the relay-only switch
+ * (default ON; OFF is the friend-join affordance) and the live join
+ * lane's stop control — without them the guards' "stop it first" copy
+ * was a dead end and the OFF posture unreachable. */
+@Composable
+private fun JoinLaneControls(lane: PublicRealmsJoinLane) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.Switch(
+            checked = lane.relayOnly,
+            onCheckedChange = lane.onRelayOnlyChange,
+            modifier = Modifier.testTag("realm-browser-relay-only"),
+        )
+        Text(
+            "Relay-only joins (recommended): the dial is pinned to the " +
+                "listing's home relay. iroh may still move an established " +
+                "connection onto a direct path in transport. Off allows " +
+                "direct (hole-punched) friend joins.",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.testTag("realm-browser-relay-only-copy"),
+        )
+    }
+    if (lane.joinState is com.pocketrealm.desktop.iroh.IrohGatewayManager.JoinState.Starting ||
+        lane.joinState is com.pocketrealm.desktop.iroh.IrohGatewayManager.JoinState.Ready
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            androidx.compose.material3.TextButton(
+                onClick = lane.onStopJoin,
+                modifier = Modifier.testTag("realm-browser-stop-join"),
+            ) {
+                Text("Stop internet join")
+            }
+            Text(
+                when (lane.joinState) {
+                    is com.pocketrealm.desktop.iroh.IrohGatewayManager.JoinState.Starting ->
+                        "Connecting…"
+                    else -> "Connected (tunnel up)"
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+    // Code-red R3-2: a post-READY join failure (the gateway's loud rewrite
+    // exit, any crash) renders the actionable code + detail — the stop
+    // button and 'Connected' copy must never silently vanish.
+    if (lane.joinState is com.pocketrealm.desktop.iroh.IrohGatewayManager.JoinState.Error) {
+        val failure = lane.joinState
+        Text(
+            com.pocketrealm.desktop.iroh.IrohGatewayManager.joinErrorLine(
+                failure.code,
+                failure.detail,
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.testTag("realm-browser-join-error"),
+        )
+    }
+}

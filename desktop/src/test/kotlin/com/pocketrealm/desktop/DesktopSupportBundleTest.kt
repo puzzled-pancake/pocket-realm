@@ -227,6 +227,73 @@ class DesktopSupportBundleTest {
         }
     }
 
+    /** R3-1/R6-3 (W6-N3 code-red round 1, serious): the realm's iroh
+     * transport secret (irohGatewaySecretHex) must never survive the
+     * bundle — parsed member AND corrupt-raw member, mirroring the
+     * Nostr key precedent above. */
+    @Test
+    fun irohGatewaySecretNeverSurvivesIntoTheSettingsMember() {
+        val roots = newRoots("iroh-secret")
+        val secret = "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12"
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(
+            """{"schema": 2, "nostrDiscoveryEnabled": true, "irohGatewaySecretHex": "$secret"}""",
+        )
+        val evidence = DesktopCrashEvidence(
+            localDumpsDir = File(folder.root, "no-dumps-dir"),
+            eventLog = { "" },
+        )
+        DesktopSupportBundle(roots, null, evidence).export()
+        val zipPath = roots.logs
+            .listFiles { file -> file.name.startsWith("support-bundle-") }!!
+            .single()
+        java.util.zip.ZipFile(zipPath).use { zip ->
+            for (entry in zip.entries().asSequence()) {
+                val text = zip.entryText(entry.name)
+                assertFalse(
+                    "the iroh transport secret leaked into ${entry.name}",
+                    text.contains(secret),
+                )
+            }
+            assertTrue(
+                "the settings member must carry the redacted marker",
+                zip.entryText("settings.json").contains("<redacted>"),
+            )
+        }
+    }
+
+    /** R3-1's corrupt-file leg: a TRUNCATED settings.json (unparseable)
+     * whose raw bytes carry the secret must still redact it — the
+     * key-name scrub only fires on parseable JSON, so the raw-extraction
+     * canary is the only guard on this lane. */
+    @Test
+    fun corruptSettingsFileStillRedactsTheIrohSecretFromTheRawMember() {
+        val roots = newRoots("corrupt-iroh-secret")
+        val secret = "fedcba98".repeat(8)
+        val truncated = """{"schema": 2, "irohGatewaySecretHex": "$secret", "lanAddr"""
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(truncated)
+        assertTrue(
+            "precondition: the truncated file must not parse",
+            runCatching { org.json.JSONObject(truncated) }.isFailure,
+        )
+        val evidence = DesktopCrashEvidence(
+            localDumpsDir = File(folder.root, "no-dumps-dir"),
+            eventLog = { "" },
+        )
+        DesktopSupportBundle(roots, null, evidence).export()
+        val zipPath = roots.logs
+            .listFiles { file -> file.name.startsWith("support-bundle-") }!!
+            .single()
+        java.util.zip.ZipFile(zipPath).use { zip ->
+            val settings = zip.entryText("settings.json")
+            assertFalse(
+                "the secret must be redacted from the raw corrupt member",
+                settings.contains(secret),
+            )
+        }
+    }
+
     @Test
     fun clientCrashEvidenceShipsCappedRedactedAndRawWhereBinary() {
         val roots = newRoots("crash")
