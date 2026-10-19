@@ -316,13 +316,32 @@ object PrivacyGuard {
             token.count { it == '.' } >= 1 &&
             token.split('.').all { part -> part.isNotEmpty() }
 
-    /** R3-3: the DOTLESS decimal spelling — inet_aton's integer form
-     * ("2130706433" = 127.0.0.1, "3232235521" = 192.168.0.1; both resolve
-     * on the JVM without DNS). Any 8-10 digit token is address-shaped;
-     * fail-closed per the fence's stated posture (a bare long number in
-     * prose is refused — spell it out or prefix it). */
-    fun isDotlessDecimalToken(token: String): Boolean =
-        token.length in MIN_DOTLESS_DIGITS..MAX_DOTLESS_DIGITS && token.all(Char::isDigit)
+    /** R3-3: the DOTLESS integer spelling — the single-chunk inet_aton
+     * forms ("2130706433" = 127.0.0.1). R2-N5-r4-1 (code-red round 4,
+     * serious; superseding round 3's octal model, which was never
+     * executed against the JVM): the pinned JDKs' single-chunk parser is
+     * PLAIN DECIMAL with leading zeros ignored and an unsigned-32-bit
+     * value bound — measured on both pinned JDKs ("0123456789" ->
+     * 7.91.205.21; "0400000000" -> 23.215.132.0 = decimal 400000000, not
+     * an octal reading; "0377" -> 0.0.1.121 = decimal 377;
+     * "0002130706433" -> 127.0.0.1 as the DECIMAL reading of 2130706433;
+     * "037777777777" -> decimal 37,777,777,777 exceeds the bound and does
+     * not resolve; len <= 15 parses). The judge mirrors that: a
+     * digit-only token is refused when its DECIMAL value fits the bound —
+     * padded short runs ("089", "0400000000") and long forms alike. Short
+     * UNPADDED numbers ("8085", "2026" — prose and ports) stay legal:
+     * the free-text tradeoff the 8-10-digit era chose, narrowed to the
+     * zero-padded shapes that read as padded addresses. */
+    fun isDotlessDecimalToken(token: String): Boolean {
+        val padded = token.length > 1 && token[0] == '0'
+        val longEnough = token.length >= MIN_DOTLESS_UNPADDED_DIGITS || padded
+        val value = if (token.isEmpty() || token.any { !it.isDigit() } || !longEnough) {
+            null
+        } else {
+            token.toLongOrNull()
+        }
+        return value != null && value in 1..MAX_DOTLESS_DECIMAL_VALUE
+    }
 
     /** R3-r4-1: a HEX address spelling — "0x7f000001" (dotless) and
      * "0x7f.0x0.0.1" (dotted hex) are connectable on common resolvers.
@@ -347,11 +366,25 @@ object PrivacyGuard {
     /** The hex/colon/dot character set an IPv6 spelling draws from. */
     private const val IPV6_TOKEN_CHARS = "0123456789abcdefABCDEF:."
 
+    /** R2-N5-r1-2: the HEX characters an IPv6 spelling must carry at least
+     * one of — all-hex-letter literals ("dead:beef::cafe") are connectable
+     * with zero decimal digits. */
+    private const val IPV6_HEX_CHARS = "0123456789abcdefABCDEF"
 
-    /** The inet_aton integer spellings of any IPv4 are 8-10 digits
-     * (the reviewer's bound: 2130706433 = 127.0.0.1). */
-    private const val MIN_DOTLESS_DIGITS = 8
-    private const val MAX_DOTLESS_DIGITS = 10
+
+    /** R5-2: the clock-prose shape (h:mm / h:mm:ss) exempted from the
+     * IPv6 leg — the JVM leaves such tokens unresolved. */
+    private val TIME_SHAPE = Regex("^\\d{1,2}(:\\d{2}){1,2}$")
+
+    /** R2-N5-r4-1: the JVM single-chunk parse bounds, MEASURED on both
+     * pinned JDKs: DECIMAL with leading zeros ignored, resolving within
+     * the UNSIGNED 32-bit range and a ~15-character length cap. */
+    private const val MAX_DOTLESS_DECIMAL_VALUE = 0xFFFFFFFFL
+
+    /** Short UNPADDED digit runs are prose and ports ("8085", "2026") —
+     * the free-text tradeoff; zero-padded runs read as padded addresses
+     * and are judged by value at any length. */
+    private const val MIN_DOTLESS_UNPADDED_DIGITS = 7
 
     /** TLD shape bounds for the IDN leg. */
     private const val MIN_TLD_LENGTH = 2
@@ -360,8 +393,18 @@ object PrivacyGuard {
     /** R3-5: an IPv6 shape check for one whitespace-delimited token —
      * "2001:db8::1", "[2001:db8::1]:8085", "::ffff:192.168.1.10". A
      * token carrying 2+ colons and only address characters is
-     * address-shaped; prose colons never survive the token split.
-     * Fail-closed: an exotic spelling is refused, not passed. */
+     * address-shaped. Fail-closed: an exotic spelling is refused, not
+     * passed. R2-N5-r1-2: the digit requirement became a HEX-character
+     * requirement — "dead:beef::cafe" resolves on the JVM with ZERO
+     * decimal digits, so the old any-digit test passed connectable
+     * all-letter literals; exactly "::" stays legal (the
+     * unspecified-address wildcard carries no address to refuse).
+     * R5-2 (round 5): h:mm / h:mm:ss TIME tokens ("12:30:45",
+     * "03:00:00") are explicitly EXEMPT — the JVM does not resolve them
+     * (UnknownHostException measured on the pinned JDKs; they supersede
+     * this KDoc's earlier and wrong "prose colons never survive the
+     * token split" sentence, which time prose disproves), so a host can
+     * publish clock prose without a false "an IP address" refusal. */
     fun isIpV6ShapedToken(token: String): Boolean {
         // "[2001:db8::1]:8085" — brackets go first. R2B-1: zone-ids are
         // part of the address — strip BOTH the raw ("%eth0") and the
@@ -377,8 +420,15 @@ object PrivacyGuard {
             val candidate = core.substringBeforeLast(':')
             if (candidate.count { it == ':' } >= 2) core = candidate
         }
-        if (core.count { it == ':' } < 2) return false
-        return core.all { it in IPV6_TOKEN_CHARS } && core.any { it.isDigit() }
+        // R5-2: the time-shape exemption — h:mm / h:mm:ss clock prose
+        // ("12:30:45", "03:00:00") is left unresolved by the JVM, so it
+        // exits the leg with the sub-2-colon and "::" cases instead of
+        // drawing a false "an IP address" refusal.
+        val exempt = core.count { it == ':' } < 2 || core == "::" ||
+            TIME_SHAPE.containsMatchIn(core)
+        if (exempt) return false
+        return core.all { it in IPV6_TOKEN_CHARS } &&
+            core.any { it in IPV6_HEX_CHARS }
     }
 
     /** R3-4: an IDN hostname spelling — the ASCII HOSTNAME regex only
@@ -425,14 +475,32 @@ object PrivacyGuard {
         // R3-5/R5-1: the IPv6 and leading-zero spellings ride the token
         // walk — their shapes defeat the single canonical regexes. The
         // walk runs ALWAYS, not only when a canonical rule matched.
-        val banned = canonical ?: text.split(Regex("\\s+")).firstOrNull { token ->
+        // R5-N5-r2-1: each token is judged with ONE sentence-final period
+        // stripped ("direct: 2130706433." is the same infrastructure
+        // pointer as "10.0.0.1." which the canonical IPV4 regex already
+        // refuses) — a second period defeats the strip and stays refused
+        // by the empty-part rule.
+        val banned = canonical ?: text.split(Regex("\\s+")).firstOrNull { rawToken ->
+            val token =
+                if (rawToken.endsWith(".") && !rawToken.endsWith("..")) {
+                    rawToken.dropLast(1)
+                } else {
+                    rawToken
+                }
             isIpV6ShapedToken(token) ||
                 isIpV4ShorthandToken(token) ||
                 isHexAddressToken(token) ||
                 isDotlessDecimalToken(token) ||
                 isIdnHostnameShapedToken(token) ||
                 IPV4_LOOSE.containsMatchIn(token)
-        }?.let { token ->
+        }?.let { raw ->
+            // The label is judged on the SAME stripped token — the refusal
+            // name matches the refused class ("IP address", not "hostname").
+            val token = if (raw.endsWith(".") && !raw.endsWith("..")) {
+                raw.dropLast(1)
+            } else {
+                raw
+            }
             if (isIpLikeToken(token)) {
                 "an IP address — never published"
             } else {
@@ -646,7 +714,15 @@ object RealmListingEvent {
      * privacy guard runs HERE (the signing boundary) — a content object
      * assembled by [RealmListingContent.copy] or any other path that
      * skipped the constructor-time sanitize cannot smuggle a banned
-     * payload into a signed event. */
+     * payload into a signed event. R2-3 (W6-N5 round 5): the TAG fields
+     * cross the same boundary — flavor and timeframeStage are serialized
+     * verbatim into the public `flavor`/`timeframe` tags, so both pass
+     * the privacy fence here: a corrupted staged conf value surfacing as
+     * timeframeStageId (an address-shaped string) is refused at signing
+     * instead of publishing inside a world-readable tag. (The stage
+     * vocabulary is the publisher's own — golden "progression-wotlk-1x",
+     * "wotlk-3.3.5a" — so registry membership is NOT the tag rule; the
+     * privacy fence is, and both legit dotted shapes pass it.) */
     fun build(
         content: RealmListingContent,
         key: NostrPrivateKey,
@@ -655,6 +731,8 @@ object RealmListingEvent {
         auxRand32: ByteArray? = null,
     ): NostrEvent {
         RealmListingContent.sanitize(content.name, content.motd, content.statusPageUrl)
+        PrivacyGuard.refuseIfBanned(content.flavor, "flavor tag")
+        PrivacyGuard.refuseIfBanned(content.timeframeStage, "timeframe tag")
         return NostrEvent.create(
             key = key,
             pending = PendingEvent(

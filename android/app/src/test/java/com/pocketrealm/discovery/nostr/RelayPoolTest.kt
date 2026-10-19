@@ -58,6 +58,16 @@ class RelayPoolTest {
         scope.cancel()
     }
 
+    @org.junit.Before
+    fun resetNip11ProbeSeam() {
+        // R2-N5-r4-2: the probe seam is process-global and NEVER reset by
+        // the pool — without this reset the capped-probe test's wait loop
+        // exits on a STALE count from an earlier test's probe and its
+        // truncation assertion passes off a value this test never
+        // produced (the suite-scale revert of the R4-r2-1 critique).
+        RelayPool.lastNip11ProbeBytes = -1
+    }
+
     // ------------------------------------------------------------ helpers
 
     /** A scripted relay: records inbound frames, reacts via [script]. All
@@ -732,25 +742,44 @@ class RelayPoolTest {
     fun oversizedNip11DocIsCappedNotConsumed() {
         val relay = ScriptedRelay { _, _ -> }
         val server = MockWebServer()
-        // WS upgrade + a 12 MB capability doc.
+        // WS upgrade + a CAP+1-byte capability doc (the over-cap body the
+        // old test could not distinguish from truncation).
         server.enqueue(MockResponse.Builder().webSocketUpgrade(relay).build())
         server.enqueue(
             MockResponse.Builder().code(200)
-                .body("x".repeat(12 * 1024 * 1024))
+                .body("x".repeat(RelayPool.NIP11_MAX_BYTES + 1))
                 .build(),
         )
         server.start()
         val pool = newPool()
         try {
             pool.start(listOf(relayUrl(server)), NostrFilter())
-            val deadline = System.currentTimeMillis() + 10_000
-            while (pool.reports.value.values.singleOrNull()?.supportedNips != null &&
+            // R4-r2-1: wait on the PROBE-COMPLETION seam (the consumed byte
+            // count) — the old loop tracked report existence, which passes
+            // identically under a capped AND an uncapped probe.
+            val deadline = System.currentTimeMillis() + 15_000
+            while (RelayPool.lastNip11ProbeBytes < 0 &&
                 System.currentTimeMillis() < deadline
             ) {
                 TimeUnit.MILLISECONDS.sleep(50)
             }
-            // The 12 MB doc exceeds the probe cap: supportedNips stays empty
-            // and the session lives.
+            // The constant is the record's "12 MB cap", in code.
+            assertEquals(12 * 1024 * 1024, RelayPool.NIP11_MAX_BYTES)
+            assertTrue(
+                "the NIP-11 probe never completed (consumed bytes seam stayed " +
+                    "at ${RelayPool.lastNip11ProbeBytes})",
+                RelayPool.lastNip11ProbeBytes > 0,
+            )
+            // THE meaningful leg: the cap+1-byte body is consumed EXACTLY
+            // to the cap (peekBody's truncation) — an exact equality a
+            // stale value from any other test's small probe can never
+            // satisfy, and an unbounded read would consume cap+1.
+            assertEquals(
+                RelayPool.NIP11_MAX_BYTES,
+                RelayPool.lastNip11ProbeBytes,
+            )
+            // The truncated document parses as nothing: supportedNips stays
+            // empty and the session lives.
             assertTrue(
                 pool.reports.value.values.single().supportedNips.isEmpty() ||
                     pool.reports.value.values.single().state == RelayPool.RelayState.OPEN,

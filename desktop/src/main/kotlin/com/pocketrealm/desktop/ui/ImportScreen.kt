@@ -61,9 +61,13 @@ fun ImportScreen(model: DesktopAppModel) {
                 val active = generation // local capture: smart casts below
                 when {
                     active == null -> Text(
-                        "No managed client generation is active. Import your WoW 1.12.1 " +
-                            "client folder below — the app copies, verifies, and publishes it " +
-                            "into app storage, so the original folder can move or change.",
+                        // R6-2 (W6-N5 code-red round 1): flavor-neutral — the
+                        // import accepts any qualified flavor's client, so the
+                        // copy never names one lane's build.
+                        "No managed client generation is active. Import your " +
+                            "genuine game client folder below — the app copies, " +
+                            "verifies, and publishes it into app storage, so the " +
+                            "original folder can move or change.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     active.broken != null -> Text(

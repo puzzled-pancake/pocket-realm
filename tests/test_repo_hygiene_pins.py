@@ -1012,10 +1012,25 @@ def test_counts_artifact_generated_prose_preserves_historical_tuples():
         histories[name] = generated
     # Regen twice; the history (everything but the newest segment) must
     # be byte-stable — the scripts interpolate the NEWEST segment only.
-    for script in ("n3-regen-counts.py", "n3-regen-desktop-counts.py"):
-        subprocess.run(
+    # W6-N5: the N5 writers run LAST — the N3 scripts re-run here rewrite
+    # their living-counter segments with current numbers, and below a later
+    # writer that rewrite would bake a misdated tuple into the frozen
+    # history (the R4-r6-1 class); the N5 writers retire the N3 segments
+    # and re-append their own, so each history ends the run exactly as it
+    # began (D99(2) + the R5-1 android twin).
+    for script in ("n3-regen-counts.py", "n5-regen-android-counts.py",
+                   "n3-regen-desktop-counts.py",
+                   "n5-regen-desktop-counts.py"):
+        # R6-N5-r2-5 (finalize): a writer that exits non-zero (the
+        # fail-closed drift guard, a red canonical tree) must fail the pin
+        # — a silent non-zero exit would make the byte-stability check
+        # vacuous.
+        writer = subprocess.run(
             [sys.executable, str(ROOT / "out/completion/w6" / script)],
             capture_output=True, text=True, cwd=ROOT, timeout=300,
+        )
+        assert writer.returncode == 0, (
+            f"{script} exited {writer.returncode}: {writer.stderr[-400:]}"
         )
     for name, before in histories.items():
         after = json.loads(
@@ -1027,4 +1042,309 @@ def test_counts_artifact_generated_prose_preserves_historical_tuples():
             f"{name}: the dated provenance history changed across a "
             "regen — the scripts must interpolate the NEWEST segment "
             "only (R4-r6-1)"
+        )
+
+
+def test_concurrent_reconciliation_runs_stay_green_and_converged():
+    _require_counts_evidence_tree()
+    """R4-r2-2 (W6-N5 code-red round 2): the regen-twice pin rewrites the
+    counts artifacts via subprocess writers on every run — two CONCURRENT
+    suite processes used to interleave those writers and serve a reader a
+    transient mid-sequence artifact (the live capture this round: a w6n5
+    evidence pin red on the android `log` leg, green on re-run). The
+    writers are now ATOMIC and NO-OP-when-unchanged, so converged trees
+    never write at all. This test runs the whole reconciliation module in
+    TWO parallel pytest processes and requires both to exit green with
+    byte-identical artifacts afterwards."""
+    import hashlib
+    import json
+    import os
+    import subprocess
+    import sys
+
+    # Recursion guard: the nested module runs must NOT re-enter this test
+    # (each would spawn two more runs — the exponential first cut).
+    if os.environ.get("POCKET_REGEN_CONCURRENCY_CHILD") == "1":
+        print("skip: nested reconciliation run (concurrency guard)")
+        return
+
+    artifacts = (
+        ROOT / "out/completion/w0/android-unit-counts.json",
+        ROOT / "out/completion/w0/desktop-test-counts.json",
+    )
+    if not all(a.is_file() for a in artifacts):
+        assert False, "the counts artifacts are missing — run the canonical suites"
+
+    def digest(path):
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    before = {a: digest(a) for a in artifacts}
+    child_env = dict(os.environ, POCKET_REGEN_CONCURRENCY_CHILD="1")
+    # R3-N5-r3-2: the protocol runs 5 times — the round-2 two-shot passed
+    # while the N3 writers still rewrote every run (their superseded-skip
+    # is round 3's fix); 5/5 green requires the writers to be genuinely
+    # no-op-when-unchanged, not lucky.
+    for round_no in range(1, 6):
+        procs = [
+            subprocess.Popen(
+                [sys.executable, "-m", "pytest",
+                 "tests/test_repo_hygiene_pins.py", "-q"],
+                text=True, cwd=ROOT, env=child_env,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            )
+            for _ in range(2)
+        ]
+        outs = [p.communicate(timeout=900)[0] for p in procs]
+        for i, (proc, out) in enumerate(zip(procs, outs)):
+            assert proc.returncode == 0, (
+                f"concurrent reconciliation round {round_no} process {i} "
+                f"FAILED (rc={proc.returncode}):\n{out[-2000:]}"
+            )
+    after = {a: digest(a) for a in artifacts}
+    assert before == after, (
+        "the artifacts changed across a converged concurrent reconciliation "
+        "run — the writers are not no-op-when-unchanged"
+    )
+    # and the artifacts still carry their writers' newest segments (a torn
+    # or lost write would break the generated-prose pins that follow).
+    for a in artifacts:
+        json.loads(a.read_text(encoding="utf-8"))
+
+
+def _require_counts_evidence_tree():
+    """R3-N5-r4-2: the counts-writer tests need the gitignored evidence
+    tree (the standing artifacts, the tracked writers, the archived logs —
+    all under out/, .gitignore:115). On a fresh checkout they must skip
+    loudly, never fail (the R6-N4-r6-1 portability rule's shape)."""
+    needed = (
+        ROOT / "out/completion/w0/android-unit-counts.json",
+        ROOT / "out/completion/w0/desktop-test-counts.json",
+        ROOT / "out/completion/w6/n5-regen-android-counts.py",
+        ROOT / "out/completion/w6/n5-regen-desktop-counts.py",
+        ROOT / "out/completion/w0/n5-canonical-android.log",
+        ROOT / "out/completion/w0/n5-canonical-desktop.log",
+    )
+    missing = [str(n) for n in needed if not n.is_file()]
+    if missing:
+        import pytest
+        pytest.skip(
+            "the gitignored counts-evidence tree is absent from this "
+            "checkout (missing: " + ", ".join(m[:40] for m in missing) + ") "
+            "— the R6-N4-r6-1 portability rule"
+        )
+
+
+def test_each_counts_artifacts_cited_log_carries_its_native_marker():
+    """R4-r5-1: the drift guard's recovery path is only as real as the
+    native counts marker in the cited log — for each standing artifact,
+    the archived w0 log must carry its lane's canonical marker with the
+    artifact's own (tests, classes); a lane without an emitter (the
+    desktop asymmetry) cannot absorb a re-measure, so the marker must
+    exist and match. Red before the desktopCanonicalCounts emitter
+    landed; green since."""
+    _require_counts_evidence_tree()
+    import re as _re
+
+    for artifact_name, marker_lane in (
+        ("android-unit-counts.json", "ANDROID-CANONICAL-COUNTS"),
+        ("desktop-test-counts.json", "DESKTOP-CANONICAL-COUNTS"),
+    ):
+        artifact = json.loads(
+            (ROOT / "out/completion/w0" / artifact_name).read_text(
+                encoding="utf-8"),
+        )
+        log = ROOT / "out/completion/w0" / str(artifact.get("log", ""))
+        assert log.is_file(), f"{artifact_name} cites a missing log {log}"
+        text = log.read_text(encoding="utf-8", errors="replace")
+        word_break = "\\" + "b"
+        not_hash_newline = "[^#" + "\\" + "n]*?"
+        pattern = (r"#\s*" + marker_lane
+                   + word_break + not_hash_newline + "tests="
+                   + str(artifact["tests"])
+                   + word_break + not_hash_newline + "classes="
+                   + str(artifact["classes"]) + word_break)
+        assert _re.search(pattern, text), (
+            f"{log.name} carries no native {marker_lane} marker for "
+            f"{artifact['tests']}/{artifact['classes']} — the drift guard's "
+            f"recovery path is unsatisfiable for this lane (R4-r5-1)"
+        )
+
+
+def test_counts_writers_aggregate_the_standing_tree_the_artifact_records():
+    _require_counts_evidence_tree()
+    """R3-N5-r3-1: the regen writers re-aggregate the live XML tree — this
+    pin runs the SAME aggregation (the writers' own GLOBS, parsed from the
+    tracked scripts so neither side can drift) and requires the tuple to
+    equal the standing artifact's, so a drifted tree fails HERE before any
+    writer can rewrite the artifact from it."""
+    import xml.etree.ElementTree as ET
+
+    writer_globs = {
+        "out/completion/w6/n5-regen-android-counts.py":
+            ("android-unit-counts.json",),
+        "out/completion/w6/n5-regen-desktop-counts.py":
+            ("desktop-test-counts.json",),
+    }
+    for script, (artifact_name,) in writer_globs.items():
+        text = (ROOT / script).read_text(encoding="utf-8")
+        globs = re.findall(r'"([^"]*TEST-\*\.xml)"', text)
+        assert globs, f"{script} lost its GLOBS"
+        artifact = json.loads(
+            (ROOT / "out/completion/w0" / artifact_name).read_text(
+                encoding="utf-8"),
+        )
+        total = classes = 0
+        for pattern in globs:
+            for f in glob.glob(str(ROOT / pattern)):
+                r = ET.parse(f).getroot()
+                total += int(r.get("tests") or 0)
+                classes += 1
+        assert (total, classes) == (artifact["tests"], artifact["classes"]), (
+            f"{script}'s own GLOBS aggregate the live tree to {total}/{classes} "
+            f"but the standing {artifact_name} records {artifact['tests']}/"
+            f"{artifact['classes']} — the canonical tree has drifted; re-run "
+            f"the canonical suite before any writer run (R3-N5-r3-1)"
+        )
+
+
+def test_counts_writer_refuses_a_drifted_tree_fail_closed():
+    _require_counts_evidence_tree()
+    """R3-N5-r3-1: when the artifact's tuple and the live tree disagree,
+    the writer must exit non-zero WITHOUT writing (the provenance-
+    falsification path: a drifted tree + an unconditional writer rewrote
+    the standing artifact and retired its true dated segment). Probe: plant
+    a mismatched tuple in the artifact, run the writer, require exit 3 and
+    a byte-unchanged artifact, restore."""
+    import os
+    import shutil
+    import subprocess
+    import sys
+    import time
+
+    # R4-r2-2 follow-up: this probe plants a doctored tuple and restores
+    # it — two concurrent instances racing the plant/restore pairs can
+    # leak the doctored state (captured live this round: the desktop
+    # artifact stuck at the planted 9999/99 after two children restored
+    # from each other's backups). The probe therefore: does not run in
+    # the two-child protocol at all, and serializes top-level instances
+    # through an exclusive lock dir.
+    if os.environ.get("POCKET_REGEN_CONCURRENCY_CHILD") == "1":
+        print("skip: nested reconciliation run (the refusal probe is "
+              "top-level only)")
+        return
+    lock = ROOT / "out/completion/w0/.r3probe.lock"
+    deadline = time.time() + 120
+    while True:
+        try:
+            lock.mkdir()
+            break
+        except FileExistsError:
+            if time.time() > deadline:
+                print("skip: another refusal probe holds the lock")
+                return
+            time.sleep(1)
+    try:
+        _probe_drift_refusal_impl()
+    finally:
+        lock.rmdir()
+
+
+def _probe_drift_refusal_impl():
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    artifact = ROOT / "out/completion/w0/desktop-test-counts.json"
+    # R4-r5-1 follow-up: since the desktop lane gained its native
+    # DESKTOP-CANONICAL-COUNTS emitter, a drifted tuple whose cited log
+    # carries the MATCHING marker is a legitimate re-measure (the writer
+    # re-binds) — the falsification case is a drifted tuple whose cited
+    # log has NO matching marker. The probe plants exactly that.
+    marker_free_log = ROOT / "out/completion/w0/r3probe-markerless-log.txt"
+    marker_free_log.write_text(
+        "BUILD SUCCESSFUL (no native counts marker in this probe log)\n",
+        encoding="utf-8",
+    )
+    backup = artifact.with_suffix(f".json.r3probe-backup-{os.getpid()}")
+    shutil.copy2(artifact, backup)
+    try:
+        doctored = json.loads(artifact.read_text(encoding="utf-8"))
+        true_tests = doctored["tests"]
+        doctored["tests"] = true_tests + 100
+        doctored["log"] = marker_free_log.name
+        artifact.write_text(json.dumps(doctored, indent=1) + "\n", encoding="utf-8")
+        before = artifact.read_bytes()
+        run = subprocess.run(
+            [sys.executable, "out/completion/w6/n5-regen-desktop-counts.py"],
+            capture_output=True, text=True, cwd=ROOT, timeout=120,
+        )
+        assert run.returncode != 0, (
+            "the writer WROTE despite the artifact/tree drift with no "
+            "native marker in the cited log (the provenance-falsification "
+            "path is open)"
+        )
+        assert "REFUSED" in run.stdout + run.stderr, run.stdout[-400:]
+        assert artifact.read_bytes() == before, (
+            "the refused run still modified the artifact"
+        )
+    finally:
+        shutil.copy2(backup, artifact)
+        backup.unlink()
+        marker_free_log.unlink(missing_ok=True)
+
+
+def test_counts_writers_are_idempotent_on_a_converged_tree():
+    _require_counts_evidence_tree()
+    """R3-N5-r3-2: 'converged trees NEVER write' must hold per writer —
+    each of the four tracked writers runs alone on the converged tree and
+    must leave the artifact byte-identical (the N3 writers skip as
+    superseded; the N5 writers no-op). Red before the superseded-skip: both
+    N3 writers rewrote on every run."""
+    import hashlib
+    import subprocess
+    import sys
+
+    for script, artifact_name in (
+        ("out/completion/w6/n3-regen-counts.py", "android-unit-counts.json"),
+        ("out/completion/w6/n5-regen-android-counts.py",
+         "android-unit-counts.json"),
+        ("out/completion/w6/n3-regen-desktop-counts.py",
+         "desktop-test-counts.json"),
+        ("out/completion/w6/n5-regen-desktop-counts.py",
+         "desktop-test-counts.json"),
+    ):
+        artifact = ROOT / "out/completion/w0" / artifact_name
+        before = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        run = subprocess.run(
+            [sys.executable, script],
+            capture_output=True, text=True, cwd=ROOT, timeout=120,
+        )
+        assert run.returncode == 0, (
+            f"{script} failed on the converged tree: {run.stdout[-300:]}"
+        )
+        after = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        assert before == after, (
+            f"{script} REWROTE the converged artifact (its retire+append "
+            f"never no-ops) — a superseded writer must skip entirely "
+            f"(R3-N5-r3-2)"
+        )
+
+
+def test_counts_artifact_history_segments_are_unique():
+    """R4-r5-2: the provenance histories must carry one segment per
+    archival moment — byte-identical duplicates (the N1-finalize
+    triplicate) overstate re-measures and no writer deduped them. Red
+    before the dedupe repair; the pin holds it."""
+    import json as _json
+
+    for name in ("android-unit-counts.json", "desktop-test-counts.json"):
+        artifact = _json.loads(
+            (ROOT / "out/completion/w0" / name).read_text(encoding="utf-8"))
+        segments = artifact.get("generated", "").split(" | ")
+        duplicates = sorted({s[:90] for s in segments
+                             if segments.count(s) > 1})
+        assert not duplicates, (
+            f"{name} carries duplicated dated segments (the "
+            f"append-without-dedupe class): {duplicates}"
         )

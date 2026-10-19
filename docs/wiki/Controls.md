@@ -86,7 +86,7 @@ The exact assignments can be changed, but the normal add-on-free idea is:
 
 Vanilla 1.12 does not expose the modern interact-with-target or loot-all bindings. Target selects an enemy; **Use / Open** is the separate general-purpose right-click for a container, NPC, object, or aimed loot. The app briefly releases and restores camera lock for that click. Automatic loot collection belongs to the optional client tweak or an add-on, not the control scheme.
 
-The Customize bindings section exposes every safe keyboard and mouse output supported by Pocket Realm, plus a searchable reference containing all 211 stock WoW 1.12.1 binding IDs. The reference does not invent modern bindings that the client does not have.
+The Customize bindings section exposes every safe keyboard and mouse output supported by Pocket Realm, plus a searchable reference. On the Vanilla lane the reference holds all 211 stock WoW 1.12.1 binding IDs; on the TBC and WotLK lanes it lists each lane's captured action IDs (214 and 251); those catalogs deliberately ship no stock-default key data yet, so the default key assignments stay unset rather than inventing bindings. The reference does not invent modern bindings that the client does not have.
 
 ## Android buttons that stay protected
 

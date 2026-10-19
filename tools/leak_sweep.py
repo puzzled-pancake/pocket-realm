@@ -29,6 +29,61 @@ does not attempt full Kotlin/Java parsing to constant-fold it. UTF-16/32-BOM
 text files are NUL-sniffed to binary and silently skipped (zero instances in
 this repo; javac would compile them — revisit if one ever lands).
 
+W6-N5 multiplayer privacy scope (NOSTR-IROH-BUILD-PLAN.md rulings 3 + the
+`addr=` correction; COMPLETION-PLAN.md §1 rule 7): beyond the flavor-literal
+scan, the sweep now carries STRUCTURAL multiplayer privacy rules over the
+published-payload / discovery-record code paths. Two bans:
+
+- an ADDRESS-SHAPED token in the files that BUILD or RENDER what the
+  campaign publishes: the shared discovery/nostr + discovery/iroh modules,
+  the desktop listing publisher, and the realm-status payload/page builders.
+  The banned shapes are the fence's own adjudicated set (code-red round 1
+  R2-N5-r1-1/r1-2 closed the first cut's gaps; round 3 re-adjudicated the
+  dotless class by VALUE; round 4 R2-N5-r4-1 corrected the VALUE MODEL
+  itself — measured on both pinned JDKs, the single-chunk parser is PLAIN
+  DECIMAL with leading zeros ignored; there is no octal parse): the
+  canonical 4-part dotted-quad at ANY octet digit width ("0177.0.0.1",
+  "00177.0.0.1" and "1.1.1.0100" resolve without DNS) and ONE
+  sentence-final period admitted
+  ("play at 10.0.0.1."); the dotless integer spellings judged by their
+  DECIMAL value with leading zeros ignored — refused when the value fits
+  the unsigned 32-bit range and the ~15-character parse cap ("0123456789"
+  -> 7.91.205.21; "0002130706433" -> 127.0.0.1; "037777777777" = decimal
+  37,777,777,777 exceeds the bound and does NOT resolve on the pinned JDK,
+  so it is deliberately NOT banned — a pinned negative, not a floor
+  case); the dotted/dotless 0x-hex spellings; and IPv6 tokens — 2+ colons,
+  hex/dot/colon charset, at least one HEX character (all-hex-letter
+  literals like "dead:beef::cafe" resolve on the JVM with zero decimal
+  digits), never exactly "::" — as WHOLE maximal tokens, so a
+  "Page2::class" reference can never be judged by a carved-out subspan.
+  Never any exemption, not even 127.0.0.1, in a file that builds
+  world-readable payloads — the fence files' own KDoc examples stay legal
+  prose (block/line COMMENTS are masked, quote-aware; string-literal text
+  stays code). The free-text SHORTHAND classes ("10.1", version-shaped
+  tokens) remain the runtime PrivacyGuard's to refuse at construction and
+  at inbound admission — this static leg exists so the payload CODE PATHS
+  can never grow a connectable address literal silently.
+
+- the `addr=` substring — iroh's direct-address vocabulary — anywhere in
+  the payload surfaces AND in the descriptor lanes (the gateway process's
+  descriptor production/parsing and the join manager that consumes it):
+  a published discovery record must carry node id + home relay URL only.
+
+Unlike the flavor allowlist (scoped exemptions with retirement dates), the
+privacy table has NO exemption mechanism: a payload path that legitimately
+needs an address-shaped constant must be restructured, not suppressed. The
+only deliberate non-bans, both LINE-scoped and pinned: RealmListRewrite's
+JOINER_WORLD_TARGET line (the payload IP legs RUN on that file — only a
+line carrying the constant may hold an address, R1-2), and the
+gateway/manager record lanes' loopback dials (the joiner's OWN listeners,
+never published — the captured-payload greps of
+tests/test_w6n3_privacy_grep.py prove no host address rides the delivered
+bytes). All of those lanes still ban `addr=`.
+
+Fail-closed: while the real discovery tree is present, a LISTED surface
+that is missing (renamed/moved/deleted) is a finding — the gate re-points
+or the surface comes back; it never passes silently.
+
 Every exemption is explicit and review-staged in ALLOWLIST below: the owning
 tables, the legacy compat constant, and the later-stage-owned surfaces (S4
 per-flavor DB routing, S5 host-side client qualification helpers and
@@ -51,6 +106,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -1395,6 +1451,16 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "retires": "S5 retires: per-flavor fixtures",
     },
     {
+        "path": "tests/test_w6_nostr_pins.py",
+        "literals": ("5875", "8606", "12340"),
+        "reason": (
+            "the W6-N5 round-2 wiki-truth pins quote the import page's "
+            "qualified-flavor enumeration verbatim (the doc names all three "
+            "lanes' builds; the pin holds the doc to it) — owning fixture"
+        ),
+        "retires": "W7 retires: the final program-wide literal round",
+    },
+    {
         "path": "android/app/src/test/java/com/pocketrealm/server/R3BreakerNegativeTest.kt",
         "literals": ("1.12.1.5875", "5875", "6005", "6141", "expansion.mpq", "lichking.mpq", "wow-1.12.1-5875",),
         "reason": "owning surface (see ALLOWLIST_CORE family note)",
@@ -1782,6 +1848,525 @@ def _journal_schema_findings(root: Path) -> list[dict[str, object]]:
     return findings
 
 
+# ---------------------------------------------------------------------------
+# W6-N5 multiplayer privacy rules (NOSTR-IROH-BUILD-PLAN.md ruling 3 + the
+# addr= correction; COMPLETION-PLAN.md §1 rule 7). See the module docstring's
+# "multiplayer privacy scope" note for the posture: no exemption mechanism,
+# comment-masked matching, fail-closed on a vanished surface.
+# ---------------------------------------------------------------------------
+
+# When this tree is absent the privacy rules skip entirely (synthetic test
+# trees — the structural trio's precedent: absent owning tree, absent rule).
+_PRIVACY_ROOT_MARKER = (
+    "android/app/src/main/java/com/pocketrealm/discovery"
+)
+
+# The PUBLISHED-payload surfaces: every file that builds, admits, or renders
+# what the campaign publishes to the world (Nostr listings, their join
+# descriptors, and the realm-status payload/page the listing derives from).
+# Banned here: every address-shaped token AND the addr= marker.
+PRIVACY_PAYLOAD_SURFACES: tuple[str, ...] = (
+    "android/app/src/main/java/com/pocketrealm/discovery/nostr/RealmListingEvent.kt",
+    "android/app/src/main/java/com/pocketrealm/discovery/nostr/ListingStore.kt",
+    "android/app/src/main/java/com/pocketrealm/discovery/nostr/PublicRealmBrowser.kt",
+    "android/app/src/main/java/com/pocketrealm/discovery/nostr/RelayPool.kt",
+    "android/app/src/main/java/com/pocketrealm/discovery/nostr/NostrJson.kt",
+    "android/app/src/main/java/com/pocketrealm/discovery/nostr/NostrKeys.kt",
+    "android/app/src/main/java/com/pocketrealm/discovery/iroh/IrohJoinDescriptor.kt",
+    "android/app/src/main/java/com/pocketrealm/discovery/iroh/GatewayContract.kt",
+    "android/app/src/main/java/com/pocketrealm/discovery/iroh/AuthStreamFilter.kt",
+    "android/app/src/main/java/com/pocketrealm/discovery/iroh/PortMux.kt",
+    "android/app/src/main/java/com/pocketrealm/discovery/iroh/RealmListRewrite.kt",
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/nostr/NostrListingPublisher.kt",
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/RealmStatusPayload.kt",
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/RealmStatusPage.kt",
+)
+
+# The DESCRIPTOR lanes: the transport-side producers/consumers of the join
+# descriptor and the rebuilt realm list. Loopback lives here by design (the
+# joiner's OWN listeners; the host's loopback dials to mangosd) — but the
+# iroh direct-address vocabulary must never ride these lanes either.
+PRIVACY_RECORD_LANES: tuple[str, ...] = (
+    "android/app/src/main/java/com/pocketrealm/discovery/iroh/RealmListRewrite.kt",
+    "gateway/src/main/kotlin/com/pocketrealm/gateway/GatewayMain.kt",
+    "gateway/src/main/kotlin/com/pocketrealm/gateway/HostGateway.kt",
+    "gateway/src/main/kotlin/com/pocketrealm/gateway/JoinGateway.kt",
+    "gateway/src/main/kotlin/com/pocketrealm/gateway/GatewayIo.kt",
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/iroh/IrohGatewayManager.kt",
+    # R7-1's first live catch: the join-lane refusal ladder — the descriptor
+    # lane's decision table (loopback-ownership copy only; clean on arrival).
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/iroh/IrohJoinGuards.kt",
+)
+
+# R7-1: the on-disk membership pin's reviewed carve-out — files living in a
+# payload-ADJACENT directory that deliberately build nothing that is
+# published (lifecycle, serving, tunnel plumbing). A NEW .kt file under the
+# swept trees is a pin failure until it joins a table or THIS carve-out —
+# the closed enumeration grows by review, never by silence.
+PRIVACY_NON_PAYLOAD_CARVEOUTS: frozenset[str] = frozenset({
+    # desktop realmstatus: the payload BUILDERS (Payload/Page) are swept;
+    # these are the serving/lifecycle/tunnel plumbing around them.
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/CloudflaredPageTunnel.kt",
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/RealmStatusController.kt",
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/RealmStatusRateLimiter.kt",
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/RealmStatusServer.kt",
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/RealmStatusVisibility.kt",
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/RealmUptimeRecord.kt",
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/TunnelChildRecords.kt",
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/TunnelOrphanSweep.kt",
+    "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/Win32JobObject.kt",
+})
+# RealmListRewrite sits in both tables by role: it is a payload module (an
+# address literal in its output builder would be a leak) whose ONE loopback
+# constant is the documented joiner-side exception. R1-2: the file is NOT
+# exempt from judgment — the payload IP legs run on it line-scoped, and only
+# a line carrying JOINER_WORLD_TARGET may hold an address; any other literal
+# in the file is a finding (the constant's presence is pinned in
+# tests/test_leak_sweep.py).
+PRIVACY_PAYLOAD_IP_EXEMPT: frozenset[str] = frozenset(
+    {"android/app/src/main/java/com/pocketrealm/discovery/iroh/RealmListRewrite.kt"}
+)
+
+# R2-2 (round 5) follow-up: the MEASURED BOUND constants the fence itself
+# declares (0xFFFFFFFFL / 0x7FFFFFFFL) are 8-hex-digit runs shaped exactly
+# like the dotless-hex addresses the leg catches — but they are the
+# judge's own bounds, not published addresses. Lines DECLARING them (by
+# declaration shape, the R1-2 pattern) are exempt; any other line in the
+# file stays judged. Pinned beside the JOINER_WORLD_TARGET carve-out.
+PRIVACY_BOUND_DECLARATIONS: dict[str, str] = {
+    "android/app/src/main/java/com/pocketrealm/discovery/nostr/RealmListingEvent.kt":
+        r"(?:private\s+)?const\s+val\s+MAX_DOTLESS_\w+_VALUE\s*="
+        r"|(?:(?:private\s+)?const\s+val\s+PLAYERS_COUNT_CEILING"
+        r"|const\s+val\s+MAX_FRAME_CHARS)\s*=",
+    "android/app/src/main/java/com/pocketrealm/discovery/nostr/RelayPool.kt":
+        r"(?:private\s+)?const\s+val\s+MAX_FRAME_CHARS\s*="
+        r"|(?:private\s+)?const\s+val\s+MAX_ITERATIONS:\s*Long\s*=",
+}
+
+# Canonical 4-part dotted-quad with the fence's adjudicated boundaries
+# (R2-N5-r1-1; R2-1/R3-N5-r5-1 round 5 dropped the 1-4 digit width cap:
+# 5/6-digit zero-padded octets are JVM-resolvable decimal —
+# "00010.0.0.1" -> 10.0.0.1, "10.0.0.00177" -> 10.0.0.177) — and ONE
+# sentence-final period admitted ("play at 10.0.0.1." — the fence's IPV4
+# trailing-dot alternative, R3-1/R6-3-1). Word/dot boundaries so a longer
+# dotted token or an identifier never yields a fragment.
+_PRIVACY_IPV4_RE = re.compile(
+    r"(?<![\w.])(?:\d{1,}\.){3}\d{1,}(?:\.(?![0-9.])|(?![\w.]))"
+)
+# The DOTLESS integer spelling (2130706433 = 127.0.0.1). R2-N5-r4-1 (code-
+# red round 4, serious; superseding round 3's octal model, which was never
+# executed against the JVM): the pinned JDKs' single-chunk parser is PLAIN
+# DECIMAL with leading zeros ignored and an unsigned-32-bit value bound —
+# measured ("0123456789" -> 7.91.205.21; "0400000000" -> 23.215.132.0 =
+# decimal 400000000, not an octal reading; "0002130706433" -> 127.0.0.1 as
+# the DECIMAL reading of 2130706433; "037777777777" -> decimal
+# 37,777,777,777 exceeds the bound and does not resolve; len <= 15
+# parses). The leg is VALUE-AWARE: one candidate token (>=7 digits — the
+# static layer's documented noise tradeoff; the runtime fence judges the
+# shorter padded forms — the same ONE sentence-final period the IPv4 legs
+# admit), refused when the decimal value fits the measured bound and cap.
+# The candidate class accepts Kotlin's digit SEPARATORS (R2-N6-1, round
+# 6, serious: "2_130_706_433" is the integer 2130706433 = 127.0.0.1 and
+# sailed the plain-digit run); the judge strips separators and decodes
+# the 0b/0o integer literal forms before the value judgment.
+_PRIVACY_DOTLESS_RE = re.compile(
+    r"(?<![\w.])[0-9][0-9_]{6,}[uUlL]{0,2}(?:\.(?![0-9.])|(?![\w.]))"
+    r"|(?<![\w.])0[bBoO][0-9_]{7,}[uUlL]{0,2}(?:\.(?![0-9.])|(?![\w.]))"
+)
+_PRIVACY_DOTLESS_MAX_VALUE = 0xFFFFFFFF
+_PRIVACY_DOTLESS_MAX_CHARS = 15
+
+
+def _privacy_dotless_int_is_address(digits: str) -> bool:
+    """The JVM-mirror judge for one digits-only token (the model MEASURED
+    on both pinned JDKs — see OctalProbeR4 in the round-4 receipts):
+    DECIMAL with leading zeros ignored; resolves within the unsigned
+    32-bit range and at most 15 characters. R2-N6-1: digit separators
+    are stripped first and the 0b/0o literal forms are decoded to their
+    value before the same judgment."""
+    bare = digits.replace("_", "")
+    if bare[:2].lower() in ("0b", "0o"):
+        try:
+            value = int(bare, 0)
+        except ValueError:
+            return False
+    else:
+        if len(bare) > _PRIVACY_DOTLESS_MAX_CHARS:
+            return False
+        try:
+            value = int(bare)
+        except ValueError:
+            return False
+    return 1 <= value <= _PRIVACY_DOTLESS_MAX_VALUE
+# Dotted-hex address ("0x7f.0x0.0.1"): the span carries a dot and a 0x
+# prefix ONCE, and every dot-chunk is hex after its optional 0x strip — the
+# Kotlin fence's isHexAddressHost rule (the prefix need not repeat).
+# R5-N5-r2-1: ONE sentence-final period admitted (judged on the stripped
+# span — see the dotted-hex leg).
+_PRIVACY_HEX_SPAN_RE = re.compile(r"(?<![\w.])[0-9a-fA-FxX.]+(?![\w.])")
+# Dotless-hex address ("0x7f000001"): an 0x-prefixed run of >=8 hex digits
+# (a 4-byte address minimum — "0xFF" byte masks stay legal code). The
+# trailing-dot alternative matches (R5-N5-r2-1). R2-2 (round 5): Kotlin's
+# integer L/u suffixes are syntax, not part of the address — accepted
+# before the boundary ("0x7F000001L" is the integer 127.0.0.1).
+_PRIVACY_DOTLESS_HEX_RE = re.compile(
+    r"(?<![\w.])0[xX][0-9a-fA-F_]{8,}[uUlL]{0,2}(?:\.(?![0-9.])|(?![\w.]))"
+)
+# IPv6 shapes (R2-N5-r1-2 / R5-2): MAXIMAL spans of hex/dot/colon characters
+# that are whole tokens (word/dot/colon boundaries — a subspan of
+# "Page2::class" like "e2::c" can never be carved out and judged), carrying
+# 2+ colons, at least one HEX character (all-hex-letter literals like
+# "dead:beef::cafe" resolve on the JVM with zero decimal digits), and not
+# exactly "::" (Kotlin's ::-reference / the unspecified-address wildcard).
+# Brackets never enter a span ("[::1]:8085" is judged via its "::1" span).
+_PRIVACY_IPV6_SPAN_RE = re.compile(r"(?<![\w:.])[0-9A-Fa-f:.]+(?![\w:.])")
+_PRIVACY_IPV6_CHARS = frozenset("0123456789abcdefABCDEF:.")
+_PRIVACY_IPV6_HEX = frozenset("0123456789abcdefABCDEF")
+# iroh's direct-address vocabulary (the N3 captured-payload grep's exact
+# substring, source-level twin).
+_PRIVACY_ADDR_MARKER = "addr="
+
+
+def _kotlin_code_lines(text: str) -> list[tuple[int, str]]:
+    """Each physical line's content OUTSIDE comments, as (lineno, code).
+
+    Kotlin block comments NEST and are masked (the fence files' own KDoc
+    spells the banned address shapes as documentation — owning prose, the
+    same class as the flavor allowlist's owning tables). `//` line comments
+    are masked to end of line — but a `//` INSIDE a string literal is code
+    ("https://..." survives). String-literal contents stay code: an address
+    that only ever exists inside a published string is still a leak. Regular
+    strings end at an unescaped quote or (tolerantly) the line end; raw
+    \"\"\" strings span lines. Char literals ARE tracked (R5-3): a quote
+    held by a char literal (`'"'`) opens and closes a char state instead of
+    flipping the parser into string state — an odd-quote-count line can no
+    longer surface its own line comment's content as a finding (the
+    one-way risk was false positives, never leak masking)."""
+    lines: list[tuple[int, str]] = []
+    cur: list[str] = []
+    depth = 0  # nesting block-comment depth
+    state = "code"  # code | str | raw | char
+    i = 0
+    n = len(text)
+    lineno = 1
+
+    def flush() -> None:
+        nonlocal cur, lineno
+        lines.append((lineno, "".join(cur)))
+        cur = []
+        lineno += 1
+
+    while i < n:
+        c = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+        if state == "code":
+            if depth > 0:
+                if c == "*" and nxt == "/":
+                    depth -= 1
+                    i += 2
+                    continue
+                if c == "/" and nxt == "*":
+                    depth += 1
+                    i += 2
+                    continue
+                if c == "\n":
+                    flush()
+                i += 1
+                continue
+            if c == "/" and nxt == "*":
+                depth += 1
+                i += 2
+                continue
+            if c == "/" and nxt == "/":
+                while i < n and text[i] != "\n":
+                    i += 1
+                continue
+            if c == "'":
+                # A char literal: consumes its (possibly escaped) body and
+                # the closing quote, never spans lines (tolerant at EOL).
+                state = "char"
+                cur.append(c)
+                i += 1
+                continue
+            if c == '"':
+                if text[i : i + 3] == '"""':
+                    state = "raw"
+                    cur.append('"""')
+                    i += 3
+                    continue
+                state = "str"
+                cur.append(c)
+                i += 1
+                continue
+            cur.append(c)
+            if c == "\n":
+                flush()
+            i += 1
+            continue
+        if state == "char":
+            cur.append(c)
+            if c == "\n":
+                flush()
+                state = "code"  # tolerant: a char literal ends at EOL
+                i += 1
+                continue
+            if c == "\\" and i + 1 < n:
+                cur.append(text[i + 1])
+                i += 2
+                continue
+            if c == "'":
+                state = "code"
+            i += 1
+            continue
+        # str / raw: contents are code (kept), terminators watched.
+        cur.append(c)
+        if c == "\n":
+            flush()
+            if state == "str":
+                state = "code"  # tolerant: an unterminated "..." ends at EOL
+            i += 1
+            continue
+        if state == "str":
+            if c == "\\" and i + 1 < n:
+                cur.append(text[i + 1])
+                i += 2
+                continue
+            if c == '"':
+                state = "code"
+            i += 1
+            continue
+        # raw
+        if text[i : i + 3] == '"""':
+            cur.append('"""')
+            state = "code"
+            i += 3
+            continue
+        i += 1
+    if cur:
+        lines.append((lineno, "".join(cur)))
+    return lines
+
+
+def _privacy_ip_legs(code: str) -> list[str]:
+    """The address-shaped tokens in one line's CODE text ([] = matched
+    spellings, in report order; empty = clean)."""
+    hits: list[str] = []
+    for match in _PRIVACY_IPV4_RE.finditer(code):
+        hits.append(f"ipv4:{match.group(0)}")
+    for match in _PRIVACY_DOTLESS_RE.finditer(code):
+        token = match.group(0)
+        digits = token[:-1] if token.endswith(".") else token
+        digits = digits.rstrip("uUlL")
+        if _privacy_dotless_int_is_address(digits):
+            hits.append(f"dotless-integer:{token}")
+    for match in _PRIVACY_HEX_SPAN_RE.finditer(code):
+        span = match.group(0)
+        lowered = span.lower()
+        if "." not in lowered or "0x" not in lowered:
+            continue
+        # R5-N5-r2-1: the same ONE sentence-final period the IPv4 legs
+        # admit — judge the span with it stripped ("0x7f.0x0.0.1." is the
+        # same pointer as "0x7f.0x0.0.1"); a second period stays a refusal
+        # (the stripped form still ends in a dot → an empty chunk fails).
+        if lowered.endswith("."):
+            lowered = lowered[:-1]
+        # The fence's HEX_CHUNK rule: ^(0x)?[0-9a-f]+$ on every dot-chunk —
+        # the 0x prefix need only appear once in the span.
+        if all(
+            (chunk[2:] if chunk.startswith("0x") else chunk)
+            and all(c in "0123456789abcdef" for c in
+                    (chunk[2:] if chunk.startswith("0x") else chunk))
+            for chunk in lowered.split(".")
+        ):
+            hits.append(f"dotted-hex:{span}")
+    for match in _PRIVACY_DOTLESS_HEX_RE.finditer(code):
+        token = match.group(0)
+        hex_run = token[2:].rstrip("uUlL").replace("_", "")
+        if len(hex_run) >= 8:
+            hits.append(f"dotless-hex:{token}")
+    for match in _PRIVACY_IPV6_SPAN_RE.finditer(code):
+        span = match.group(0)
+        # A whole maximal hex/dot/colon token: 2+ colons, the address
+        # charset, at least one hex character (all-hex-letter literals are
+        # JVM-connectable), and never exactly "::" (Kotlin's ::-reference).
+        if span == "::" or span.count(":") < 2:
+            continue
+        # R5-2: an h:mm / h:mm:ss TIME token is prose, not an address —
+        # the JVM does not resolve it (UnknownHostException measured), so
+        # the span is exempt from the IPv6 judgment.
+        if re.fullmatch(r"\d{1,2}(:\d{2}){1,2}", span):
+            continue
+        if all(ch in _PRIVACY_IPV6_CHARS for ch in span) and any(
+            ch in _PRIVACY_IPV6_HEX for ch in span
+        ):
+            hits.append(f"ipv6:{span}")
+    return hits
+
+
+_RESERVED_ROOT_NAMES = frozenset(
+    {"nul", "aux", "con", "prn", "com1", "com2", "com3", "com4", "com5",
+     "com6", "com7", "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4",
+     "lpt5", "lpt6", "lpt7", "lpt8", "lpt9"}
+)
+
+
+def _reserved_root_debris_findings(root: Path) -> list[dict[str, object]]:
+    """R5-N5-r6-1 (round 6): a DOS reserved-name file at the repo root
+    ("nul" — created by a POSIX shell's `>nul` redirect) is invisible to
+    plain del/dir yet the sweep's git enumeration counts it, silently
+    shifting the scanned-file tuple. Flag it as root debris; deletion
+    needs `rm` (MSYS) or the \\.\ device path — plain del refuses."""
+    findings: list[dict[str, object]] = []
+    for name in sorted(_RESERVED_ROOT_NAMES):
+        probe = root / name
+        # a reserved name is invisible to Path.is_file (Windows resolves it
+        # to the DOS device) — the \\?\ extended-length path sees it.
+        try:
+            visible = os.path.isfile("\\\\?\\" + str(probe))
+        except OSError:
+            visible = False
+        if visible:
+            findings.append(
+                {
+                    "path": probe.relative_to(root).as_posix(),
+                    "line": 0,
+                    "literals": ["<reserved-name-root-debris>"],
+                    "text": (
+                        "reserved-name root debris (created by a "
+                        "shell redirect, invisible to plain del) — "
+                        "delete it (MSYS rm or the \\\\.\\ device "
+                        "path); it silently shifts the sweep's "
+                        "scanned-file tuple (R5-N5-r6-1)"
+                    ),
+                }
+            )
+    return findings
+
+
+def _privacy_surface_findings(
+    root: Path,
+    surfaces: tuple[str, ...],
+    *,
+    ip_legs: bool,
+) -> list[dict[str, object]]:
+    findings: list[dict[str, object]] = []
+    for rel in surfaces:
+        path = root / rel
+        if not path.is_file():
+            findings.append(
+                {
+                    "path": rel,
+                    "line": 0,
+                    "literals": ["<privacy-surface-missing>"],
+                    "text": (
+                        "multiplayer privacy surface is absent — re-point "
+                        "tools/leak_sweep.py's privacy table or restore the "
+                        "file (fail-closed: the gate never passes with a "
+                        "vanished payload surface)"
+                    ),
+                }
+            )
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            text = _decode_bom_text(path) or ""
+            if not text:
+                # R3-3 (finalize): an untracked-and-unreadable listed
+                # surface never reaches the main loop's <unreadable> leg —
+                # fail closed here instead of vanishing silently.
+                findings.append(
+                    {
+                        "path": rel,
+                        "line": 0,
+                        "literals": ["<privacy-surface-unreadable>"],
+                        "text": (
+                            "listed privacy surface exists but cannot be "
+                            "read (no BOM, unreadable bytes) — fail-closed "
+                            "(R3-3)"
+                        ),
+                    }
+                )
+                continue
+        # R1-2: the carve-out file IS judged — its ONE documented constant
+        # DECLARATION line is the only place an address may appear
+        # (R3-1, round 2: keyed to the declaration SHAPE, not substring
+        # membership — a line that merely REFERENCES the constant cannot
+        # smuggle a fresh literal under the exemption).
+        exempt_marker = rel in PRIVACY_PAYLOAD_IP_EXEMPT
+        declaration = re.compile(r"(?:const\s+)?val\s+JOINER_WORLD_TARGET\b")
+        bound_declaration = (
+            re.compile(PRIVACY_BOUND_DECLARATIONS[rel])
+            if rel in PRIVACY_BOUND_DECLARATIONS
+            else None
+        )
+        for lineno, code in _kotlin_code_lines(text):
+            labels: list[str] = []
+            if ip_legs:
+                labels = _privacy_ip_legs(code)
+                if (
+                    labels
+                    and exempt_marker
+                    and declaration.match(code.strip())
+                ):
+                    labels = []
+                if (
+                    labels
+                    and bound_declaration is not None
+                    and bound_declaration.match(code.strip())
+                ):
+                    # R2-2 follow-up: the measured-bound DECLARATION line —
+                    # the judge's own constants, never published addresses.
+                    labels = []
+            if _PRIVACY_ADDR_MARKER in code:
+                labels.append(f"addr-marker:{_PRIVACY_ADDR_MARKER}")
+            if not labels:
+                continue
+            # Several legs can catch the same token ("0x7f000001." is both
+            # a dotted-hex and a dotless-hex span) — one tag per finding.
+            tag_list = [
+                "<privacy-ip-literal>"
+                if lab.startswith(("ipv", "dotless", "dotted"))
+                else "<privacy-addr-marker>"
+                for lab in labels
+            ]
+            findings.append(
+                {
+                    "path": rel,
+                    "line": lineno,
+                    "literals": list(dict.fromkeys(tag_list)),
+                    "text": (
+                        f"multiplayer privacy: {'; '.join(labels)} in a "
+                        f"published-payload code path — {code.strip()[:160]}"
+                    ),
+                }
+            )
+    return findings
+
+
+def _multiplayer_privacy_findings(root: Path) -> list[dict[str, object]]:
+    """The W6-N5 privacy rules over the published-payload surfaces and the
+    descriptor lanes (see the module docstring). Skips entirely on trees
+    without the discovery module (synthetic test fixtures)."""
+    if not (root / _PRIVACY_ROOT_MARKER).is_dir():
+        return []
+    findings = _privacy_surface_findings(root, PRIVACY_PAYLOAD_SURFACES, ip_legs=True)
+    findings.extend(
+        _privacy_surface_findings(root, PRIVACY_RECORD_LANES, ip_legs=False)
+    )
+    # R1-4 (finalize): RealmListRewrite sits in BOTH tables — dedupe by
+    # (path, line, tags) so one hit is reported once, not once per table.
+    seen: set[tuple[str, int, str]] = set()
+    deduped: list[dict[str, object]] = []
+    for f in findings:
+        key = (f["path"], f["line"], "".join(f["literals"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(f)
+    return deduped
+
+
 def sweep(
     root: Path, allowlist: tuple[dict[str, object], ...] = ALLOWLIST
 ) -> tuple[list[dict[str, object]], int, int]:
@@ -1819,6 +2404,8 @@ def sweep(
         findings.extend(_stale_allowlist_findings(root, allowlist))
         findings.extend(_ledger_pair_findings(root))
         findings.extend(_journal_schema_findings(root))
+        findings.extend(_multiplayer_privacy_findings(root))
+        findings.extend(_reserved_root_debris_findings(root))
         return findings, 0, 0
     for path in paths:
         rel = path.relative_to(root).as_posix()
@@ -1860,6 +2447,8 @@ def sweep(
     findings.extend(_stale_allowlist_findings(root, allowlist))
     findings.extend(_ledger_pair_findings(root))
     findings.extend(_journal_schema_findings(root))
+    findings.extend(_multiplayer_privacy_findings(root))
+    findings.extend(_reserved_root_debris_findings(root))
     return findings, allowlisted, len(paths)
 
 

@@ -400,6 +400,31 @@ class RealmListingEventTest {
             "join me at 0177.0.0.1",
             "connect at 0x7f.0x0.0.1",
             "dial 0x7f000001 today",
+            // R2-N5-r1-2: all-hex-letter IPv6 literals are JVM-connectable
+            // with ZERO decimal digits (InetAddress.getByName resolves
+            // "dead:beef::cafe" without DNS) — refused, fail-closed.
+            "dead:beef::cafe",
+            "DEAD:BEEF::CAFE",
+            "[dead:beef::cafe]:8085",
+            "cafe:beef:baa::",
+            // R5-N5-r2-1: the dotless pointer with ONE sentence-final
+            // period — the same infrastructure pointer as "10.0.0.1."
+            // (which the canonical IPV4 regex already refuses).
+            "direct: 2130706433.",
+            // R2-N5-r3-1 re-adjudicated R2-N5-r4-1: the JVM's
+            // single-chunk parser is PLAIN DECIMAL with leading zeros
+            // IGNORED — all three resolve on the pinned JDK (127.0.0.1 /
+            // 16.109.82.129 / 7.91.205.21) and sailed the char-count
+            // bounds. Refused, fail-closed.
+            "join me at 0002130706433",
+            "dial 000000275600001",
+            "fallback 0123456789",
+            "fallback 0256985321",
+            // R7-6-1: 7-digit UNPADDED runs are JVM-connectable decimal
+            // ("1000000" -> 0.15.66.64) — refused, aligned with the
+            // static sweep's dotless floor.
+            "reach 1000000 hosts",
+            "over 3000000 players",
             // R3-4/R6-3-3: the IDN hostname and its punycode form are the
             // same resolvable hostname — both refused.
             "水.com",
@@ -429,6 +454,50 @@ class RealmListingEventTest {
             "Northdale patch 3.3.5a",
             "Casual quests, 1x rates, no rush. Version v1.2 — see the status page.",
         )
+    }
+
+    /** R2-N5-r4-1 + R5-2 (rounds 4-5): the measured JVM-truth negatives
+     * and the clock-prose legals — held in their own method so the
+     * refusal matrix above stays within the length budget. */
+    @Test
+    fun dotlessBoundExceedingAndClockProseStayLegal() {
+        // R2-N5-r4-1: a digit run whose DECIMAL value exceeds the
+        // unsigned-32-bit bound does not resolve on the JVM
+        // ("037777777777" = decimal 37,777,777,777 -> UnknownHostException
+        // on the pinned JDKs), so the fence passes it where the resolving
+        // padded pointers above are refused.
+        RealmListingContent.sanitize(
+            "Server uptime 037777777777 ticks",
+            "Legacy counter: 037777777777 (kept for the archive).",
+        )
+        // R5-2 (round 5): clock prose is LEGAL — the JVM does not resolve
+        // h:mm / h:mm:ss tokens (UnknownHostException measured on the
+        // pinned JDKs), so the IPv6 leg exempts the time shape instead of
+        // false-refusing "an IP address".
+        RealmListingContent.sanitize(
+            "Server restarts 12:30:45 daily",
+            "Uptime clock 03:00:00 — events at 9:30 too.",
+        )
+    }
+
+    /** R2-3 (W6-N5 round 5): the OUTBOUND tag lane crosses the signing
+     * boundary — a corrupted staged conf value surfacing as
+     * timeframeStageId must be refused at build (the privacy fence run at
+     * the signing boundary), never serialized verbatim into a
+     * world-readable `timeframe` tag. */
+    @Test
+    fun unregisteredTimeframeStageIsRefusedAtTheSigningBoundary() {
+        val hostile = goldenContent().copy(timeframeStage = "connect at 10.0.0.1")
+        try {
+            RealmListingEvent.build(hostile, key, GOLDEN_CREATED)
+            fail("the signing boundary serialized an unvalidated timeframe stage tag")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message.orEmpty().startsWith("VAL-NOSTR-CONTENT"))
+            assertTrue(
+                "the refusal must name the banned class",
+                "an IP address — never published" in expected.message.orEmpty(),
+            )
+        }
     }
 
     @Test

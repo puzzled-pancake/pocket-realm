@@ -340,7 +340,16 @@ class RelayPool(
                     override fun onResponse(call: Call, response: Response) {
                         response.use {
                             val nips = runCatching {
-                                val body = it.body?.string().orEmpty()
+                                // R4-r2-1: the read is BOUNDED — peekBody
+                                // buffers at most NIP11_MAX_BYTES of a
+                                // hostile document; the full body is never
+                                // consumed into memory and the consumed
+                                // byte count surfaces on the pool for the
+                                // capped-probe test to hold.
+                                val body = it.peekBody(NIP11_MAX_BYTES.toLong())
+                                    .string()
+                                RelayPool.lastNip11ProbeBytes =
+                                    body.toByteArray().size
                                 if (!it.isSuccessful || body.isEmpty()) {
                                     return@runCatching emptyList()
                                 }
@@ -580,6 +589,22 @@ class RelayPool(
         private const val MILLIS_PER_SECOND = 1_000L
         private const val NORMAL_CLOSE_CODE = 1000
         private const val NIP11_TIMEOUT_SECONDS = 5L
+
+        /** R4-r2-1: the NIP-11 capability probe's BYTE cap — a hostile
+         * relay's arbitrarily large document is truncated at this bound
+         * before it ever reaches a String (the exit record's "12 MB cap",
+         * now the code that proves it). */
+        const val NIP11_MAX_BYTES = 12 * 1024 * 1024
+
+        /** R4-r2-1: the observability seam the capped-probe test asserts
+         * through — the number of bytes the LAST probe actually consumed
+         * (-1 = no probe completed yet; last probe wins, and the capped
+         * suite uses single-relay pools). An unbounded read would exceed
+         * [NIP11_MAX_BYTES] for an over-cap body, so the test can
+         * distinguish truncation from parse failure — the distinction the
+         * old report-existence loop could not make. */
+        @Volatile
+        internal var lastNip11ProbeBytes: Int = -1
 
         /** NIP-11 supported_nips extraction (parse only; never gates). A
          * missing or unparseable doc is an honest empty list. */

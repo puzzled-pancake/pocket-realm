@@ -118,9 +118,20 @@ class NostrBreakerR3NegativeTest {
         // (numeric literal path — no network, no DNS).
         assertEquals("127.0.0.1", java.net.InetAddress.getByName("2130706433").hostAddress)
         assertEquals("192.168.0.1", java.net.InetAddress.getByName("3232235521").hostAddress)
+        // R2-N5-r4-1: the LEADING-ZERO forms are the same decimal parse —
+        // the JVM resolves them as connectable addresses (zeros ignored).
+        assertEquals("7.91.205.21", java.net.InetAddress.getByName("0123456789").hostAddress)
+        assertEquals("0.0.0.89", java.net.InetAddress.getByName("089").hostAddress)
+        assertEquals(
+            "15.81.72.233",
+            java.net.InetAddress.getByName("0256985321").hostAddress,
+        )
         listOf(
             "join 2130706433 port 8085",
             "hub is 3232235521 tonight",
+            "fallback 0123456789",
+            "dial 089 now",
+            "fallback 0256985321",
         ).forEach { text ->
             try {
                 PrivacyGuard.refuseIfBanned(text, "motd")

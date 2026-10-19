@@ -972,3 +972,57 @@ tasks.withType<Test>().configureEach {
     }
 }
 
+
+// R2-5/R5-1/R3-N5-r5-2 (W6-N5 code-red round 5): a FILTERED desktop test
+// run WITHOUT the -Ppocket.focus redirect writes its JUnit XML straight
+// into the canonical build/test-results/test tree and hollows the
+// standing evidence (captured live twice this wave: 4 files / 39 tests).
+// The fence is now structural: test-class filters require the focus
+// property — the focused lane's redirect then protects the canonical
+// tree. Canonical runs (`cleanTest test`) carry no filters and pass.
+val desktopFilteredRun = gradle.startParameter.taskRequests.any { request ->
+    request.args.any { it.startsWith("--tests") }
+}
+val desktopFocusRedirect = providers.gradleProperty("pocket.focus").orNull?.isNotBlank() == true
+if (desktopFilteredRun && !desktopFocusRedirect) {
+    throw GradleException(
+        "desktop test-class filters (--tests) require -Ppocket.focus=<label> — " +
+            "an unfenced filtered run writes its JUnit XML into the canonical " +
+            "build/test-results/test tree and hollows the standing evidence " +
+            "(R2-5/R5-1/R3-N5-r5-2, W6-N5 code-red round 5)"
+    )
+}
+
+// R4-r5-1 (W6-N5 code-red round 5): the desktop lane's CANONICAL counts
+// emitter — the android treatment. The tracked counts writer's fail-closed
+// drift guard re-binds a changed canonical count ONLY through a native
+// counts marker in the cited log; without this task that recovery path was
+// unsatisfiable for desktop (the artifact frozen at its last measure).
+tasks.register("desktopCanonicalCounts") {
+    val canonicalResults = project.file("build/test-results/test")
+    doLast {
+        var tests = 0
+        var failures = 0
+        var errors = 0
+        var skipped = 0
+        var classes = 0
+        val files = canonicalResults.listFiles { f ->
+            f.name.startsWith("TEST-") && f.name.endsWith(".xml")
+        } ?: emptyArray()
+        for (xml in files.sortedBy { it.name }) {
+            val head = xml.useLines { lines ->
+                lines.firstOrNull { it.contains("<testsuite") }
+            } ?: continue
+            fun attr(name: String): Int =
+                Regex("$name=\"(\\d+)\"").find(head)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            tests += attr("tests")
+            failures += attr("failures") + attr("errors")
+            skipped += attr("skipped")
+            classes += 1
+        }
+        println(
+            "# DESKTOP-CANONICAL-COUNTS tests=$tests skipped=$skipped " +
+                "failures=$failures classes=$classes",
+        )
+    }
+}

@@ -93,4 +93,24 @@ class WowFlavorCatalogsTest {
             }
         }
     }
+
+    /** W6-N5 round 3 (R6-N5-r3-1): the per-lane binding REFERENCE is
+     * non-empty on every qualified lane — the tbc/wotlk catalogs author
+     * their captured action IDs (only the stock-default KEY data is
+     * deliberately empty) — so documentation claiming the reference
+     * "starts empty" on those lanes can never diverge from the code
+     * again. The sizes pin the wiki's sibling doc-truth rows. */
+    @Test fun `per-flavor binding references are non-empty and size-pinned`() {
+        assertEquals(
+            214,
+            WowFlavorCatalogs.bindingsUserFacing(ClientFlavors.TBC).size,
+        )
+        assertEquals(
+            251,
+            WowFlavorCatalogs.bindingsUserFacing(ClientFlavors.WOTLK).size,
+        )
+        assertTrue(
+            WowFlavorCatalogs.bindingsUserFacing(ClientFlavors.VANILLA).size > 0,
+        )
+    }
 }

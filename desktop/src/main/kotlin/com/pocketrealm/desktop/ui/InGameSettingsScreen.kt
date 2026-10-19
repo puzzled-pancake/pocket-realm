@@ -143,9 +143,13 @@ fun InGameSettingsScreen(model: DesktopAppModel) {
             ) {
                 Text("In-game settings", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    "The stock 1.12.1 settings panels, editing the client's WTF files " +
-                        "through the shared, integrity-pinned stock catalogs. While the " +
-                        "client runs, changes queue and deliver at the next clean stop.",
+                    // R6-2 (W6-N5 code-red round 1): flavor-neutral — the
+                    // catalogs resolve per flavor (2.4.3/3.3.5 included), so
+                    // the header never names one lane's build.
+                    "The stock settings panels for your flavor, editing the " +
+                        "client's WTF files through the shared, integrity-pinned " +
+                        "stock catalogs. While the client runs, changes queue " +
+                        "and deliver at the next clean stop.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -561,7 +565,10 @@ private fun BindingsEditorCard(
                                 vk = vk,
                             )
                             when {
-                                token == null -> captureNote = "that key has no 1.12.1 binding token"
+                                token == null -> captureNote =
+                                    // R6-2: flavor-neutral — the binding token
+                                    // set resolves per flavor.
+                                    "that key has no binding in the stock panels"
                                 token in com.pocketrealm.ingame.WowFlavorCatalogs
                                     .bindingsReservedKeys(
                                         editor.activeLaneForCatalog(),

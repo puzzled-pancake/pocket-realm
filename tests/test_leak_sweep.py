@@ -701,3 +701,457 @@ def test_multi_flavor_screen_copy_derives_the_client_identity():
             or "ActiveFlavor.displayedId" in source), (
         "ClientScreen lost the active-lane resolution its copy derives from"
     )
+
+
+# ---------------------------------------------------------------------------
+# W6-N5 multiplayer privacy rules (NOSTR-IROH-BUILD-PLAN.md ruling 3 + the
+# addr= correction; COMPLETION-PLAN.md §1 rule 7): the sweep grows the
+# campaign's structural privacy rules over the published-payload /
+# discovery-record code paths. No IP-shaped token in a payload builder (the
+# fence files' own KDoc examples stay legal prose — comments are masked);
+# no addr= anywhere in the payload surfaces or the descriptor lanes; a
+# listed surface that vanishes is a loud finding, never a silent pass.
+# ---------------------------------------------------------------------------
+
+_DISCOVERY = Path("android") / "app" / "src" / "main" / "java" / "com" / "pocketrealm" / "discovery"
+
+
+def make_privacy_tree(tmp_path: Path, surfaces: dict[str, str]) -> Path:
+    """A tree carrying the real discovery-module marker (so the privacy
+    rules arm) plus the given surface files."""
+    (tmp_path / _DISCOVERY / "nostr").mkdir(parents=True, exist_ok=True)
+    return make_tree(tmp_path, surfaces)
+
+
+def privacy_findings_of(tmp_path: Path, surfaces: dict[str, str]) -> list[dict]:
+    """Sweep a privacy-armed tree; returns ALL findings. Tests that scope to
+    leak rows filter the <privacy-surface-missing> rows themselves (a
+    partial tree is the normal test shape)."""
+    make_privacy_tree(tmp_path, surfaces)
+    result = run_sweep(tmp_path, "--json")
+    return json.loads(result.stdout)["findings"]
+
+
+def surfaced(findings: list[dict]) -> list[dict]:
+    """The findings minus the surface-missing rows (a partial tree is the
+    normal test shape; the missing-surface rule has its own test)."""
+    return [
+        f for f in findings
+        if f["literals"] != ["<privacy-surface-missing>"]
+    ]
+
+
+@pytest.mark.parametrize("spelling", [
+    "https://10.0.0.1/relay",            # canonical v4 in a published URL
+    "192.168.000.001",                   # leading-zero octets (loose quad)
+    "2130706433",                        # the dotless inet_aton integer
+    "0x7f000001",                        # the dotless hex spelling
+    "0x7f.0x0.0.1",                      # the dotted-hex spelling
+    "2001:db8::1",                       # an IPv6 literal
+    "[::1]:8085",                        # bracketed v6 with a port
+    "join me at 127.0.0.1:8085",         # loopback is NOT exempt in payloads
+    # R2-N5-r1-1: the fence's own adjudicated IPv4 semantics — one
+    # sentence-final period, 4-digit leading-zero octets. (The bare
+    # "037777777777" octal row moved to the negative list at round 3:
+    # R2-N5-r3-2 measured it UNRESOLVED on the pinned JDK — 0xFFFFFFFF
+    # exceeds the signed-int parse — so the value-aware leg passes it.)
+    "play at 10.0.0.1.",
+    "0177.0.0.1",
+    "1.1.1.0100",
+    # R2-N5-r1-2: all-hex-letter IPv6 literals — JVM-connectable with ZERO
+    # decimal digits (InetAddress.getByName("dead:beef::cafe") resolves):
+    "dead:beef::cafe",
+    "DEAD:BEEF::CAFE",
+    "[dead:beef::cafe]:8085",
+    "cafe:beef:baa::",
+    # R5-N5-r2-1: the prose-period class extends to the dotless/octal/hex
+    # legs — "2130706433." is the same pointer as "10.0.0.1.".
+    "moved to 2130706433.",
+    "dial 0x7f000001.",
+    "dial 0x7f.0x0.0.1.",
+    # R2-N5-r3-1 (round 3) re-adjudicated R2-N5-r4-1 (round 4, serious):
+    # the JVM's single-chunk parser is PLAIN DECIMAL with leading zeros
+    # IGNORED — every digit-only token whose decimal value fits the
+    # unsigned 32-bit range is connectable and sails char-count bounds:
+    "join me at 0002130706433",
+    "dial 000000275600001",
+    "fallback 0123456789",
+    "fallback 0256985321",
+    # R2-N6-1 (round 6, serious): digit SEPARATORS and the BINARY literal
+    # form are the same integer 2130706433 = 127.0.0.1 — caught by the
+    # separator-normalized, 0b-decoding dotless judge:
+    "2_130_706_433",
+    "0b01111111000000000000000000000001",
+    "2_130_706_433L",
+    # R2-2 (round 5): Kotlin's integer suffixes are syntax — the hex run
+    # is the integer 127.0.0.1 and must be caught with the suffix aboard:
+    "0x7F000001L",
+    "0x7F000001u",
+    # R3-1 (finalize): an IPv4 followed by a hostname label (wildcard-DNS
+    # "nip.io"-style) — the trailing-dot alternative already consumes the
+    # dot; pinned so the shape stays banned:
+    "10.0.0.1.nip.io",
+    # R2-1/R3-N5-r5-1 (round 5, serious): 5/6-digit zero-padded OCTETS in
+    # dotted quads are JVM-resolvable decimal — any digit width:
+    "00177.0.0.1",
+    "00254.0.0.1",
+    "000177.0.0.1",
+    "00010.0.0.1",
+    "10.0.0.00177",
+    "00010.00000.0.1",
+])
+def test_privacy_ip_spellings_fail_in_a_payload_surface(tmp_path, spelling):
+    surfaces = {
+        _DISCOVERY / "nostr" / "RealmListingEvent.kt":
+            f'val motd = "{spelling}"\n',
+    }
+    findings = surfaced(privacy_findings_of(tmp_path, surfaces))
+    hits = [f for f in findings if f["literals"] == ["<privacy-ip-literal>"]]
+    assert len(hits) == 1, findings
+    assert hits[0]["path"].endswith("RealmListingEvent.kt")
+    assert hits[0]["line"] == 1
+    assert spelling in hits[0]["text"]
+
+
+@pytest.mark.parametrize("line", [
+    'private const val BYTE_MASK = 0xFF',          # a 2-digit hex mask
+    'private val DIGITS = "0123456789abcdef"',     # a glued charset, not a token
+    'val rate = 1.0',                              # a float literal
+    'val version = "3.3.5"',                       # a version token (the free-text fence owns shorthand)
+    'val k = Foo::class',                          # the ::-reference
+    'val p = Phase2::class',                       # a DIGIT-bearing receiver (R5-2)
+    'val q = Page2::class.java',                   # digit-bearing, .java suffix
+    'val fallback = "037777777777"',               # R2-N5-r4-1: decimal 37,777,777,777 EXCEEDS the unsigned-32 parse — UnknownHost on the pinned JDKs, deliberately not banned
+    'val url = "wss://relay.example.com"',         # hostname relays are the design
+])
+def test_privacy_legitimate_code_shapes_stay_clean(tmp_path, line):
+    surfaces = {
+        _DISCOVERY / "nostr" / "RelayPool.kt": line + "\n",
+    }
+    findings = surfaced(privacy_findings_of(tmp_path, surfaces))
+    assert findings == [], findings
+
+
+def test_privacy_comments_are_masked_but_strings_are_code(tmp_path):
+    surfaces = {
+        _DISCOVERY / "nostr" / "RealmListingEvent.kt": (
+            '/** the fence refuses "2130706433" and "10.0.0.1" spellings. */\n'
+            '// a line comment citing 192.168.1.10 too\n'
+            'val target = "https://example.com" // trailing prose: 10.0.0.1\n'
+            'val leaked = "https://10.0.0.1/relay"\n'
+        ),
+    }
+    findings = surfaced(privacy_findings_of(tmp_path, surfaces))
+    hits = [f for f in findings if f["literals"] == ["<privacy-ip-literal>"]]
+    assert len(hits) == 1, findings
+    assert hits[0]["line"] == 4
+    assert "ipv4:10.0.0.1" in hits[0]["text"]
+
+
+def test_privacy_char_literal_quote_does_not_unmask_a_line_comment(tmp_path):
+    """R5-3: a char-literal containing a quote (`'"'`) used to flip the
+    comment-masker into string state, surfacing a trailing line comment's
+    address as a payload finding. Char literals are tracked; the comment
+    stays masked."""
+    surfaces = {
+        _DISCOVERY / "nostr" / "ListingStore.kt": (
+            'val q = \'"\' // logged 10.0.0.1 here\n'
+        ),
+    }
+    findings = surfaced(privacy_findings_of(tmp_path, surfaces))
+    assert findings == [], findings
+
+
+def test_privacy_ip_exempt_file_is_judged_line_scoped(tmp_path):
+    """R1-2: the single carve-out file is not unjudged — every IP-shaped
+    token in it must sit on the documented JOINER_WORLD_TARGET line; a
+    second literal anywhere else in the file is a finding."""
+    rewrite = (
+        "android/app/src/main/java/com/pocketrealm/discovery/iroh/"
+        "RealmListRewrite.kt"
+    )
+    surfaces = {
+        rewrite: (
+            'const val JOINER_WORLD_TARGET: String = "127.0.0.1:8085"\n'
+            'const val ADVERTISED = "10.0.0.1"\n'
+        ),
+    }
+    findings = surfaced(privacy_findings_of(tmp_path, surfaces))
+    hits = [f for f in findings if f["literals"] == ["<privacy-ip-literal>"]]
+    assert len(hits) == 1, findings
+    assert hits[0]["line"] == 2, findings
+    assert "ipv4:10.0.0.1" in hits[0]["text"]
+
+
+def test_privacy_addr_hit_in_both_table_passes_is_reported_once(tmp_path):
+    """R1-4 (finalize): RealmListRewrite sits in both privacy tables — an
+    addr= hit there is deduplicated to ONE finding, not one per pass."""
+    rewrite = (
+        "android/app/src/main/java/com/pocketrealm/discovery/iroh/"
+        "RealmListRewrite.kt"
+    )
+    surfaces = {
+        rewrite: 'const val TAG = "addr="',
+    }
+    findings = surfaced(privacy_findings_of(tmp_path, surfaces))
+    addr_hits = [f for f in findings
+                 if f["literals"] == ["<privacy-addr-marker>"]]
+    assert len(addr_hits) == 1, findings
+
+
+def test_privacy_ip_exempt_reference_lines_cannot_smuggle_a_literal(tmp_path):
+    """R3-1 (round 2): the exemption is bound to the constant's DECLARATION
+    shape — a line that merely references JOINER_WORLD_TARGET while carrying
+    a fresh address literal is a finding, not an exemption."""
+    rewrite = (
+        "android/app/src/main/java/com/pocketrealm/discovery/iroh/"
+        "RealmListRewrite.kt"
+    )
+    surfaces = {
+        rewrite: (
+            'const val JOINER_WORLD_TARGET: String = "127.0.0.1:8085"\n'
+            'val dial = joinDial(JOINER_WORLD_TARGET, "10.0.0.1")\n'
+        ),
+    }
+    findings = surfaced(privacy_findings_of(tmp_path, surfaces))
+    hits = [f for f in findings if f["literals"] == ["<privacy-ip-literal>"]]
+    assert len(hits) == 1, findings
+    assert hits[0]["line"] == 2, findings
+    assert "ipv4:10.0.0.1" in hits[0]["text"]
+
+
+def test_privacy_addr_marker_fails_in_payload_surfaces_and_record_lanes(tmp_path):
+    surfaces = {
+        _DISCOVERY / "nostr" / "ListingStore.kt": 'val row = "node id addr=deadbeef"\n',
+        Path("gateway") / "src" / "main" / "kotlin" / "com" / "pocketrealm" / "gateway" / "GatewayIo.kt":
+            'val echo = "iroh addr=yellow"\n',
+        # a record lane's loopback constant is the documented design — no IP
+        # ban on the lane, only the direct-address vocabulary:
+        Path("gateway") / "src" / "main" / "kotlin" / "com" / "pocketrealm" / "gateway" / "JoinGateway.kt":
+            'const val JOINER_TARGET = "127.0.0.1:8085"\n',
+    }
+    findings = surfaced(privacy_findings_of(tmp_path, surfaces))
+    hits = [f for f in findings if f["literals"] == ["<privacy-addr-marker>"]]
+    assert sorted(f["path"] for f in hits) == [
+        str(_DISCOVERY / "nostr" / "ListingStore.kt").replace("\\", "/"),
+        "gateway/src/main/kotlin/com/pocketrealm/gateway/GatewayIo.kt",
+    ], findings
+    assert all("JoinGateway" not in f["path"] for f in findings), findings
+
+
+def test_privacy_missing_surface_is_a_loud_finding(tmp_path):
+    findings = privacy_findings_of(tmp_path, {})
+    missing = [f for f in findings if f["literals"] == ["<privacy-surface-missing>"]]
+    # R1-4 (finalize): RealmListRewrite sits in BOTH tables — the dedupe
+    # collapses its two missing rows to one, so the expected count is the
+    # UNIQUE surface count.
+    expected = len(set(leak_sweep.PRIVACY_PAYLOAD_SURFACES)
+                   | set(leak_sweep.PRIVACY_RECORD_LANES))
+    assert len(missing) == expected, (
+        f"expected {expected} surface-missing findings, got {len(missing)}"
+    )
+    assert all("fail-closed" in f["text"] for f in missing)
+
+
+def test_privacy_rules_skip_trees_without_the_discovery_module(tmp_path):
+    make_tree(tmp_path, {KOTLIN_SRC / "Thing.kt": "val x = 1\n"})
+    result = run_sweep(tmp_path, "--json")
+    findings = json.loads(result.stdout)["findings"]
+    assert all(f["literals"] != ["<privacy-surface-missing>"] for f in findings), findings
+
+
+def test_privacy_table_has_no_exemption_mechanism_beyond_the_one_constant():
+    """The payload table's ONLY IP-leg exception is the documented joiner
+    loopback constant — the exemption set must stay exactly that file, and
+    the constant must still exist there (the exemption retires with its
+    reason, the allowlist staleness rule's spirit)."""
+    assert set(leak_sweep.PRIVACY_PAYLOAD_IP_EXEMPT) == {
+        "android/app/src/main/java/com/pocketrealm/discovery/iroh/RealmListRewrite.kt",
+    }
+    source = (ROOT / leak_sweep.PRIVACY_PAYLOAD_IP_EXEMPT.__iter__().__next__()).read_text(
+        encoding="utf-8"
+    )
+    assert 'JOINER_WORLD_TARGET: String = "127.0.0.1' in source
+
+
+def test_real_repo_payload_surfaces_are_privacy_clean():
+    """The live tree's published-payload code paths carry no address-shaped
+    token and no addr= marker (the sweep ran clean on the whole repo — this
+    pin holds the specific claim)."""
+    findings, _allowlisted, _files = leak_sweep.sweep(ROOT)
+    privacy = [f for f in findings if "privacy" in str(f.get("literals", ""))]
+    assert not privacy, privacy
+
+
+def test_every_on_disk_payload_tree_file_is_a_swept_surface_or_carveout():
+    """R7-1: the payload tables are closed enumerations whose only fail-open
+    was a NEW file under a swept tree growing unswept. Every .kt under the
+    discovery module, the gateway main source, and the desktop
+    nostr/realmstatus/iroh payload directories must be a member of a privacy
+    table or the reviewed PRIVACY_NON_PAYLOAD_CARVEOUTS — a 15th discovery
+    file (or a new publisher/realmstatus source) fails the suite until the
+    table (or the carve-out, by review) grows with it."""
+    swept = set(leak_sweep.PRIVACY_PAYLOAD_SURFACES) | set(leak_sweep.PRIVACY_RECORD_LANES)
+    carveouts = set(leak_sweep.PRIVACY_NON_PAYLOAD_CARVEOUTS)
+    trees = (
+        ROOT / "android/app/src/main/java/com/pocketrealm/discovery",
+        ROOT / "gateway/src/main/kotlin/com/pocketrealm/gateway",
+        ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/nostr",
+        ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus",
+        ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/iroh",
+    )
+    on_disk: set[str] = set()
+    for tree in trees:
+        assert tree.is_dir(), f"privacy swept tree vanished: {tree}"
+        for path in tree.rglob("*.kt"):
+            on_disk.add(path.relative_to(ROOT).as_posix())
+    unaccounted = sorted(on_disk - swept - carveouts)
+    assert not unaccounted, (
+        f"file(s) under the privacy-swept payload trees are in NO privacy "
+        f"table and not in PRIVACY_NON_PAYLOAD_CARVEOUTS — join them to "
+        f"PRIVACY_PAYLOAD_SURFACES / PRIVACY_RECORD_LANES (payload builders) "
+        f"or review them into the carve-out: {unaccounted}"
+    )
+    phantom = sorted((swept | carveouts) - on_disk)
+    assert not phantom, (
+        f"privacy table/carve-out entries pointing at no on-disk file: "
+        f"{phantom}"
+    )
+
+
+def test_import_screen_empty_state_copy_is_flavor_neutral():
+    """R6-2: the import empty state must not tell every user to import one
+    lane's client — the screen's own folder-picking copy says "(any
+    qualified flavor)" and the flip qualified tbc/wotlk imports."""
+    source = (
+        ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/ImportScreen.kt"
+    ).read_text(encoding="utf-8")
+    # R6-N5-r2-7 (finalize): mask comments STRING-AWARE (the sweep's own
+    # masker) — a plain '//' strip would hide a lane build inside a string
+    # that follows a comment marker.
+    stripped = "\n".join(
+        code for _lineno, code in leak_sweep._kotlin_code_lines(source)
+    )
+    hard_coded = [l for l in stripped.splitlines() if "1.12.1" in l]
+    assert not hard_coded, (
+        f"ImportScreen's user-facing copy hard-codes a lane's client build "
+        f"({hard_coded[:1]}) — the import accepts any qualified flavor; "
+        f"name the user's own client, never '1.12.1' (R6-2)"
+    )
+    assert "genuine game client folder" in stripped, (
+        "ImportScreen lost the flavor-neutral empty-state copy (R6-2)"
+    )
+
+
+def test_ingame_settings_screen_copy_is_flavor_neutral():
+    """R6-2: the in-game settings header and key-capture copy must not claim
+    one lane's build — the screen resolves per-flavor catalogs
+    (DesktopInGameSettingsEditor.activeLaneForCatalog), so '1.12.1' copy is
+    wrong on the tbc/wotlk lanes."""
+    source = (
+        ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/"
+        "InGameSettingsScreen.kt"
+    ).read_text(encoding="utf-8")
+    # R6-N5-r2-7 (finalize): mask comments STRING-AWARE — a plain '//' strip
+    # would hide a lane build inside a string that follows a marker.
+    stripped = "\n".join(
+        code for _lineno, code in leak_sweep._kotlin_code_lines(source)
+    )
+    hard_coded = [l for l in stripped.splitlines() if "1.12.1" in l]
+    assert not hard_coded, (
+        f"InGameSettingsScreen's user-facing copy hard-codes a lane's "
+        f"client build ({hard_coded[:1]}) — the catalogs resolve per "
+        f"flavor; name 'your flavor', never '1.12.1' (R6-2)"
+    )
+    assert "stock settings panels for your flavor" in stripped
+    assert "no binding in the stock panels" in stripped
+
+
+def test_readme_quick_start_is_flavor_aware():
+    """R6-N5-r2-2: the README's first-boot tutorial description and
+    quick-start import step must name all three qualified flavors (or use
+    the flavor-neutral 'the flavor you play' wording) — every user reads
+    them, and tbc/wotlk have been qualified since W4."""
+    source = (ROOT / "README.md").read_text(encoding="utf-8")
+    first_boot = source.split("## First boot", 1)[-1]
+    assert "the flavor you play" in first_boot, (
+        "the README first-boot copy must be flavor-neutral or name the "
+        "flavors (R6-N5-r2-2)"
+    )
+    assert "Vanilla 1.12.1, TBC 2.4.3, or WotLK 3.3.5a" in first_boot, (
+        "the README tutorial description must enumerate the qualified "
+        "flavors"
+    )
+    assert "Vanilla 1.12.1 build 5875, TBC 2.4.3 build\n   8606, or WotLK 3.3.5a build 12340" in first_boot, (
+        "the README quick-start step must enumerate the qualified builds"
+    )
+    stale = [l for l in first_boot.splitlines() if "pick your WoW 1.12.1" in l]
+    assert not stale, (
+        f"the README quick-start still hard-codes the vanilla client "
+        f"({stale[:1]}) (R6-N5-r2-2)"
+    )
+    # R6-N5-r3-2: the WHOLE README is flavor-aware — a bare "WoW 1.12.1
+    # client" mention outside the three-flavor enumeration is the exact
+    # staleness class (found at lines 8 and 111 in round 3).
+    bare = [
+        l for l in source.splitlines()
+        if "WoW 1.12.1 client" in l and "TBC 2.4.3" not in l
+    ]
+    assert not bare, (
+        f"the README still presents the vanilla client as THE client "
+        f"({bare[:1]}) — name the flavor set or use flavor-neutral wording "
+        f"(R6-N5-r3-2)"
+    )
+
+
+def test_reserved_name_root_debris_is_a_finding(monkeypatch):
+    """R5-N5-r6-1 (round 6): a DOS reserved-name file at the repo root
+    ("nul" — created by a POSIX shell's `>nul` redirect) is invisible to
+    plain del/dir yet shifts the sweep's scanned-file tuple. The sweep
+    flags it as root debris; Windows-only (the reserved-name class is a
+    DOS/Windows concept). Modern Windows builds refuse to CREATE such
+    files even via the extended-length prefix (CreateFileW returns
+    INVALID_HANDLE_VALUE — measured), so the test drives the debris
+    leg's own visibility probe through a monkeypatched os.path.isfile
+    that answers for the reserved name only."""
+    import os
+    import tempfile
+    root = Path(tempfile.mkdtemp(prefix="leak-sweep-nul-probe-"))
+    target = root / "nul"
+    real_isfile = os.path.isfile
+
+    def sees_reserved(path):
+        # answer True for ANY path whose basename is a reserved name —
+        # the debris leg probes the extended-length form whose prefix
+        # defeats plain prefix matching.
+        lowered = str(path).lower()
+        return lowered.rsplit("\\", 1)[-1].rsplit("/", 1)[-1] == "nul"
+
+    monkeypatch.setattr(os.path, "isfile", sees_reserved)
+    findings, _allow, _files = leak_sweep.sweep(root)
+    debris = [f for f in findings
+              if f.get("literals") == ["<reserved-name-root-debris>"]]
+    assert debris, "the sweep missed the reserved-name root debris"
+    assert debris[0]["path"].endswith("nul")
+
+
+def test_dotless_judge_doc_truth_matches_the_pinned_negative():
+    """R7-N5-r4-1 (round 4): the gate's normative prose must agree with
+    its own judge — the round-3 docstring claimed the non-resolving octal
+    form 'stays banned by the floor' while the code, the pinned negative
+    row, and the decision record all say it does NOT resolve and is
+    deliberately NOT banned. The false claim must never return."""
+    source = (ROOT / "tools" / "leak_sweep.py").read_text(encoding="utf-8")
+    assert "stays banned by the floor" not in source, (
+        "the dotless docstring again claims a token the judge passes is "
+        "banned (R7-N5-r4-1)"
+    )
+    # the docstring's rationale must match the pinned negative row's
+    # (decimal-value, unsigned-bound reasoning):
+    assert "exceeds the bound and does NOT resolve" in source, (
+        "the dotless docstring lost the measured not-resolving rationale"
+    )
+    # and the judge itself still passes the non-resolving form (the pinned
+    # negative's truth, held at the unit level):
+    assert leak_sweep._privacy_dotless_int_is_address("037777777777") is False
+    assert leak_sweep._privacy_dotless_int_is_address("0123456789") is True

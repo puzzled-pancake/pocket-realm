@@ -558,3 +558,50 @@ def test_wiki_scopes_the_network_change_sentence_and_documents_reconnect():
         r"is no longer", text), (
         "the unscoped restart sentence came back"
     )
+
+
+def test_wiki_import_page_names_every_qualified_flavor():
+    """W6-N5 round 2 (R6-N5-r2-3), the wiki-truth row pattern: the import
+    page documents the flow every qualified lane uses, so it must name the
+    three flavors (or scope its vanilla sentence to the vanilla lane) — a
+    vanilla-only import page is stale since the W4 qualification flip."""
+    wiki = ROOT / "docs/wiki/Game-Files-and-Import.md"
+    text = wiki.read_text(encoding="utf-8")
+    assert "Vanilla 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340" in text, (
+        "the import page must name all three qualified flavors' clients — "
+        "the flow accepts each of them (R6-N5-r2-3)"
+    )
+    assert "the same flow serves every qualified lane" in text, (
+        "the import page must say the documented flow serves every lane"
+    )
+
+
+def test_wiki_controls_binding_reference_is_lane_scoped():
+    """W6-N5 round 2 (R6-N5-r2-4): the binding-reference sentence must be
+    scoped to the Vanilla lane — the tbc/wotlk catalogs deliberately ship
+    no stock-default key data (WowFlavorCatalogs), so 'all 211 stock 1.12.1
+    binding IDs' is false on those lanes."""
+    wiki = ROOT / "docs/wiki/Controls.md"
+    text = wiki.read_text(encoding="utf-8")
+    assert "On the Vanilla lane the reference holds all 211 stock WoW 1.12.1 binding IDs" in text, (
+        "the binding-reference sentence must be scoped to the Vanilla lane"
+    )
+    assert "deliberately ship no stock-default key data" in text, (
+        "the honest-empty posture of the tbc/wotlk reference must be documented"
+    )
+    assert not re.search(
+        r"a searchable reference containing all 211 stock WoW 1\.12\.1 binding IDs",
+        text,
+    ), "the unscoped binding-reference sentence came back"
+    # R6-N5-r3-1: the round-2 fix's own "starts empty" clause was FALSE —
+    # the tbc/wotlk references list 214/251 captured action IDs; only the
+    # stock-default KEY data is empty. The wording is scoped, and the
+    # sizes are pinned to the catalogs in WowFlavorCatalogsTest.
+    assert "the reference starts empty" not in text, (
+        "the false emptiness clause came back — scope the emptiness to "
+        "the stock-default KEY data (R6-N5-r3-1)"
+    )
+    assert "(214 and 251)" in text, (
+        "the wiki must state the per-lane action-reference sizes the "
+        "catalogs pin (214/251)"
+    )

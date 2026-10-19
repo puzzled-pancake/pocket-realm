@@ -5,7 +5,8 @@ World of Warcraft "private realm" servers (Vanilla 1.12.1, TBC 2.4.3, and WotLK 
 fully offline. It builds CMaNGOS (realmd + mangosd) and Playerbots as Android-native
 libraries and MariaDB as a supervised native executable, all in fault-isolated
 processes bound to loopback,
-and runs your own copy of the Windows WoW 1.12.1 client under Wine with a
+and runs your own copy of the Windows WoW client for your flavor (Vanilla
+1.12.1, TBC 2.4.3, or WotLK 3.3.5a) under Wine with a
 Winlator-derived X server and pinned graphics stacks (DXVK / Turnip / VirGL /
 Gladio). One app: import your client, press play, and a local world with
 computer-controlled companions comes up and shuts down safely.
@@ -71,12 +72,14 @@ Building from source is fully supported as well; see below.
 ## First boot
 
 On a fresh install the app opens with a short first-run tutorial. It explains
-exactly what to select — a WoW 1.12.1 client folder, a client archive (`.zip`/`.7z`/`.rar`) or the original installer archive — and its final button takes
+exactly what to select — an extracted client folder for the flavor you play
+(Vanilla 1.12.1, TBC 2.4.3, or WotLK 3.3.5a), a client archive (`.zip`/`.7z`/`.rar`) or the original installer archive — and its final button takes
 you straight to the import screen with the folder picker already open. You
 can replay it anytime from **Settings → Setup → Show first-run setup guide**.
 
-1. Open **Settings → Setup → Game files and import** and pick your WoW 1.12.1
-   (build 5875) client folder with Android's folder picker. The folder must
+1. Open **Settings → Setup → Game files and import** and pick your client
+   folder for the flavor you play (Vanilla 1.12.1 build 5875, TBC 2.4.3 build
+   8606, or WotLK 3.3.5a build 12340) with Android's folder picker. The folder must
    be the extracted client itself (the one containing `WoW.exe` and `Data`), a client archive, or the original installer archive — not a Windows installer you must run, and not a launcher. The folder is
    treated as read-only; Pocket Realm copies and verifies what it needs into
    private app storage and then prepares the server data on the device.
@@ -106,7 +109,7 @@ The same repo builds a **Windows desktop sibling** of the Android app
 in-process MSVC DLLs (realmd + mangosd+Playerbots, MariaDB provider — the
 shipped default per the D19 flip; a SQLite lane exists as dev/compat and
 does not ship), and
-your installed WoW 1.12.1 client launched **natively** — no Wine, no X
+your installed WoW client for your flavor launched **natively** — no Wine, no X
 server, no GPU stack. The Android app remains a fully-supported product;
 shared domain sources compile into both builds from one tree (see
 `desktop/shared-sources.json`).
