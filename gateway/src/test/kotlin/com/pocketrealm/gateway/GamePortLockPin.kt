@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
  * exact two-inode bind race the guard was built to close.
  *
  * The pin exercises the semantics on a SANDBOX lock file: deleting the
- * SHARED file mid-run is itself the race (the round-2 concurrent
+ * SHARED file mid-run is itself the race (the concurrent
  * validation caught exactly that — this pin's earlier cleanSlate deleted
  * the shared file under the other seat's lock).
  */

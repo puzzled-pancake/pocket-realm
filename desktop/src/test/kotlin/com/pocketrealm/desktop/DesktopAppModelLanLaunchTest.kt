@@ -20,24 +20,24 @@ import org.junit.Before
 
 /**
  * DESK-15/24/42 launch-gate contract at the app-model level, plus the
- * design-lan D1 legs:
+ * design-lan legs:
  *
- *  - DESK-15: `allowLanPlayers` IS the hosting gate — a LAN_HOST start with
+ * - DESK-15: `allowLanPlayers` IS the hosting gate — a LAN_HOST start with
  *    the stored toggle off is refused before the supervisor is engaged
  *    (the shared lanHost() factory hard-codes authorization, so the model
  *    builds the spec directly from the stored toggle); the backend's
- *    defensive twin re-proves it (D1).
- *  - DESK-24: join mode = stop realm/world + launch the client against
+ * defensive twin re-proves it.
+ * - DESK-24: join mode = stop realm/world + launch the client against
  *    the remote IP — a LAN_JOIN start while a local runtime is up stops
- *    that runtime first (graceful) and then joins. D1: the join preflight
+ * that runtime first (graceful) and then joins. the join preflight
  *    runs CLIENT PREREQUISITES ONLY (no datadir legs), mirroring the
  *    Android early return.
- *  - D1: a LAN_HOST start re-proves the stored authorization and that the
- *    endpoint is a currently-live private interface (through the D3
+ * a LAN_HOST start re-proves the stored authorization and that the
+ * endpoint is a currently-live private interface (through the
  *    filtered view) after the datadir gates pass.
  */
 class DesktopAppModelLanLaunchTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -106,7 +106,7 @@ class DesktopAppModelLanLaunchTest {
                 runtimeMode = RuntimeMode.LAN_HOST,
                 lanAddress = "192.168.1.50",
                 allowLanPlayers = true,
-                // D19: the unseeded-datadir refusal this leg pins is the
+                // the unseeded-datadir refusal this leg pins is the
                 // SQLITE dev/compat lane's; select it explicitly (the
                 // shipped default is MariaDB).
                 databaseProvider = Settings.DatabaseProvider.SQLITE,
@@ -144,9 +144,9 @@ class DesktopAppModelLanLaunchTest {
         DesktopAppModel(roots).use { model ->
             assertEquals(RuntimePhase.WORLD_READY, model.state.value.phase)
             val op = runBlocking { model.startRealm(includeClient = false) }
-            // D1: the join preflight is client-prerequisites-only — the
+            // the join preflight is client-prerequisites-only — the
             // unseeded datadir never enters a join's refusal again (the old
-            // DB-NOT-SEEDED failure was exactly what D1 removes).
+            // DB-NOT-SEEDED failure was exactly what removes).
             assertFalse(op.ok)
             assertTrue(
                 "the join must refuse on the missing client, not the datadir: ${op.detail}",

@@ -5,13 +5,13 @@ import org.junit.Test
 import java.io.File
 
 /**
- * Round-6 R6-r6-1: plan §1 rule 7 — peer addresses are NEVER displayed.
+ * plan rule 7 — peer addresses are NEVER displayed.
  * The wave added `sourceIp` interpolation to the friend-request rows on
  * both platforms; this pin (shared, runs on both suites) fails if the
  * request-row copy ever interpolates the source address again. The host's
  * audit trail keeps the address; the user-facing surfaces name accounts.
  *
- * R3-1/R5-4 (native-server round 1): the same rule now covers the roster
+ * (native-server): the same rule now covers the roster
  * — the account_list payload dropped the last-logon ADDRESS member, the
  * shared [com.pocketrealm.supervisor.FriendRosterJson] parser dropped the
  * field, and the desktop Friends card renders only the logon TIMESTAMP.

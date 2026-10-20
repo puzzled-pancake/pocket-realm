@@ -16,7 +16,7 @@ import java.nio.file.Files
 import java.security.MessageDigest
 
 /**
- * R3 adversarial breaker (android-core round 3): negative probes at the
+ * Adversarial breaker (android-core ): negative probes at the
  * seams the earlier rounds' matrices did not cover. Every test either
  * pins a refusal that must hold or DEMONSTRATES a live hole (named in its
  * body) so the fix cannot land silently.
@@ -25,7 +25,7 @@ class R3BreakerNegativeTest {
 
     // ------------------------------------------------------------------
     // 1. THE COLLISION HOLE (R3-1, serious): the Android verifier seam's
-    // round-2 authorization is dead for the exact case it was written for.
+    // authorization is dead for the exact case it was written for.
     //
     // WorldRuntimeService.createAccountVerifier computes
     //     writeExpansion = retryAuthorized || shouldWriteExpansion(rc, exists)
@@ -37,7 +37,7 @@ class R3BreakerNegativeTest {
     // ok=false code=ACCOUNT_EXISTS`), so the twins DISAGREE on collisions.
     // Consequences on Android: backend maps ok -> ACCOUNT_CREATED, the
     // controller marks the invite PROVISIONED and the friend's poll reveals
-    // the EXISTING account id — the §3.5 collision contract (D63: "without
+    // the EXISTING account id — the collision contract ("without
     // the authorization ACCOUNT_EXISTS answers ok=false with NO addon
     // write") is not implemented; the refuseCollision leg is unreachable.
     // ------------------------------------------------------------------
@@ -45,7 +45,7 @@ class R3BreakerNegativeTest {
     @Test
     fun `an unauthorized collision is refused - the seam decision is conjunctive on the authorization`() {
         // R3-1 fix (android-core review round 3, serious): the decision is
-        // the CONJUNCTIVE verifierExpansionWrite — the round-2 expression
+        // the CONJUNCTIVE verifierExpansionWrite — the expression
         // OR-ed the gated leg with the authorization-blind
         // shouldWriteExpansion, making the gate a no-op (the hole this test
         // used to demonstrate). The behavioral matrix, evaluated through the
@@ -122,7 +122,7 @@ class R3BreakerNegativeTest {
                 val answer = JSONObject(ask(port, poll)!!.decodeText())
                 assertTrue(answer.optBoolean("ok"))
                 assertEquals("PROVISIONED", answer.optString("state"))
-                // R3-2 fix: the reveal names the ROW's stored username —
+                // fix: the reveal names the ROW's stored username —
                 // the poll request's edited username field is not an
                 // identity and must never be echoed back as one.
                 assertEquals(

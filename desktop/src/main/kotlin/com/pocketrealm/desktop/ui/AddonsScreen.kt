@@ -81,7 +81,7 @@ fun AddonsScreen(model: DesktopAppModel) {
     val back: () -> Unit = { view = AddonView.Hub }
 
     Box(Modifier.fillMaxSize()) {
-        // W4 flip (R5-1 round 2): the repository — whose init seeds the
+ // Flip: the repository — whose init seeds the
         // built-in and resolves the ACTIVE lane — is constructed AFTER the
         // first-pick gate. Pre-pick construction threw inside the seed's
         // launchOperation and left a sticky seed error for the session.
@@ -134,7 +134,7 @@ private fun AddonsHubScreen(
             contentPadding = PaddingValues(bottom = 12.dp),
         ) {
             item {
-                // R6-1: the AndroidPort copy is flavor-conditional — on a
+                // the AndroidPort copy is flavor-conditional — on a
                 // non-vanilla lane the built-in is NOT installed (the seed
                 // skips; catalog row 151 is absent), so the authored honest
                 // exclusion note (catalog.flavorNote) renders instead.
@@ -161,8 +161,8 @@ private fun AddonsHubScreen(
             item {
                 AddonHubRow(
                     title = "Recommended for Pocket Realm",
-                    // R5-6-3 desktop parity: the hardware-tested claim is the
-                    // vanilla trio's frozen D29 evidence; a non-vanilla lane's
+                    // desktop parity: the hardware-tested claim is the
+                    // vanilla trio's frozen evidence; a non-vanilla lane's
                     // curated set is research reference.
                     summary = if (catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
                         "The three add-ons tested on Pocket Realm hardware."
@@ -231,8 +231,8 @@ private fun RecommendedAddonsScreen(
     }
 
     AddonPage(repository, state, onBack = onBack, backLabel = "Hub") {
-        // R5-6-3 desktop parity: the same flavor branch as the hub row —
-        // vanilla's D29 trio carries the hardware-tested evidence; the
+        // desktop parity: the same flavor branch as the hub row —
+        // vanilla's trio carries the hardware-tested evidence; the
         // tbc/wotlk recommendation sets are research-curated reference rows.
         val testedCopy =
             if (catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {

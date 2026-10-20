@@ -180,7 +180,7 @@ class RealmService : Service() {
             // means a mid-session toggle takes effect immediately — binding
             // 3725 the moment the toggle turns ON during hosting, and
             // UNbinding it the moment the toggle turns OFF (design-remote-
-            // accounts §6's exposure invariant, "with friend-access off it
+            // accounts its exposure invariant, "with friend-access off it
             // is never bound"). The desktop watcher's exact shape
             // (DesktopAppModel friendAccessWatcher); a settings-only
             // re-read that waits for the next unrelated state emission
@@ -632,7 +632,7 @@ class RealmService : Service() {
                     if (snapshot.runtimeMode == RuntimeMode.LAN_HOST) {
                         // Mode-aware watch (design-tunnel §10, the shared
                         // InterfaceWatch reconciliation): plain LAN hosting
-                        // watches the private LAN endpoint (D2 verbatim); a
+                        // watches the private LAN endpoint (verbatim); a
                         // tunnel-advertised session watches the TUNNEL
                         // adapter — physical-LAN churn must never kill a
                         // tunnel realm whose path never touched the LAN —

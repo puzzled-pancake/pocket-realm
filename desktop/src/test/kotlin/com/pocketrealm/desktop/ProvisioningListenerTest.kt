@@ -16,7 +16,7 @@ import org.junit.rules.TemporaryFolder
 
 /**
  * The provisioning listener end-to-end on loopback (design-remote-accounts
- * §6): the real [ProvisioningListener] over a real socket, driven by the
+ * the real [ProvisioningListener] over a real socket, driven by the
  * real shared [FriendAccessClient]. Covers the framing, the refusal-oracle
  * rule, the SUBMITTED → poll → PROVISIONED arc, the rate-limit lockout, and
  * the lifecycle state surface.

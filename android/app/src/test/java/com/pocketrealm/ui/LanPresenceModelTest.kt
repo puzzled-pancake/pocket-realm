@@ -110,7 +110,7 @@ class LanPresenceModelTest {
             JSONObject().put("state", "READY").put("realPlayers", -2),
         )
         assertEquals(LanPresenceModel.LanPlayersOnline(activeSessions = 0L, realPlayers = 0), players)
-        // Round-6 R6-1: zero sessions (bots off) renders the honest empty
+        // zero sessions (bots off) renders the honest empty
         // line — "0 players in world" told the user nothing.
         assertEquals("No players in world", LanPresenceModel.line(players))
     }

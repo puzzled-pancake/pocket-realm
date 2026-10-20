@@ -31,7 +31,7 @@ import org.json.JSONObject
  *    signature, a replayed id over other content) takes the full
  *    ladder.
  *  - FRESHNESS is client-side (the NIP-40 correction), computed in
- *    SECONDS (code-red R2-1: a Long milliseconds multiply wraps for a
+ * SECONDS (a Long milliseconds multiply wraps for a
  *    crafted ~2^63-second created_at and pins a hostile listing to the
  *    top of the browse order with a "published just now" age). A listing
  *    is live only while created_at is within 10 minutes. `expiration` is
@@ -123,7 +123,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
             return AcceptResult.Accepted(replacedOlder = false)
         }
         val refusal = refuseReasonFor(event)
-            // R2-1: the freshness bound ADMITS at accept — a crafted
+            // the freshness bound ADMITS at accept — a crafted
             // far-future (or far-past) created_at is refused here,
             // never stored to wait for an eviction pass.
             ?: freshnessRefusal(event)
@@ -142,8 +142,8 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
                     "budget of " + RealmListingContent.MAX_SERIALIZED_CHARS + " characters",
             )
         }
-        // The tag-contract legs (R6-3-7 uniqueness/agreement; R4-1 bound;
-        // R4 breaker timeframe + d-tag legs) — one refusal builder.
+        // The tag-contract legs (uniqueness/agreement; bound;
+        // breaker timeframe + d-tag legs) — one refusal builder.
         tagLadderRefusal(event, content)?.let { return AcceptResult.Refused(it) }
         val replacedOlder = synchronized(byKey) {
             evictExpiredLocked()
@@ -157,7 +157,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
      * (R6-3-7/R1-3), the R4-1 per-entry tag bound, and the R4 breaker
      * timeframe-tag and d-tag legs. */
     // The tag-contract ladder IS the admission contract: one exit per
-    // refusal (the R3-3 fence idiom).
+    // refusal (the fence idiom).
     @Suppress("ReturnCount", "CyclomaticComplexMethod")
     private fun tagLadderRefusal(event: NostrEvent, content: RealmListingContent): String? {
         val flavorTags = event.tags.filter { it.size >= 2 && it[0] == "flavor" }
@@ -170,13 +170,13 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
             return "VAL-NOSTR-CONTENT: flavor tag '" + tagFlavor + "' does not " +
                 "match the content flavor '" + content.flavor + "'"
         }
-        // R4-1: the TAG array is bounded — a validly-signed listing with
+        // the TAG array is bounded — a validly-signed listing with
         // hundreds of thousands of tags cannot pin memory per entry.
         if (event.tags.size > RealmListingContent.MAX_LISTING_TAGS) {
             return "VAL-NOSTR-CONTENT: " + event.tags.size + " tags exceed the " +
                 RealmListingContent.MAX_LISTING_TAGS + "-tag admission bound"
         }
-        // R5-2: each tag VALUE is bounded — a 200 KB value rides the
+        // each tag VALUE is bounded — a 200 KB value rides the
         // count-only bound into the retained Entry.
         event.tags.forEach { tag ->
             if (tag.size >= 2 && tag.drop(1).any { it.length > RealmListingContent.MAX_TAG_VALUE_LENGTH }) {
@@ -202,7 +202,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         return null
     }
 
-    /** The R2-1 freshness bound at the admission gate. */
+    /** The freshness bound at the admission gate. */
     private fun freshnessRefusal(event: NostrEvent): String? =
         if (isFresh(event.createdAtSeconds)) {
             null
@@ -236,13 +236,13 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         return if (verified.ok) null else verified.reason ?: "VAL-NOSTR-EVENT: refused"
     }
 
-    /** The R7-r2-2 duplicate fast path's SAFETY precondition: the id
+    /** The duplicate fast path's SAFETY precondition: the id
      * recomputes from the delivery's own bytes (a tampered content under a
      * replayed id fails here even before the Schnorr check would). */
     private fun idMatchesContent(event: NostrEvent): Boolean =
         event.idHex == NostrEvent.computeId(event.serializedForId())
 
-    /** The Schnorr verify count (the R7-r2-2 pin: a duplicate delivery
+    /** The Schnorr verify count (the pin: a duplicate delivery
      * adds ZERO verifies). */
     internal var schnorrVerifyCalls: Int = 0
 
@@ -290,7 +290,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
             }
 
             else -> {
-                // R3-5/R6-3-5: the relay evidence grows ONLY for the stored
+                // the relay evidence grows ONLY for the stored
                 // event's exact id — an older echo from another relay never
                 // earns the stored entry "seen on N relays". A differing
                 // delivery is dropped (the stored newest stays).
@@ -337,8 +337,8 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
             )
         }
         val statusPageUrl = obj.optString("statusPageUrl", "").takeIf { it.isNotEmpty() }
-        // W6-N3: the join descriptor is CARRIED (the stage-3 flip) — but
-        // only a VALID one. The admission ladder keeps the R3-2 posture's
+        // the join descriptor is CARRIED (the stage-3 flip) — but
+        // only a VALID one. The admission ladder keeps the posture's
         // teeth: the descriptor is bounded at admission (exactly the three
         // keys; node pinned 64 lowercase hex; relay a hostname-only https
         // URL) so a hostile join still retains nothing unbounded, and an
@@ -355,6 +355,11 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         val refusal = textRefusal(obj, statusPageUrl)
             ?: pairRefusal(obj)
             ?: playersRefusal(players)
+            // The frozen-schema TYPE pin for
+            // rates — a non-object rates member is refused, never silently
+            // dropped to null (mirrors the name/motd string pins above).
+            ?: obj.opt("rates")?.takeIf { it !== JSONObject.NULL && it !is JSONObject }
+                ?.let { "VAL-NOSTR-CONTENT: listing rates must be an object" }
             ?: ratesRefusal(ratesObj)
             ?: textTypeRefusal(obj)
             ?: stageRefusal(obj.getString("flavor"), obj.optString("timeframe", ""))
@@ -381,7 +386,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         )
     }
 
-    /** R3-4/R7-2: the inbound bounds mirror the outbound fence exactly —
+    /** The inbound bounds mirror the outbound fence exactly —
      * bounded free text through the SAME privacy fence, plus the
      * showcase URL shape, before the UI ever sees a foreign listing. */
     private fun textRefusal(obj: JSONObject, statusPageUrl: String?): String? =
@@ -392,12 +397,18 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         ).firstOrNull()
 
     private fun lengthRefusal(obj: JSONObject): String? = when {
-        // R4 breaker: optString stringifies non-strings — the frozen-schema
-        // TYPE pin needs the explicit checks (the R2B-5 name leg generalized).
+        // breaker: optString stringifies non-strings — the frozen-schema
+        // TYPE pin needs the explicit checks (the name leg generalized).
         obj.get("name") !is String ->
             "VAL-NOSTR-CONTENT: listing name must be a string"
         obj.opt("motd") !is String ->
             "VAL-NOSTR-CONTENT: listing motd must be a string"
+        obj.getString("name").length > RealmListingContent.NAME_MAX_LENGTH ->
+            "VAL-NOSTR-CONTENT: listing name exceeds " +
+                RealmListingContent.NAME_MAX_LENGTH + " characters"
+        obj.optString("motd", "").length > RealmListingContent.MOTD_MAX_LENGTH ->
+            "VAL-NOSTR-CONTENT: listing motd exceeds " +
+                RealmListingContent.MOTD_MAX_LENGTH + " characters"
         obj.getString("name").length > RealmListingContent.NAME_MAX_LENGTH ->
             "VAL-NOSTR-CONTENT: listing name exceeds " +
                 RealmListingContent.NAME_MAX_LENGTH + " characters"
@@ -424,7 +435,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
             null
         }
 
-    /** R2B-4/R5r2-1: the players counts honor the publish side's
+    /** The players counts honor the publish side's
      * never-negative rule and a sanity ceiling — a validly-signed hostile
      * listing must not render '-1 humans' or 2-billion padded bots. */
     private fun playersRefusal(players: JSONObject): String? {
@@ -440,12 +451,10 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         }
     }
 
-    /** R2B-4: the timeframe text gets a length bound mirroring motd — a
-     * 200 KB hostile string cannot ride the 256-entry admission cap. */
+    /** The string-length type pin — a 2 MB hostile string cannot ride the
+     * 256-entry admission cap. */
     private fun textTypeRefusal(obj: JSONObject): String? =
         listOfNotNull(
-            // R2B-5: the JVM lane's org.json stringifies non-strings on
-            // device builds — the type check makes both lanes identical.
             if (obj.get("name") !is String) {
                 "VAL-NOSTR-CONTENT: listing name must be a string"
             } else {
@@ -462,7 +471,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
             },
         ).firstOrNull()
 
-    /** R1-3/R5-4: the flavor/build pair must resolve against the owning
+    /** The flavor/build pair must resolve against the owning
      * registry as a matched pair — an unshipped flavor id, or a shipped
      * flavor carrying ANOTHER lane's build, is exactly the anachronism
      * the registry law bans. */
@@ -485,7 +494,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
      * status payload resolves through); a cross-era or nonexistent stage
      * id is refused like any other anachronism. */
     private fun stageRefusal(flavor: String, timeframe: String): String? {
-        // R4 breaker: an EMPTY stage renders the dangling row detail
+        // breaker: an EMPTY stage renders the dangling row detail
         // "flavor (build N) · " — not a frozen-schema stage.
         if (timeframe.isEmpty()) {
             return "VAL-NOSTR-CONTENT: timeframe stage must not be empty"
@@ -519,7 +528,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
          * it — bounded, never a free pass. */
         const val CLOCK_SKEW_SECONDS: Long = 2L * 60L
 
-        /** The admission fence (R2-4/R4-6): the retained set is capped —
+        /** The admission fence: the retained set is capped —
          * a flood of distinct-pubkey listings evicts the oldest entries
          * instead of pinning memory. */
         const val MAX_ENTRIES: Int = 256

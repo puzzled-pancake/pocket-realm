@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 try:
     from tools import common
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from tools import common
 

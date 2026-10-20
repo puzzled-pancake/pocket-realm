@@ -7,7 +7,7 @@
 package com.pocketrealm.discovery.iroh
 
 /**
- * W6-N3: the port mux framing — how ONE iroh endpoint carries both game
+ * the port mux framing — how ONE iroh endpoint carries both game
  * lanes. Every accepted bi-stream opens with a 2-byte big-endian port id
  * ([GatewayContract.PORT_REALM] or [GatewayContract.PORT_WORLD]); after
  * that prefix the stream is RAW game bytes both directions (no further
@@ -15,7 +15,7 @@ package com.pocketrealm.discovery.iroh
  * + raw bytes framing" the plan's stage 3 names.
  *
  * Pure functions: the framing units run on both lanes (shared manifest) and
- * inside the gateway process; the D92 lock-step finding does not apply here
+ * inside the gateway process; the lock-step finding does not apply here
  * (no length-prefixed chunks after the header — pumps copy raw bytes).
  */
 object PortMux {

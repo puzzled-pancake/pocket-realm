@@ -157,7 +157,7 @@ internal class AddonArchiveValidator {
                     declaresSupportedInterface(zip, entry, path, policy, checkpoint)
                 }
                 require(compatible.size <= 1) {
-                    // R6-r3-1: the refusal is lane-neutral — the accepted
+                    // the refusal is lane-neutral — the accepted
                     // interface set is the ACTIVE flavor's (the same set the
                     // interface-mismatch refusal names), never a hard-coded
                     // vanilla-era lane name.

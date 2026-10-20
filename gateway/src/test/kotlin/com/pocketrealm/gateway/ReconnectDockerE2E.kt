@@ -10,7 +10,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * W6-N4 — the reconnect proof's GENUINE network-identity-change tier
+ * — the reconnect proof's GENUINE network-identity-change tier
  * (docker-isolated; the ask's "desktop lane with two interfaces" shape as
  * far as this desktop honestly allows).
  *
@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
  * endpoint — the closest a non-elevated desktop gets to pulling and
  * re-plugging a network cable. The joiner (its own container on bridge B;
  * inter-bridge traffic is docker-isolated, so NO direct path exists — the
- * N2 relay-leg's isolation basis, D92 §2) holds the ORIGINAL listing
+ * relay-leg's isolation basis) holds the ORIGINAL listing
  * descriptor the whole time, and the client lane runs INSIDE the joiner
  * container via `docker exec` (the joiner binds 127.0.0.1-only — the
  * production privacy shape a host-side port mapping can never reach).
@@ -42,16 +42,16 @@ import kotlin.test.assertTrue
  *    the weakest outcome, never silently.
  *
  * EVIDENCE DURABILITY (code-red round 1, R1-1/R1-2/R4-1/R5-1/R6-N4-r1-2/
- * R7-N4-1/R7-N4-2): the gradle console does not capture test stdout, so
- * the proof's headline lines are archived FIRST-CLASS — every N4-DOCKER
+ * the gradle console does not capture test stdout, so
+ * the proof's headline lines are archived FIRST-CLASS — every -DOCKER
  * narration line (the before/after host IPs, the outcome) is written to
  * the wave evidence dir at teardown, and teardown collects each
  * container's `docker logs` BEFORE removing it (the redialed joiner's
  * PR_GATEWAY_READY line is the reconnect leg's own receipt). The wave
  * exit cites the narration file, never the console log.
  *
- * A physical hotspot/CGNAT leg stays owner-scheduled for W7 (D92 §2);
- * D98 records this run as the desktop approximation it is.
+ * A physical hotspot/CGNAT leg stays owner-scheduled for (§2);
+ * records this run as the desktop approximation it is.
  */
 @EnabledIfSystemProperty(named = "pocket.reconnect.docker", matches = "true")
 class ReconnectDockerE2E {
@@ -459,7 +459,7 @@ class ReconnectDockerE2E {
         ?: error("gateway-fakestack jar not found — run the fakeStackJar task")
 
     companion object {
-        /** eclipse-temurin:21-jre — the image the N2 spike's docker legs
+        /** eclipse-temurin:21-jre — the image the spike's docker legs
          * left on this machine (JVM 21 = the gateway artifact's floor). */
         const val IMAGE: String = "eclipse-temurin:21-jre"
 

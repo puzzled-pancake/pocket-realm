@@ -10,7 +10,7 @@ import org.junit.Before
 /**
  * Census lanes item 17: the per-flavor [RootLayout] rows and the
  * union-classification wiring. The rows are derived from the measured staged
- * clients (census §0; remeasured for this pin):
+ * clients (census; remeasured for this pin):
  *
  *  - tbc `ExcaliburWoW Burning Crusade 2.4.3`: root files Wow.exe,
  *    WowError.exe, Repair.exe, Launcher.exe, realmlist.wtf, DivxDecoder.dll,
@@ -29,7 +29,7 @@ import org.junit.Before
  * are never root-gated by any layout.
  */
 class ImportRootLayoutTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; the
+    /** flip fixture: the sole-qualified degrade is retired; the
      * root-layout lanes pin the VANILLA lane (holder select). */
     @Before
     fun pinTheVanillaLaneForTheFlip() {

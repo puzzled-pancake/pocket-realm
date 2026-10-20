@@ -70,7 +70,7 @@ from typing import Callable, Pattern
 
 try:
     from tools import flavor_layout
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import flavor_layout
 
 
@@ -359,8 +359,8 @@ def _integrated_world_revision(
 def select_inputs(flavor_id: str = FLAVOR_ID) -> list[Input]:
     layout = flavor_layout.resolve(flavor_id)
     # Fail loud before any glob: every lane verifies the flavor's registered
-    # pins (checkout present, HEAD == pin) before selecting inputs. S1 ran
-    # this check only for tbc/wotlk as the pre-S4 stopgap; with the selection
+    # pins (checkout present, HEAD == pin) before selecting inputs. ran
+    # this check only for tbc/wotlk as the earlier stopgap; with the selection
     # rules now parameterized, vanilla is verified like the rest (its pins
     # resolve — pinned by test_require_flavor_pins_vanilla_resolves).
     flavor_layout.require_flavor_pins(flavor_id)
@@ -400,7 +400,7 @@ def select_inputs(flavor_id: str = FLAVOR_ID) -> list[Input]:
         )
         if rule.core_update_revision(p.name) > integrated_core_revision
     )
-    # Bots SQL: the shared multi-expansion playerbots pin (C4/D34) — the
+    # Bots SQL: the shared multi-expansion playerbots pin — the
     # common characters/world schema pair plus the flavor's own
     # sql/world/{expansion} additions.
     selected.extend(
@@ -440,7 +440,7 @@ def select_inputs(flavor_id: str = FLAVOR_ID) -> list[Input]:
     )
     # ACID: the cumulative in-tree release every flavor's installer applies
     # (InstallFullDB.sh apply_acid_data, ACID/acid_${EXPANSION_LC}.sql).
-    # See the module docstring for the S4 correction of register C5: the
+    # See the module docstring for the correction of register: the
     # pinned tbc/wotlk DB repos DO ship these files; their single-commit
     # squashed histories carry no usable [ACID] selection.
     selected.append(Input("world", classic / rule.acid_file))
@@ -453,7 +453,7 @@ def select_inputs(flavor_id: str = FLAVOR_ID) -> list[Input]:
     # additions riding the shared playerbots characters/world schemas.
     selected.append(Input("playerbot-characters", ROOT / "native/llm/sql/ai_playerbot_llm_memory.sql"))
     selected.append(Input("playerbot-world", ROOT / "native/llm/sql/world_gossip.sql"))
-    # LLM memory v2 (C2 voiced-fact persistence + C8 conversation memory):
+    # LLM memory v2 (voiced-fact persistence + conversation memory):
     # an ALTER-only append over the 0411 seed tables plus one new table. The
     # seed DDL above is NEVER edited to carry these columns - editing a
     # shipped entry's bytes breaks the on-device ledger hash check and
@@ -548,7 +548,7 @@ def main() -> int:
     encoded = json.dumps(manifest, indent=2) + "\n"
     # write_bytes, not write_text: text mode translates \n to os.linesep on
     # Windows, which would silently rewrite the seal-critical vanilla ledger
-    # with CRLF (the committed golden blob is LF — G3-3 sha 3771fc35…). The
+    # with CRLF (the committed golden blob is LF — sha 3771fc35…). The
     # ledger bytes must be platform-independent.
     #
     # The write path is routed through the flavor layout, not the hard-coded

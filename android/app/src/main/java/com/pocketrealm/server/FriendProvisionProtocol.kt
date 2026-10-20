@@ -14,12 +14,12 @@ import java.net.Socket
  * platforms; the desktop host side (the provisioning listener) consumes
  * the same framing helpers so the two ends cannot drift.
  *
- * Secrecy shape (§2/§3): the request carries `{inviteId, token, username,
+ * Secrecy shape: the request carries `{inviteId, token, username,
  * sHex, vHex}` — the password is typed on the friend's device and only
  * ever leaves it as the derived SRP6 verifier. v1 confidentiality is the
  * LAN/tunnel itself; v1 authentication is the single-use invite token.
  *
- * Refusal oracle rule (§5): the response for an unknown invite, an expired
+ * Refusal oracle rule: the response for an unknown invite, an expired
  * or burned token, and a rate-locked source is byte-identical —
  * [REFUSED_RESPONSE]. Only a SUBMITTED (or later) verdict tells the friend
  * anything.
@@ -137,7 +137,7 @@ object FriendProvisionProtocol {
 }
 
 /**
- * The friend-side one-shot client (§3/§5): derive `(s, v)` from the typed
+ * The friend-side one-shot client: derive `(s, v)` from the typed
  * password ON THIS DEVICE, send one framed request bound to the invite
  * token, and report the verdict. On any refusal the derived verifier is
  * dropped on the floor (design rule: on REJECTED the friend's device

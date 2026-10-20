@@ -7,7 +7,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * R2 adversarial breaker (android-core round 2): the friend-provisioning
+ * Adversarial breaker (android-core ): the friend-provisioning
  * collision hole. The R1-arch-1 retry fix made ACCOUNT_EXISTS-with-row an
  * ACCEPTED shape at both account-creation seams so the designed host-retry
  * lane (approvalFailed -> SUBMITTED -> approve again) converges. But the
@@ -27,7 +27,7 @@ import java.io.File
  *     encodeProvisioned(accountId-of-the-EXISTING-account): a SUCCESS verdict
  *     for a provisioning that never happened, with no rejection anywhere.
  *
- * That inverts the documented §3.5 contract still recorded on
+ * That inverts the documented contract still recorded on
  * `FriendAccessController.pendingRows`: "the relay op returns ACCOUNT_EXISTS
  * and the host rejects". These tests pin the hole's three links (the
  * indistinguishable decision, the unverifiable accepted answer, and the
@@ -43,7 +43,7 @@ class R2ProvisionCollisionHoleTest {
     @Test
     fun `the pure decision still converges a retry - the seam gates it behind the authorization`() {
         // R3-1 fix (android-core review round 3, serious): the verifier lane's
-        // decision is the CONJUNCTIVE verifierExpansionWrite — the round-2
+        // decision is the CONJUNCTIVE verifierExpansionWrite — the
         // seam OR-ed the gated leg with the authorization-blind
         // shouldWriteExpansion, making the gate a no-op. The (rc, exists)
         // pair alone can no longer accept a collision; the authorized retry
@@ -100,7 +100,7 @@ class R2ProvisionCollisionHoleTest {
             "override fun createAccountVerifier(",
         )
         // The retry-aware write is there (round 1's contract, still held),
-        // routed through the conjunctive verifier decision (R3-1):
+        // routed through the conjunctive verifier decision:
         assertTrue(
             "(bootLane\n" +
                 "                ?: worldLaneFlavor(ACCOUNT_EXPANSION_LANE)).accountExpansion" in body,
@@ -112,7 +112,7 @@ class R2ProvisionCollisionHoleTest {
         // no verifier comparison against the stored row, no roster/collision
         // guard before the write. (The native refuses the overwrite; the
         // Kotlin seam then treats the refusal as success — link 3.)
-        // R2-1 fix: the hole is closed at the AUTHORIZATION layer — the
+        // fix: the hole is closed at the AUTHORIZATION layer — the
         // host's attempt bookkeeping (allowExistingAccount) is the only key
         // that turns ACCOUNT_EXISTS into a convergence; without it the seam
         // answers ok=false with NO addon write, so a collided row is never
@@ -128,7 +128,7 @@ class R2ProvisionCollisionHoleTest {
             ),
         )
         // The authorization is consumed by the CONJUNCTIVE decision (the
-        // round-2 OR-ed no-op shape must never return).
+        // OR-ed no-op shape must never return).
         assertTrue(
             "the seam must consume the conjunctive decision",
             // the seam's call is formatted across lines: normalize
@@ -147,7 +147,7 @@ class R2ProvisionCollisionHoleTest {
             "the unauthorized ACCOUNT_EXISTS refusal must precede any addon " +
                 "write (a collision can never mutate the existing row)",
             // the seam consumes the authorization-carrying conjunctive
-            // decision BEFORE the addon write (R3-1: the old OR-ed shape
+            // decision BEFORE the addon write (the old OR-ed shape
             // made the authorization dead)
             Regex(
                 Regex.escape("ServerRuntimeContract.verifierExpansionWrite(") +
@@ -246,7 +246,7 @@ class R2ProvisionCollisionHoleTest {
     }
 
     // ------------------------------------------------------------------
-    // Protocol mischief (round-2 additions beyond the round-1 matrix)
+    // Protocol mischief (additions beyond the matrix)
     // ------------------------------------------------------------------
 
     @Test
@@ -330,7 +330,7 @@ class R2ProvisionCollisionHoleTest {
         error("unbalanced braces for: $signature")
     }
     // ------------------------------------------------------------------
-    // R2-1 fix: the controller gate (the durable decision) + the two
+    // fix: the controller gate (the durable decision) + the two
     // verdict pins the proposed test asked for
     // ------------------------------------------------------------------
 
@@ -391,7 +391,7 @@ class R2ProvisionCollisionHoleTest {
             source,
             "override fun createAccountVerifier(",
         )
-        // BEHAVIORAL (R3-2): evaluate the seam's own decision for the
+        // BEHAVIORAL: evaluate the seam's own decision for the
         // unauthorized collision input — it must refuse (no write, no
         // success); the authorized retry converges.
         val writeExpansion = ServerRuntimeContract.verifierExpansionWrite(

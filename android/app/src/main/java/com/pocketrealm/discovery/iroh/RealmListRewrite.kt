@@ -33,7 +33,7 @@ import com.pocketrealm.client.ClientFlavors
  * wire — the mangos ByteBuffer appends raw memory
  * (native/cmangos/src/shared/Util/ByteBuffer.h:466 `append((uint8*)&value,
  * sizeof(value))` — the template append at :462-468; the :115 cite was
- * wrong (R5-r6-1) and the cite pin holds this line honest) and EndianConvert is a NO-OP on little-endian hosts
+ * wrong and the cite pin holds this line honest) and EndianConvert is a NO-OP on little-endian hosts
  * (native/cmangos/src/shared/Util/ByteConverter.h:49-53 with the
  * Platform/Define.h x86 default), so the realmd packet's size field,
  * header word, count, population float, build, and trailer are all LE.
@@ -152,7 +152,7 @@ object RealmListRewrite {
      */
     fun parse(frame: ByteArray, flavor: ClientFlavor): ParsedRealmList {
         val entries = ArrayList<RealmEntry>()
-        // R7-N3-4 (pinned ordering): the count bound fires BEFORE the entry
+        // pinned-ordering law: the count bound fires BEFORE the entry
         // walk under BOTH readings — the bound is the stable, non-
         // attacker-influenceable refusal for crafted cross-flavor frames.
         walk(frame, flavor) { _, name, address, specifyBuild, _ ->
@@ -368,7 +368,7 @@ object RealmListRewrite {
     /** Sanity bound (the admission-fence posture: counts are untrusted). */
     const val MAX_REALM_ENTRIES: Int = 64
 
-    /** The pinned entry-count bound fired (R7-N3-4: the bound-first
+    /** The pinned entry-count bound fired (the bound-first
      * ordering is pinned by the gateway count-collision probe — the
      * refusal reason is stable across both flavors' readings). */
     class CountExceedsBoundException(message: String) :
@@ -537,7 +537,7 @@ private fun fail(reason: String): Nothing =
  * The HOST part is validated only for non-emptiness and printability: the
  * joiner accepts whatever the host advertised (LAN IP, tunnel CGNAT
  * literal, numeric public IP — the value's flavor is the host's business;
- * the JOINER never dials it, only replaces it). R7-N3-5: the refusal names
+ * the JOINER never dials it, only replaces it). the refusal names
  * the failed SHAPE, never the peer-chosen VALUE.
  */
 private fun validateAddressShapeLadder(address: String, fail: (String) -> Nothing) {

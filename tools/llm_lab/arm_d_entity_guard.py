@@ -87,7 +87,7 @@ def main():
             print(f"  denied={row['denied']} tools={row['tools']} [{row['probe']}]")
             print("   >", row["reply"][:160].replace("\n", " | "))
 
-    # e2b-base maker-sampling re-run of the S1 contract (6 tool cases)
+    # e2b-base maker-sampling re-run of the contract (6 tool cases)
     name = "e2b-base"
     print(f"### e2b-base @ maker sampling S1", flush=True)
     cfg = dict(MODELS[name])

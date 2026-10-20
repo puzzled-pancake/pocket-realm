@@ -30,7 +30,7 @@ internal const val DESKTOP_VAL01_LAUNCHER_ONLY_SELECTION: String =
  * suite pins.
  */
 /** W4: the whole MPQ audit for the desktop folder lane — the locale walk,
- * the per-form missing check, and the R1-1/R2-5-2 exact-set leg (an
+ * the per-form missing check, and the /-2 exact-set leg (an
  * unknown patch-*.mpq on a non-vanilla lane is VAL-04 naming the file;
  * vanilla keeps its documented tolerance). Extracted from scanAccess for
  * nesting depth. */
@@ -71,7 +71,7 @@ private fun collectMpqTree(
     return mpqByRelPath
 }
 
-/** R2-R4-2: a slash key must resolve at that path RELATIVE to Data (a
+/** a slash key must resolve at that path RELATIVE to Data (a
  * basename-only match accepted a path-doctored Data/decoy/ set with no
  * Data/enUS/); a bare key by basename. A foreign client (no qualified
  * flavor matched) already failed VAL-03; never compare the qualified MPQ
@@ -89,7 +89,7 @@ private fun appendMissingMpqFailures(
     if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
 }
 
-/** R1-1/R2-5-2: the tbc/wotlk mpq_set notes promise exact-set semantics
+/** The tbc/wotlk mpq_set notes promise exact-set semantics
  * for the patch train — an unknown patch-*.mpq (not in the flavor's own
  * set) is VAL-04 naming the file, enforced now that both flavors qualify.
  * Vanilla keeps its documented tolerance (its own mpq_set note: the

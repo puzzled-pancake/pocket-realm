@@ -129,7 +129,7 @@ def test_publish_copy_enumerates_fields_and_discloses_the_link_hostname():
         "(R7-r4-1)"
     )
     # the precision predicate: the copy claims no IP (true) and never a
-    # blanket 'no hostname' (the status-page link IS one); the N3
+    # blanket 'no hostname' (the status-page link IS one); the
     # disclosure names the iroh relay + the direct-connection leg.
     assert "No IP address is ever in a listing" in off_copy
     assert "no IP or hostname" not in off_copy
@@ -175,7 +175,7 @@ def test_wiki_names_the_public_realms_surface_and_disclosure():
         "Data-Storage-and-Privacy.md's Network-use section must carry the "
         "outbound relay traffic + relay-sees-IP disclosure (R6-2)"
     )
-    # R6-2-2: Overview's "not a public Internet realm service" claim must
+    # Overview's "not a public Internet realm service" claim must
     # stay qualified against the opt-in Public realms lane the same wave
     # shipped (Home-Screen carries the disclosure-bearing paragraph).
     overview = (ROOT / "docs/wiki/Overview.md").read_text(encoding="utf-8")
@@ -210,7 +210,7 @@ def test_focused_nostr_logs_show_executed_test_tasks():
     )
     for path in logs:
         text = Path(path).read_text(encoding="utf-8", errors="replace")
-        # R6-2: a log whose header carries the NO-OP marker is a retained
+        # a log whose header carries the NO-OP marker is a retained
         # record of a mislabeled attempt, not evidence — exempted.
         if "this archived run was a NO-OP" in text:
             continue
@@ -310,7 +310,7 @@ def test_join_state_error_lane_is_rendered():
               "RealmBrowserScreen.kt").read_text(encoding="utf-8")
     assert "JoinState.Error" in screen
     assert "realm-browser-join-error" in screen
-    # Round-4 R6-4-3: the rendered string is the manager's extracted
+    # the rendered string is the manager's extracted
     # joinErrorLine (model-level pinned in IrohGatewayWatcherTest) — the
     # composable must route through it, never a drifted inline copy.
     assert "IrohGatewayManager.joinErrorLine(" in screen
@@ -358,7 +358,7 @@ def test_n3_canonical_logs_record_the_clean_and_test_executions():
                 f"{rel} must record the EXECUTED (not UP-TO-DATE/FROM-CACHE) "
                 f"{task} line — the canonical evidence is otherwise vacuous"
             )
-        # D94: the structurally-empty llm clean leg may be UP-TO-DATE but
+        # the structurally-empty llm clean leg may be UP-TO-DATE but
         # must never ride the build cache.
         from_cache = re.search(
             r"^> Task :pocketrealm-llm:cleanTest FROM-CACHE", text, re.MULTILINE)
@@ -412,7 +412,7 @@ def test_wave_exit_n3_focused_numbers_equal_the_archived_counts():
             "the exit record's cited classes disagree with the archive"
         )
     assert int(counts.group(3)) == 0, "the cited focused run records failures"
-    # R5-N3-2: the archive covers the FULL filter set — the archived
+    # the archive covers the FULL filter set — the archived
     # classes count equals the tree census under the three filters.
     census = 0
     for pattern in (
@@ -429,7 +429,7 @@ def test_wave_exit_n3_focused_numbers_equal_the_archived_counts():
         "archived run is narrower than its own filter (R5-N3-2); re-run "
         "the focused set and re-archive"
     )
-    # R6-N3-r6-1: the DESKTOP focused sentence is held to the same
+    # the DESKTOP focused sentence is held to the same
     # census standard — the cited classes count must equal the tree
     # census of the desktop-lane discovery/iroh + desktop/iroh +
     # discovery/nostr + desktop/nostr @Test classes, killing the
@@ -457,11 +457,11 @@ def test_wave_exit_n3_focused_numbers_equal_the_archived_counts():
         f"the cited desktop focused log {desktop_cited.group(3)} is missing"
     )
     desktop_text = desktop_path.read_text(encoding="utf-8", errors="replace")
-    # W6-N4 round 3 (R6-N4-r3-2): the desktop focused lane's TRACKED
+    # the desktop focused lane's TRACKED
     # emitter (desktop/build.gradle.kts Test-task doLast) prints the
-    # N4-FOCUSED-COUNTS marker — the era label moved with the mechanism,
+    # FOCUSED-COUNTS marker — the era label moved with the mechanism,
     # so this pin matches the marker the lane actually emits (either
-    # era-labeled line remains acceptable for N3-era archives).
+    # era-labeled line remains acceptable for -era archives).
     desktop_counts = re.search(
         r"# N[34]-FOCUSED-COUNTS tests=(\d+) classes=(\d+) failures=(\d+)",
         desktop_text,
@@ -515,7 +515,7 @@ def test_realmlist_kdoc_cites_resolve():
     # Each cite carries its OWN verified contract (the raw-append cite
     # and the C-string cite are different lines with different shapes):
     must_contain = {
-        "466": "append((uint8*)&value",  # the template append (R5-r6-1)
+        "466": "append((uint8*)&value",  # the template append
         "173": "operator<<(const std::string",  # the CStr bytes+NUL shape
     }
     for line_no in re.findall(r"ByteBuffer\.h:(\d+)", kdoc):
@@ -593,7 +593,7 @@ def test_wiki_controls_binding_reference_is_lane_scoped():
         r"a searchable reference containing all 211 stock WoW 1\.12\.1 binding IDs",
         text,
     ), "the unscoped binding-reference sentence came back"
-    # R6-N5-r3-1: the round-2 fix's own "starts empty" clause was FALSE —
+    # the fix's own "starts empty" clause was FALSE —
     # the tbc/wotlk references list 214/251 captured action IDs; only the
     # stock-default KEY data is empty. The wording is scoped, and the
     # sizes are pinned to the catalogs in WowFlavorCatalogsTest.

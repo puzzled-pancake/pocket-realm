@@ -37,9 +37,9 @@ ANDROID_O09_LANES = (
     "schemas/realm-runtime-lockfile.json",
     "schemas/realm-runtime-lockfile-sqlite.json",
 )
-# R5-r5-1 (W5 code-red round 5): the wave's OWN new per-flavor android lanes
-# join the staleness/pins-current coverage — the exact R1-r3-2 class this
-# wave fixed for the vanilla lanes, applied to the lanes W5 added.
+# the new per-flavor android lanes
+# join the staleness/pins-current coverage — the exact class this
+# wave fixed for the vanilla lanes, applied to the lanes added.
 PER_FLAVOR_O09_LANES = (
     "schemas/realm-runtime-lockfile-tbc-arm64-v8a.json",
     "schemas/realm-runtime-lockfile-wotlk-arm64-v8a.json",

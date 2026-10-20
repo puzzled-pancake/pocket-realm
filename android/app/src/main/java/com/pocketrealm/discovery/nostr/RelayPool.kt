@@ -77,7 +77,7 @@ class RelayPool(
      * R2-5). */
     data class RelayEnvelope(val relayUrl: String, val event: NostrEvent)
 
-    // R4-2: DROP_OLDEST bounds the in-flight queue under a flood — a
+    // DROP_OLDEST bounds the in-flight queue under a flood — a
     // slow serial verify-consumer makes emit drop the oldest envelope
     // instead of suspending the per-frame launch (no unbounded growth).
     private val _events =
@@ -121,7 +121,7 @@ class RelayPool(
         activeFilter = filter
         relayUrls.map { it.trim() }.filter { it.isNotEmpty() }.distinct().forEach { url ->
             // A hand-edited settings file can carry a URL OkHttp cannot
-            // parse (R6-6): the failure is a FAILED report on that relay —
+            // parse: the failure is a FAILED report on that relay —
             // never an exception through the caller's composition.
             val clean = runCatching { RelayUrls.validate(url) }.getOrElse { failure ->
                 val dead = RelaySession(url, generation)
@@ -175,7 +175,7 @@ class RelayPool(
     }
 
     private fun RelaySession.publishReport(newState: RelayState) {
-        // R4-1: a retired session's late callback never overwrites the
+        // a retired session's late callback never overwrites the
         // live session's report (the same URL key would clobber it).
         if (gen != generation) return
         _reports.value = _reports.value + (url to report(newState))
@@ -192,7 +192,7 @@ class RelayPool(
     @Suppress("TooManyFunctions")
     private inner class RelaySession internal constructor(
         val url: String,
-        /** The pool generation this session belongs to (R4-1). */
+        /** The pool generation this session belongs to. */
         val gen: Long,
     ) {
 
@@ -234,7 +234,7 @@ class RelayPool(
          * must NOT claim the network is provably empty. */
         @Volatile var readRefused = false
 
-        /** R3-6/R6-3-6: UNSOLICITED challenge answers sent this session —
+        /** UNSOLICITED challenge answers sent this session —
          * each costs a Schnorr sign + a REQ re-issue that invites the
          * relay to re-deliver its window; capped like every retry lane. */
         private var authChallengesAnswered = 0
@@ -340,7 +340,7 @@ class RelayPool(
                     override fun onResponse(call: Call, response: Response) {
                         response.use {
                             val nips = runCatching {
-                                // R4-r2-1: the read is BOUNDED — peekBody
+                                // the read is BOUNDED — peekBody
                                 // buffers at most NIP11_MAX_BYTES of a
                                 // hostile document; the full body is never
                                 // consumed into memory and the consumed
@@ -369,7 +369,7 @@ class RelayPool(
 
         @Suppress("ReturnCount") // the NIP-01 frame-type dispatch IS the protocol contract: one exit per frame type
         private fun handleFrame(text: String, webSocket: WebSocket) {
-            // R4-2: the frame-size gate runs BEFORE any parse — a hostile
+            // the frame-size gate runs BEFORE any parse — a hostile
             // multi-MB frame costs one length check, not 3-4x its size in
             // buffers (listings are a few KB; 256 KB is 100x headroom).
             if (text.length > MAX_FRAME_CHARS) {
@@ -392,7 +392,7 @@ class RelayPool(
                 "NOTICE" -> log("relay notice: $url ${arr.optString(1, "")}")
 
                 "CLOSED" -> {
-                    // R6-4-1: a subscription CLOSED frame means the READ was
+                    // a subscription CLOSED frame means the READ was
                     // refused (auth-walled/moderated) even though the socket
                     // stays OPEN — surfaced so emptiness is never claimed
                     // off a failed read.
@@ -436,7 +436,7 @@ class RelayPool(
             }
         }
 
-        /** The R2-3 cap: auth is answered ONCE per session. A relay that
+        /** The cap: auth is answered ONCE per session. A relay that
          * demands auth again after the signed auth event went out ends the
          * exchange, loudly. */
         private fun handleAuthRequired(eventId: String, webSocket: WebSocket) {
@@ -451,7 +451,7 @@ class RelayPool(
                 sendAuth(challenge, webSocket)
                 resendAfterAuth(webSocket)
             } else {
-                // R2-4: the refusal surfaces on the write lane even
+                // the refusal surfaces on the write lane even
                 // while the challenge is pending.
                 lastAckOk = false
                 lastAckMessage = "auth-required (challenge pending)"
@@ -463,7 +463,7 @@ class RelayPool(
             }
         }
 
-        /** The R2-3/R3-3 cap: mined ONCE per session. A relay that rejects
+        /** The per-session cap: mined ONCE per session. A relay that rejects
          * the mined event again gets nothing further, and the refusal
          * surfaces on the ack lane. R4-5: mining never runs on the WS
          * reader thread — the socket keeps reading (events, acks,
@@ -488,7 +488,7 @@ class RelayPool(
             val event = synchronized(this) { sentEvents[eventId] }
             val difficulty = PowMiner.parseDifficulty(message)
             if (event == null || difficulty == null) {
-                // R2-4: the refusal surfaces on the write lane even when
+                // the refusal surfaces on the write lane even when
                 // the demand is unparseable or above the miner cap.
                 lastAckOk = false
                 lastAckMessage = message
@@ -526,9 +526,9 @@ class RelayPool(
         }
 
         private fun handleAuthChallenge(challenge: String, webSocket: WebSocket) {
-            // R3-6/R6-3-6: unprovoked challenges are answered ONCE - a
+            // unprovoked challenges are answered ONCE - a
             // flood of forged challenges must not drive an unbounded
-            // sign+re-fetch loop (the R2-3 pattern applied to the
+            // sign+re-fetch loop (the pattern applied to the
             // unsolicited path the auth-required cap does not cover).
             synchronized(this) {
                 authChallengesAnswered += 1
@@ -637,10 +637,10 @@ private const val INT_PADDING_BITS = 24
 /** The subscription-id radix (a compact, unique-per-pool suffix). */
 private const val SUBSCRIPTION_RADIX = 36
 
-/** The dialable port ceiling (R2-2's parser round-trip bound). */
+/** The dialable port ceiling (the parser round-trip bound). */
 private const val PORT_MAX = 65_535
 
-/** R4-2: the inbound frame gate — 256 KB is ~100x the largest honest
+/** the inbound frame gate — 256 KB is ~100x the largest honest
  * listing; anything bigger is dropped before parse. */
 private const val MAX_FRAME_CHARS = 262_144
 
@@ -690,7 +690,7 @@ object RelayUrls {
         require(host.isNotEmpty() && (port.isEmpty() || port.all(Char::isDigit))) {
             "VAL-NOSTR-RELAY: relay URL needs a host (host:port) after $scheme ($raw)"
         }
-        // R2-2: the shape checks above are not enough — the URL must ALSO
+        // the shape checks above are not enough — the URL must ALSO
         // round-trip through the same HTTP parser OkHttp's Request.Builder
         // uses, so an out-of-range port (":70000"), port 0, or a space in
         // the host is refused HERE at the settings boundary instead of

@@ -29,7 +29,7 @@ import org.junit.Before
  * documented posture for the framework API).
  */
 class TimeframeOverlayPlanTest {
-    /** W4 flip fixture: the overlay plan resolves the ACTIVE lane
+    /** flip fixture: the overlay plan resolves the ACTIVE lane
      * through the holder — pin the VANILLA lane (holder select). */
     @Before
     fun pinTheVanillaLaneForTheFlip() {

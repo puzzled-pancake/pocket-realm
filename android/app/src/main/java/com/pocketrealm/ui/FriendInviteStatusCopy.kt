@@ -28,7 +28,7 @@ object FriendInviteStatusCopy {
         if (response.optBoolean("ok")) return null
         return when (response.optString("error")) {
             "open-invite-cap" ->
-                // Round-4 R6-1: revocation lives on the Friend access card
+                // revocation lives on the Friend access card
                 // (Android LanScreen; desktop Players screen) — the desktop
                 // Guests card only creates guest accounts and Android has
                 // no Guests card, so the remedy must name THIS card's own

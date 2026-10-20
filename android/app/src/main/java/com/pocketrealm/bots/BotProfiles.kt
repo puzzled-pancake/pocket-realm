@@ -216,7 +216,7 @@ data class BotProfile(
 }
 
 /** The LANE's bot population ceiling (schemas/flavor.json
- * bot_policy.max_level). R5-R6-2 (W4 code-red round 6): the lane is the
+ * bot_policy.max_level. The lane is the
  * world start's PINNED BOOT LANE, passed in by the conf emitter — never
  * the :ui ActiveFlavor holder (empty in a headless host, and divergent
  * from the boot lane the moment the Home switcher races a world start).
@@ -1670,7 +1670,7 @@ object BotProfiles {
                 append(profile.startupRampIntervalMs).append('|')
                 append(profile.activationBatchSize).append('|')
                 // the digest is lane-independent by construction: the
-                // canonical text pins the vanilla emission (R5-R6-2 —
+ // canonical text pins the vanilla emission (-—
                 // the emission itself takes the world start's lane)
                 append(profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)).append('|')
                 append(profile.admission)

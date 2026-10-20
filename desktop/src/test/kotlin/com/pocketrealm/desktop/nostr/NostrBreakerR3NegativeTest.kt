@@ -33,7 +33,7 @@ import org.junit.Test
  * W6-N1 code-red round 3 — the adversarial breaker's negative tests
  * (cheap, desktop JVM lane). Each NEGATIVE test pins the CORRECT
  * contract; a failure here is a live bypass demonstrated against the
- * current tree. Round-3 attack surface (none covered by the round-1/2
+ * current tree. attack surface (none covered by the round-1/2
  * suites):
  *
  *  - the privacy fence vs SENTENCE-FINAL PUNCTUATION: "10.0.0.1." — the
@@ -43,7 +43,7 @@ import org.junit.Test
  *    integer form — connectable on this very JVM);
  *  - the fence vs IDN (non-ASCII) hostnames, whose punycode form the
  *    SAME fence refuses — one hostname, two spellings, one verdict;
- *  - the inbound store must refuse a HOSTILE join (W6-N3 flipped the
+ * the inbound store must refuse a HOSTILE join (flipped the
  *    frozen schema to CARRY a well-formed descriptor, but the admission
  *    shape stays bounded: exactly type/node/relay, a 64-hex node, a
  *    hostname-only https relay) — any other shape is refused, so a
@@ -118,7 +118,7 @@ class NostrBreakerR3NegativeTest {
         // (numeric literal path — no network, no DNS).
         assertEquals("127.0.0.1", java.net.InetAddress.getByName("2130706433").hostAddress)
         assertEquals("192.168.0.1", java.net.InetAddress.getByName("3232235521").hostAddress)
-        // R2-N5-r4-1: the LEADING-ZERO forms are the same decimal parse —
+        // the LEADING-ZERO forms are the same decimal parse —
         // the JVM resolves them as connectable addresses (zeros ignored).
         assertEquals("7.91.205.21", java.net.InetAddress.getByName("0123456789").hostAddress)
         assertEquals("0.0.0.89", java.net.InetAddress.getByName("089").hostAddress)
@@ -175,7 +175,7 @@ class NostrBreakerR3NegativeTest {
 
     // -------------------------------------------- inbound store contract
 
-    /** NEGATIVE (W6-N3 posture): the join descriptor is now CARRIED, but
+    /** NEGATIVE (posture) the join descriptor is now CARRIED, but
      * only in the pinned bounded shape — an object carrying unknown keys
      * (here a 2 MB "pad") refuses at admission, so the unbounded
      * retention hole the R3-2 fence closed stays closed. */
@@ -281,7 +281,7 @@ class NostrBreakerR3NegativeTest {
      * whole `since` window for re-verification), and there is NO cap on
      * this path (the R2-3 cap only guards the auth-required-OK ladder). */
     @Test
-    @Suppress("LongMethod") // the reviewer's bound-poll harness: the frame counting IS the test
+    @Suppress("LongMethod") // the adversarial bound-poll harness: the frame counting IS the test
     fun repeatedAuthChallengesStayBounded() {
         val server = MockWebServer()
         val inbound = LinkedBlockingQueue<String>()

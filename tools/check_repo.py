@@ -33,7 +33,7 @@ SUBMODULE_PREFIXES = ("native/cmangos", "native/playerbots", "native/classic-db"
 MARKERS_FILE = ROOT / "tools" / "pii_markers.local.json"
 FLAVOR_MANIFEST = ROOT / "schemas" / "flavor.json"
 
-# G3-6 golden pin: the shipping vanilla addon catalog, frozen byte-for-byte
+# golden pin: the shipping vanilla addon catalog, frozen byte-for-byte
 # (measured 2026-09-30: 270,121 bytes). Any content change fails this gate;
 # a genuine content fix is a Decision Log entry + sha rotation (G3-6 item 1).
 ADDON_CATALOG_VANILLA_SHA256 = (
@@ -99,7 +99,7 @@ def check_flavor_source_structure(errors: list[str]) -> None:
     # Refuse duplicates before the structural legs run.
     try:
         from tools import common as _common
-    except ImportError:  # direct execution: python tools/<script>.py
+    except ImportError:
         import common as _common
     duplicates = _common.duplicate_source_ids(sources)
     if duplicates:
@@ -144,7 +144,7 @@ def check_flavor_source_structure(errors: list[str]) -> None:
                 f"flavor-source structure: sources.json {source_id!r} names path "
                 f"{path!r} which .gitmodules does not register"
             )
-        # committed gitlink == sources.json pin (R3-6: the drift marker
+        # committed gitlink == sources.json pin (the drift marker
         # check_sources strips is asserted HERE, against the INDEX bytes)
         out = subprocess.run(
             ["git", "ls-files", "-s", "--", path],
@@ -231,7 +231,7 @@ def check_addon_catalog_golden(errors: list[str]) -> None:
         )
 
 
-# S1 provenance-divergence check (port plan S1 item 1, decision D36): the o11
+# S1 provenance-divergence check (S1 item 1, decision): the o11
 # extractor commit is recorded in four places that must name the very same
 # commit — the o11 extractor lockfiles (both ABIs), the o09/o11 driver pin,
 # the app constant, and the flavor manifest's vanilla server_core pin. The
@@ -242,10 +242,10 @@ O11_LOCKFILES = (
     "schemas/o11-extractor-lockfile.json",
     "schemas/o11-extractor-lockfile-arm64-v8a.json",
 )
-# R3-2 (review round 1): the PER-FLAVOR o11 extractor lockfiles carry the
-# same provenance duty as the vanilla pair, but the D36 CI covered only the
+# (review): the PER-FLAVOR o11 extractor lockfiles carry the
+# same provenance duty as the vanilla pair, but the CI covered only the
 # two vanilla files — a flavor core re-pin without an extractor rebuild
-# silently left a stale lockfile (the exact split class D36 closed for
+# silently left a stale lockfile (the exact split class closed for
 # vanilla). Every schemas/o11-extractor-lockfile*.json now binds its
 # cmangos_commit to the OWNING flavor's server_core.commit (flavor parsed
 # from the filename through the flavor_layout naming schema; vanilla keeps
@@ -326,7 +326,7 @@ def check_extractor_provenance(errors: list[str], root: Path = ROOT) -> None:
         )
     elif not distinct:
         errors.append("extractor provenance: no commit pin found in any of the four records")
-    # R3-2: the per-flavor binding — every flavor's EXPECTED o11 lockfiles
+    # the per-flavor binding — every flavor's EXPECTED o11 lockfiles
     # (naming resolved through flavor_layout, so the gate can never drift
     # from the naming schema) must exist and match that flavor's
     # server_core pin (checked even when the vanilla four-way above is
@@ -335,7 +335,7 @@ def check_extractor_provenance(errors: list[str], root: Path = ROOT) -> None:
     # files under the glob fail loud too.
     try:
         from tools import flavor_layout as _flavor_layout
-    except ImportError:  # direct execution: python tools/<script>.py
+    except ImportError:
         import flavor_layout as _flavor_layout
     for flavor_id in _flavor_layout.FLAVOR_IDS:
         layout = _flavor_layout.resolve(flavor_id)
@@ -536,7 +536,7 @@ def check_untracked_test_sources(errors: list[str]) -> None:
             if path.suffix not in (".kt", ".java") or not path.is_file():
                 continue
             rel = path.relative_to(ROOT).as_posix()
-            # R3-2 (round 3): inside a test source set ONLY being tracked
+            # inside a test source set ONLY being tracked
             # exempts a source — Gradle compiles gitignored sources exactly
             # the same, so the fence's old ignore-accept arm left the
             # "compiles into every lane" harm one .gitignore pattern away.

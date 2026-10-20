@@ -7,19 +7,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * R2 adversarial breaker (android-core round 2): ONE Android world start
+ * Adversarial breaker (android-core ): ONE Android world start
  * resolves its timeframe stage through TWO DIFFERENT flavor machines.
  *
  * - The conf leg — `ServerRuntimeFiles.worldConfig` ->
  *   `TimeframeStages.confValueFor(snapshot.timeframeStage,
  *   worldLaneFlavor(...).flavorId)` — resolves the PERSISTED Home pick
- *   threaded as a value (the R1-arch-5/R2-2 :world form).
+ * threaded as a value (the R1-arch-5/:world form).
  * - The overlay leg — `WorldRuntimeService.applyStageOverlayOrRefuse` ->
  *   `TimeframeStages.confValue(snapshot.timeframeStage)` — resolves through
  *   the [ActiveFlavor] HOLDER (`TimeframeStage.kt` confValue delegates to
  *   `ActiveFlavor.resolve()`), whose selection is :ui-process-local memory
  *   that never crosses into :world. That is the exact bare-holder class
- *   round 1 recorded as fixed for :world, surviving on one call site.
+ * recorded as fixed for:world, surviving on one call site.
  *
  * Today (vanilla-only) the two machines coincide. At a multi-qualified flip
  * with no holder pick in :world, the overlay leg THROWS while the conf leg

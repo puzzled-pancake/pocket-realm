@@ -11,7 +11,7 @@ private val MPQ_MAGIC: ByteArray = byteArrayOf(0x4d.toByte(), 0x50.toByte(), 0x5
 private const val MPQ_MAGIC_LEN = 4
 
 /** W4: the whole MPQ audit for the archive lane — the locale walk, the
- * per-form missing check, and the R1-1/R2-5-2 exact-set leg (an unknown
+ * per-form missing check, and the /-2 exact-set leg (an unknown
  * patch-*.mpq on a non-vanilla lane is VAL-04 naming the file; vanilla
  * keeps its documented tolerance). Extracted from verifyExtracted for
  * complexity/nesting. */

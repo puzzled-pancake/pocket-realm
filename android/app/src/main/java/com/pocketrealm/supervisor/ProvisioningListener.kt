@@ -14,28 +14,28 @@ import java.util.concurrent.atomic.AtomicReference
  * `{inviteId, token, username, sHex, vHex}` request and moving the invite
  * row to SUBMITTED for the host's approval.
  *
- * Lifecycle (§6, the round-1 gap this closes): the listener is a property
+ * Lifecycle (the gap this closes) the listener is a property
  * of a HOSTING SESSION, not of the app. It starts when a start with friend
  * access enabled reaches WORLD_READY and stops with the realm (the owning
  * [FriendAccessController] drives start/stop from the supervisor state).
  * With friend access off it is never bound — the closed state refuses
  * everything; nothing listens on loopback either.
  *
- * Exposure invariant (§6): enabling friend access adds exactly ONE socket
+ * Exposure invariant: enabling friend access adds exactly ONE socket
  * to the LAN host's posture (design-lan's "only 3724 and 8085" holds while
  * it is off). The socket binds the hosting endpoint address — the same
  * address realmd binds, never 0.0.0.0 — on [ServerRuntimeContract.PROVISION_PORT].
  *
- * Protocol (§6): length-prefixed UTF-8 JSON ([FriendProvisionProtocol]),
+ * Protocol: length-prefixed UTF-8 JSON ([FriendProvisionProtocol]),
  * ONE request per connection, a hard 4 KiB request cap and a short read
  * deadline. v1 auth is the bearer invite token; v1 confidentiality is the
- * LAN/tunnel itself (documented assumption, §2; TLS-with-pinned-fingerprint
+ * LAN/tunnel itself (documented assumption; TLS-with-pinned-fingerprint
  * is the v2 upgrade).
  *
- * Refusal oracle rule (§5): unknown token, expired, burned, malformed, and
+ * Refusal oracle rule: unknown token, expired, burned, malformed, and
  * rate-locked all get the byte-identical [FriendProvisionProtocol.REFUSED_RESPONSE].
  */
-// TooManyFunctions: the listener owns the §6 lifecycle (start/stop/state)
+// TooManyFunctions: the listener owns the lifecycle (start/stop/state)
 // plus the one-request protocol (accept/serve/serveOne/answerPoll/refuse/
 // answer) — one verb per design rule, the RuntimeBackend suppress pattern.
 // TooGenericExceptionCaught: the per-connection guard converts ANY request
@@ -205,7 +205,7 @@ class ProvisioningListener(
         }
     }
 
-    /** The friend's read-only decision poll (§5): still pending → the
+    /** The friend's read-only decision poll: still pending → the
      * submitted blob; approved → the ONE response carrying the accountId;
      * anything else → the identical refusal. */
     private fun answerPoll(socket: Socket, request: org.json.JSONObject, inviteId: String, sourceIp: String) {
@@ -214,7 +214,7 @@ class ProvisioningListener(
                 answer(socket, FriendProvisionProtocol.encodeSubmitted(inviteId))
             is FriendInviteStore.PollResult.Provisioned -> answer(
                 socket,
-                // R3-2: the reveal names the ROW's stored username, never the
+                // the reveal names the ROW's stored username, never the
                 // poll request's (an edited form field is not an identity).
                 FriendProvisionProtocol.encodeProvisioned(inviteId, poll.username, poll.accountId),
             )

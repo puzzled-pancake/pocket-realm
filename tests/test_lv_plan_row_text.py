@@ -65,10 +65,10 @@ def test_flavor_import_09_row_quotes_the_real_surface_listing() -> None:
     assert len(core) == 6 and len(bots) == 2, surfaces
     assert any(s.endswith("playerbots/playerbot/aiplayerbot.conf.dist.in") for s in bots)
     assert any(s.endswith("playerbots/ahbot/ahbot.conf.dist.in") for s in bots)
-    # tbc leg: with the six flavor submodules materialized (W0 item 4,
+    # tbc leg: with the six flavor submodules materialized
     # 2026-10-08) the tbc lane lists ITS OWN 7 surfaces - 5 core-tree (the
     # tbc tree ships no mangosd/mods conf, unlike vanilla's 6) + the same
-    # bots-tree pair - the row quotes that reality, replacing the pre-W0
+    # bots-tree pair - the row quotes that reality, replacing the earlier
     # unmaterialized-submodule refusal
     proc = subprocess.run(
         [sys.executable, str(ROOT / "tools" / "generate_conf_matrix.py"),
@@ -92,10 +92,10 @@ def test_server_db_19_row_cites_the_android_flavor_lane_tests() -> None:
     assert ":app:testDebugUnitTest -PpocketAbi=x86_64" in row
     # the stale desktop citation must not come back as the coverage location
     assert "--tests com.pocketrealm.desktop.DesktopSnapshotsRestoreTest" not in row
-    # ground truth: the pin classes exist and carry the G3-9 legs
+    # ground truth: the pin classes exist and carry the legs
     shim = SNAPSHOT_SHIM_TEST.read_text(encoding="utf-8")
     assert "checkSnapshotFlavorMatchesLane" in SNAPSHOT_STORE.read_text(encoding="utf-8")
-    # W4 flip: the cross-flavor refusal leg now uses a synthetic foreign
+ # Flip: the cross-flavor refusal leg now uses a synthetic foreign
     # flavor id (tbc is QUALIFIED, so a tbc snapshot against the tbc lane
     # would legitimately restore); the leg, its class, and its test count
     # are unchanged.
@@ -104,7 +104,7 @@ def test_server_db_19_row_cites_the_android_flavor_lane_tests() -> None:
     assert shim.count("@Test") == 4
     # the desktop restore class carries the flip's persisted-pick fixture
     # (the restore gate resolves the lane from the pinned boot lane), so
-    # the former "holds no flavor pins" ground truth is retired with D72.
+    # the former "holds no flavor pins" ground truth is retired with.
     assert "selectedFlavorId" in RESTORE_TEST.read_text(encoding="utf-8")
 
 

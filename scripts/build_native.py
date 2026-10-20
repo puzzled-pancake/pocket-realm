@@ -396,7 +396,7 @@ def sqlite() -> int:
 
 def cmangos() -> int:
     # Provenance first: the flavor's pins must be registered and match their
-    # checkouts BEFORE anything configures (the S1 fail-loud contract — an
+    # checkouts BEFORE anything configures (the fail-loud contract — an
     # unregistered pin or a wrong-pin checkout aborts here, actionable, and
     # nothing compiles). Runs in --dry-run too: a dry-run is a resolution +
     # provenance proof, not a bypass.

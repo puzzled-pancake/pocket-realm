@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # centralizing the tag keeps a future Linux CI lane a one-line change.
 HOST_TAG = "windows-x86_64"
 
-# R3-3 (review round 1): the transient-scratch root for every project tool
+# (review): the transient-scratch root for every project tool
 # surface. OS %TEMP% resolves on C:\ on the canonical host (the check_e_only
 # E-TEMP note), and hard rule 1 puts toolchain state on E: — the same root
 # the Gradle daemons/test workers and pytest's PYTEST_DEBUG_TEMPROOT pin
@@ -96,8 +96,8 @@ def duplicate_source_ids(sources: object) -> list[str]:
     return sorted(sid for sid, count in counts.items() if count > 1)
 
 
-# Round-5 R5-1: THE single Python resolver for the desktop product's data
-# root (D50): POCKET_REALM_DATA_ROOT wins when set (the same override
+# THE single Python resolver for the desktop product's data
+# root: POCKET_REALM_DATA_ROOT wins when set (the same override
 # DesktopStorageRoots.defaultRoot() honors on the Kotlin side), else the
 # historical %LOCALAPPDATA% location. Every tool surface that must agree
 # with the app's root - data preparation, davos provisioning, the rp

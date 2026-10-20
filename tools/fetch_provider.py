@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 try:
     from tools import common
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import common
 SOURCES = ROOT / "schemas" / "sources.json"
 CACHE = ROOT / "native" / ".providers"

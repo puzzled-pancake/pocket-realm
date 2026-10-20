@@ -8,7 +8,7 @@ import com.sun.jna.platform.win32.WinBase
 import com.sun.jna.platform.win32.WinNT
 
 /**
- * Realm-status browser (design realm-status-browser.md §5.2): Windows
+ * Realm-status browser (design realm-status-browser.md) Windows
  * Job-Object child ownership — MECHANISM, not aspiration. A plain spawned
  * process on Windows SURVIVES its parent's death, so the page-tunnel child
  * is placed in a Job Object held by the app process with

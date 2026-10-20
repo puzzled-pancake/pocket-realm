@@ -186,7 +186,7 @@ internal object RpWowClient {
         worldPort: Int,
         private val account: String,
         sessionKeyHex: String,
-        /** R2r3-3 (round 3): the AUTH_SESSION build rides the pinned boot
+ /** : the AUTH_SESSION build rides the pinned boot
          * lane (threaded by the harness), never the live holder machine. */
         private val authBuild: Int,
     ) {

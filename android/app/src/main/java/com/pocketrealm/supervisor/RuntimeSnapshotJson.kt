@@ -36,6 +36,6 @@ object RuntimeSnapshotJson {
         .put("recoverability", value.recoverability.name)
         // Design-lan D9: WHY hosting stopped, when the stop was the
         // interface-loss monitor's call (optional key; absent = ordinary
-        // stop). The client humanizes it into the shared D9 copy.
+        // stop). The client humanizes it into the shared copy.
         .also { encoded -> value.stopReason?.let { encoded.put("stopReason", it) } }
 }

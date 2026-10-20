@@ -15,7 +15,7 @@ import java.io.File
  * takes the file down; the next atomic rewrite restores a clean file, so
  * recovery loses nothing that was still parseable).
  *
- * The layouts encode the repo's recorded C8 contract: TBC = 3-level WITHOUT
+ * The layouts encode the repo's recorded contract: TBC = 3-level WITHOUT
  * the char-level cache set; WotLK = 3-level PLUS the five-file char cache
  * set (mirrored on ClientFlavor.wtfCharacterCacheFiles from the manifest's
  * `wtf` descriptor). The vanilla lane stays byte-frozen
@@ -62,7 +62,7 @@ class WtfFlavorLayoutTest {
             tbc.characterBindings(root, "ACCT1/Milliseconds/Toon"),
             layout.characterBindings(root, "ACCT1/Milliseconds/Toon"),
         )
-        // ...and the WotLK-only char-level cache set rides the C8 data.
+        //...and the WotLK-only char-level cache set rides the data.
         assertEquals(
             ClientFlavors.WOTLK.wtfCharacterCacheFiles,
             layout.characterCacheFiles,

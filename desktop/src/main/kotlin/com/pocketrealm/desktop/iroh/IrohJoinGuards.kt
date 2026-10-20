@@ -3,7 +3,7 @@ package com.pocketrealm.desktop.iroh
 import com.pocketrealm.supervisor.RuntimePhase
 
 /**
- * W6-N3: the host+join refusal ladder's decision table — the ONE place
+ * the host+join refusal ladder's decision table — the ONE place
  * the "refuse simultaneous host+join on one instance" contract lives
  * (the ask's clash invariant; 3724/8085 are single-owner on an instance).
  * The model verbs call these; [IrohJoinGuardsTest] pins every row.

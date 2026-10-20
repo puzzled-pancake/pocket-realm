@@ -365,7 +365,7 @@ def main():
             tools = parse_tools(r["content"])
             if any(t["name"] == "adjust_sentiment" for t in tools):
                 sent += 1
-        # the S5/S7-recorded adjust_sentiment single-'>' closer class:
+        # the /-recorded adjust_sentiment single-'>' closer class:
         # a draw whose text contains the complete line closed with one
         # '>' is a fidelity miss, not an omission - both counts recorded
         tolerant = sum(
@@ -379,7 +379,7 @@ def main():
               f"(tolerant {tolerant}/{args.n}; gate >=2/{args.n} each)")
         gate["event_tool_kinds"] = cheer >= 2 and sent >= 2
 
-        # ---- LONGFORM (S11 P50 baseline) -----------------------------------
+        # ---- LONGFORM (P50 baseline) -----------------------------------
         # The frozen cue's measurement against the CURRENT (pre-P50)
         # weights - the honest expectation is partial compliance at best;
         # this records the baseline P(>90w | cued) delivery metric

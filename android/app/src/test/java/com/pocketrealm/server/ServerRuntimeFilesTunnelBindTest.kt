@@ -11,7 +11,7 @@ import org.junit.Test
  * host's start path feeds the Android conf writers. "0.0.0.0" is the ONE
  * raw conf value accepted beside the strict typed grammar
  * ([ServerRuntimeContract.resolveBindAddress] — it is never a
- * [RealmEndpoint]), and a wildcard bind is non-loopback, so the D11
+ * [RealmEndpoint]), and a wildcard bind is non-loopback, so the
  * brute-force lockout rides every tunnel start too. The conf body is the
  * pure companion template the instance writers feed (the
  * VanillaConfGoldenTest seam) — the golden pin stays byte-exact because

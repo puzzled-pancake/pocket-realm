@@ -18,7 +18,7 @@ import org.junit.Before
  * with its chunk-ordered inventory.
  */
 class InnoLaneTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired;
+    /** flip fixture: the sole-qualified degrade is retired;
      * the scanner lanes pin the VANILLA lane (holder select). */
     @Before
     fun pinTheVanillaLaneForTheFlip() {

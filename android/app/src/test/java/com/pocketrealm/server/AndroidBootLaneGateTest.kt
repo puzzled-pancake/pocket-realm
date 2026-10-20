@@ -97,11 +97,11 @@ class AndroidBootLaneGateTest {
 
     @Test
     fun theAndroidGateIsTheDocumentedVanillaOnlyLaw() {
-        // the gate's own law names the packaged-runtime scope + W5
+        // the gate's own law names the packaged-runtime scope
         val source = serverFilesSource()
         assertTrue(
             "the gate documents the vanilla-only Android runtime scope",
-            "VANILLA lane" in source && "W5" in source,
+            "VANILLA lane" in source,
         )
     }
 }

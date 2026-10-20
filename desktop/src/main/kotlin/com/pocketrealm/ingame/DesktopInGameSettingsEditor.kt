@@ -6,7 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** The [com.pocketrealm.client.ActiveFlavor] lane suffix naming the desktop
- * in-game settings editor's catalog/layout resolution (W3.3). */
+ * in-game settings editor's catalog/layout resolution. */
 private const val DESKTOP_EDITOR_LANE =
     "the desktop in-game settings editor resolves the active flavor's catalogs"
 
@@ -99,7 +99,7 @@ class DesktopInGameSettingsEditor(
     }
 
     fun readUvarValues(account: String): Map<String, SavedVariablesCodec.Value>? = readLocked { root ->
-        // R2-5: a non-vanilla layout has NO single-file uvar route — the
+        // a non-vanilla layout has NO single-file uvar route — the
         // read degrades to empty instead of reaching the fail-loud backstop.
         if (!InGameSettingsFiles.activeLayout().supportsUvars) return@readLocked emptyMap()
         val file = InGameSettingsFiles.accountSavedVariables(root, account)
@@ -326,7 +326,7 @@ class DesktopInGameSettingsEditor(
                 )
             }
             is Edit.UvarSetting -> {
-                // R2-5: the layout gate BEFORE the fail-loud backstop — on a
+                // the layout gate BEFORE the fail-loud backstop — on a
                 // non-vanilla lane the uvar family refuses with the honest
                 // per-lane message (applyDirect's catch turns it into a
                 // refusal), never a mid-apply IllegalStateException crash.

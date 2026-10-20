@@ -141,7 +141,7 @@ class DesktopClientScannerTest {
             "the refusal names the slashed registry key: \${refused.failures}",
             refused.failures.any { "enus/expansion-locale-enus.mpq" in it },
         )
-        // R2-R4-2: a PATH-DOCTORED set (the required locale MPQs under
+        // a PATH-DOCTORED set (the required locale MPQs under
         // Data/decoy/, no Data/enUS/) must refuse - the genuine client
         // loads MPQs from Data\enUS\ only, so the accepted generation
         // could not boot its data.

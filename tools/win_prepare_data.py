@@ -175,7 +175,7 @@ def select_flavor(flavor_id: str) -> None:
     MMTILE_NAME = FLAVOR_MMTILE_NAME[flavor_id]
 
 # The tile-less maps the wotlk clean-stdout waiver may accept — the STABLY
-# measured set: the archived full-stdout probe (W2:
+# measured set: the archived full-stdout probe (
 # out/completion/w2/w2_1_movemapgen_probe_stdout.log, 161,404 bytes =
 # 2,407 LF + 2,945 CR — progress prints are CR-terminated, so a decoded
 # text read's "line count" is newline-translation-inflated; count bytes),
@@ -188,14 +188,14 @@ def select_flavor(flavor_id: str) -> None:
 # (the wave's first archived run refused 605/606/616 — zero 616 tiles after
 # a completed clean-stdout MoveMapGen; the official rerun gave 616 exactly
 # one alt tile) — a 616-empty run on a future re-run FAILS CLOSED here and a
-# re-run recovers it (R3-r2-1). The waiver is PINNED to this measurement
-# (R3-r1-1): any OTHER tile-less map — or a wider set than these two —
+# re-run recovers it. The waiver is PINNED to this measurement
+# any OTHER tile-less map — or a wider set than these two —
 # refuses even on a failure-clean stdout, mirroring the floors'
 # measured-provenance discipline (a future generator defect that silently
 # skips maps can never ride the exception wider than its evidence).
 ALLOWED_TILELESS_WOTLK = frozenset({"605", "606"})
 
-# The per-lane refusal copy naming the ACTIVE mmtile contract (R6-1): the
+# The per-lane refusal copy naming the ACTIVE mmtile contract: the
 # wotlk lane accepts the alt form, so its refusal must say so — the flat
 # "expected 7 digits" misstates the accepted shape precisely where the
 # flavor-awareness lives.
@@ -227,7 +227,7 @@ MMTILE_NAME = FLAVOR_MMTILE_NAME["vanilla"]
 # failures while still exiting 0 — and the wotlk generator's allocation
 # failures print the core's own misspelling "FIALED" (native/cmangos-wotlk
 # contrib/mmap/src/MapBuilder.cpp:950 "alloc iv.polyMesh FIALED!" and :961
-# "alloc m_dmesh FIALED!", R5-1): the oracle must catch both spellings or an
+# "alloc m_dmesh FIALED!") the oracle must catch both spellings or an
 # alloc-failed map scans as "failure-clean" and the tile-less waiver below
 # would accept it as a legitimate empty map.
 MOVEMAP_FAILURE = re.compile(r"\[Map\s+\d+\].*(?:Failed|FIALED)", re.IGNORECASE)
@@ -451,7 +451,7 @@ def assert_client_shape(client: Path, flavor: str) -> None:
     if problems:
         raise StepFailure(
             f"{client} does not look like a {flavor} client root: " + "; ".join(problems))
-    # Round-6 R6-R2-1: the shape check is NAME-presence only — a doctored
+    # the shape check is NAME-presence only — a doctored
     # set (wrong-era archives renamed into this flavor's layout) sails
     # through and publish stamps an identity never verified against the
     # bytes. The exe IS the identity: sha256 + size against the flavor's
@@ -647,7 +647,7 @@ def publish(flavor: str) -> None:
     # mismatch both refuse: a wrong-flavor-shaped workspace can never publish
     # under this lane's manifest identity. The recorded exe digest must equal
     # the flavor's registered pin — a digest-less marker attests nothing and
-    # refuses too (R1-r3-1/R2-r3-1/R3-w2r3-1: fail-closed on the sha leg).
+    # refuses too (/-w2r3-1: fail-closed on the sha leg).
     marker_path = WORKSPACE / "lane-identity.json"
     if not marker_path.is_file():
         raise StepFailure(
@@ -676,7 +676,7 @@ def publish(flavor: str) -> None:
             "(VAL-WORKSPACE-IDENTITY)")
     marker_sha = marker.get("exeSha256")
     registered_sha = registered_exe_identity(flavor)[1]
-    # R1-r3-1/R2-r3-1/R3-w2r3-1 (round 3) + R2-6-2 (round 6): FAIL CLOSED on
+    # w2r3-1 +: FAIL CLOSED on
     # the sha leg BY CODE, not by data — all three legs refuse:
     #   1. a lane with no registered exe pin cannot verify anything;
     #   2. a marker carrying no digest (null/absent/falsy) attests nothing
@@ -845,7 +845,7 @@ def main() -> int:
     if os.name != "nt":
         print("windows-only lane", file=sys.stderr)
         return 2
-    # Round-5 R5-1 (D50): resolve through the shared override-aware
+    # resolve through the shared override-aware
     # resolver - the app reads the SAME root DesktopStorageRoots resolves
     # (POCKET_REALM_DATA_ROOT wins; product_data_root raises when neither
     # is set, which main() reports as the honest PREPARE FAILED).

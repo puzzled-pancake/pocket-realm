@@ -11,23 +11,23 @@ import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONObject
 
 /**
- * Realm-status browser (design realm-status-browser.md §6): the minimal
+ * Realm-status browser (design realm-status-browser.md) the minimal
  * HTTP server over the JDK-builtin `com.sun.net.httpserver` (module
  * `jdk.httpserver`, zero new dependencies).
  *
- *  - `GET /` → the server-rendered HTML page (§8); `GET /api/status.json`
- *    → the §7 payload. Everything else 404; non-GET 405. No cookies, no JS.
+ * `GET /` → the server-rendered HTML page; `GET /api/status.json`
+ * → the payload. Everything else 404; non-GET 405. No cookies, no JS.
  *  - The bind follows §4: loopback-only (127.0.0.1:18080) in PUBLIC,
  *    wildcard (0.0.0.0:18080) in FRIENDS. A bind failure refuses the
  *    transition honestly (copy names the port, never a pid or path).
- *  - Security headers on EVERY response (§3.6): no-store, nosniff,
+ * Security headers on EVERY response: no-store, nosniff,
  *    no-referrer, `default-src 'none'` CSP.
- *  - The limiter is PUBLIC-aware (§6.2; the [RealmStatusRateLimiter]).
- *  - Connection posture (§6.2): a BOUNDED request executor (fixed threads
+ * The limiter is PUBLIC-aware (the [RealmStatusRateLimiter]).
+ * Connection posture: a BOUNDED request executor (fixed threads
  *    + bounded queue — never an unbounded thread-per-connection pool) and
  *    the JDK server's request/response time caps set before creation, so
  *    a stalled peer cannot pin a thread forever.
- *  - Torn-render discipline (§4/§6.5): every render snapshots the served
+ * Torn-render discipline: every render snapshots the served
  *    state at request entry and is TOMBSTONE-CHECKED before its first
  *    byte — a render straddling a flip to OFF is closed with NO response,
  *    so no post-OFF payload ever carries `public.*` or an advertised
@@ -183,7 +183,7 @@ internal class RealmStatusServer(
                         return
                     }
                 // The tombstone: a render straddling a flip to OFF (or any
-                // rebind) is closed with NO response (§4; T19).
+                // rebind is closed with NO response (§4; T19).
                 if (servedGeneration() != captured.generation) {
                     logLine("realm-status render discarded: generation moved mid-flight")
                     return
@@ -240,7 +240,7 @@ internal class RealmStatusServer(
     }
 
     companion object {
-        /** The page port (§6.1): the tunnel-lane convention series (the
+        /** The page port: the tunnel-lane convention series (the
          * friends' world forwarder convention is 18085). Fixed, not user
          * input — and NEVER a game port: 3724/8085 stay the game's. */
         const val PAGE_PORT = 18080
@@ -259,7 +259,7 @@ internal class RealmStatusServer(
         private const val TOO_MANY_REQUESTS = 429
         private const val SERVICE_UNAVAILABLE = 503
 
-        /** The connection posture (§6.2): bounded executor + bounded queue
+        /** The connection posture: bounded executor + bounded queue
          * + capped request lifetimes. */
         private const val EXECUTOR_THREADS = 4
         private const val EXECUTOR_QUEUE_CAPACITY = 64

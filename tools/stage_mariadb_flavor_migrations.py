@@ -126,7 +126,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        # R3-6-1/R2-r6-1 (round 6): the claimed family check ENFORCED — a
+        # the claimed family check ENFORCED — a
         # ledger entry naming a database outside THIS flavor's family (a
         # mis-generated ledger would be internally self-consistent through
         # every digest gate) refuses before any file lands.

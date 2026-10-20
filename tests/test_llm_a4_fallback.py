@@ -95,7 +95,7 @@ class TestWorkerFailureLeg:
 
     def test_closure_award_exactly_once(self):
         rec = android_anchor("PB_SAY_RECORDER_ANDROID")
-        # C6: the closure award routes through the capped turn award
+        # the closure award routes through the capped turn award
         # (the per-pairing daily cap bounds the farm surface; the
         # exactly-once-per-outcome fold itself is unchanged)
         m = re.search(r"if \(fallback\.active && speakerGuid &&.*?\)\s*\n\s*PlayerbotLlmMemory::AwardChatTurnByGuid\(botGuid, speakerGuid\);", rec, re.S)
@@ -143,7 +143,7 @@ class TestInterceptorDemotion:
 
     def test_pre_award_moves_into_the_closure_cloud_side(self):
         ctx = android_anchor("PB_SAY_CONTEXT_ANDROID")
-        # C6: the device pre-award routes through the capped turn award
+        # the device pre-award routes through the capped turn award
         # (LLMTurnAwardDailyCap bounds it; 0 = uncapped legacy behavior)
         assert re.search(
             r"if \(!llmCloudTurn\)\s*\n\s*PlayerbotLlmMemory::AwardChatTurn\(bot, player\);", ctx)
@@ -194,7 +194,7 @@ class TestA4A5Exclusivity:
         assert "QueueConversationalFallback" not in chatter
 
     def test_the_fallback_never_fires_the_floor(self):
-        # and the A4 legs never touch the chatter floor state
+        # and the legs never touch the chatter floor state
         for anchor in ("PB_SAY_RECORDER_ANDROID", "PB_SAY_GEN_DEF_ANDROID"):
             body = android_anchor(anchor)
             assert "Floor" not in body, anchor

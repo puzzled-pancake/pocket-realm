@@ -10,7 +10,7 @@ import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
 
 /**
- * G3-10 + H4-5: the WTF file-layout strategy seam. The vanilla strategy is the
+ * G3-10 +: the WTF file-layout strategy seam. The vanilla strategy is the
  * build-5875 layout verified on device, frozen verbatim:
  * account uvars at `WTF/Account/<name>/SavedVariables.lua`, account bindings
  * at `WTF/Account/<name>/bindings-cache.wtf`, per-character binding
@@ -19,7 +19,7 @@ import java.nio.file.StandardCopyOption
  * W3.3 (H4-5, correction C8): the TBC and WotLK layouts join as NEW
  * strategies — never by editing the vanilla paths in place; the vanilla path
  * functions' outputs are byte-pinned by `InGameSettingsFilesLayoutPinTest`.
- * Both new flavors are 3-level per C8 (the Account/Realm/Character
+ * Both new flavors are 3-level per (the Account/Realm/Character
  * hierarchy), and WotLK additionally carries the WotLK-era char-level cache
  * set (`config-cache.wtf`, `bindings-cache.wtf`, `macros-cache.txt`,
  * `layout-local.txt`, `chat-cache.txt`) — the set the flavor registry
@@ -119,7 +119,7 @@ internal object VanillaWtfLayout : WtfLayout {
         if (scope.contains("/")) characterBindings(clientRoot, scope)
         else accountBindings(clientRoot, scope)
 
-    // G3-10/C8: the vanilla client keeps NO char-level cache set — the
+    // G3-10/: the vanilla client keeps NO char-level cache set — the
     // account-level single files are the whole story.
     override val characterCacheFiles: Set<String> = emptySet()
 
@@ -170,7 +170,7 @@ internal object TbcWtfLayout : WtfLayout {
         if (scope.contains("/")) characterBindings(clientRoot, scope)
         else accountBindings(clientRoot, scope)
 
-    // C8: the char-level cache set is genuinely WotLK-only — TBC keeps the
+    // the char-level cache set is genuinely WotLK-only — TBC keeps the
     // account/char split WITHOUT the cache-file family.
     override val characterCacheFiles: Set<String> = emptySet()
 
@@ -183,7 +183,7 @@ internal object TbcWtfLayout : WtfLayout {
 
 /**
  * The WotLK (build-12340) layout — H4-5's 3-level strategy PLUS the
- * WotLK-era char-level cache set (C8): `config-cache.wtf`,
+ * WotLK-era char-level cache set: `config-cache.wtf`,
  * `bindings-cache.wtf`, `macros-cache.txt`, `layout-local.txt`,
  * `chat-cache.txt` at the character level (the set mirrored on
  * [ClientFlavor.WOTLK.wtfCharacterCacheFiles]). The single-file uvar route
@@ -219,7 +219,7 @@ internal object WotlkWtfLayout : WtfLayout {
         if (scope.contains("/")) characterBindings(clientRoot, scope)
         else accountBindings(clientRoot, scope)
 
-    /** The WotLK-era char-level cache set (correction C8) — the client
+    /** The WotLK-era char-level cache set (correction) — the client
      * rewrites these at exit; the editor reads them UNDER Config.wtf for
      * keys the client persists there. Mirrors ClientFlavor.WOTLK
      * .wtfCharacterCacheFiles (the manifest's `wtf` descriptor). */

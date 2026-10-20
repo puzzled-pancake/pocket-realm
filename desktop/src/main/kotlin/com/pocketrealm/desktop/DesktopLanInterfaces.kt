@@ -19,7 +19,7 @@ import java.net.NetworkInterface
  * 172.21.208.1) sorts FIRST and a one-click host defaults to an address no
  * LAN guest can reach. The shared file stays untouched; this twin filters
  * the SAME scan by DISPLAY NAME before the Settings quick-picks and before
- * D1's liveness re-checks, and prefers the interface that owns the default
+ * §1's liveness re-checks, and prefers the interface that owns the default
  * route (resolved in-process via a UDP `connect()` to a private-range probe
  * address — no packets of consequence are sent).
  *
@@ -50,7 +50,7 @@ class DesktopLanInterfaces(
             .filter { candidate -> !EXCLUDED_DISPLAY_NAME.containsMatchIn(candidate.displayName) }
             .sortedWith(
                 compareBy<Candidate>(
-                    // D3: the default-route owner is the one address LAN
+                    // the default-route owner is the one address LAN
                     // guests can actually reach — it leads the list.
                     { if (routeOwner != null && it.endpoint.address == routeOwner) 0 else 1 },
                     { if (it.name.startsWith("wlan") || it.name.startsWith("eth")) 0 else 1 },

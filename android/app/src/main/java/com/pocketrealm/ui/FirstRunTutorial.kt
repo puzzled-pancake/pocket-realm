@@ -28,7 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * sentences so no dialog repeats the full paragraph.
  *
  * R6-3 (W4 code-red round 3): the body is DERIVED from the registry's
- * qualified set, never a hard-coded vanilla version — the W4 flip made
+ * qualified set, never a hard-coded vanilla version — the flip made
  * tbc/wotlk qualified, and a "1.12.1 (build 5875)"-only requirement was
  * the exact hard-coded-1.12 class the flip retires. The MPQ enumeration
  * is likewise gone: the required base set differs per game version, so

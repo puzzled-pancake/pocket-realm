@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * W6-N3: the host+join refusal ladder's pure decision table (the ask's
+ * the host+join refusal ladder's pure decision table (the ask's
  * "refuse simultaneous host+join on one instance"). The model verbs call
  * THESE — the truth table cannot drift from the wiring — and this test
  * pins every row.
@@ -100,11 +100,11 @@ class IrohJoinGuardsTest {
         )
     }
 
-    // --------------------------------------- round 4 (R1-r4-2, R6-4-3)
+    // ---------------------------------------
 
     @Test
     fun `a listing for another flavor refuses with the flavor row`() {
-        // R6-4-3's proposed leg: the mismatch row exists, names the code,
+        // its proposed leg: the mismatch row exists, names the code,
         // and is actionable (names both flavors).
         val refusal = IrohJoinGuards.joinRefusal(
             phase = startable,
@@ -122,7 +122,7 @@ class IrohJoinGuardsTest {
 
     @Test
     fun `the null-active posture refuses with the pick-first row - pinned`() {
-        // R1-r4-2's pinned decision (it was an accidental skip): no Home
+        // its pinned decision (it was an accidental skip) no Home
         // flavor picked + a flavor-carrying listing → refuse FIRST with
         // the pick-first row — never dial-then-die on "no client".
         val refusal = IrohJoinGuards.joinRefusal(
@@ -167,7 +167,7 @@ class IrohJoinGuardsTest {
     fun `the shared contract's ports are the game's fixed ports`() {
         // The gateway project restates 3724/8085 (it cannot see the
         // supervisor tree); THIS lane sees both trees — the drift alarm.
-        // Round-4 R1-r4-1: EVERY owning spelling is pinned equal — the
+        // EVERY owning spelling is pinned equal — the
         // supervisor's RealmEndpoint AND the server table's
         // ServerRuntimeContract (the spelling GatewayContract.kt's comment
         // names; the old pin covered only RealmEndpoint).
@@ -199,7 +199,7 @@ class IrohJoinGuardsTest {
 
     @Test
     fun `stopJoin releases the guards - Ready goes Idle, hosting re-allows`() {
-        // R4-2/R3-2: the manager's stop leg is the guards' release valve —
+        // the manager's stop leg is the guards' release valve —
         // after a Ready join is stopped, joinState is Idle and both verbs
         // allow their lanes again. (The state injection rides the real
         // manager flow: startJoin on a jar that cannot exist errors; the

@@ -48,7 +48,7 @@ class TimeframeCardFlavorTest {
 
     @Test
     fun timeframeCardFlavorResolvesThePersistedPickUnderTheFlip() {
-        // W4 flip: the sole-qualified degrade is retired — the card's
+ // Flip: the sole-qualified degrade is retired — the card's
         // render-time lane resolves through the machine's displayedId
         // (the holder's selection); the test pins vanilla the way the
         // Home card's tap persists it.

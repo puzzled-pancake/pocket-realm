@@ -50,7 +50,7 @@ def _capture_present(flavor: str) -> bool:
     return (gfc.CAPTURE_ROOT / flavor / "manifest.json").is_file()
 
 
-# ------------------------------------------------------------- R5-3-1
+# -------------------------------------------------------------
 
 @pytest.mark.parametrize("flavor", ("tbc", "wotlk"))
 def test_regenerated_catalogs_match_the_committed_bytes(flavor):
@@ -82,7 +82,7 @@ def test_regenerated_catalogs_match_the_committed_bytes(flavor):
         "committed file alone)")
 
 
-# ------------------------------------------------------------- R5-3-2
+# -------------------------------------------------------------
 
 @pytest.mark.parametrize("flavor", ("tbc", "wotlk"))
 def test_binding_catalog_integrity_pins(flavor):

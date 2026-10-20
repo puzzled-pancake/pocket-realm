@@ -1,7 +1,7 @@
 package com.pocketrealm.server
 
 /**
- * W3.4 fail-loud conf staging (port plan S3.6): every key the server
+ * Fail-loud conf staging: every key the server
  * runtime stages into an `aiplayerbot-*.conf` must be KNOWN for the
  * flavor's bots build — an unknown key used to be silently dropped by the
  * core's config parser, shipping a bot world that quietly ignored the app's
@@ -10,7 +10,7 @@ package com.pocketrealm.server
  * surfaces) plus the catalog's code-read sets (the patch-injected
  * PocketRealm and LLM keys the built core reads — ENUMERATED, never a
  * family-level accept: a typo'd overlay key is refused like any other
- * unknown key, R2-1). Excluded families (correction C9: the wotlk VoiceChat
+ * unknown key). Excluded families (correction: the wotlk VoiceChat
  * inert stub) are honored by the consumer — a key in an excluded family is
  * refused with its OWN naming, never the generic unknown-key error.
  */
@@ -47,7 +47,7 @@ internal object BotConfStaging {
             val family = key.substringBefore('.', missingDelimiterValue = key)
             when {
                 family in excluded -> excludedHits += key
-                // R2-1: NO family-level accept — the shipped PocketRealm.*
+                // NO family-level accept — the shipped PocketRealm.*
                 // emission keys are ENUMERATED in the code-read sets, so
                 // `key in known` covers them; a blanket startsWith accept
                 // would wave through a typo'd or drifted overlay key (the

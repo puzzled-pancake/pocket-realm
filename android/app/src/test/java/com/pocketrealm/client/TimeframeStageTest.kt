@@ -30,7 +30,7 @@ import org.junit.Before
  * file so the twins cannot fork.
  */
 class TimeframeStageTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -95,7 +95,7 @@ class TimeframeStageTest {
 
     @Test
     fun confValueNeverGoesEmptyAndDefaultsToTheFinalPatch() {
-        // W4 flip: three lanes are qualified and the holder carries a
+ // Flip: three lanes are qualified and the holder carries a
         // selection (this class pins the vanilla lane in setUp) — the conf
         // always names a CONCRETE stage of the ACTIVE lane.
         assertEquals(
@@ -185,7 +185,7 @@ class TimeframeStageTest {
         // The directional rule the overlay machinery will implement with
         // measured sets: a non-final stage can only CLOSE what the seed has
         // open or OPEN what the seed has closed — never invent either.
-        // Pinned here at the predicate level so the S4 curation cannot flip
+        // Pinned here at the predicate level so the curation cannot flip
         // the semantics silently.
         val early = TimeframeStages.requireForFlavor("vanilla", "vanilla-1.5")
         val seededOpenClosedAtStage = TimeframeStages.isEventActiveAt(early, 42, seededActive = true)
@@ -255,7 +255,7 @@ class TimeframeStageTest {
         assertEquals("wotlk-3.0.2", TimeframeStages.resolveStoredIn("wotlk-3.0.2", qualifiedAll))
         assertEquals("", TimeframeStages.resolveStoredIn("vanilla-9.9", qualifiedAll))
         // And through the production wrapper, which reads the live
-        // registry. W4 flip: the live registry qualifies all three lanes,
+ // Registry. The live registry qualifies all three lanes,
         // so the tbc stage survives (it was "not qualified today" only
         // under the pre-flip registry).
         assertEquals("tbc-2.4.3", TimeframeStages.resolveStored("tbc-2.4.3"))
@@ -281,7 +281,7 @@ class TimeframeStageTest {
             TimeframeStages.requireForFlavor("vanilla", "vanilla-1.12.1"),
         )
         // PlayerbotLlmTruthCore.h EraAlwaysBanTerms, verbatim.
-        // Round-4 R5-4-1: draenei/pandaren are corpus-proven vanilla-legitimate
+        // draenei/pandaren are corpus-proven vanilla-legitimate
         // (broadcast_text 5296 / npc_text 154 in the shipped 1.12.1 dump) and
         // are NEVER banned for vanilla.
         assertEquals(listOf("shattrath", "acherus"), baseline.alwaysBanTerms)

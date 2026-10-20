@@ -1,17 +1,17 @@
-// W6-N3 iroh gateway — the desktop transport process (host + join).
+// iroh gateway — the desktop transport process (host + join).
 //
 // WHY A SEPARATE PROCESS (and not code inside the desktop lane): the
 // computer.iroh:iroh 1.1.0 artifact ships Kotlin 2.2.21 metadata and JVM 21
-// bytecode (D92 §0); the desktop lane pins Kotlin 2.0.21 + JDK 17 and its
+// bytecode; the desktop lane pins Kotlin 2.0.21 + JDK 17 and its
 // compiler refuses to even READ the artifact. The gateway is a standalone
-// Gradle build (the proven W6-N2 spike pattern) that the app spawns as a
+// Gradle build (the proven spike pattern) that the app spawns as a
 // child process; the app↔gateway line protocol lives in the SHARED
 // GatewayContract (compiled by all three trees), so the boundary cannot
 // drift. The vanilla lanes stay untouched: nothing here changes their
 // classpaths, toolchains, or outputs.
 //
 // Dependency pin: computer.iroh:iroh 1.1.0 — the newest iroh Kotlin artifact
-// published to Maven Central (D92 §0; the plan's "1.3.x" exists only as the
+// published to Maven Central (the plan's "1.3.x" exists only as the
 // Rust crate). Kotlin 2.2.21 is REQUIRED (2.0.x refuses the artifact's
 // metadata); JDK 21 is REQUIRED (the artifact's class files are Java 21).
 // The E:-resident JDK 21 is selected by JAVA_HOME when building/running;
@@ -82,7 +82,7 @@ sourceSets.main {
 // The artifact's Gradle module metadata declares JVM 21 minimum — build and
 // run on the E:-resident JDK 21 (JAVA_HOME selects it; the launch posture is
 // documented in the module doc and exercised by GatewaySubprocessE2E — the
-// round-6 R3-r6-2 cite fix: the old "see scripts/iroh_n3_*" pointed at
+// cite fix: the old "see scripts/iroh_n3_*" pointed at
 // files that never existed).
 kotlin {
     jvmToolchain(21)
@@ -111,7 +111,7 @@ val fatJar = tasks.register<Jar>("fatJar") {
     }
 }
 
-// W6-N4: the docker reconnect leg's fake-stack jar — the TEST source
+// the docker reconnect leg's fake-stack jar — the TEST source
 // set's entrypoint (FakeRealmServer/FakeEchoServer + the container
 // main), never a production Main-Class. The ReconnectDockerE2E mounts
 // BOTH jars into the host container (/app, read-only).
@@ -179,14 +179,14 @@ tasks.test {
     }
     // The in-process E2E binds loopback ports; give it room.
     systemProperty("jna.tmpdir", "E:/pocket_realm_toolchain/tmp/jna")
-    // R3-r3-1: the forked test workers pin java.io.tmpdir to E: too (the
-    // D56 posture — the sibling lanes pin the same).
+    // the forked test workers pin java.io.tmpdir to E: too (the
+    // posture — the sibling lanes pin the same).
     // The payload-capture evidence run (-Ppocket.payload.dump=<dir> on the
     // gradle command is NOT visible to test workers — propagate it).
     System.getProperty("pocket.payload.dump")?.let {
         systemProperty("pocket.payload.dump", it)
     }
-    // W6-N4: the reconnect proofs' opt-in flags ride the same channel
+    // the reconnect proofs' opt-in flags ride the same channel
     // (absent = the suite stays hermetic and the legs SKIP honestly).
     listOf("pocket.reconnect.relay", "pocket.reconnect.docker").forEach { name ->
         System.getProperty(name)?.let { systemProperty(name, it) }

@@ -24,7 +24,7 @@ import org.json.JSONObject
  * + fsync + atomic rename, log rotation only between native runtimes).
  *
  * Lane differences, all deliberate:
- *  - databaseInfo follows the SHARED active-provider contract (the DESK-5
+ * - databaseInfo follows the SHARED active-provider contract (the DESK-5
  *    engine lane): the SQLite materialization keeps the file-path form,
  *    and a durable active-provider marker naming MARIADB switches the conf
  *    to the MariaDB socket form — the Android twin's exact
@@ -118,7 +118,7 @@ internal class ServerRuntimeFiles(
      */
     fun realmdConfig(
         bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
-        /** R1-r3-3/R3-1 (round 3): the START's threaded snapshot — the same
+        /** The START's threaded snapshot — the same
          * one startWorld consumes — so the realm and world legs resolve ONE
          * lane even when a persisted write lands between the two component
          * starts (the up-to-25s realm READY window). Null keeps the file's
@@ -204,7 +204,7 @@ internal class ServerRuntimeFiles(
          * file's own load (older callers, tests). */
         settingsSnapshot: Settings.Snapshot? = null,
     ): File {
-        // R1-r2-1: the whole start resolves ONE lane — the persisted
+        // the whole start resolves ONE lane — the persisted
         // selection (or the threaded snapshot) read ONCE here — so a
         // mid-start switch of the :ui-local machine can never tear the
         // prepared-data generation vs the conf's database names vs the
@@ -214,13 +214,13 @@ internal class ServerRuntimeFiles(
         val snapshot = settingsSnapshot ?: settings.load()
         purgeStaleBotConfSecrets()
         val botConfig = if (botProfile != null) {
-            // R5-R6-2: the conf VALUES ride the same pinned boot lane as
+            // the conf VALUES ride the same pinned boot lane as
             // the staging gate — never the :ui holder.
             val botConfText =
                 botProfile.playerbotConfig(lane) + (llmConfigOverrides(botProfile, snapshot) ?: "")
             // W3.4 fail-loud conf staging: an unknown key for the flavor's
             // bots build aborts the start instead of being silently dropped
-            // by the core's config parser; excluded families (C9 VoiceChat)
+            // by the core's config parser; excluded families (VoiceChat)
             // are refused with their own naming.
             BotConfStaging.requireStagingSafe(lane.flavorId, botProfile.id, botConfText)
             secureWrite(
@@ -239,7 +239,7 @@ internal class ServerRuntimeFiles(
         """.trimIndent() + "\n"
             // R6-5/R2-6-1 (code-red round 6): the disabled staging leg runs
             // the SAME fail-loud gate as the profile leg — the desktop twin
-            // of the android R2-1 (round 5) fix; a drifted disabled key
+            // of the android fix; a drifted disabled key
             // fails the start instead of silently dropping (the
             // bots-off enforcement is exactly the key class the core
             // silently drops).
@@ -247,7 +247,7 @@ internal class ServerRuntimeFiles(
             secureWrite(File(run, "aiplayerbot-disabled.conf"), disabledConfText)
         }
         val bind = resolveBindAddress(bindAddress)
-        // R1-r2-1: the boot lane's database names, never the live machine.
+        // the boot lane's database names, never the live machine.
         val databases = serverDatabases(lane)
         return secureWrite(File(run, "mangosd.conf"), """
             DataDir = "${data.absolutePath}"
@@ -716,7 +716,7 @@ internal class ServerRuntimeFiles(
         private const val DETAIL_MAX_CHARS = 256
         private const val MAX_ASSET_WALK_UP = 6
 
-        /** GAP-4: the [ActiveFlavor] lane suffix naming the server
+        /** the [ActiveFlavor] lane suffix naming the server
          * runtime's resolution gate (conf writes, the realmlist
          * projection, the SRP6 logon clients). */
         private const val SERVER_RUNTIME_LANE =

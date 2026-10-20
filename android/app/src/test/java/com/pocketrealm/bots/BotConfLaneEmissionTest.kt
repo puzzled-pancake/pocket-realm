@@ -52,7 +52,7 @@ class BotConfLaneEmissionTest {
 
     @Test
     fun `the emission source never consults the ActiveFlavor holder`() {
-        // source shape (R5-R6-2): BotProfiles' emission must not reference
+        // source shape: BotProfiles' emission must not reference
         // the holder — the lane arrives as a parameter from the world
         // start's pinned boot lane.
         val root = generateSequence(File(System.getProperty("user.dir"))) {

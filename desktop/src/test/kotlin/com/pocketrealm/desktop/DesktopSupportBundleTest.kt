@@ -28,7 +28,7 @@ import org.junit.Before
  * auto-login process's memory and can carry the stored credential.
  */
 class DesktopSupportBundleTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -262,7 +262,7 @@ class DesktopSupportBundleTest {
         }
     }
 
-    /** R3-1's corrupt-file leg: a TRUNCATED settings.json (unparseable)
+    /** its corrupt-file leg: a TRUNCATED settings.json (unparseable)
      * whose raw bytes carry the secret must still redact it — the
      * key-name scrub only fires on parseable JSON, so the raw-extraction
      * canary is the only guard on this lane. */

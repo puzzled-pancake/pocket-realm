@@ -279,7 +279,7 @@ public:
         };
         if (!is_account_token(username) || !is_account_token(password))
             return POCKET_SERVER_INVALID_ARGUMENT;
-        // R2-1 (round 2, serious): the credential must NEVER enter the CLI
+        // the credential must NEVER enter the CLI
         // command string. SEC_CONSOLE commands are echoed to world.log by
         // Chat.cpp's LogCommand whenever LogFileLevel >= LOG_LVL_DETAIL
         // (the product's debug-logs mode stages level 3), and world.log
@@ -305,7 +305,7 @@ public:
         }
     }
 
-    // R3-1 (round 3): the `account set` handlers resolve their argument
+    // the `account set` handlers resolve their argument
     // through ChatHandler::ExtractAccountId, whose NUMERIC branch treats a
     // digit string as an ACCOUNT ID (Chat.cpp:3420-3425) — passing a
     // digits-named USERNAME verbatim either rejects a real account forever
@@ -331,7 +331,7 @@ public:
             (result == POCKET_SERVER_TIMEOUT ? result : POCKET_SERVER_ACCOUNT_REJECTED);
     }
 
-    // F1-10 (lanes item 12): the account-expansion relay op. tbc/wotlk
+    // The account-expansion relay op (the multi-lane design): tbc/wotlk
     // rows are born with the seed's expansion default (0) and the core
     // evaluates expansion gating per account row, so a flavor account
     // cannot use expansion content until the core's own verb runs —
@@ -349,7 +349,7 @@ public:
         if (!std::all_of(username.begin(), username.end(),
                 [](unsigned char c) { return std::isalnum(c); }))
             return POCKET_SERVER_INVALID_ARGUMENT;
-        // R3-1: the id is resolved above the CLI string — a digits-named
+        // the id is resolved above the CLI string — a digits-named
         // guest (LanScreen accepts [A-Za-z0-9]{1,16}) would otherwise be
         // reinterpreted as an ACCOUNT ID by ExtractAccountId: rejected
         // forever on a tbc/wotlk provisioning lane, or the expansion write
@@ -511,7 +511,7 @@ public:
         return json.str();
     }
 
-    // ---- Remote friend accounts (design-remote-accounts §3/§8/§9/§11): ----
+    // ---- Remote friend accounts ----
     // verifier provisioning, roster reads, and ban verbs. The verifier op
     // mirrors AccountMgr::CreateAccount's write WITHOUT a password input
     // (AccountMgr.cpp:51-68): (s,v) were derived on the friend's device and
@@ -572,12 +572,12 @@ public:
         return {POCKET_SERVER_OK, account_info(normalized).first};
     }
 
-    // The Players-screen roster read (§11): identity columns plus the ban
+    // The Players-screen roster read: identity columns plus the ban
     // state (active account_banned row), the live failed_logins counter,
     // the last SUCCESSFUL logon (account_logons records successes only),
     // and online status. Online is the core's own onlinelist predicate
     // (CliRunnable.cpp HandleAccountOnlineListCommand: active_realm_id =
-    // realmID) — the structured-op form the design's §11 allows instead of
+    // realmID) — the structured-op form the design’s §11 allows instead of
     // parsing console text. No user input reaches the query; row counts
     // are tiny by design (friends + bots + host). Allowing SAVING mirrors
     // account_info.
@@ -597,10 +597,10 @@ public:
             // predicate to the Guests list).
             "(SELECT COUNT(*) FROM account_banned b WHERE b.account_id=a.id AND b.active=1"
             " AND (b.expires_at > " _UNIXTIME_ " OR b.expires_at = b.banned_at)),"
-            // The last-logon ADDRESS is deliberately NOT selected: plan §1
+            // The last-logon ADDRESS is deliberately NOT selected: plan
             // rule 7 — peer addresses are never displayed. The audit trail
             // stays in account_logons for the host's database access; the
-            // roster payload carries only the timestamp (R3-1/R5-4).
+            // roster payload carries only the timestamp.
             "(SELECT l.loginTime FROM account_logons l WHERE l.accountId=a.id ORDER BY l.id DESC LIMIT 1),"
             "(a.active_realm_id <> 0) "
             "FROM account a ORDER BY a.id");
@@ -608,7 +608,7 @@ public:
         // error) - an account-less database is an empty roster, not a
         // failure.
         if (!result) return "{\"ok\":true,\"accounts\":[]}";
-        // R5-5 + R2-1 (round 2): bot rows are labeled in the payload, never
+        // bot rows are labeled in the payload, never
         // silently padded into the friends roster. The markers are the bot
         // admission's account prefixes — EVERY profile's accountPrefix in
         // BotProfiles.kt (the owning table), not one literal: the single-
@@ -654,7 +654,7 @@ public:
         return json.str();
     }
 
-    // Per-friend characters (§8): rows in `characters` key on the account
+    // Per-friend characters: rows in `characters` key on the account
     // id, so nothing new is required for characters to be per-account; this
     // op only lists them (guid/name/race/class/level). The
     // character_persistence validation pattern, mirrored.
@@ -696,7 +696,7 @@ public:
         return json.str();
     }
 
-    // Ban/unban (§9): the shared moderation surface, wrapping the console
+    // Ban/unban: the shared moderation surface, wrapping the console
     // verbs through the SEC_CONSOLE issue_command every account op uses.
     // `ban account <name> <duration> <reason>` needs all three arguments
     // (Level3.cpp HandleBanHelper); duration "0" is the permanent ban, the
@@ -757,7 +757,7 @@ public:
         return json.str();
     }
 
-    // ---- H2 relay-min: the per-change smoke rail's three fixed-purpose
+    // ---- relay-min: the per-change smoke rail's three fixed-purpose
     // ops. All three answer in JSON (the character_persistence pattern):
     // no SQL and no raw chat text crosses Binder - each op is a fixed verb
     // with native-side validation and escaping. world_chat additionally
@@ -1458,7 +1458,7 @@ private:
         return result->success ? POCKET_SERVER_OK : POCKET_SERVER_ACCOUNT_REJECTED;
     }
 
-    // ---- H2 relay-min: chat injection plumbing ----
+    // ---- relay-min: chat injection plumbing ----
     // The binder thread queues a synthetic chat line; the world thread
     // drains it on the next tick (session chat handlers and the playerbot
     // hooks inside them run there - the same marshaling law as the bot
@@ -1611,7 +1611,7 @@ private:
     std::atomic<int> m_bot_max{0};
     std::atomic<int> m_effective_bot_target{0};
     pocket_server::BotTargetFence m_bot_target_fence;
-    // H2 relay-min: the pending world-chat injection (world-thread drain;
+    // relay-min: the pending world-chat injection (world-thread drain;
     // see ChatInjectionSlot above)
     ChatInjectionSlot m_chat_slot;
     std::array<std::atomic<uint32_t>, 12> m_low_cpu_telemetry{};
@@ -1748,7 +1748,7 @@ Java_com_pocketrealm_server_WorldNative_characterPersistenceNative(
         from_jstring(env, username), from_jstring(env, character_name)));
 }
 
-// ---- Remote friend accounts (design-remote-accounts) ----
+// ---- Remote friend accounts ----
 
 extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_pocketrealm_server_WorldNative_createAccountVerifierNative(
@@ -1789,7 +1789,7 @@ Java_com_pocketrealm_server_WorldNative_unbanAccountNative(
         from_jstring(env, username), static_cast<uint64_t>(std::max<jlong>(0, timeout_ms))));
 }
 
-// ---- H2 relay-min smoke-rail ops ----
+// ---- relay-min smoke-rail ops ----
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_pocketrealm_server_WorldNative_worldChatNative(

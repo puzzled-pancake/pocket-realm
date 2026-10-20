@@ -113,7 +113,7 @@ class DesktopAddonRepository private constructor(
         if (registry.isFile) return
         launchOperation(errorTitle = "Could not install the built-in Android Port") { token ->
             if (registry.isFile) return@launchOperation
-            // R4-2: the desktop lane ships the VANILLA catalog (row 151
+            // the desktop lane ships the VANILLA catalog (row 151
             // always present), so the per-flavor exclusion must gate on the
             // ACTIVE FLAVOR — a tbc/wotlk lane skips the AndroidPort
             // seed/refresh (owner decision, completion-plan table #8).
@@ -137,7 +137,7 @@ class DesktopAddonRepository private constructor(
                 ?: return@launchOperation
             val assetDigest = sha256BundledAssetTree(token)
             if (assetDigest.equals(current.archiveSha256, ignoreCase = true)) return@launchOperation
-            // R4-2: the desktop lane ships the VANILLA catalog (row 151
+            // the desktop lane ships the VANILLA catalog (row 151
             // always present), so the per-flavor exclusion must gate on the
             // ACTIVE FLAVOR — a tbc/wotlk lane skips the AndroidPort
             // seed/refresh (owner decision, completion-plan table #8).
@@ -516,7 +516,7 @@ class DesktopAddonRepository private constructor(
     }
 
     private fun installVoiceOverLocked(resolved: ResolvedGitHub, token: AddonOperationToken) {
-        // R6-r2-2/R6-r2-3 desktop parity: the era routes the artifacts AND
+        // desktop parity: the era routes the artifacts AND
         // the copy — no vanilla-era labels on the era-aware flow.
         val era = VoiceOverReleaseResolver.eraFor(
             com.pocketrealm.client.ActiveFlavor.resolve(

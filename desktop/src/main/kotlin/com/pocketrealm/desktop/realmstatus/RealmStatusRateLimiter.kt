@@ -3,7 +3,7 @@ package com.pocketrealm.desktop.realmstatus
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Realm-status browser (design realm-status-browser.md §6.2): the page
+ * Realm-status browser (design realm-status-browser.md) the page
  * limiter with the PUBLIC-aware keying.
  *
  * The limiter MUST NOT key on the socket peer in PUBLIC mode — every
@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentHashMap
  *    a local forger could forge a global-unicast IP anyway) PLUS IPv6 global
  *    unicast `2000::/3` (Cloudflare sets the header for v6 visitors;
  *    rejecting v6 would collapse all v6 visitors into the shared bucket —
- *    the round-3 fixture defect T11d pins);
+ * the fixture defect T11d pins);
  *  - a PRESENT-BUT-REJECTED header (loopback/RFC1918/link-local/multicast/
  *    unspecified — forgery the edge could never deliver) → the global bucket;
  *  - no header from the host's own loopback view → the RESERVED HOST BUDGET
@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 @Suppress("MagicNumber", "ComplexCondition", "CyclomaticComplexMethod", "ReturnCount")
 // the address-grammar validators are explicit bit/byte arithmetic on purpose
-// (the fixture's round-3 v6-shift defect is exactly what explicit arithmetic
+// the fixture's v6-shift defect is exactly what explicit arithmetic
 // + the T11d pin defend against); the early returns are the reject table
 class RealmStatusRateLimiter(
     private val perVisitorPerMinute: Int,
@@ -100,7 +100,7 @@ class RealmStatusRateLimiter(
         }
     }
 
-    /** The bounded-map eviction (§6.2): expired buckets first, then the
+    /** The bounded-map eviction: expired buckets first, then the
      * oldest — a forged-header flood cannot grow memory without limit. */
     private fun evictBounded(now: Long) {
         synchronized(evictionLock) {

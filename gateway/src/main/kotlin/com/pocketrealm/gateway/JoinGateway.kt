@@ -23,7 +23,7 @@ import java.net.ServerSocket
 import java.net.Socket
 
 /**
- * W6-N3 join gateway: dials the host's iroh node id (relay-only default:
+ * join gateway: dials the host's iroh node id (relay-only default:
  * the LISTING's home relay URL is the only relay this endpoint joins
  * through; no direct address is ever dialed), then binds the joiner-side
  * LOOPBACK listeners 3724 and 8085 so the local client plays "through the
@@ -90,7 +90,7 @@ internal object JoinGateway {
             //    the port-id header, then raw bytes (3724 filtered).
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             try {
-                // Round-6 R6-2-1: the CONNECTION-LOSS WATCHER. A dead host
+                // the CONNECTION-LOSS WATCHER. A dead host
                 // used to leave this process alive with zero error lines —
                 // the app's Ready never left and a dialing client hung.
                 // The reserved keep-alive lane (port id 0) round-trips one
@@ -205,7 +205,7 @@ internal object JoinGateway {
             // await: the filtered pump's LOUD rewrite refusal must reach
             // THIS body's catch — launched-and-cancelled (the first cut)
             // it died in a SupervisorJob worker and the join half-served
-            // (code-red R2-1/R5-2). Awaiting the client-ward pump first
+            // Awaiting the client-ward pump first
             // surfaces the rewrite failure immediately; a normal flow
             // still terminates through the server-side EOF cascade.
             val toClient = scope.async {
@@ -237,7 +237,7 @@ internal object JoinGateway {
     internal const val JOIN_DIAL_TIMEOUT_MS: Long = 30_000L
     internal const val BACKLOG: Int = 16
 
-    /** The connection-loss watcher's beat and per-probe budget (round-6
+    /** The connection-loss watcher's beat and per-probe budget
      * R6-2-1): loss is declared within ~KEEPALIVE_INTERVAL_MS +
      * KEEPALIVE_PROBE_TIMEOUT_MS of the host's endpoint dying — seconds,
      * not QUIC's ~26s idle timeout. */

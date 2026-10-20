@@ -34,8 +34,8 @@ import org.json.JSONObject
  *  - the generation marker (`.pocketrealm-generation.json`, same
  *    schema as the Android DatabaseDurableState marker) written once
  *    per fresh datadir, extended with the revision record (identity +
- *    migration-seal digest — the DESK-98 start re-proof input);
- *  - the shared seals stamped at seed (DESK-19/53/79): the
+ * migration-seal digest — the DESK-98 start re-proof input);
+ * - the shared seals stamped at seed (DESK-19/53/79): the
  *    [DatabaseMigrationSeal] over the pinned corpus
  *    (`.pocketrealm-migrations.json`, the Android sqliteMigrationMarker
  *    name) and the clean-stop seal [DatabaseGenerationSeal.clean]

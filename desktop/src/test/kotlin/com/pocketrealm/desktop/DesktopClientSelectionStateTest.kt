@@ -26,7 +26,7 @@ import org.junit.After
  * managed generations exist (the switcher half).
  */
 class DesktopClientSelectionStateTest {
-    /** W4 flip fixture: these tests read the SELECTION resolution
+    /** flip fixture: these tests read the SELECTION resolution
      * (folder/managed/none), not the no-pick refusal - the holder is
      * pinned to the vanilla lane so resolveClientDir sees one lane. */
     @Before
@@ -136,7 +136,7 @@ class DesktopClientSelectionStateTest {
         val roots = DesktopStorageRoots(folder.newFolder("roots-two-qualified"))
         val model = DesktopAppModel(roots)
         try {
-            // The generation imports under today's registry state; the S5
+            // The generation imports under today's registry state; the
             // flip (TwoQualifiedFlavors) then re-targets the reads only.
             val published = runBlocking {
                 injectedImporter(roots).run(materializeClient(folder.newFolder("imported")))

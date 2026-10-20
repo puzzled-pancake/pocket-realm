@@ -5,14 +5,14 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The provisioning listener's rate limiting, layer 1 (design-remote-accounts
- * §6): per source IP — 5 failed token/parse attempts → a 10-minute lockout;
+ * per source IP — 5 failed token/parse attempts → a 10-minute lockout;
  * a global cap on concurrent connections. The live counters are in-memory;
  * the LOCKOUT rows also persist through the [FriendInviteStore] so an app
  * restart does not amnesty a locked source. (Layer 2 is the invite's own
  * single-use/expiry/cap design; layer 3 is realmd's WrongPass lockout on
  * non-loopback binds — out of this object's scope.)
  *
- * The listener answers EVERY refusal with the identical error blob (§5), so
+ * The listener answers EVERY refusal with the identical error blob, so
  * these counters must never leak state into a response — they only decide
  * serve vs refuse.
  */
@@ -26,7 +26,7 @@ class ProvisionRateLimiter(
 ) {
     // R4-3 (android-core review round 1): the live per-IP maps are keyed by
     // ATTACKER-SUPPLIED source IPs, so they are bounded — a
-    // many-unique-source spray (the exact pattern §6 layer 1 exists for)
+    // many-unique-source spray (the exact pattern layer 1 exists for)
     // must not grow the host heap for the process lifetime. Insertion-ORDER
     // maps under one lock (eviction is oldest-first); the persisted rows
     // keep their own MAX_RATE_ROWS bound in FriendInviteStore.
@@ -109,7 +109,7 @@ class ProvisionRateLimiter(
     private fun trackedCountLocked(): Int =
         (failuresByIp.keys + lockedUntilByIp.keys).distinct().size
 
-    /** The global concurrency gate (§6: 10 concurrent connections). Returns
+    /** The global concurrency gate (10 concurrent connections). Returns
      * false when the host is at capacity; the caller closes the socket. */
     fun tryAcquireConnection(): Boolean {
         while (true) {

@@ -438,7 +438,7 @@ def test_rank_lane_pins_in_app_import_verdict_shape() -> None:
     assert "REJECTED" not in result.stdout
 
 
-# --- F12: -Flavor parameterization (S5 item 8 host fixture) -----------------------
+# --- -Flavor parameterization (host fixture) -----------------------
 
 def _flavor_block(flavor_id: str) -> dict:
     """The S5.1-registered identity the ps1 must resolve per flavor — read

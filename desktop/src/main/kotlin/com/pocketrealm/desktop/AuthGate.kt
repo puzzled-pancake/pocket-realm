@@ -46,7 +46,7 @@ import kotlin.system.exitProcess
 // Bring-up gate: any failure exits honestly with the stop attempted.
 @Suppress("TooGenericExceptionCaught", "LongMethod")
 /**
- * DESK-93 + R1-r3-5 (desktop-twin round 3), extracted for the harness ops
+ * DESK-93 + -5 (desktop-twin), extracted for the harness ops
  * (W4.2): the SRP verifier row lands where the database realmd.conf's
  * LoginDatabaseInfo points — PROVIDER-AWARE. The shipped-default MariaDB
  * lane routes through the engine's owner-gated SQL (seedSrpVerifierRow,
@@ -401,7 +401,7 @@ internal object VsrpClient {
 
             // DESK-94: the challenge identity rides the one qualified
             // flavor (ClientFlavor.build / versionResource), never a
-            // hard-coded build constant. W4 flip: the caller's pinned
+ // Hard-coded build constant. The caller's pinned
             // boot lane first — a headless harness never populates the
             // :ui holder, whose multi-qualified no-pick state refuses loud.
             val flavor = identity?.lane ?: ServerRuntimeFiles.serverFlavor()
@@ -470,7 +470,7 @@ internal object VsrpClient {
             // frame pin. W4.2: the two verified layouts are the vanilla
             // 26-byte frame (cmd+error+M2+uint32 LoginFlags) and the
             // tbc/wotlk 32-byte frame (cmd+error+M2+uint32 accountFlags+
-            // uint32 surveyId+uint16 unkFlags — S8-verified against the
+            // uint32 surveyId+uint16 unkFlags — -verified against the
             // branches' AuthSocket.cpp); the zero-tail check below is
             // layout-uniform (a non-zero tail is refused naming the
             // flavor's own layout).

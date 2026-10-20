@@ -91,7 +91,7 @@ private fun bootAndExitMidSession() {
 
 /** The DESK-111 proof: the mid-session exit drained a booted stack without
  * a window — read from the durable state the drain left behind. The at-rest
- * datadir check is provider-aware (D19): [datadirAtRest]. */
+ * datadir check is provider-aware: [datadirAtRest]. */
 @Suppress("TooGenericExceptionCaught") // gate lane: failures exit with the phase's code
 private fun verifyCleanDrain() {
     try {
@@ -123,7 +123,7 @@ private fun verifyCleanDrain() {
     }
 }
 
-/** The at-rest datadir proof, per selected provider (D19): the SQLITE
+/** The at-rest datadir proof, per selected provider: the SQLITE
  * dev/compat lane proves no WAL sidecar survived; the MariaDB default lane
  * proves the daemon's pid file names no live process (a clean shutdown
  * retires it; a survivor is a dirty drain). */

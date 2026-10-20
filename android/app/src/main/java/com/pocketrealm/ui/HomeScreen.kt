@@ -704,7 +704,7 @@ private fun RealmControlCard(
         val actionArea: @Composable (fillRow: Boolean) -> Unit = { fillRow ->
             when (state) {
                 // SupervisorUnreachable joins the start-actions group: the
-                // §6.4 dead-poll lane is exactly the "needs a human decision"
+                // dead-poll lane is exactly the "needs a human decision"
                 // class (and Start/recover is the honest remedy).
                 is RealmState.Idle, is RealmState.Failed, is RealmState.Recovering,
                 is RealmState.SupervisorUnreachable,
@@ -1091,7 +1091,7 @@ private fun realmStatus(state: RealmState): Pair<String, String> = when (state) 
     is RealmState.Stopping -> "Stopping" to "Closing the client and local services safely."
     is RealmState.Recovering -> "Recovering" to state.note
     is RealmState.Failed -> "Needs attention" to state.message
-    // §6.4: an unreadable supervisor is NOT an offline claim — the copy
+    // an unreadable supervisor is NOT an offline claim — the copy
     // says the status lane is unreachable and never guesses a polarity.
     is RealmState.SupervisorUnreachable -> "Supervisor unreachable" to
         "The realm's status could not be read (${state.reason}). The realm is " +

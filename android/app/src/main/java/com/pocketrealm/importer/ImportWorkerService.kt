@@ -62,7 +62,7 @@ class ImportWorkerService : Service() {
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:o11-import")
             .apply { acquire(8L * 60L * 60L * 1000L) }
         task = scope.launch {
-            // W4 flip (R4-1): construction resolves the ACTIVE lane — a
+        // The construction resolves the ACTIVE lane — a
             // multi-qualified no-pick refusal lands in the notification.
             // R4-r3-1 (code-red round 3): the refusal is a designed
             // first-run outcome, so it must run the SAME teardown as a
@@ -148,7 +148,7 @@ class ImportWorkerService : Service() {
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:o11-import")
             .apply { acquire(8L * 60L * 60L * 1000L) }
         task = scope.launch {
-            // W4 flip (R4-1): see the folder arm's lane refusal note.
+        // See the folder arm's lane refusal note.
             val importer = try {
                 buildImporter(testProfile)
             } catch (lane: IllegalStateException) {
@@ -159,7 +159,7 @@ class ImportWorkerService : Service() {
                             "that lane (${lane.message ?: "no active lane"})",
                     ),
                 )
-                // R4-r3-1: same teardown as the folder arm's refusal — the
+                // same teardown as the folder arm's refusal — the
                 // held wake lock and the foreground state are not the next
                 // try/finally's to clean up (that block is never reached).
                 ImportProcessMetricsSampler.markStopped(applicationContext)
@@ -239,7 +239,7 @@ class ImportWorkerService : Service() {
      * last copied MPQ for the entire (many-minute) server-data phase. Prefer
      * the running data stage; fall back to the copy-phase file counter.
      */
-    /** W4 flip (R4-1): the importer construction resolves the ACTIVE lane
+    /** The importer construction resolves the ACTIVE lane
      * through the storage planner's flavor budgets — extracted so both
      * launch arms share one construction and the multi-qualified no-pick
      * refusal surfaces as the service's honest notification instead of a

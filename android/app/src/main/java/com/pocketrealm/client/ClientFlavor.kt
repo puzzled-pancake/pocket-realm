@@ -6,12 +6,12 @@ package com.pocketrealm.client
  * This registry mirrors `schemas/flavor.json` (schema 2). Every client-identity
  * gate — import scanners, managed stores, runtime authorization — must resolve
  * through [ClientFlavors] instead of comparing against a hard-coded id, so that
- * qualifying a new flavor (port plan stage S5) is a data change here, not a
+ * qualifying a new flavor (stage S5) is a data change here, not a
  * code sweep.
  *
  * A flavor with [ClientFlavor.qualified] == false is declared but disabled:
  * its data is informational, import rejects it, and no runtime lane may
- * authorize it. All three lanes are qualified since the W4 flip (owner
+ * authorize it. All three lanes are qualified since the flip (owner
  * default, completion-plan §4 W4.4 / decision D86): with several qualified
  * flavors an ABSENT active selection refuses loud
  * ([com.pocketrealm.client.ActiveFlavorState.resolve]) — the Home flavor
@@ -68,7 +68,7 @@ data class ClientFlavor(
      * per-flavor value.
      */
     val proofResponseBytes: Int?,
-    /** Correction C8: WTF write-out layout ("account-level" / "3-level"). */
+    /** Correction: WTF write-out layout ("account-level" / "3-level"). */
     val wtfLayout: String,
     /**
      * Correction C8: the WotLK-era char-level cache-file set; empty for
@@ -89,7 +89,7 @@ data class ClientFlavor(
     val largeAddressAware: Boolean?,
     /**
      * W3.2 (D15(5) retirement): the lore-corpus asset this flavor's LLM lane
-     * loads — the manifest's `llm.lore_cards` binding. The owner decision
+     * loads — the manifest's `llm.lore_cards` binding. The decision
      * binds every flavor to the ONE shared corpus asset (no per-flavor
      * jsonl); the per-flavor era filtering is the native load-time lint
      * against the active stage's ban lists (PlayerbotLlmTruthCore
@@ -198,7 +198,7 @@ object ClientFlavors {
      * completion-plan §4 W4.4 / decision D86). GATED: the flip commits only
      * when the W4.1 desktop end-to-end, the W4.2 3×3 auth matrix, and the
      * W4.3 friend-arc evidence are green (D86's flip-gate paragraph).
-     * Storage budgets are the W4 measured values (the manifest's
+     * Storage budgets are the measured values (the manifest's
      * storage.note carries the measurement provenance).
      */
     val TBC: ClientFlavor = ClientFlavor(
@@ -246,7 +246,7 @@ object ClientFlavors {
      * completion-plan §4 W4.4 / decision D86). GATED: the flip commits only
      * when the W4.1 desktop end-to-end, the W4.2 3×3 auth matrix, and the
      * W4.3 friend-arc evidence are green (D86's flip-gate paragraph).
-     * Storage budgets are the W4 measured values (the manifest's
+     * Storage budgets are the measured values (the manifest's
      * storage.note carries the measurement provenance).
      */
     val WOTLK: ClientFlavor = ClientFlavor(

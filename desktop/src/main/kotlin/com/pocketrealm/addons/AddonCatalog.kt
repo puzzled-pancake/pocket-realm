@@ -128,7 +128,7 @@ class AddonCatalog private constructor(
 
         @Volatile private var cached: Map<String, AddonCatalog>? = null
 
-        /** The catalog asset for [flavorId] (R6-r2-5, mirroring the android
+        /** The catalog asset for [flavorId] (mirroring the android
          * lane): the byte-frozen vanilla asset for the vanilla lane, the
          * per-flavor assets otherwise. */
         fun catalogAssetFor(flavorId: String): String = when (flavorId) {
@@ -181,7 +181,7 @@ class AddonCatalog private constructor(
             val root = JSONObject(text)
             require(root.getInt("schema") == 1) { "Unsupported addon catalog" }
             require(!root.has("bundled")) { "Retired bundled add-on metadata is not allowed" }
-            // R2-4/R6-3 desktop parity: the asset's own flavor identity must
+            // desktop parity: the asset's own flavor identity must
             // match the requested lane.
             if (flavorId != "vanilla") {
                 require(root.optString("flavor") == flavorId) {

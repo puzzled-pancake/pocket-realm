@@ -8,7 +8,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The §5.3 orphan-sweep pins, over the SAME record shape the production
+ * The orphan-sweep pins, over the SAME record shape the production
  * spawn seam writes ([TunnelOrphanSweep.realizedCommandLine] — the
  * realized `binary + argument tail` line, never a fabricated one):
  *
@@ -254,7 +254,7 @@ class TunnelOrphanSweepTest {
             sweep.sweep() is TunnelOrphanSweep.Outcome.Clear,
         )
         // ...but never SILENTLY: the failure reaches the log seam, so the
-        // §5.3 gate stopping tripping is visible in the app log.
+        // gate stopping tripping is visible in the app log.
         assertEquals(1, logs.size)
         assertTrue(
             "the failure's message reaches the log (got: $logs)",

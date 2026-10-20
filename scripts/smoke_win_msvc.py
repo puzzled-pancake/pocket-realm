@@ -21,7 +21,7 @@ from pathlib import Path
 
 try:
     from tools import common
-except ImportError:  # direct execution: python scripts/<script>.py
+except ImportError:
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from tools import common

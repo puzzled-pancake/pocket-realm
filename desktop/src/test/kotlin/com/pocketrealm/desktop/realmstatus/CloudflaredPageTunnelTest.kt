@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The cloudflared child lane's BOUNDED process waits: the §5.7 PATH probe
+ * The cloudflared child lane's BOUNDED process waits: the PATH probe
  * and stop()'s child reap must never wait unbounded. A
  * `cloudflared --version` that never exits is not-on-PATH (destroyed
  * forcibly within the bound, never a wedged worker thread stuck in

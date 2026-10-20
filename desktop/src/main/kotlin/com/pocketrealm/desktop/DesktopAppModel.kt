@@ -59,13 +59,13 @@ import kotlinx.coroutines.withContext
 internal class LanInterfaceLossMonitor(
     /** The snapshot source (the supervisor's state flow value). */
     private val snapshot: () -> com.pocketrealm.supervisor.RuntimeSnapshot?,
-    /** The D3-filtered liveness predicate. */
+    /** The -filtered liveness predicate. */
     private val liveInterface: (com.pocketrealm.supervisor.RealmEndpoint) -> Boolean,
     /** Design-tunnel §10: the tunnel-adapter liveness leg — the watched
      * predicate when the session advertises a tunnel address. */
     private val liveTunnelInterface: (com.pocketrealm.supervisor.AdvertisedAddress) -> Boolean =
         { com.pocketrealm.supervisor.TunnelInterfacePolicy.isCurrentTunnelInterface(it) },
-    /** The grace-elapsed action (the model's save-and-stop with the D9
+    /** The grace-elapsed action (the model's save-and-stop with the
      * stop reason). Runs on the monitor thread. */
     private val onGraceElapsed: () -> Unit,
     private val graceMs: Long = GRACE_MS,
@@ -152,7 +152,7 @@ internal class LanInterfaceLossMonitor(
         return true
     }
 
-    /** The D2 verbatim Android lines for LAN; the tunnel leg mirrors their
+    /** The verbatim Android lines for LAN; the tunnel leg mirrors their
      * shape so a log reader sees the same story per mode. */
     private fun lossStartLine(tunnel: Boolean, address: String): String =
         if (tunnel) {
@@ -273,7 +273,7 @@ sealed interface RestoreGate {
  * the supervisor's operation serialization stays intact.
  */
 @Suppress("TooManyFunctions") // the app-model seam: one verb per supervisor/store operation
-/** R1-r3-2: the snapshot-flavor writer's pure half — a pinned boot lane
+/** the snapshot-flavor writer's pure half — a pinned boot lane
  * REPLACES the snapshot's flavor (vanilla default); no world running keeps
  * the supervisor's own value. */
 internal fun RuntimeSnapshot.withBootLane(lane: ClientFlavor?): RuntimeSnapshot =
@@ -363,7 +363,7 @@ class DesktopAppModel(
         backend,
         DesktopSupervisorJournal(roots.supervisorJournalDir),
     )
-    /** R1-r3-2 (desktop-twin round 3): the RUNNING world's flavor rides
+    /** (desktop-twin) the RUNNING world's flavor rides
      * the observed snapshot — the backend's pinned boot lane, folded into
      * every emission (the journal field G3-4 defined but NO code ever
      * produced: the realm-status worldUp arm, the PUBLIC realm.flavor
@@ -386,7 +386,7 @@ class DesktopAppModel(
     private val _lanStopReason = MutableStateFlow<String?>(null)
     val lanStopReason: StateFlow<String?> = _lanStopReason.asStateFlow()
 
-    /** The D2 monitor thread; started with the model, stopped in [close].
+    /** The monitor thread; started with the model, stopped in [close].
      * Mode-aware per design-tunnel §10 through the SHARED
      * [com.pocketrealm.supervisor.InterfaceWatch] decision: plain LAN_HOST
      * watches the LAN endpoint (D2 verbatim); a tunnel-advertised session
@@ -431,7 +431,7 @@ class DesktopAppModel(
     // ------------------------------------------------------------------
     // Remote friend accounts (design-remote-accounts): the host's
     // invite/approve/provision hub, and the collector that keeps the
-    // provisioning listener a property of a hosting session (§6) — bound
+    // provisioning listener a property of a hosting session — bound
     // only while a LAN_HOST start with friend access enabled is up, stopped
     // with the realm, on EVERY stop path because the collector watches the
     // supervisor state rather than hooking individual verbs.
@@ -602,7 +602,7 @@ class DesktopAppModel(
      */
     fun activeClientGeneration(): ClientGenerationStatus? {
         val store = com.pocketrealm.importer.ClientGenerationStore(roots)
-        // W4 flip (R5-1): the render/status path resolves through the
+ // Flip: the render/status path resolves through the
         // machine's canonical displayedId — no persisted pick under the
         // flipped registry is the honest "no generation" state, never an
         // ambiguous-registry crash mid-composition.
@@ -825,7 +825,7 @@ class DesktopAppModel(
         includeClient: Boolean,
         profileOverride: String? = null,
     ): RuntimeOperation {
-        // W6-N3 clash guard (the symmetric half of startIrohJoin's): an
+        // clash guard (the symmetric half of startIrohJoin's) an
         // internet join owns 3724/8085 on this instance — starting a realm
         // stack now would bind-clash mid-boot. Refuse loudly; the user
         // stops the join first (never a silent stop of either lane).
@@ -877,7 +877,7 @@ class DesktopAppModel(
             // durable record a diagnosis can actually find.
             if (operation.ok) {
                 DesktopLog.i(TAG, "start ok: " + operation.detail)
-                // D2/D9: a fresh start supersedes any previous session's
+                // a fresh start supersedes any previous session's
                 // interface-loss stop reason.
                 _lanStopReason.value = null
             } else {
@@ -1428,10 +1428,10 @@ class DesktopAppModel(
     // ------------------------------------------------------------------
     // Design realm-status-browser.md: the read-only realm-status page —
     // the visibility machine's live controller (page server, page-only
-    // cloudflared child, orphan gate, §7 telemetry). Constructed lazily
-    // at the first hosting-card render; [boot] applies §4's boot
+    // cloudflared child, orphan gate, telemetry). Constructed lazily
+    // at the first hosting-card render; [boot] applies its boot
     // semantics (a persisted FRIENDS restores, a persisted PUBLIC
-    // re-arms without resuming). The ONE lifecycle rule (§1): NOTHING
+    // re-arms without resuming). The ONE lifecycle rule: NOTHING
     // here keys off stopReason — realm stops never touch the page.
     // ------------------------------------------------------------------
 
@@ -1466,7 +1466,7 @@ class DesktopAppModel(
         com.pocketrealm.desktop.nostr.effectiveRelays(_settings.value)
 
     // ------------------------------------------------------------------
-    // W6-N3: the iroh gateway lane — the join verbs over the CHILD
+    // the iroh gateway lane — the join verbs over the CHILD
     // PROCESS transport (the manager owns host + join process lifecycles;
     // the publisher reads the host descriptor for the listing's `join`
     // field). The refusal ladder IS the ask's host+join contract: one
@@ -1645,7 +1645,7 @@ class DesktopAppModel(
     // ------------------------------------------------------------------
     // Design-tunnel §4/§5/§6: the host-over-the-internet (tunnel) lane's
     // model helpers — the stored advertised address as typed state, the
-    // effective advertisement for display/invite, and the §6 invite
+    // effective advertisement for display/invite, and the invite
     // artifact (address block only). All settings-derived: the same source
     // launchSpec builds from, so the card can never promise an address the
     // next start would not project.
@@ -2204,26 +2204,26 @@ class DesktopAppModel(
     }
 
     override fun close() {
-        // W6-N1: the graceful-stop leg of the listing lifecycle — the
+        // the graceful-stop leg of the listing lifecycle — the
         // NIP-09 retract rides out BEFORE the scopes die (bounded inside).
         if (nostrListingLazy.isInitialized()) {
             runCatching { nostrListing.shutdown() }
         }
-        // W6-N3: the gateway child processes die with the model (both the
+        // the gateway child processes die with the model (both the
         // host endpoint and any live join — never an orphaned iroh relay
         // registration after app exit).
         if (irohGatewayLazy.isInitialized()) {
             runCatching { irohGateway.close() }
         }
         modelScope.cancel()
-        // The realm-status page dies with the app process (the §1 rule's
+        // The realm-status page dies with the app process (the rule's
         // app-exit leg); only when the controller was ever constructed.
         if (realmStatusLazy.isInitialized()) {
             runCatching { realmStatus.close() }
         }
-        // D2: the monitor never outlives the model.
+        // the monitor never outlives the model.
         runCatching { lanInterfaceMonitor.stop() }
-        // Remote accounts: the provisioning socket dies with the app (§6).
+        // Remote accounts: the provisioning socket dies with the app.
         // The cancel JOINS: a collector body already inside
         // onRuntimeChanged has no suspension points, so cancel alone
         // cannot stop it — without the join it could re-bind the
@@ -2252,7 +2252,7 @@ class DesktopAppModel(
          * selection rides the settings snapshot into world start). */
         const val DESKTOP_PROFILE = "local"
 
-        /** W6-N3 join-verb budgets: the READY wait (the gateway dial + the
+        /** join-verb budgets: the READY wait (the gateway dial + the
          * loopback binds) and its poll grain; the persisted transport
          * identity's byte/hex lengths; the READY log line's node prefix. */
         const val JOIN_READY_TIMEOUT_MS = 45_000L
@@ -2277,7 +2277,7 @@ class DesktopAppModel(
         private const val TAG_AUTO_LOGIN = "AutoLogin"
 
         // F7: the guest-ban engine-relay lane's fixed strings. The audit
-        // actions are the §12 rows the SQLITE lane's store and the Players
+        // actions are the rows the SQLITE lane's store and the Players
         // moderation verbs write (FriendInviteStore.ACTION_BANNED et al. —
         // hardcoded here like DesktopGuestBans does; the store's consts are
         // internal to the android build's own compilation).
@@ -2287,7 +2287,7 @@ class DesktopAppModel(
         private const val RELAY_AUDIT_UNBANNED = "friend-unbanned"
         private const val RELAY_BAN_ROW_REASON = "banned on the live realm"
 
-        /** GAP-3: the [com.pocketrealm.client.ActiveFlavor] lane suffix
+        /** the [com.pocketrealm.client.ActiveFlavor] lane suffix
          * naming the active-generation gate. */
 
         /** The READ-ONLY proof outcomes that ARE an authoritative world

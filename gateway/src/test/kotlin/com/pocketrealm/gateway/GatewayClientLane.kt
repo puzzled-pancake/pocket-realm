@@ -6,7 +6,7 @@ import java.io.DataInputStream
 import java.net.Socket
 
 /**
- * W6-N4: the fake client lane, extracted from GatewaySubprocessE2E and
+ * the fake client lane, extracted from GatewaySubprocessE2E and
  * parameterized by the joiner-side ports (the one-machine E2E dials the
  * real 3724/8085; the docker-isolated reconnect leg's client main runs
  * INSIDE the joiner container). The exchange is the REAL auth dance plus
@@ -21,7 +21,7 @@ import java.net.Socket
  */
 object GatewayClientLane {
 
-    /** Every read's loud deadline (W6-N4: a half-dead tunnel must fail
+    /** Every read's loud deadline (a half-dead tunnel must fail
      * the exchange, never hang the suite's worker). */
     private const val LANE_SO_TIMEOUT_MS: Int = 15_000
 

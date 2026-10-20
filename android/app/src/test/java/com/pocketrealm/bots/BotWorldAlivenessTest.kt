@@ -27,7 +27,7 @@ import org.junit.Before
  * masterless-say capacity (RandomBotSayWithoutMaster stays 0 everywhere).
  */
 class BotWorldAlivenessTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests pin the VANILLA lane (holder select) so resolvers see one lane. */
     @Before
     fun pinTheVanillaLaneForTheFlip() {

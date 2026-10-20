@@ -14,7 +14,7 @@ import org.junit.rules.TemporaryFolder
  * The shared friend-access verbs (design-remote-accounts §5/§9/§12): the
  * supervisor's provision/ban/gm verbs route to the backend overrides,
  * publish durable journal actions either way, and the [FriendAccessController]
- * approval + moderation flow lands the §12 audit rows.
+ * approval + moderation flow lands the audit rows.
  */
 class FriendAccessHubTest {
     @get:Rule

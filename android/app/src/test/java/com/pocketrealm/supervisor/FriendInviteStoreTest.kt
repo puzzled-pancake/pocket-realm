@@ -289,7 +289,7 @@ class FriendInviteStoreTest {
 
     @Test
     fun rateRowsAreCappedAndEvictOldestUnlockedFirst() {
-        // §6 layer 1, bounded persistence: a multi-source bad-token spray
+        // layer 1, bounded persistence: a multi-source bad-token spray
         // must not grow the store without bound.
         nowMs = 1_000L
         val store = store()

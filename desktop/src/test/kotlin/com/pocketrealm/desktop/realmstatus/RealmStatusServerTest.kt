@@ -12,7 +12,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The minimal server's wire mechanics over a live loopback listener (§6):
+ * The minimal server's wire mechanics over a live loopback listener:
  * the payload/content-type/security headers, the 405/404 negatives, the
  * §6.2 limiter's 429 + Retry-After, and the §4/§6.5 tombstone (a render
  * straddling a flip to OFF closes with NO response body).
@@ -192,7 +192,7 @@ class RealmStatusServerTest {
         val (status, body, _) = get("/api/status.json")
         assertEquals(200, status)
         assertTrue(body.isNotEmpty())
-        // The §4/§6.5 PRODUCTION tombstone leg: the capture reported
+        // The / PRODUCTION tombstone leg: the capture reported
         // generation 1, the OFF flip moved the SERVED generation — the
         // exchange is closed before its first byte, so the client sees
         // the connection die with NO HTTP response at all (T19's

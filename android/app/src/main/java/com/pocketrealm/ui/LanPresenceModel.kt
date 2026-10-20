@@ -4,7 +4,7 @@ import org.json.JSONObject
 
 /**
  * Pure presentation model for the LAN screen's joined-mode players-online
- * line (F9, census-backend-tools; design-lan §4.2 D7) — the
+ * line (F9, census-backend-tools; design-lan §4.2) — the
  * DesktopAppModel.lanPlayersOnline + budgetLine "people" half twin, over
  * the same shared observeWorldPresence contract. The Compose line renders
  * this verbatim; the shapes are pinned by LanPresenceModelTest.
@@ -64,7 +64,7 @@ object LanPresenceModel {
      */
     fun line(players: LanPlayersOnline?): String? = when {
         players == null -> null
-        // Round-6 R6-1: bots labeled, never padded. With the bot lane
+        // bots labeled, never padded. With the bot lane
         // armed, the session count includes bot sessions (the promotion
         // policy's own documented caveat) — render the human count and
         // label the bot sessions, never "N players" over a padded total.

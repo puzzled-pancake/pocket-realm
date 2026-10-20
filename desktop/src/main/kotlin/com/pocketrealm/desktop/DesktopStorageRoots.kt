@@ -197,7 +197,7 @@ class DesktopStorageRoots(baseDir: File? = null) {
             )
         }
 
-        /** R2r3-4 (desktop-twin round 3): a RELATIVE override resolves
+ /** (desktop-twin ): a RELATIVE override resolves
          * per-process CWD — the same env value yields different physical
          * roots for the rpHost harness vs a jpackage install vs a dev run,
          * and with a CWD on C: the whole durable tree lands on C: while

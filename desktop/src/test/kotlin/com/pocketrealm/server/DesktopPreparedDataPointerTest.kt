@@ -27,14 +27,14 @@ import org.junit.Before
  *
  *  - canonical-pointer resolution for the qualified lane (the tool's exact
  *    two-pointer publication, alias present);
- *  - the copy-then-adopt of a pre-DESK-128 legacy-only datadir (the
+ * - the copy-then-adopt of a pre-DESK-128 legacy-only datadir (the
  *    transition-release contract: old publications keep resolving);
  *  - two flavors' lanes coexisting in one datadir and resolving per lane —
  *    "vanilla can never authenticate onto a TBC generation" holds in BOTH
  *    directions (identity fields AND the alias key).
  */
 class DesktopPreparedDataPointerTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -181,7 +181,7 @@ class DesktopPreparedDataPointerTest {
         val manifest = JSONObject().put("schema", 1).put("complete", true)
             .put("mode", "NORMAL")
             .put("clientBuild", flavor.build).put("cmangosFamily", flavor.serverFamily)
-            // R1-1/R6-3: the fixture carries the flavor's own publication
+            // the fixture carries the flavor's own publication
             // minimums (the envelope's counts gate enforces them per flavor —
             // a small vanilla-shaped count set is refused on tbc/wotlk).
             .put("counts", fixture.counts ?: JSONObject()
@@ -203,7 +203,7 @@ class DesktopPreparedDataPointerTest {
         // R2-arch-1 (W2 code-red round 2): the flavor-routed counts gate is
         // pinned BEHAVIORALLY — a tbc/wotlk-identity manifest with the
         // pre-wave vanilla-flat counts (100/100/1/1/1) is refused with the
-        // missing-maps copy, exactly the regression R1-1's fix closes ("a
+        // missing-maps copy, exactly the regression its fix closes ("a
         // truncated tbc/wotlk generation the official lane refuses must not
         // boot either").
         val flat = JSONObject().put("dbc", 100).put("maps", 100)

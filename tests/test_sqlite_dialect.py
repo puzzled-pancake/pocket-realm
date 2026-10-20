@@ -448,7 +448,7 @@ def test_odku_fixture_matches_the_runtime_literals() -> None:
         "WHEN `points` + excluded.`points` >= 10 THEN 'acquaintance'",
         "INSERT OR IGNORE INTO `bot_backstory` (`bot`, `text`)",
         "datetime('now', '+7 day')",
-        # C5: tier_since stamps only on a real crossing (the pre-update
+        # tier_since stamps only on a real crossing (the pre-update
         # tier compare), in both the runtime literal and the fixture
         "`tier_since` = CASE WHEN `tier` <> (CASE WHEN `points` + excluded.`points` >= 60 THEN 'trusted'",
     ]

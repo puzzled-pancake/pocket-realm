@@ -60,7 +60,7 @@ def seed_datadir(root: Path) -> sqlite3.Connection:
 def run_tool(name: str, tmp_path: Path, monkeypatch) -> str:
     seed_datadir(tmp_path)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-    # W2 finalize: the tools resolve through common.product_data_root(), which
+    # at finalize, the tools resolve through common.product_data_root, which
     # prefers POCKET_REALM_DATA_ROOT — a machine-level env (E:\pocket_realm_
     # data here) defeated the LOCALAPPDATA seeding and crashed the tools on
     # the real (empty) datadir before the error-reporting legs ran. The tests

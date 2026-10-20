@@ -323,7 +323,7 @@ object Settings {
          * default, now the desktop's too). One unknown enum value must not
          * throw (the audioMode posture). */
         val databaseProvider: DatabaseProvider = DatabaseProvider.MARIADB,
-        /** R1-1 (desktop-twin round 1): the persisted flavor-switcher pick —
+        /** (desktop-twin) the persisted flavor-switcher pick —
          * the Android storage twin's field (android storage/Settings.kt), so
          * the desktop lane survives a restart at the W4 multi-qualified flip
          * instead of every fail-loud resolver refusing until a re-pick. ""
@@ -547,7 +547,7 @@ object Settings {
                             value.optString("databaseProvider", DatabaseProvider.MARIADB.name),
                         )
                     }.getOrDefault(DatabaseProvider.MARIADB),
-                    // R1-1: absent key decodes "" (byte-stable for existing
+                    // absent key decodes "" (byte-stable for existing
                     // files; the sole-qualified default resolution answers).
                     selectedFlavorId = value.optString("selectedFlavorId", ""),
                     // DESK-132: normalized exactly like the Android :801 load leg.
@@ -569,7 +569,7 @@ object Settings {
                     timeframeStage = TimeframeStages.resolveStored(
                         value.optString("timeframeStage", ""),
                     ),
-                    // Realm-status browser §6.3: one unknown enum value must
+                    // Realm-status browser: one unknown enum value must
                     // not throw (the audioMode posture) and degrades to the
                     // fail-closed OFF — a corrupt value can never re-arm the
                     // page server or a tunnel child on its own.
@@ -585,10 +585,10 @@ object Settings {
                         "pageRateLimitPerMinute",
                         DEFAULT_PAGE_RATE_LIMIT_PER_MINUTE,
                     ),
-                    // W6-N1: the relay list decodes leniently (blank
+                    // the relay list decodes leniently (blank
                     // entries drop; a corrupt array degrades to the
                     // defaults); a corrupt KEY never throws the snapshot.
-                    // R6-6: a valid array of GARBAGE STRINGS degrades to
+                    // a valid array of GARBAGE STRINGS degrades to
                     // the defaults too — each entry re-validates through
                     // the shared RelayUrls shape/parser gate, so a
                     // hand-edited settings.json cannot arm an unparseable
@@ -605,7 +605,7 @@ object Settings {
                         }
                     }.getOrDefault(emptyList()),
                     nostrPrivateKeyHex = value.optString("nostrPrivateKeyHex", ""),
-                    // W6-N3: default ON — an absent key (older settings.json)
+                    // default ON — an absent key (older settings.json)
                     // must land on the relay-only posture, never on direct.
                     irohRelayOnly = value.optBoolean("irohRelayOnly", true),
                     irohGatewaySecretHex = value.optString("irohGatewaySecretHex", ""),
@@ -729,7 +729,7 @@ object Settings {
             .put("tweaksSchema", TWEAKS_SCHEMA_VERSION)
             .put("audioMode", audioMode.name)
             .put("databaseProvider", databaseProvider.name)
-            // R1-1: the flavor-switcher pick outlives the process (the
+            // the flavor-switcher pick outlives the process (the
             // Android storage twin's key).
             .put("selectedFlavorId", selectedFlavorId)
             .put(
@@ -745,18 +745,18 @@ object Settings {
             // Design-timeframe §4.1: the stage persists through the shared
             // resolution so an impossible value can never be re-persisted.
             .put("timeframeStage", TimeframeStages.resolveStored(timeframeStage))
-            // Realm-status browser §6.3: the visibility switch + consent
+            // Realm-status browser: the visibility switch + consent
             // fields persist verbatim (the machine owns the boot semantics).
             .put("realmStatusVisibility", realmStatusVisibility.name)
             .put("realmDescription", realmDescription)
             .put("showCharacterNames", showCharacterNames)
             .put("cloudflaredPath", cloudflaredPath)
             .put("pageRateLimitPerMinute", pageRateLimitPerMinute)
-            // W6-N1: the discovery switch + relay set + realm identity.
+            // the discovery switch + relay set + realm identity.
             .put("nostrDiscoveryEnabled", nostrDiscoveryEnabled)
             .put("nostrRelays", org.json.JSONArray(nostrRelays))
             .put("nostrPrivateKeyHex", nostrPrivateKeyHex)
-            // W6-N3: the relay-only switch (default ON) + the iroh
+            // the relay-only switch (default ON) + the iroh
             // transport identity (a stable node id across restarts).
             .put("irohRelayOnly", irohRelayOnly)
             .put("irohGatewaySecretHex", irohGatewaySecretHex)
@@ -771,7 +771,7 @@ object Settings {
     internal const val DEFAULT_LLM_THREADS = 3
     internal const val DEFAULT_LLM_OFFLOAD_LAYERS = 0
 
-    /** Realm-status browser §6.2: the shipped PUBLIC per-visitor rate limit
+    /** Realm-status browser: the shipped PUBLIC per-visitor rate limit
      *  (60/min); the settings field's default and its test-hook baseline. */
     const val DEFAULT_PAGE_RATE_LIMIT_PER_MINUTE = 60
 }

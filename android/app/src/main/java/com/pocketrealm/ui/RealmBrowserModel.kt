@@ -197,9 +197,9 @@ object RealmBrowserModel {
             " · rates " + (rates.xpKill ?: 1.0) + "x/" +
                 (rates.xpQuest ?: 1.0) + "x/" + (rates.xpHonor ?: 1.0) + "x"
         }
-        // W6-N3: the join availability — honest per posture, never an
-        // address (the descriptor's node id/relay never render). Round-4
-        // R1-r4-2 alignment: a device with NO flavor picked (the ambiguous
+        // the join availability — honest per posture, never an
+        // address (the descriptor's node id/relay never render).
+        // alignment: a device with NO flavor picked (the ambiguous
         // state the desktop guard refuses with the pick-first row) is NOT
         // "Joinable" here either — the flavor lane is simply not matched
         // yet, so the row shows the mismatch copy.
@@ -253,7 +253,7 @@ object RealmBrowserModel {
         }
     }
 
-    /** The this-device/LAN/status inputs bundled (R1 detekt: the rows
+    /** The this-device/LAN/status inputs bundled (detekt: the rows
      * projection takes one argument per concern). */
     data class RowsInputs(
         val running: Boolean,

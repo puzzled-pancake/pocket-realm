@@ -64,7 +64,7 @@ class AddonCatalogFlavorTest {
                 assertNotNull(catalog.addon(pair.addonA))
                 assertNotNull(catalog.addon(pair.addonB))
             }
-            // R6-4/R5-1: every reference-grade row must be explicitly named
+            // every reference-grade row must be explicitly named
             // as non-installable by the flavorNote (the Recommended screen's
             // copy can never promise an install a reference row can't do).
             val refRows = catalog.addons.filter { !it.installable }

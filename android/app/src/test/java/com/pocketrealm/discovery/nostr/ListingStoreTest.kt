@@ -9,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * W6-N1 ListingStore units: self-verification (never the relay's word),
+ * ListingStore units: self-verification (never the relay's word),
  * (pubkey, d) newest-wins dedupe, the 10-minute client-side freshness
  * rule, and the frozen-schema content key-set pin. All fixtures ride the
  * golden key from RealmListingEventTest (real signatures, zero mocking).
@@ -224,7 +224,7 @@ class ListingStoreTest {
         assertTrue(store.parseContent(missing.toString()) is ListingStore.ContentParse.Refused)
     }
 
-    // ------------------------------------------- inbound contract (R1-3)
+    // ------------------------------------------- inbound contract
 
     /** A validly-signed foreign listing honors the SAME contract the
      * publish side enforces: registry-resolved flavor/build pairs (as a
@@ -327,6 +327,28 @@ class ListingStoreTest {
         val infinite = signedRaw(infiniteContent.toString())
         assertTrue(store.accept(infinite, "r") is ListingStore.AcceptResult.Refused)
 
+        // A non-OBJECT rates member is a
+        // frozen-schema TYPE violation — refused with the rates reason,
+        // never silently dropped to null (mirrors the name/motd type pins).
+        val ratesString = org.json.JSONObject(
+            goldenContent("I").toJsonString(),
+        ).put("rates", "3x")
+        val ratesStringRaw = signedRaw(ratesString.toString())
+        val ratesStringResult = store.accept(ratesStringRaw, "r")
+        assertTrue(ratesStringResult is ListingStore.AcceptResult.Refused)
+        assertTrue(
+            (ratesStringResult as ListingStore.AcceptResult.Refused).reason.contains(
+                "VAL-NOSTR-CONTENT",
+            ),
+        )
+        val ratesNumber = org.json.JSONObject(
+            goldenContent("I").toJsonString(),
+        ).put("rates", 3.5)
+        val ratesNumberRaw = signedRaw(ratesNumber.toString())
+        val ratesNumberResult = store.accept(ratesNumberRaw, "r")
+        assertTrue(ratesNumberResult is ListingStore.AcceptResult.Refused)
+        assertEquals(0, store.live().size)
+
         // and a WELL-FORMED foreign listing still passes the same boundary
         val fine = signedRaw(wotlkContent("Fine"))
         assertTrue(store.accept(fine, "r") is ListingStore.AcceptResult.Accepted)
@@ -334,9 +356,9 @@ class ListingStoreTest {
         assertEquals(1, store.live().size)
     }
 
-    // ------------------------------------------- freshness bound (R2-1)
+    // ------------------------------------------- freshness bound
 
-    /** A crafted far-future created_at (the R2-1 probe's wrap target: the
+    /** A crafted far-future created_at (the probe's wrap target: the
      * milliseconds multiply folding it to "a minute ago") is REFUSED —
      * the freshness arithmetic runs in SECONDS with a bounded future
      * tolerance. */
@@ -347,7 +369,7 @@ class ListingStoreTest {
         val targetMs = (t0 - 60) * 1000
         // x*1000 ≡ targetMs (mod 2^64) with x huge: x = (t/8)*125⁻¹ + 3*2^62
         // (adding k*2^62 preserves the wrap because 1000*2^62 ≡ 0 mod 2^64).
-        // The R2-1 probe's exact construction.
+        // The probe's exact construction.
         val inv125 = 2066035336255469781L // 125⁻¹ mod 2^64
         val craftedSeconds = (targetMs / 8) * inv125 + 3L * (1L shl 62)
         val crafted = RealmListingEvent.build(
@@ -365,7 +387,7 @@ class ListingStoreTest {
         assertEquals(0, store.live().size)
     }
 
-    // --------------------------------- eviction + admission (R2-4/R5-6)
+    // --------------------------------- eviction + admission
 
     @Test
     fun expiredListingsAreEvictedFromTheStore() {
@@ -418,8 +440,9 @@ class ListingStoreTest {
         assertTrue(store.live().all { it.content.name.startsWith("Flood") })
     }
 
-    // ------------------------------------- round-2 pins (R2B-4/R5r2-1)
-
+    /** The players counts honor the publish side's never-negative rule and
+     * a sanity ceiling — a validly-signed hostile listing must not render
+     * '-1 humans' or 2-billion padded bots. */
     @Test
     fun inboundListingRefusesImpossiblePlayerCounts() {
         val t0 = RealmListingEventTest.GOLDEN_CREATED
@@ -486,6 +509,8 @@ class ListingStoreTest {
         assertTrue(result is ListingStore.AcceptResult.Refused)
         assertTrue((result as ListingStore.AcceptResult.Refused).reason.contains("timeframe exceeds"))
     }
+
+
 
     // ------------------------- round-3 pins (R3-2/R3-5/R5-r3-1/R6-3-7)
 
@@ -636,7 +661,7 @@ class ListingStoreTest {
         }
     }
 
-    /** R3-5/R6-3-5: an OLDER echo from another relay must not grow the
+    /** An OLDER echo from another relay must not grow the
      * stored entry's relay evidence (the evidence names the relays that
      * delivered the STORED event id). */
     @Test
@@ -697,7 +722,7 @@ class ListingStoreTest {
         )
     }
 
-    // --------------------- duplicate fast path + merge evidence (R4-6/R2-5)
+    // --------------------- duplicate fast path + merge evidence
 
     @Test
     fun duplicateIdFromASecondRelayMergesEvidence() {

@@ -3,7 +3,7 @@ package com.pocketrealm.desktop.realmstatus
 import com.pocketrealm.supervisor.RuntimeMode
 
 /**
- * Realm-status browser (design realm-status-browser.md §4): the page
+ * Realm-status browser (design realm-status-browser.md) the page
  * visibility states.
  *
  * OFF is the fail-closed default AND the teardown state — no page server,
@@ -49,13 +49,13 @@ enum class RefusalReason {
      * (§5.3 — FRIENDS included, the resurrect scenario runs through it). */
     ORPHAN_PENDING,
 
-    /** LOCAL/solo sessions are not offered FRIENDS (§4: the page rides
+    /** LOCAL/solo sessions are not offered FRIENDS (the page rides
      * the game's own membership surface, which LOCAL does not have). */
     LOCAL_NOT_OFFERED,
 }
 
 /**
- * The pure visibility state machine (design realm-status-browser.md §4):
+ * The pure visibility state machine (design realm-status-browser.md):
  *
  *   OFF ──(enable FRIENDS)──► FRIENDS ──(enable PUBLIC)──► PUBLIC-ON
  *    ▲                          │                            │
@@ -63,11 +63,11 @@ enum class RefusalReason {
  *
  * Every gate the spec pins is an INPUT, so the machine stays pure and the
  * pins run without sockets or processes:
- *  - the bind probe (§6.6: a taken 18080 refuses with the prior state kept);
- *  - the players cross-check (§3.3: PUBLIC must not be ENABLED while it fails);
- *  - the orphan-sweep gate (§5.3: while a lost-record match is live, EVERY
+ * the bind probe (a taken 18080 refuses with the prior state kept);
+ * the players cross-check (PUBLIC must not be ENABLED while it fails);
+ * the orphan-sweep gate (while a lost-record match is live, EVERY
  *    transition that binds 18080 is refused — FRIENDS included);
- *  - the session mode (§4: LOCAL/solo → FRIENDS not offered).
+ * the session mode (LOCAL/solo → FRIENDS not offered).
  *
  * Turning OFF is NEVER gated: teardown must always be reachable.
  */
@@ -93,7 +93,7 @@ object RealmVisibilityMachine {
      * [crossCheckOk] the players cross-check verdict (§3.3); [orphanGateClear]
      * the §5.3 sweep verdict.
      */
-    @Suppress("ReturnCount", "LongParameterList", "MaxLineLength") // the §4 truth table is one reviewed literal; the gates ARE the inputs
+    @Suppress("ReturnCount", "LongParameterList", "MaxLineLength") // the truth table is one literal; the gates ARE the inputs
     fun transition(
         current: RealmStatusVisibility,
         target: RealmStatusVisibility,
@@ -106,7 +106,7 @@ object RealmVisibilityMachine {
             return RealmTransitionVerdict.Allowed(next = current, rebind = false)
         }
         if (target == RealmStatusVisibility.OFF) {
-            // Teardown is never gated (§4: OFF is the post-teardown state).
+            // Teardown is never gated (OFF is the post-teardown state).
             return RealmTransitionVerdict.Allowed(next = RealmStatusVisibility.OFF, rebind = false)
         }
         if (hostingMode != RuntimeMode.LAN_HOST) {

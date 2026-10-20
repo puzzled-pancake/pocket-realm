@@ -10,10 +10,10 @@ import org.junit.Test
 /**
  * The Realm Browser's shared presentation model (the desktop Realms route
  * and the Android LAN browser card): honest this-device/LAN/status rows
- * and the Public realms section — W6-N1 replaced the old "future arc"
+ * and the Public realms section — replaced the old "future arc"
  * empty copy with the real relay browser's copy: an honest empty network
  * until hosts publish, listing rows once they do, and an honest
- * "joining is not available yet" until the N3 gateway lands.
+ * "joining is not available yet" until the gateway lands.
  */
 class RealmBrowserModelTest {
 
@@ -154,10 +154,10 @@ class RealmBrowserModelTest {
 
     @Test
     fun joinAvailabilityLadderIsHonestPerPosture() {
-        // R6-4-3's proposed legs: no descriptor → None; matching active
+        // its proposed legs: no descriptor → None; matching active
         // flavor → Joinable; different active flavor → FlavorMismatch;
         // NO flavor picked (the desktop guard refuses with the pick-first
-        // row, R1-r4-2's pinned posture) → FlavorMismatch here too.
+        // row, its pinned posture) → FlavorMismatch here too.
         val none = RealmBrowserModel.publicRealmRow(
             joinListing(carried = false),
             nowSeconds = 1_760_000_000L,
@@ -199,7 +199,7 @@ class RealmBrowserModelTest {
 
     @Test
     fun joinActionCopyNamesEachPostureAndNeverTheDescriptor() {
-        // The copy the renderer shows per availability (R6-4-3), and the
+        // The copy the renderer shows per availability, and the
         // never-rendered rule: no node hex, no relay host, no IP literal
         // in ANY availability copy.
         val nodeHex = "ab".repeat(32)
@@ -365,7 +365,7 @@ class RealmBrowserModelTest {
             ),
         )
         val public = rows.last() as RealmBrowserModel.Row.PublicRealms
-        // R5-r5-2: open sockets WITHOUT an answered read never make the
+        // open sockets WITHOUT an answered read never make the
         // list provably empty — the copy must name the refused read.
         assertEquals(
             RealmBrowserModel.publicRealmsEmptyCopy(

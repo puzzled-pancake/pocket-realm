@@ -15,7 +15,7 @@ import org.junit.After
 import org.junit.Before
 
 class AddonArchiveValidatorTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -69,7 +69,7 @@ class AddonArchiveValidatorTest {
     }
 
     @Test fun `the refusal copy never hard-codes the Vanilla lane`() {
-        // R3-1 source pin: both refusal strings are flavor-routed (the
+        // source pin: both refusal strings are flavor-routed (the
         // policy's accepted set), never hard-coded lane copy.
         val source = java.io.File(
             System.getProperty("user.dir") ?: "."

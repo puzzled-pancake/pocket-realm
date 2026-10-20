@@ -75,7 +75,7 @@ data class CommunityVulkanDriver(
  * Curated, APK-bundled list of community Mesa Turnip builds (Eden/
  * Winlator-ecosystem packs). Downloads verify the pinned digests and then
  * run the ordinary USER-lane import — no bypass, no silent fallback. The
- * list itself is never fetched at runtime (C4); it changes only through
+ * list itself is never fetched at runtime; it changes only through
  * repo review, exactly like the closed packaged catalog.
  */
 object CommunityVulkanDrivers {

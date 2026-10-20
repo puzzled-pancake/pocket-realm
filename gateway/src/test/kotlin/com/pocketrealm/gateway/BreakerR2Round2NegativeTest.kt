@@ -98,7 +98,7 @@ class BreakerR2Round2NegativeTest {
             ByteArray(32) + ByteArray(16) + byteArrayOf(0x00)
         val vanillaProof = byteArrayOf(0x01, 0x00) + ByteArray(24) // 26 bytes
         val vanillaList = vanillaFrame(count = 1, address = hostAddress)
-        // The contract (R2-2-2): the pairing must neither leak nor STALL —
+        // The contract: the pairing must neither leak nor STALL —
         // a loud refusal (RealmListRewriteException) is the fixed behavior.
         val outcome = runCatching {
             filter.feed(challenge + vanillaProof + vanillaList)

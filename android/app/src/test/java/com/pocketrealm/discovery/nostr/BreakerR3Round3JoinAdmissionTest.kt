@@ -187,7 +187,7 @@ class BreakerR3Round3JoinAdmissionTest {
         )
     }
 
-    /** The octal/dotless spellings the N1 fence hunts stay refused on the
+    /** The octal/dotless spellings the fence hunts stay refused on the
      * relay host leg (no letter-bearing tail). */
     @Test
     fun octalAndDotlessSpellingsRefuse() {

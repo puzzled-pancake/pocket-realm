@@ -72,7 +72,7 @@ def run_protocol(seat: str, passthrough: list[str], runner=subprocess.run) -> in
     test_failures = console.count(" FAILED\n") + console.count(" FAILED\r\n")
     if test_failures:
         failures.append(f"{test_failures} test FAILED lines in the console")
-    # R7-N4-r4-1: the KGP's "Detected multiple Kotlin daemon sessions"
+    # the KGP's "Detected multiple Kotlin daemon sessions"
     # line is a STALE-SESSION DETECTION notice — it is emitted even when
     # every compile task runs IN_PROCESS (measured: the final two-seat
     # validation carried it in one seat while both compiled in-process
@@ -89,7 +89,7 @@ def run_protocol(seat: str, passthrough: list[str], runner=subprocess.run) -> in
             "its own build dir"
         )
 
-    # R7-N4-r4-2/R6-N4-r4-1/R3-1/R1-4-1: the verdict line (with the seat
+    # the verdict line (with the seat
     # id, BOTH canonical-classes hashes — the actual hash-gate
     # measurement — and the daemon-notice state) is APPENDED INTO the
     # archived log, so the record's citation resolves to a file that

@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 try:
     from tools import common
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import common
 BUILD_ROOT = ROOT / "native" / ".build-x86_64" / "mariadb"
 PROVENANCE = BUILD_ROOT / "BUILD_PROVENANCE.json"

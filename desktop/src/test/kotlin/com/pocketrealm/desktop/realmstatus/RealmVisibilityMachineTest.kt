@@ -7,10 +7,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The visibility state machine's pins (design realm-status-browser.md §4
- * + the gates §3.3/§5.3/§6.6 feed it): the linear OFF→FRIENDS→PUBLIC
+ * The visibility state machine's pins (design realm-status-browser.md
+ * the gates // feed it) the linear OFF→FRIENDS→PUBLIC
  * shape, the fail-closed refusals that keep the PRIOR state, the never-
- * gated OFF teardown, and the §4 boot semantics (FRIENDS restores,
+ * gated OFF teardown, and the boot semantics (FRIENDS restores,
  * PUBLIC re-arms without resuming).
  */
 class RealmVisibilityMachineTest {
@@ -78,7 +78,7 @@ class RealmVisibilityMachineTest {
 
     @Test
     fun `public enable is refused while the cross-check fails`() {
-        // §3.3 / T3d: the PUBLIC flip is the gate that refuses; FRIENDS
+        // T3d: the PUBLIC flip is the gate that refuses; FRIENDS
         // does not need the cross-check.
         val publicVerdict = transition(
             RealmStatusVisibility.FRIENDS,
@@ -102,7 +102,7 @@ class RealmVisibilityMachineTest {
 
     @Test
     fun `a lost-record orphan holds every transition that binds 18080 - friends included`() {
-        // §5.3: the resurrect scenario runs through FRIENDS — the gate
+        // the resurrect scenario runs through FRIENDS — the gate
         // covers it, not just PUBLIC spawn.
         val friendsVerdict = transition(
             RealmStatusVisibility.OFF,
@@ -158,7 +158,7 @@ class RealmVisibilityMachineTest {
 
     @Test
     fun `boot re-arms a persisted public session without auto-resuming`() {
-        // §4: the app never auto-starts cloudflared at launch — the
+        // the app never auto-starts cloudflared at launch — the
         // restored state is OFF and the card shows the armed notice.
         val outcome = RealmVisibilityMachine.bootOutcome(RealmStatusVisibility.PUBLIC)
         assertEquals(RealmStatusVisibility.OFF, outcome.restored)

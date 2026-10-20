@@ -19,7 +19,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The controller's BIND-CONFLICT pins at the apply level (§4/§6.6): with
+ * The controller's BIND-CONFLICT pins at the apply level: with
  * 18080 held by an occupier, a refused transition must EXIT the
  * transition — visibility stays at its prior (served) state, the honest
  * port-naming copy lands, the persisted switch matches, and NO tunnel

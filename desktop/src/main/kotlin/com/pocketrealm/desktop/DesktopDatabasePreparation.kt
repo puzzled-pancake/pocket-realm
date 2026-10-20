@@ -66,15 +66,15 @@ internal fun readMarker(file: File): String? =
  * datadir's durable state. The seal proofs feeding it:
  *
  *  - revision record (generation marker): the seed identity + the
- *    migration seal's digest, persisted at seed (DESK-98); a marker
+ * migration seal's digest, persisted at seed (DESK-98); a marker
  *    without it is a LEGACY datadir (seeded before the seals) — unless
  *    the migration-seal marker survives, in which case the generation
  *    record was lost over a sealed ledger and the datadir refuses as
- *    DB-DIRTY-GENERATION (DESK-53 never conflates the dirty generation
+ * DB-DIRTY-GENERATION (DESK-53 never conflates the dirty generation
  *    with the legacy DB-MIGRATION-PENDING state);
  *  - migration-seal proof (shared DatabaseMigrationSeal): marker bytes
  *    hash to the recorded digest AND the shared validator accepts them
- *    against the record's identity — the DESK-79 tamper cross-check;
+ * against the record's identity — the DESK-79 tamper cross-check;
  *  - currency: the record's corpus/closure digests must equal the
  *    CURRENT app's (recomputed from the packaged provenance) — the
  *    "seeded by an older app version" detector; unavailable (no

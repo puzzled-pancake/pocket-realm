@@ -322,7 +322,7 @@ class DesktopBotAdmission(
                 thermal = metrics.thermal,
                 hardStallCount = metrics.hardStallCount,
                 hardStallTotal = metrics.hardStallTotal,
-                // D7: the human session count rides the sample as a plain
+                // the human session count rides the sample as a plain
                 // observation field (bot status index 9, the same lane the
                 // backend's WorldPresenceSample reads) — observation only,
                 // the shared controller's policy does not consume it yet.

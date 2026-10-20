@@ -103,7 +103,7 @@ def test_scripts_directory_is_scanned(tmp_path):
 
 
 def test_json_shape_carries_the_allowlist(tmp_path):
-    # R2-2: a zero-file scan is a degraded-scan FAILURE now, so the shape
+    # a zero-file scan is a degraded-scan FAILURE now, so the shape
     # fixture needs one clean scannable file to be a legitimate OK case
     make_tree(tmp_path, {str(Path("tools") / "clean.py"): "x = 1\n"})
     result = run_sweep(tmp_path, "--json")
@@ -506,7 +506,7 @@ def test_real_repo_journal_schema_stays_three():
         f for f in spec.get("findings", []) if f.get("literals") == ["<journal-schema-bump>"]
     ]
 
-# ---- R1-1/R3-1/R2-2 (code-red round 1): the sweep covers UNTRACKED
+# ---- the sweep covers UNTRACKED
 # commit-candidate files and fails loudly when it cannot scan.
 
 
@@ -558,7 +558,7 @@ def test_zero_file_scan_is_a_loud_degraded_scan(tmp_path):
                for f in report["findings"])
 
 # ---------------------------------------------------------------------------
-# R2UI-3 (android-ui-tests review round 2): the §4.6 lane tokens joined the
+# the lane tokens joined the
 # banned set — the per-flavor addon interface numbers (11200/20400/30300),
 # the realmbuilds-adjacent builds (6005/6141), and the per-flavor expansion
 # MPQ names. A planted token in a NON-owning Kotlin file must fail the
@@ -581,12 +581,12 @@ def test_planted_interface_number_in_a_non_owning_kotlin_file_fails_the_sweep(tm
 
 
 def test_planted_bare_client_line_is_deliberately_not_banned(tmp_path):
-    # SCOPE NOTE (deviation from the round-2 proposed test): the bare
+    # SCOPE NOTE (deviation from the proposed test) the bare
     # client-line tokens ("1.12", "2.4.3", "3.3.5") are the repo's client-
     # LINE families, named by design in catalog-v1.json, the era research
     # and the per-flavor projection on 100+ owning files — a substring ban
     # would exempt the whole repo and defeat the sweep. The mechanically
-    # banned §4.6 tokens are the interface numbers (11200/20400/30300), the
+    # banned tokens are the interface numbers (11200/20400/30300), the
     # realmbuilds-adjacent builds (6005/6141) and the expansion MPQ names;
     # the client-line research surfaces are gated by the AddonCatalog parse
     # guard and the AddonFlavorCatalog projection pins instead.
@@ -616,7 +616,7 @@ def test_owning_surfaces_stay_green_with_the_widened_token_set():
 
 
 # ---------------------------------------------------------------------------
-# R2-1 (native-server round 1): multi-flavor UX copy must DERIVE its client
+# multi-flavor UX copy must DERIVE its client
 # identity from the flavor registry, not hard-code a lane's version line —
 # a hard-coded "WoW 1.12.1 client" on a TBC/WotLK lane was factually wrong
 # copy AND slipped past the sweep (the bare version line is deliberately
@@ -693,7 +693,7 @@ def test_multi_flavor_screen_copy_derives_the_client_identity():
         f"ClientScreen hard-codes a lane's client identity in user copy "
         f"({hard_coded[:2]}) — derive it from ActiveFlavor (R2-1)"
     )
-    # W4 flip: the render lane resolves through the machine's canonical
+ # Flip: the render lane resolves through the machine's canonical
     # displayedId (selection, else sole qualified, else null -> the
     # first-pick copy) - the import OPERATION still fails loud at the
     # resolver; either form is the ActiveFlavor machine, never a literal.
@@ -704,8 +704,8 @@ def test_multi_flavor_screen_copy_derives_the_client_identity():
 
 
 # ---------------------------------------------------------------------------
-# W6-N5 multiplayer privacy rules (NOSTR-IROH-BUILD-PLAN.md ruling 3 + the
-# addr= correction; COMPLETION-PLAN.md §1 rule 7): the sweep grows the
+# multiplayer privacy rules
+# addr= correction) the sweep grows the
 # campaign's structural privacy rules over the published-payload /
 # discovery-record code paths. No IP-shaped token in a payload builder (the
 # fence files' own KDoc examples stay legal prose — comments are masked);
@@ -750,26 +750,26 @@ def surfaced(findings: list[dict]) -> list[dict]:
     "2001:db8::1",                       # an IPv6 literal
     "[::1]:8085",                        # bracketed v6 with a port
     "join me at 127.0.0.1:8085",         # loopback is NOT exempt in payloads
-    # R2-N5-r1-1: the fence's own adjudicated IPv4 semantics — one
+    # the fence's own adjudicated IPv4 semantics — one
     # sentence-final period, 4-digit leading-zero octets. (The bare
-    # "037777777777" octal row moved to the negative list at round 3:
-    # R2-N5-r3-2 measured it UNRESOLVED on the pinned JDK — 0xFFFFFFFF
+    # "037777777777" octal row moved to the negative list at:
+    # measured it UNRESOLVED on the pinned JDK — 0xFFFFFFFF
     # exceeds the signed-int parse — so the value-aware leg passes it.)
     "play at 10.0.0.1.",
     "0177.0.0.1",
     "1.1.1.0100",
-    # R2-N5-r1-2: all-hex-letter IPv6 literals — JVM-connectable with ZERO
+    # all-hex-letter IPv6 literals — JVM-connectable with ZERO
     # decimal digits (InetAddress.getByName("dead:beef::cafe") resolves):
     "dead:beef::cafe",
     "DEAD:BEEF::CAFE",
     "[dead:beef::cafe]:8085",
     "cafe:beef:baa::",
-    # R5-N5-r2-1: the prose-period class extends to the dotless/octal/hex
+    # the prose-period class extends to the dotless/octal/hex
     # legs — "2130706433." is the same pointer as "10.0.0.1.".
     "moved to 2130706433.",
     "dial 0x7f000001.",
     "dial 0x7f.0x0.0.1.",
-    # R2-N5-r3-1 (round 3) re-adjudicated R2-N5-r4-1 (round 4, serious):
+    # re-adjudicated by VALUE:
     # the JVM's single-chunk parser is PLAIN DECIMAL with leading zeros
     # IGNORED — every digit-only token whose decimal value fits the
     # unsigned 32-bit range is connectable and sails char-count bounds:
@@ -777,21 +777,21 @@ def surfaced(findings: list[dict]) -> list[dict]:
     "dial 000000275600001",
     "fallback 0123456789",
     "fallback 0256985321",
-    # R2-N6-1 (round 6, serious): digit SEPARATORS and the BINARY literal
+    # digit SEPARATORS and the BINARY literal
     # form are the same integer 2130706433 = 127.0.0.1 — caught by the
     # separator-normalized, 0b-decoding dotless judge:
     "2_130_706_433",
     "0b01111111000000000000000000000001",
     "2_130_706_433L",
-    # R2-2 (round 5): Kotlin's integer suffixes are syntax — the hex run
+    # Kotlin's integer suffixes are syntax — the hex run
     # is the integer 127.0.0.1 and must be caught with the suffix aboard:
     "0x7F000001L",
     "0x7F000001u",
-    # R3-1 (finalize): an IPv4 followed by a hostname label (wildcard-DNS
+    # an IPv4 followed by a hostname label (wildcard-DNS
     # "nip.io"-style) — the trailing-dot alternative already consumes the
     # dot; pinned so the shape stays banned:
     "10.0.0.1.nip.io",
-    # R2-1/R3-N5-r5-1 (round 5, serious): 5/6-digit zero-padded OCTETS in
+    # 5/6-digit zero-padded OCTETS in
     # dotted quads are JVM-resolvable decimal — any digit width:
     "00177.0.0.1",
     "00254.0.0.1",
@@ -819,9 +819,9 @@ def test_privacy_ip_spellings_fail_in_a_payload_surface(tmp_path, spelling):
     'val rate = 1.0',                              # a float literal
     'val version = "3.3.5"',                       # a version token (the free-text fence owns shorthand)
     'val k = Foo::class',                          # the ::-reference
-    'val p = Phase2::class',                       # a DIGIT-bearing receiver (R5-2)
+    'val p = Phase2::class',                       # a DIGIT-bearing receiver
     'val q = Page2::class.java',                   # digit-bearing, .java suffix
-    'val fallback = "037777777777"',               # R2-N5-r4-1: decimal 37,777,777,777 EXCEEDS the unsigned-32 parse — UnknownHost on the pinned JDKs, deliberately not banned
+    'val fallback = "037777777777"',               # decimal 37,777,777,777 EXCEEDS the unsigned-32 parse — UnknownHost on the pinned JDKs, deliberately not banned
     'val url = "wss://relay.example.com"',         # hostname relays are the design
 ])
 def test_privacy_legitimate_code_shapes_stay_clean(tmp_path, line):
@@ -942,7 +942,7 @@ def test_privacy_addr_marker_fails_in_payload_surfaces_and_record_lanes(tmp_path
 def test_privacy_missing_surface_is_a_loud_finding(tmp_path):
     findings = privacy_findings_of(tmp_path, {})
     missing = [f for f in findings if f["literals"] == ["<privacy-surface-missing>"]]
-    # R1-4 (finalize): RealmListRewrite sits in BOTH tables — the dedupe
+    # RealmListRewrite sits in BOTH tables — the dedupe
     # collapses its two missing rows to one, so the expected count is the
     # UNIQUE surface count.
     expected = len(set(leak_sweep.PRIVACY_PAYLOAD_SURFACES)
@@ -1026,7 +1026,7 @@ def test_import_screen_empty_state_copy_is_flavor_neutral():
     source = (
         ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/ImportScreen.kt"
     ).read_text(encoding="utf-8")
-    # R6-N5-r2-7 (finalize): mask comments STRING-AWARE (the sweep's own
+    # mask comments STRING-AWARE (the sweep's own
     # masker) — a plain '//' strip would hide a lane build inside a string
     # that follows a comment marker.
     stripped = "\n".join(
@@ -1052,7 +1052,7 @@ def test_ingame_settings_screen_copy_is_flavor_neutral():
         ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/"
         "InGameSettingsScreen.kt"
     ).read_text(encoding="utf-8")
-    # R6-N5-r2-7 (finalize): mask comments STRING-AWARE — a plain '//' strip
+    # mask comments STRING-AWARE — a plain '/' strip
     # would hide a lane build inside a string that follows a marker.
     stripped = "\n".join(
         code for _lineno, code in leak_sweep._kotlin_code_lines(source)
@@ -1090,7 +1090,7 @@ def test_readme_quick_start_is_flavor_aware():
         f"the README quick-start still hard-codes the vanilla client "
         f"({stale[:1]}) (R6-N5-r2-2)"
     )
-    # R6-N5-r3-2: the WHOLE README is flavor-aware — a bare "WoW 1.12.1
+    # the WHOLE README is flavor-aware — a bare "WoW 1.12.1
     # client" mention outside the three-flavor enumeration is the exact
     # staleness class (found at lines 8 and 111 in round 3).
     bare = [

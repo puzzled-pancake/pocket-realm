@@ -29,7 +29,7 @@ class FriendInviteStatusCopyTest {
                 "access card, then try again.",
             copy,
         )
-        // Round-4 R6-1: the remedy must never point at the Guests card
+        // the remedy must never point at the Guests card
         // (desktop: creates guest accounts only; Android: does not exist)
         // — revocation lives on the Friend access card.
         assertEquals(false, copy!!.contains("Guests"))
@@ -51,7 +51,7 @@ class FriendInviteStatusCopyTest {
         assertEquals(false, copy.contains("cap"))
     }
 
-    // ---- Round-6 R6-r6-2: the JOINER-side refusal line ----
+    // ---- the JOINER-side refusal line ----
 
     @Test
     fun `joiner refusal asserts no cause the protocol cannot know`() {

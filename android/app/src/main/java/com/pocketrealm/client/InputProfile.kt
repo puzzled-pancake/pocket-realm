@@ -181,7 +181,7 @@ enum class ControllerAction(
     WHEEL_DOWN("Mouse wheel down", wheelTicks = 1),
 
     // Appended so ordinal-derived transient touch source ids remain stable.
-    // Android Port binds its radial menu to the app-owned F12 edge.
+    // Android Port binds its radial menu to the app-owned edge.
     CONSOLE_RADIAL("Console radial menu", radialMenuPulse = true),
     NEARBY_USE("Nearby use / open (realm-assisted)", nearbyUsePulse = true),
 
@@ -422,7 +422,7 @@ data class InputProfile(
             Rp6Control.R2 to ControllerAction.CTRL,
             Rp6Control.START to ControllerAction.ESCAPE,
             Rp6Control.SELECT to ControllerAction.CONSOLE_RADIAL,
-            // R3 selects at the pointer; L3 right-clicks it for precise
+            // selects at the pointer; L3 right-clicks it for precise
             // manual interaction. Auto-run stays on the touch overlay.
             Rp6Control.L3 to ControllerAction.POINTER_RIGHT,
             Rp6Control.R3 to ControllerAction.POINTER_LEFT,

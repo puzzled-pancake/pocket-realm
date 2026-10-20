@@ -16,7 +16,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * R1-7/R6-9 + round-2 R6-2-5: the MARKER/IDENTITY BOOKKEEPING layer of
+ * the MARKER/IDENTITY BOOKKEEPING layer of
  * the W4.4 coexistence contract — per-lane seal markers, per-lane
  * identities, and the stale-marker-is-not-current law. The ENGINE-level
  * legs (alternating applyPinnedMigrations, journals, backups, snapshots, a

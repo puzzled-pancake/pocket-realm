@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# W6-N2 iroh spike — Android leg: NDK build of iroh-ffi (arm64-v8a + armeabi-v7a).
+# iroh spike — Android leg: NDK build of iroh-ffi (arm64-v8a + armeabi-v7a).
 # Everything E:-resident: RUSTUP_HOME/CARGO_HOME (E:\pocket_realm_toolchain\rust),
 # cargo target dir, temp dirs, NDK. Nothing may write to C:.
-# Source of truth: docs/NOSTR-IROH-BUILD-PLAN.md stage 2 + docs/COMPLETION-PLAN.md N2.
+# Source of truth: docs/NOSTR-IROH-BUILD-PLAN.md stage 2 + docs/COMPLETION-PLAN.md.
 set -euo pipefail
 
 LOG_STAMP() { date -u +%Y-%m-%dT%H:%M:%SZ; }

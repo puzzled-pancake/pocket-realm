@@ -10,11 +10,11 @@ package com.pocketrealm.discovery.iroh
 import com.pocketrealm.client.ClientFlavor
 
 /**
- * W6-N3: the join-side realmd stream filter — rides the JOINER gateway's
+ * the join-side realmd stream filter — rides the JOINER gateway's
  * 3724 lane and rebuilds every SMSG_REALM_LIST to the joiner's own
  * loopback world target.
  *
- * WIRE REALITY (code-red R5-1, grounded in the shipped server sources the
+ * WIRE REALITY (grounded in the shipped server sources the
  * layouts cite): the realmd auth lane is NOT a uniformly framed stream.
  * The logon responses are RAW structs with no size field:
  *  - the logon-challenge response (AuthSocket.cpp:489-543): [u8 cmd=0x00]
@@ -30,7 +30,7 @@ import com.pocketrealm.client.ClientFlavor
  * [payload], AuthSocket.cpp:884-893).
  *
  * The filter is a PHASE MACHINE whose invariant holds in EVERY phase
- * (code-red round 2 — the round-1 design's terminal PASSTHROUGH and its
+ * — the round-1 design's terminal PASSTHROUGH and its
  * belt byte-wise residual both relayed the host's raw address; neither
  * exists anymore):
  *  1. CHALLENGE — consume the computable-length raw challenge response;
@@ -43,7 +43,7 @@ import com.pocketrealm.client.ClientFlavor
  *  3. FRAMED — strict: ONLY realm-list frames flow post-auth. Every list
  *     is rewritten; a corrupt/oversized/foreign frame throws (the loud
  *     exit); a frame that does not complete within its declared byte
- *     budget is a misframed stream and throws (code-red R2-2-2: the
+ * budget is a misframed stream and throws (-2: the
  *     wrong-flavor pairing stalled the client at logon);
  *  4. BELT — the fallback for unknown shapes: a validated scanner that
  *     REWRITES every realm-list candidate, and a candidate that FAILS the
@@ -70,7 +70,7 @@ class AuthStreamFilter(private val flavor: ClientFlavor) {
 
     private enum class Phase { CHALLENGE, PROOF, FRAMED, BELT }
 
-    /** Total bytes fed (the framed-stall budget's odometer, R2-2-2). */
+    /** Total bytes fed (the framed-stall budget's odometer). */
     private var totalBytesSeen: Long = 0
 
     /** The odometer reading when the pending frame's header armed. */
@@ -104,7 +104,7 @@ class AuthStreamFilter(private val flavor: ClientFlavor) {
         while (true) {
             // A phase reporting incomplete (null) HOLDS the buffer for the
             // next feed — only the EOF leg may drain the held tail (code-
-            // red round 2: draining on every wait passed the whole stream
+            // red: draining on every wait passed the whole stream
             // through byte-wise, breaking the invariant).
             val out = when (phase) {
                 Phase.CHALLENGE -> consumeChallenge()
@@ -309,7 +309,7 @@ class AuthStreamFilter(private val flavor: ClientFlavor) {
         }
         val frameBytes = RealmListRewrite.FRAME_HEADER_BYTES + pendingSize
         if (buffer.size < frameBytes) {
-            // R2-2-2: a frame that exceeds its declared payload budget
+            // a frame that exceeds its declared payload budget
             // without completing means the stream is MISFRAMED — the stall
             // would hang the client at logon; refuse loudly instead.
             if (totalBytesSeen - framedArmedAtTotal > MAX_FRAMED_PAYLOAD) {
@@ -328,7 +328,7 @@ class AuthStreamFilter(private val flavor: ClientFlavor) {
                 frame[0].toInt() and BYTE_MASK,
             )
         ) {
-            // Round-6 R6-2-2: the framed phase uses the SAME layout
+            // the framed phase uses the SAME layout
             // contract as the belt — the declared flavor rewrites, a
             // foreign-layout frame refuses as misdeclared (never a
             // cross-layout re-emit).
@@ -356,7 +356,7 @@ class AuthStreamFilter(private val flavor: ClientFlavor) {
         if (buffer.size < RealmListRewrite.FRAME_HEADER_BYTES) return null
         if (buffer[0].toInt() and BYTE_MASK != RealmListRewrite.CMD_REALM_LIST) {
             // Bulk-drain every byte up to the NEXT 0x10 head in one copy
-            // (R4-3-1/R3-1: per-byte copyOfRange was quadratic under a
+            // per-byte copyOfRange was quadratic under a
             // hostile flood and wedged the lane with no rejection).
             val next = indexOfByte(buffer, 1, RealmListRewrite.CMD_REALM_LIST)
             val drainTo = if (next < 0) buffer.size else next
@@ -423,7 +423,7 @@ class AuthStreamFilter(private val flavor: ClientFlavor) {
          * in both the framed and belt phases). */
         const val MAX_FRAMED_PAYLOAD = 16 * 1024
 
-        /** The PRE-AUTH budget (round-6 R1-r6-1): a challenge needs ≤~600
+        /** The PRE-AUTH budget: a challenge needs ≤~600
          * bytes and a proof ≤~32 — 64 KiB is two orders of headroom, and
          * beyond it the pre-auth window is a heap-growth attack, not a
          * session. */

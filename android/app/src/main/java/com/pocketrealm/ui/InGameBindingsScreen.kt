@@ -604,7 +604,7 @@ private fun KeyPickerDialog(
     )
 }
 
-/** R5-1: the bindings screens resolve every catalog read through the
+/** the bindings screens resolve every catalog read through the
  * ACTIVE lane's own catalog (the flavor-routed seam), never a hard-coded
  * vanilla object. Non-null by the in-game surfaces' own precondition:
  * these screens render inside a booted game whose boot gate required a

@@ -16,7 +16,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * GAP-3 (owner census UIUX-3, the desktop status leg — the census's one
+ * owner census UIUX-3, the desktop status leg — the census's one
  * silently-degrading site): with two qualified flavors the hosted
  * realm-status page resolves the ACTIVE lane through the flavor machine.
  * The former `runCatching { qualified().single() }.getOrNull()` collapsed
@@ -25,7 +25,7 @@ import org.junit.rules.TemporaryFolder
  * vanilla default instead of the selected lane. These pins assert the page
  * NAMES the active flavor (wrong copy was the recorded failure mode, so
  * "no crash" alone would not catch a regression) and that the machine's
- * ambiguous no-selection refusal keeps the fail-soft page contract (§7:
+ * ambiguous no-selection refusal keeps the fail-soft page contract (
  * never a broken page).
  */
 class RealmStatusFlavorLaneTest {
@@ -64,7 +64,7 @@ class RealmStatusFlavorLaneTest {
         DesktopAppModel(roots).use { model ->
             val controller = model.realmStatus
             // Two qualified flavors, NO selection: the machine's honest
-            // loud state — the page must stay up (fail-soft, §7), falling
+            // loud state — the page must stay up (fail-soft), falling
             // back to the journaled lane's copy rather than crashing or
             // inventing a lane.
             TwoQualifiedFlavors.install(selection = null)
@@ -86,7 +86,7 @@ class RealmStatusFlavorLaneTest {
             val controller = model.realmStatus
             TwoQualifiedFlavors.install(selection = ClientFlavors.TBC.flavorId)
 
-            // The journaled G3-4 session lane is the truth about what is
+            // The journaled session lane is the truth about what is
             // RUNNING; the switcher's selection must not rename a live
             // vanilla session mid-run.
             val running = com.pocketrealm.supervisor.RuntimeSnapshot(
@@ -104,7 +104,7 @@ class RealmStatusFlavorLaneTest {
             )
         }
     }
-    /** R1-r3-2 (desktop-twin round 3): the production WRITER leg — the
+    /** (desktop-twin) the production WRITER leg — the
      * model folds the backend's pinned boot lane into every observed
      * snapshot (the journal field G3-4 defined but nothing produced). The
      * pure half is pinned here; the wiring (state = combine(supervisor,

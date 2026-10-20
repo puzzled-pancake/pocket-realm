@@ -351,7 +351,7 @@ def validate_kotlin_flavor_baseline_sync(
     for flavor, manifest in manifests.items():
         baseline = manifest.get("final_stage_era_baseline")
         if not isinstance(baseline, dict):
-            continue  # the flavor has no grounded baseline yet (pre-W3.1 shape)
+            continue  # the flavor has no grounded baseline yet (earlier shape)
         kotlin = named.get(flavor)
         if kotlin is None:
             errors.append(
@@ -504,8 +504,8 @@ def validate() -> list[str]:
     return errors
 
 
-# R5-1 (code-red round 1): era curation is only PROCEDURALLY sequenced before
-# the W4 qualification flip — this leg makes it mechanical. A flavor whose
+#: era curation is only PROCEDURALLY sequenced before
+# the qualification flip — this leg makes it mechanical. A flavor whose
 # manifest is qualified:true must have every stage's era_terms either
 # grounded (the vanilla baseline posture / an explicit grounded marker) or
 # carrying a curated delta_from_flavor_final. The pending-flavor-qualification
@@ -574,7 +574,7 @@ def validate_qualified_era_curation(
                 "live-bans core expansion vocabulary)"
             )
             continue
-        # Round-5 R5-5: the curation STRING is not the contract — the DATA
+        # the curation STRING is not the contract — the DATA
         # is. A stage is grounded when it embeds its own grounded_baseline,
         # carries a USABLE curated delta_from_flavor_final, or inherits the
         # flavor's OWN final_stage_era_baseline (the generator's
@@ -582,7 +582,7 @@ def validate_qualified_era_curation(
         # with no final_stage_era_baseline of its own: its stages would
         # resolve through the generator's CROSS-FLAVOR fallback and serve
         # the inherited VANILLA ban list (anachronistic live bans of core
-        # expansion vocabulary at exactly the W4 flip).
+        # expansion vocabulary at exactly the flip).
         grounded = isinstance(era.get("grounded_baseline"), dict)
         delta = era.get("delta_from_flavor_final")
         if grounded and delta is not None:

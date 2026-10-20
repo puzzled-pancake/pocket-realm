@@ -93,7 +93,7 @@ class FirstRunTutorialTest {
     fun tutorialHasFiveOrderedUsableSteps() {
         assertEquals(5, FIRST_RUN_TUTORIAL_STEPS.size)
         assertEquals("Welcome to Pocket Realm", FIRST_RUN_TUTORIAL_STEPS[0].title)
-        // R6-2-2: the requirement copy is flavor-neutral — the W4 flip made
+        // the requirement copy is flavor-neutral — the flip made
         // tbc/wotlk qualified, so the tutorial no longer names the vanilla
         // client version as if it were the only lane.
         assertEquals(

@@ -54,10 +54,10 @@ class GatewayProcTranscriptPin {
 
     @Test
     fun `a red run archives non-empty sections for every launched process`() {
-        // The R5-r4-N4-1 assertion shape: archivePayloads reads
+        // The assertion shape: archivePayloads reads
         // stdoutLines() — prove the section for a proc whose lines an
         // await already consumed is NON-EMPTY and carries the verbatim
-        // PR_GATEWAY line (the round-4 pre-fix artifact had empty
+        // PR_GATEWAY line (the pre-fix artifact had empty
         // host/host2/join2 sections).
         val line = GatewayContract.READY_LINE_PREFIX +
             "{\"role\":\"join\",\"node\":\"" + "bb".repeat(32) + "\",\"relay\":null,\"ports\":[3724,8085]}"

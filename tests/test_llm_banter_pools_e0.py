@@ -181,7 +181,7 @@ def test_no_duplicates_within_or_across_e0_banks(street_bank, security_bank):
 
 
 def test_no_verbatim_collision_with_the_refuse_pool(street_bank, security_bank, refuse_bank):
-    # the beg-refusal ground (refuseLine) and the E0 banks must stay
+    # the beg-refusal ground (refuseLine) and the banks must stay
     # disjoint - a repeated line would read as one refusal system
     refuse = {line for group in refuse_bank for line in group}
     assert len(refuse) == 48, "the persona refuseLine pool still has 48 lines"

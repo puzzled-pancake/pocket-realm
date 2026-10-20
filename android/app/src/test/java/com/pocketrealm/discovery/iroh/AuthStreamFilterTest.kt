@@ -12,7 +12,7 @@ import org.junit.Test
 /**
  * W6-N3 code-red rounds 1+2: the filter's unit suite feeds the REAL auth
  * lane shapes (RAW challenge/proof responses, then the framed realm list)
- * AND the round-2 adversarial probes: a foreign leading byte, an auth-
+ * AND the adversarial probes: a foreign leading byte, an auth-
  * error reply, and the wrong-flavor pairing — in EVERY case the invariant
  * holds: nothing carrying the host's raw address reaches the client, and
  * realm-list-shaped corruption dies loudly.
@@ -307,7 +307,7 @@ class AuthStreamFilterTest {
         }
     }
 
-    /** R2-r5-1's 1-byte edge: even a bare opcode byte at EOF is the loud
+    /** its 1-byte edge: even a bare opcode byte at EOF is the loud
      * refusal — never an inert relay. */
     @Test
     fun `a bare realm-list opcode byte at EOF refuses loudly`() {
@@ -322,7 +322,7 @@ class AuthStreamFilterTest {
         }
     }
 
-    /** R2-r5-1's control: a NON-realm-list EOF tail held in the BELT
+    /** its control: a NON-realm-list EOF tail held in the BELT
      * phase stays inert (the opcode shape test must not turn ordinary
      * remnants loud). The belt is reached through its real door — the
      * proof-mismatch fallback (a vanilla filter fed a wotlk proof);
@@ -365,7 +365,7 @@ class AuthStreamFilterTest {
         }
     }
 
-    /** Round-6 R6-2-2's belt path: a VALID foreign-layout list on a
+    /** its belt path: a VALID foreign-layout list on a
      * misdeclared join dies loudly through the filter (the probe's
      * garbage-dial class) — never a cross-layout re-emit. */
     @Test

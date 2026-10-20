@@ -266,7 +266,7 @@ def test_committed_ledger_carries_the_core_floors(flavor):
     assert ledger["schema"] == 1
     assert ledger["expected_revisions"] == migrations.expected_revisions(flavor)
     assert ledger["expected_revisions"]["world"] == _header_define(flavor, "MANGOS")
-    # The C5-in-fact correction: no commit-history ACID provenance block.
+    # The -in-fact correction: no commit-history ACID provenance block.
     assert "acid" not in ledger["source_commits"], (
         "the pinned DB repos are single-commit squashed imports; ACID "
         "provenance is the classic_db HEAD pin, not an acid_commits block")

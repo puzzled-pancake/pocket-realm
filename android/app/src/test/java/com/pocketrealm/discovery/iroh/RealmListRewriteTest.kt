@@ -8,7 +8,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 /**
- * W6-N3: the realm-list parse/rebuild fixtures — ONE canonical real frame
+ * the realm-list parse/rebuild fixtures — ONE canonical real frame
  * per flavor, byte-pinned, plus the rebuild assertions the ask names:
  * the rewritten list is EXACTLY what the client would dial, the size field
  * is recomputed (never a same-length swap), and the rewrite target is the

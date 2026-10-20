@@ -14,7 +14,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * W6-N3 host gateway: mangosd stays loopback (the loop posture is NOT
+ * host gateway: mangosd stays loopback (the loop posture is NOT
  * relaxed); this process muxes both game ports over ONE iroh endpoint.
  *
  * Per accepted connection: exactly ONE bi-stream, opened with a 2-byte
@@ -100,7 +100,7 @@ internal object HostGateway {
                 // The idle reap: a connection that never opens a stream
                 // would park this accept loop forever — the watchdog closes
                 // it after the idle budget (which unblocks acceptBi with an
-                // exception and ends the loop). Round-6 R6-2-1: the trigger
+                // exception and ends the loop). the trigger
                 // is LAST STREAM ACTIVITY (game flow OR keep-alive probe),
                 // not a boolean — the joiner's keep-alive probes count as
                 // life, so a live tunnel with no game flow is not reaped,
@@ -129,7 +129,7 @@ internal object HostGateway {
                         }
                         lastStreamMs.set(System.currentTimeMillis())
                         // The header read is hoisted here so the reserved
-                        // keep-alive lane (R6-2-1) never touches the game
+                        // keep-alive lane never touches the game
                         // flow machinery: echo one byte, done.
                         val header = try {
                             stream.recv().readExact(PortMux.HEADER_BYTES.toUInt())

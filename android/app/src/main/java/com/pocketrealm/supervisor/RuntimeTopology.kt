@@ -406,7 +406,7 @@ object TunnelInterfacePolicy {
  * Design-tunnel §10 (the mode/predicate reconciliation design-lan §2.4
  * owns the table for): WHICH interface-loss leg a hosting session's health
  * monitor runs, keyed by the session's ADVERTISED address. Plain LAN
- * hosting watches the private LAN endpoint exactly as design-lan D2
+ * hosting watches the private LAN endpoint exactly as design-lan
  * specifies; a tunnel-advertised session watches the TUNNEL adapter (so
  * physical-LAN churn never kills a tunnel realm whose path never touched
  * the LAN); a loopback advertisement (the documented cloudflared recipe)
@@ -421,7 +421,7 @@ sealed class InterfaceWatch {
      * stop. */
     object None : InterfaceWatch()
 
-    /** Plain LAN hosting: watch the private LAN [RuntimeEndpoint] (D2). */
+    /** Plain LAN hosting: watch the private LAN [RuntimeEndpoint]. */
     object Lan : InterfaceWatch()
 
     /** Tunnel-advertised hosting: watch the tunnel adapter carrying

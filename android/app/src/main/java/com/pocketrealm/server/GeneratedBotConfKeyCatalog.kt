@@ -9,11 +9,11 @@ package com.pocketrealm.server
  * sha256 to the matrix records; tools/generate_conf_matrix.py
  * --check fails loud on drift.
  *
- * The staged-conf validator's data (W3.4 fail-loud): every key the
+ * The staged-conf validator's data (fail-loud): every key the
  * server runtime stages into aiplayerbot-*.conf must be known for
  * the FLAVOR's bots build (the flavor's matrix keys, plus the
  * PocketRealm.* overlay family the patches inject), and every
- * excluded family (correction C9: the wotlk VoiceChat inert stub)
+ * excluded family (correction: the wotlk VoiceChat inert stub)
  * is refused with its own naming — the matrix consumers honor
  * excluded_keys, not just the generator.
  */
@@ -7031,7 +7031,7 @@ internal object GeneratedBotConfKeyCatalog {
         ).toSet(),
     )
 
-    /** The flavor's excluded key families (correction C9 data). */
+    /** The flavor's excluded key families (correction data). */
     val excludedFamiliesByFlavor: Map<String, Set<String>> = mapOf(
         "tbc" to setOf(),
         "vanilla" to setOf(),

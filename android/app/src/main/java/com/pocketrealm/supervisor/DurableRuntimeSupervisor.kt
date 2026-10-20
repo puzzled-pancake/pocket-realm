@@ -289,7 +289,7 @@ class DurableRuntimeSupervisor(
     suspend fun consentedForceStopOrphanStack(): RuntimeOperation = operationLock.withLock {
         val current = _state.value
         if (current.phase == RuntimePhase.STOPPED && current.clean) {
-            // GAP-2: "already stopped" must mean nothing left to repair. A
+            // "already stopped" must mean nothing left to repair. A
             // clean journal can still carry a service-side DATABASE claim
             // the automatic lanes could not release (the refused start that
             // surfaced DB_OWNED_BY_DEAD_SESSION settles at rest with the
@@ -595,10 +595,10 @@ class DurableRuntimeSupervisor(
 
     // ------------------------------------------------------------------
     // Remote friend accounts (design-remote-accounts): the shared seam the
-    // design's §11 names — "the AIDL surface already grew createAccount
+    // design's names — "the AIDL surface already grew createAccount
     // once; the same seam carries the new verbs". Each verb phase-guards
     // like provisionAccount, routes to the backend's friend-verb override,
-    // and publishes a durable journal action (§12) so provision/ban/gm
+    // and publishes a durable journal action so provision/ban/gm
     // decisions survive like every other supervisor transition.
     // ------------------------------------------------------------------
 
@@ -730,7 +730,7 @@ class DurableRuntimeSupervisor(
                 backend.start(component, owner, spec)
             }
         }.getOrElse { error ->
-            // N2: a server service left in FAILED by our own committed
+            // a server service left in FAILED by our own committed
             // dirty-stop recovery (or by an unjournaled relay composite that
             // died mid-boot) refuses the start at its requireStopped gate:
             // "start requires a stopped native runtime; current
@@ -1358,7 +1358,7 @@ class DurableRuntimeSupervisor(
         // consented-and-killed) only while the engine observably has no live
         // generation; a live one belongs to the engine-ordered stop lanes.
         private val ENDED_DATABASE_STATES = setOf(ComponentLifecycle.STOPPED, ComponentLifecycle.FAILED)
-        // GAP-2 fix (a): observed states in which a never-started stage holds
+        // fix (a) observed states in which a never-started stage holds
         // nothing of this generation's to stop - STOPPED, or the FAILED
         // residue a start refusal parks a native in with no worker behind it.
         private val NEVER_STARTED_AT_REST_STATES = setOf(

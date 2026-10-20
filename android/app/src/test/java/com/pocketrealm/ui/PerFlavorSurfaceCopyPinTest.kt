@@ -42,7 +42,7 @@ class PerFlavorSurfaceCopyPinTest {
     }
 
     @Test fun `the hardware-tested claim branches by flavor R5-6-3`() {
-        // The vanilla trio's frozen D29 evidence backs the tested-on-hardware
+        // The vanilla trio's frozen evidence backs the tested-on-hardware
         // copy ONLY on the vanilla lane; the tbc/wotlk curated sets are
         // research reference (the round-3 demotion), so both claims must sit
         // inside vanilla-conditional branches that name the honest fallback.

@@ -184,7 +184,7 @@ def test_source_built_guest_is_pinned_and_reports_receiver_map_errno() -> None:
     sources = (ROOT / "schemas/sources.json").read_text()
     driver_catalog = (ROOT / "schemas/vulkan-driver-catalog.json").read_text()
 
-    # Provenance is centralized (D16 direction): the builder derives its pin
+    # Provenance is centralized (direction) the builder derives its pin
     # and builder image from the sources.json vortek-guest entry, and the
     # stager derives the guest bytes from the vulkan driver catalog - the
     # owning tables carry the values, the tools carry the derivations.
@@ -257,10 +257,10 @@ def test_idle_ring_wait_uses_peer_loss_and_progressive_backoff() -> None:
 
     assert "int peerFd;" in ring_header
     assert "RingBuffer_setPeerFd" in ring_header
-    # R2-4-1 (round 2): 100u is the MEASURED fix (ffc7da4: the 2ms cap
+    # 100u is the MEASURED fix (ffc7da4: the 2ms cap
     # throttled the request handler to ~500 wakes/s and collapsed GL
     # throughput to ~4k req/s on Adreno+Mali; 100us restores ~36k req/s) -
-    # this pin was stale from the day ffc7da4 landed and round-1's triage
+    # this pin was stale from the day ffc7da4 landed and its triage
     # wrongly honored it. Pin the measured value AND its comment together.
     assert "RING_WAIT_MAX_SLEEP_US 100u" in ring
     assert "100 us restores the ~36k requests/second pipeline" in ring

@@ -37,7 +37,7 @@ import org.junit.Before
  * integrity-gate legs need the sqlite seam DLL and skip cleanly without it.
  */
 class DesktopSnapshotsRestoreTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -92,7 +92,7 @@ class DesktopSnapshotsRestoreTest {
         roots.settingsFile.writeText(
             com.pocketrealm.storage.Settings.Snapshot(
                 databaseProvider = com.pocketrealm.storage.Settings.DatabaseProvider.SQLITE,
-                // W4 flip: the lane selection rides every settings rewrite.
+ // Flip: the lane selection rides every settings rewrite.
                 selectedFlavorId = "vanilla",
             ).toJson(),
         )
@@ -176,7 +176,7 @@ class DesktopSnapshotsRestoreTest {
         roots.settingsFile.writeText(
             com.pocketrealm.storage.Settings.Snapshot(
                 databaseProvider = com.pocketrealm.storage.Settings.DatabaseProvider.SQLITE,
-                // W4 flip: the lane selection rides every settings rewrite.
+ // Flip: the lane selection rides every settings rewrite.
                 selectedFlavorId = "vanilla",
             ).toJson(),
         )

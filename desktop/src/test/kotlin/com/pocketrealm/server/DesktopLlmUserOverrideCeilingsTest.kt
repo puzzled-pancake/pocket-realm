@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * GAP-8 pin: the user-override generation-timeout ceiling is a platform
+ * pin: the user-override generation-timeout ceiling is a platform
  * TWIN constant — LlmRuntimePolicy is deliberately not a shared source
  * (the twins differ in their lane wiring: the desktop sidecar block vs
  * the Android :llm-process/NPU members), so nothing structural ties the

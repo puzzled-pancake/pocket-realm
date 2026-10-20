@@ -28,7 +28,7 @@ import org.junit.Before
  * transaction/seal/marker leg proves exactly as the Android twin's do:
  *
  *  - an unstaged provider refuses the mutating verbs with the honest
- *    DB-LINK copy and never touches the datadir (the DESK-78 posture;
+ * DB-LINK copy and never touches the datadir (the DESK-78 posture;
  *    stop/recover on an inert engine still take their state-gate copies
  *    first, exactly like the Android leg);
  *  - initialize runs the full INIT transaction (OWNED → RUNNING →
@@ -45,7 +45,7 @@ import org.junit.Before
  *  - the owner-release stop on an ended engine never touches the seals.
  */
 class DesktopMariaDbEngineTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -138,15 +138,15 @@ class DesktopMariaDbEngineTest {
                 .toString(),
         )
         if (stageLaneSibling) {
-            // R3-r3-fix regression staging: the TBC lane's sibling manifest
-            // + its lane lockfile pin (the shape the real D72 retirement
+            // fix regression staging: the TBC lane's sibling manifest
+            // its lane lockfile pin (the shape the real retirement
             // stages via tools/stage_mariadb_flavor_migrations.py) — an
             // empty entry set with a DISTINCT digest from the shared
             // manifest, so the lane identity can never coincide with the
             // shared one.
             val laneManifest = JSONObject(migrationManifest.toString())
                 .put("app_build_id", "test-build-tbc")
-            // R4-5: one REAL migration entry (staged .sqlz asset with
+            // one REAL migration entry (staged .sqlz asset with
             // matching digests) so the tbc apply has a mid-ledger point
             val migrationSql = "-- scripted-tbc-migration\nSELECT 1;\n"
                 .toByteArray()
@@ -194,7 +194,7 @@ class DesktopMariaDbEngineTest {
                     )
                     .toString(),
             )
-            // R4-5: the WOTLK sibling too — the kill-mid-switch isolation
+            // the WOTLK sibling too — the kill-mid-switch isolation
             // test needs BOTH lanes staged on one shared closure
             val wotlkManifest = JSONObject(migrationManifest.toString())
                 .put("app_build_id", "test-build-wotlk")
@@ -412,7 +412,7 @@ class DesktopMariaDbEngineTest {
             roots = roots,
             providerOverride = provider(),
             processes = processes,
-            // R3-r3-fix regression: a NON-VANILLA boot lane routes the
+            // fix regression: a NON-VANILLA boot lane routes the
             // transaction journal, seal marker, and lane identity off the
             // lane suffixes — the exact wiring the identity-drift defect
             // broke one phase after SNAPSHOT_READY.
@@ -738,7 +738,7 @@ class DesktopMariaDbEngineTest {
     @Test
     fun aNonVanillaLaneMigrationApplyProvesItsPhasesAgainstTheLaneIdentity() {
         // R3-r3-fix (W4 code-red round 3) regression: the MIGRATION
-        // transaction record is written with the LANE identity (R3-2), but
+        // transaction record is written with the LANE identity, but
         // every phase update and the recovery proof re-parsed it against
         // the SHARED vanilla identity — "DB-TRANSACTION: transaction
         // identity drift" refused every non-vanilla apply one phase after
@@ -773,7 +773,7 @@ class DesktopMariaDbEngineTest {
 
     @Test
     fun killMidSwitchIsolatesTheLanesAndReportsTheDirtLoud() {
-        // R4-5/R5-W4r4-3/R2-R4-3 (W4.4's adversarial leg, engine level):
+        // the adversarial leg, engine level:
         // the kill leaves the lane's own MIGRATION journal at phase
         // RUNNING (deterministically injected through the engine's own
         // durable writer + a real published pre-migration snapshot — the
@@ -916,12 +916,12 @@ class DesktopMariaDbEngineTest {
     }
 
     // ------------------------------------------------------------------
-    // The status JSON's daemon pid (GAP-5)
+    // The status JSON's daemon pid
     // ------------------------------------------------------------------
 
     @Test
     fun statusJsonCarriesTheDaemonPidWhenAliveAndOmitsItWhenDown() {
-        // GAP-5: the status JSON's daemon pid is the mariadbd the ENGINE
+        // the status JSON's daemon pid is the mariadbd the ENGINE
         // spawned and tracks (startDaemon's handle), never the app JVM's
         // ambient pid — and it is omitted (JSON null) whenever the engine is
         // not RUNNING: a fabricated pid is the defect class being fixed.
@@ -1168,7 +1168,7 @@ class DesktopMariaDbEngineTest {
         assertEquals(1, lane.processes.worldOverlayRuns.size)
         // The DEFAULT stage is the seed itself: recorded in MariaDB's meta
         // ledger, zero world-DB statements executed.
-        // W4 flip: `.single()` retired with the sole-qualified degrade —
+ // Flip: `.single` retired with the sole-qualified degrade —
         // the lane under test is the fixture's synthetic vanilla lane.
         val defaultStage = com.pocketrealm.client.TimeframeStages.defaultStageId(
             "vanilla",
@@ -1571,12 +1571,12 @@ class DesktopMariaDbEngineTest {
 
     @Test
     fun realmEndpointProjectionTargetsTheActiveFlavorsRealmdDatabase() {
-        // The MariaDB leg's flavor routing (the sqlite lane's GAP-4 twin,
+        // The MariaDB leg's flavor routing (the sqlite lane's twin,
         // DesktopRuntimeBackend's ServerRuntimeFiles.serverDatabases()
         // resolution): the projected database resolves through the flavor
         // registry AT PROJECTION TIME — this lane booted under the vanilla
         // registry — so the selected lane's row gets the advertisement at
-        // the S5 flip, an ambiguous registry refuses loud before any SQL
+        // the flip, an ambiguous registry refuses loud before any SQL
         // crosses the client, and vanilla-only state keeps the exact
         // classicrealmd bytes (the first test above).
         val (lane, engine) = startedLane()
@@ -1585,7 +1585,7 @@ class DesktopMariaDbEngineTest {
             val vanilla = testFlavor("vanilla", qualified = true)
             val wotlk = testFlavor("wotlk", qualified = true, build = 12340)
             ActiveFlavor.qualifiedSource = { listOf(vanilla, wotlk) }
-            // W4 fixture note: the class @Before pins a holder selection;
+            // fixture note: the class @Before pins a holder selection;
             // the ambiguous-state leg under test requires NO selection.
             ActiveFlavor.clearSelection()
             try {

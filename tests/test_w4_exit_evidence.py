@@ -29,13 +29,13 @@ MATRIX_LOG = W4 / "auth-matrix-full-final2.log"
 # lane's evidence is the pair: import in -final.log, boot->Save & Exit in
 # -final2.log against the reused generation). The criterion: the chain
 # import -> boot -> autoLogin -> saveExit all evidenced across the set.
-# R1-2/R4-r5-1 (round 5): the charter names BOTH import lanes. The tbc
+# the charter names BOTH import lanes. The tbc
 # evidence set carries the full ARCHIVE-lane chain (import="archive" ->
 # saveExit). The wotlk archive import was attempted and refused by the
 # storage preflight (need 88 GB under post-import disk contention; log
 # archived) — its evidence is the pair: folder import in -final.log, the
 # reused-generation chain to saveExit in -final2.log, plus the archived
-# archive-attempt. D86 records the bound.
+# archive-attempt. records the bound.
 E2E_LOGS = {
     "tbc": (W4 / "e2e-probe-tbc-final.log",
             W4 / "e2e-probe-tbc-archive.log"),
@@ -120,11 +120,11 @@ def test_the_per_flavor_desktop_e2e_logs_end_in_save_and_exit():
                 f"the {flavor} E2E log {path.name} carries no evidence lines")
         combined = " ".join(
             p.read_text(encoding="utf-8", errors="replace") for p in paths)
-        # BOTH import lanes per the W4.1 charter: the FOLDER lane chain to
+        # BOTH import lanes per the charter: the FOLDER lane chain to
         # Save & Exit, plus an ARCHIVE-lane leg (green chain for tbc; for
         # wotlk the archived storage-bound attempt — the 17.8 GiB tree's
         # 88 GB planning need exceeded the volume's free space, recorded
-        # in D86)
+        # in)
         assert 'import="folder"' in combined, (
             f"the {flavor} E2E evidence set records no folder-import leg")
         if flavor == "wotlk":

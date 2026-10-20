@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The §6.4 failure-emission truth table (design realm-status-browser.md):
+ * The failure-emission truth table (design realm-status-browser.md):
  * the supervisor-status poll's dead-lane shapes must emit an EXPLICIT
  * SupervisorUnreachable state — never silence, and never a false offline
  * claim of either polarity.
@@ -17,7 +17,7 @@ class SupervisorUnreachableEmissionTest {
 
     @Test
     fun `a decode failure emits immediately - the unknown phase enum never reads as clean idle`() {
-        // The valueOf throw the pre-§6.4 loop swallowed: deterministic, so
+        // The valueOf throw the pre- loop swallowed: deterministic, so
         // the emission must not wait for "repeated" ticks to accumulate.
         val reason = RuntimeSupervisorClient.unreachableReason(
             decodeFailed = true,

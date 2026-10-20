@@ -7,7 +7,7 @@ package com.pocketrealm.discovery.nostr
  * JSON requires — matching the reference implementations' behavior so a
  * foreign client re-serializes to the same bytes.
  *
- * W6-N3: extracted verbatim from RealmListingEvent.kt (same package, zero
+ * extracted verbatim from RealmListingEvent.kt (same package, zero
  * behavior change) so the discovery/iroh shared core (the join descriptor's
  * pinned-order serializer) can share THE escaper instead of growing a twin
  * — one escaping implementation per wire format, byte-stable goldens on

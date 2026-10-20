@@ -625,7 +625,7 @@ def test_smoke_suite_fails_on_relay_reconnect_events(tmp_path):
     assert report["summary"]["failures"] >= 1
 
 
-# ---- A8 invariants + the CLI -----------------------------------------------
+# ---- invariants + the CLI -----------------------------------------------
 
 
 def test_a8_scan_balanced_duplicate_and_missing():
@@ -845,7 +845,7 @@ def test_toolprobe_slices_the_live_log_not_a_stale_smoke_snapshot(
     snap_dir.mkdir(parents=True, exist_ok=True)
     try:
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-        # W2 finalize: product_data_root() prefers POCKET_REALM_DATA_ROOT
+        # at finalize, product_data_root prefers POCKET_REALM_DATA_ROOT
         # over LOCALAPPDATA — a machine-level override defeated this test's
         # LOCALAPPDATA fixture; the leg under test is the LOCALAPPDATA
         # resolution, so the override is cleared.

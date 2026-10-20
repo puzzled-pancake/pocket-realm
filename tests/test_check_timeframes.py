@@ -89,7 +89,7 @@ def test_invented_default_stage_fails() -> None:
 def test_invented_availability_ids_without_measurement_fail() -> None:
     # The honesty gate: a non-empty id set must not pretend to be measured,
     # and an EMPTY set must carry the pending provenance. An invented id on
-    # a stage whose provenance claims the S4 pin landed is the drift shape
+    # a stage whose provenance claims the pin landed is the drift shape
     # the gate exists for.
     errors: list[str] = []
 
@@ -153,7 +153,7 @@ def test_kotlin_registry_drift_fails() -> None:
 
 
 def test_unparseable_registry_fails_loud_not_silent() -> None:
-    # Round-2 regression pin: when the registry's declaration shape changes
+    # regression pin: when the registry's declaration shape changes
     # (here: a registry text the parser cannot read at all), the sync leg
     # must ERROR for every flavor — never return an empty map and pass.
     errors: list[str] = []
@@ -286,7 +286,7 @@ def test_qualified_flavor_with_pending_era_curation_fails() -> None:
     manifest = {
         "flavor": "tbc",
         # a grounded final baseline so the PENDING-MARKER branch is what
-        # fires (not the round-5 no-baseline error)
+        # fires (not the no-baseline error)
         "final_stage_era_baseline": {"stage": "tbc-2.4.3"},
         "stages": [
             {
@@ -328,7 +328,7 @@ def test_qualified_flavor_with_pending_era_curation_fails() -> None:
 
 
 # ---------------------------------------------------------------------------
-# R5-r1-1 (review round 1): the gate used to bless ANY non-null
+# the gate used to bless ANY non-null
 # delta_from_flavor_final as era grounding while the generator silently
 # dropped it — a curated per-stage delta never reached the generated header
 # and the stage inherited the flavor's final baseline. The gate now accepts

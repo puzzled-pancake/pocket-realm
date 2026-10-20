@@ -75,7 +75,7 @@ class UpdateApplyTest {
 
     @Test
     fun aThrownIOFailureMidApplyFoldsIntoFailedAndKeepsTheRunningImage() {
-        // THE crash class R4-1 fixed: an extraction that THROWS (here the
+        // THE crash class fixed: an extraction that THROWS (here the
         // zip-slip guard's IOException — the same propagation path a
         // disk-full FileOutputStream or a corrupt-read ZipException rides)
         // previously escaped the unguarded confirm-click coroutine and
@@ -136,7 +136,7 @@ class UpdateApplyTest {
         )
     }
 
-    /** R4-1 layer (b): the Settings confirm click folds escapes into the
+    /** layer (b) the Settings confirm click folds escapes into the
      * outcome copy exactly like the download click — pinned as a source
      * contract on the composable. */
     @Test
@@ -162,7 +162,7 @@ class UpdateApplyTest {
     }
     @Test
     fun aTamperedStagedPackageIsRefusedAtApplyTime() {
-        // R3-r2-2: verification must fail closed AT APPLY — the download
+        // verification must fail closed AT APPLY — the download
         // finalize gate ran long before this call and the staged file is
         // mutable on disk.
         val image = currentImage()

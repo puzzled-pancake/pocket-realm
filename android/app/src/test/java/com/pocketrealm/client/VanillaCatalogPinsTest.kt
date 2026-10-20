@@ -9,13 +9,13 @@ import org.junit.Test
  *
  *  - the `WowBindingCategory` / `WowBindingSemantics` enums are never
  *    re-ordered or renamed — the controller profile persists enum ordinals
- *    (H4-2's WotLK vehicle/override categories and H4-11's per-flavor capture
+ * H4-2's WotLK vehicle/override categories and H4-11's per-flavor capture
  *    add NEW entries in per-flavor catalogs, appended at the end);
  *  - the `WowVanillaSettingsCatalog` stays CATALOG_VERSION 2 over its pinned
  *    109-entry capture, and the rendered entry digest matches the committed
  *    literal — any in-place content edit ("shared" wording, retuned rows)
  *    fails here; a genuine content fix is a new CATALOG_VERSION plus a
- *    Decision Log entry (G3-10 item 1).
+ * Decision Log entry (G3-10 item 1).
  */
 class VanillaCatalogPinsTest {
 
@@ -25,7 +25,7 @@ class VanillaCatalogPinsTest {
             "BONUS_ACTION_BAR", "ACTION_PAGES", "TARGETING", "CHARACTER_AND_UI", "BAGS",
             "MISCELLANEOUS", "CAMERA", "MULTI_ACTION_BARS", "RAID_MARKERS", "INTERNAL_POINTER",
         )
-        // D31/G3-10 freezes the vanilla 15 IN ORDER (ordinals 0..14 — the
+        // G3-10 freezes the vanilla 15 IN ORDER (ordinals 0..14 — the
         // controller profile persists ordinals); per-flavor categories
         // (H4-2 totem/vehicle, H4-11 captures) may only APPEND after them,
         // never insert before or within. take(n) equality catches an

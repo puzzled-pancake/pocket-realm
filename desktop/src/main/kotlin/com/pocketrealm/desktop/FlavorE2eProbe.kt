@@ -86,10 +86,10 @@ private fun importLane(flavor: ClientFlavor, model: DesktopAppModel): String {
     val archive = System.getProperty("archive")?.let(::File)
     return if (archive != null) {
         check(archive.isFile) { "IMPORT: archive missing: $archive" }
-        // R3-2: the archive lane's own gate is PE build/version based (an
+        // the archive lane's own gate is PE build/version based (an
         // exe-sha mismatch is only a warning), so the probe enforces the
         // S5.1 sha pin itself on the resolved flavor before a byte moves.
-        // R4-r5-1 (round 5): the archive lane stands ALONE — a genuine
+        // the archive lane stands ALONE — a genuine
         // clientDir pairing is no longer required (it made every
         // archive-lane E2E run demand a second full client tree); the
         // archive's own WoW.exe member is hash-pinned below, which is the
@@ -187,7 +187,7 @@ private fun autologinStep(
     evidence += "autoLogin" to "character-screen"
 }
 
-/** R4-r5-1: a refused archive import (e.g. the storage preflight) must
+/** a refused archive import (e.g. the storage preflight) must
  * still land a machine-visible evidence line — the failure record IS the
  * evidence for the archived attempt. Extracted from main for
  * length/complexity. */
@@ -228,7 +228,7 @@ fun main() {
         try {
             // the persisted lane pick (the Home flavor card's write).
             model.updateSettings { it.copy(selectedFlavorId = flavorId) }
-            // R1-1 parity: the UI's HomeScreen re-applies the persisted
+            // parity: the UI's HomeScreen re-applies the persisted
             // pick to the ActiveFlavor machine when the settings arrive —
             // the headless probe drives the same law explicitly, or the
             // holder-based resolvers (import size limits) refuse the

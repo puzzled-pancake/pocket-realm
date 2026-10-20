@@ -41,7 +41,7 @@ from rp_harness.desktop_host import DesktopHost  # noqa: E402
 
 MANIFEST = REPO / "schemas" / "flavor.json"
 
-# Correction C3: ONE shared auth-challenge opcode in all three branches.
+# Correction: ONE shared auth-challenge opcode in all three branches.
 SMSG_AUTH_CHALLENGE = 0x1EC
 CMSG_AUTH_SESSION = 0x1ED
 SMSG_AUTH_RESPONSE = 0x1EE
@@ -212,7 +212,7 @@ class Rc4:
 
 
 # The ACTIVE server branch's crypt (set per world cell; None = the legacy
-# globals path the vanilla lane keeps). R2-r3-3 (round 3): the tbc/wotlk
+# globals path the vanilla lane keeps). the tbc/wotlk
 # servers initialize their header crypt DURING HandleAuthSession — the
 # AUTH_OK / post-auth responses are ENCRYPTED, so a plaintext read never
 # sees them (observed live: the tbc world logged "authenticated
@@ -479,12 +479,12 @@ def run_lane(flavor_id, pins, host, results):
     print(f"== lane {flavor_id} (build {pin['build']}, frame "
           f"{pin['frame_bytes']}B) ==", flush=True)
     print("booting...", flush=True)
-    # W4: a first boot on a new lane applies the whole per-flavor migration
+    # a first boot on a new lane applies the whole per-flavor migration
     # ledger (the world dump included) BEFORE ready - a legitimate boot
     # phase; the wait covers it.
     print("ready:", host.wait_ready(timeout_s=3600), flush=True)
     # the LIVE host: reboots replace the local reference, and main()'s
-    # finally must close the one that is actually running (R2-r3-2)
+    # finally must close the one that is actually running
     results["liveHost"] = host
     account = host.send_raw({"op": "account", "user": RPTEST_USER,
                              "pass": RPTEST_PASS, "gm": 3})
@@ -687,7 +687,7 @@ def main(argv=None):
     expected_cells = 3 * len(flavors)
     print(f"auth-matrix: {len(cells)}/{expected_cells} cells verdicts recorded, "
           f"{failures} failed lane(s) -> {out}")
-    # R2-2: a single-lane run demands 3 cells (all verdicts recorded, no
+    # a single-lane run demands 3 cells (all verdicts recorded, no
     # drift); the full matrix demands 9. A green run is exit 0 either way.
     return 1 if (failures or len(cells) != expected_cells) else 0
 

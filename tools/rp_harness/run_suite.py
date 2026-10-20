@@ -46,10 +46,10 @@ RE_END = re.compile(r"BotLLM:\s*(?:gen\s+)?end\b.*?\breq=(\d+)")
 # dispatch+end-only shape (both busy paths - the governor and the
 # interactive budget - return BEFORE the begin line). A CAP-class turn
 # DOES carry a begin: the begin line precedes GenerateHttp, whose first
-# check is the concurrency cap (round-2 R2#2/R7#1 - the cap denial
+# check is the concurrency cap (the cap denial
 # happens after the generation was logged as started).
 RE_END_CLASS = re.compile(r"BotLLM:\s*(?:gen\s+)?end\b.*?\breq=(\d+)\b.*?\bclass=(\w+)")
-# the end line's duration (A8: "p50/p95 from durMs" - log timestamps are
+# the end line's duration ("p50/p95 from durMs" - log timestamps are
 # second-resolution, durMs is the in-process steady_clock measure)
 RE_END_DUR = re.compile(r"BotLLM:\s*(?:gen\s+)?end\b.*?\breq=(\d+)\b.*?\bdurMs=(\d+)")
 NO_BEGIN_CLASSES = frozenset({"busy"})
@@ -84,9 +84,9 @@ def check_a8_lines(lines, require: bool = False) -> dict:
             if match:
                 bump(match.group(1), phase)
 
-    # plan A8: "p50/p95 from durMs" (round-4 R2) - nearest-rank
+    # plan: "p50/p95 from durMs" - nearest-rank
     # percentiles over every end line that carries a durMs; the report
-    # key rides into the JSON via the embedded result dict. Round-5 R7:
+    # key rides into the JSON via the embedded result dict.:
     # fast denials (busy/cap) deflate the aggregate, so the ok-class
     # subset is reported beside it (the honest SLA cross-check).
     def pct(values: list[int], p: float) -> int:
@@ -104,7 +104,7 @@ def check_a8_lines(lines, require: bool = False) -> dict:
 
     violations: list[str] = []
     if botllm_lines == 0:
-        # no-op pass unless the caller explicitly requires A8 evidence
+        # no-op pass unless the caller explicitly requires evidence
         if require:
             violations.append("no BotLLM: lines found (--require-a8 given)")
         return {"ok": not violations, "noOp": not require, "botllmLines": 0,

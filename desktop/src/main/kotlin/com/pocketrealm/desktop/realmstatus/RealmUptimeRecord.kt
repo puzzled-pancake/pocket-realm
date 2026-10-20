@@ -3,16 +3,16 @@ package com.pocketrealm.desktop.realmstatus
 import java.io.File
 
 /**
- * Realm-status browser (design realm-status-browser.md §7): the
+ * Realm-status browser (design realm-status-browser.md) the
  * `uptime.recordSeconds` producer — the longest world session so far,
- * host-persisted. No producer existed in the tree (the design's round-2
+ * host-persisted. No producer existed in the tree (the design's
  * note), so this is it: a small record store updated on BOTH stop flavors.
  *
  *  - GRACEFUL: the controller's state watcher sees the world component
  *    leave its READY/running lifecycle and folds
  *    `now − components[WORLD].startedAtWallMs` into the record.
  *  - UNCLEAN (crash / hard kill): the session boundary is one world
- *    lifetime per app process (DESK-25, `worldLifetimeSpent()`); at the
+ * lifetime per app process (DESK-25, `worldLifetimeSpent`); at the
  *    NEXT launch the previous process cannot fold anything — so the
  *    recovery fold reads the supervisor journal's LAST snapshot (written
  *    by the dead process) and credits

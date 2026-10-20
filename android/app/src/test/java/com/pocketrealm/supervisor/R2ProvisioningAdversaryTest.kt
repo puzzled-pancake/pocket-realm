@@ -13,7 +13,7 @@ import java.net.Socket
 import java.nio.file.Files
 
 /**
- * R2 adversarial breaker (android-core round 1): the provisioning listener
+ * Adversarial breaker (android-core ): the provisioning listener
  * under an active adversary — real sockets against the full wired cluster
  * ([ProvisioningListener] + [FriendInviteStore] + [ProvisionRateLimiter]).
  *
@@ -22,7 +22,7 @@ import java.nio.file.Files
  *    identical refusal blob (no oracle between unknown/expired/locked);
  *  - the lockout must survive a full listener+store+limiter restart;
  *  - a valid submission and its decision poll must be indistinguishable
- *    while pending (the §5 oracle rule);
+ * while pending (the oracle rule);
  *  - the one PROVISIONED reveal must burn the token on first use;
  *  - malformed frames must count as failures and never half-serve;
  *  - an expired decision window must collapse into the same refusal.
@@ -48,11 +48,11 @@ class R2ProvisioningAdversaryTest {
             // and indistinguishably so.
             val realToken = host.ask(host.request(inviteId, host.token))
             assertEquals(FriendProvisionProtocol.REFUSED_RESPONSE, realToken?.decodeText())
-            // W2: the release runs on the request's daemon thread AFTER the
+            // the release runs on the request's daemon thread AFTER the
             // response above (ProvisioningListener.safelyServe's finally), so
-            // a synchronous sample races it — observed live in the W2
+            // a synchronous sample races it — observed live in the
             // canonical suite under full parallel load (expected:<0> but
-            // was:<1>). The §6 contract is the concurrency CAP, never a
+            // was:<1>). The contract is the concurrency CAP, never a
             // synchronous release, so the wind-down is awaited with a
             // bounded deadline; zero is still the asserted postcondition.
             awaitConnectionWindDown(host)

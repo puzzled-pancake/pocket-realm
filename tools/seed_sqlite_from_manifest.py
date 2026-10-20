@@ -247,7 +247,7 @@ def seed(out_dir: Path, transcripts_dir: Path | None,
          augment_dir: Path | None = None) -> tuple[int, dict]:
     # Lane paths resolve at CALL time (None sentinels): frozen default
     # arguments would bind the real dirs at import and silently defeat the
-    # tests' AUGMENT_DIR/MANIFEST isolation patches (the round-3
+    # tests' AUGMENT_DIR/MANIFEST isolation patches (the
     # regression this restores).
     manifest_path = MANIFEST if manifest_path is None else manifest_path
     baseline_path = BASELINE if baseline_path is None else baseline_path

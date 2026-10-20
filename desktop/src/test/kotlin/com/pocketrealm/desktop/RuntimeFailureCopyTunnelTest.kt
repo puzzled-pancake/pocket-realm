@@ -6,11 +6,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Design-tunnel §10 + D9: the interface-loss stop reason is MODE-AWARE —
+ * Design-tunnel §10 +: the interface-loss stop reason is MODE-AWARE —
  * the desktop monitor emits TUNNEL_HOST_INTERFACE_LOST for a
  * tunnel-advertised session (its loss signal is a dropped tunnel adapter,
  * not a changed LAN address), so the decoded copy must name the tunnel
- * remedy. The LAN marker keeps the D9 verbatim pick-an-address copy.
+ * remedy. The LAN marker keeps the verbatim pick-an-address copy.
  */
 class RuntimeFailureCopyTunnelTest {
     @Test

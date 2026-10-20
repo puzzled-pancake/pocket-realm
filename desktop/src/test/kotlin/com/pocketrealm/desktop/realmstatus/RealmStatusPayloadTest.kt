@@ -18,11 +18,11 @@ import org.junit.Test
  * (design realm-status-browser.md §7, schema 3): the PUBLIC trim set,
  * the degraded fail-closed nulls, the structural world-down zeros, the
  * two-case advertised-address rule, the join-axis keying, and the
- * §6.3 MOTD clamp's hostile vectors.
+ * MOTD clamp's hostile vectors.
  */
 class RealmStatusPayloadTest {
 
-    @Suppress("LongParameterList") // the helper mirrors the §7 input bundle; defaults keep each pin's focus
+    @Suppress("LongParameterList") // the helper mirrors the input bundle; defaults keep each pin's focus
     private fun inputs(
         visibility: RealmStatusVisibility = RealmStatusVisibility.PUBLIC,
         worldRunning: Boolean = true,
@@ -119,7 +119,7 @@ class RealmStatusPayloadTest {
 
     @Test
     fun `the public liveness pairing rule holds - realmOnline with a live status source`() {
-        // §7's pairing rule: realmOnline true REQUIRES statusSource live;
+        // its pairing rule: realmOnline true REQUIRES statusSource live;
         // realmOnline is null ONLY when degraded (no false offline claim).
         val payload = RealmStatusPayload.build(inputs())
         assertEquals(true, payload.getJSONObject("supervisor").getBoolean("realmOnline"))
@@ -128,7 +128,7 @@ class RealmStatusPayloadTest {
 
     @Test
     fun `degraded status publishes no offline claim and nulls the split`() {
-        // §6.4/§3.3: realmOnline null (never false), uptime 0, and the
+        // realmOnline null (never false), uptime 0, and the
         // players block fail-closes to NULLS — never a 0-split. The two
         // degrade axes are independent (§7's pairing note): the players
         // block carries its OWN source label here.
@@ -154,7 +154,7 @@ class RealmStatusPayloadTest {
 
     @Test
     fun `the world-down zeros are structural and labeled world-down`() {
-        // §7 round 4: no world means no players by construction; the
+        // no world means no players by construction; the
         // label is world-down, never "native" (which claims a lane).
         val payload = RealmStatusPayload.build(
             inputs(
@@ -229,7 +229,7 @@ class RealmStatusPayloadTest {
         assertEquals("RUNNING", payload.getJSONObject("supervisor").getString("phase"))
         assertEquals("LAN_HOST", payload.getJSONObject("supervisor").getString("mode"))
         assertEquals(false, payload.getJSONObject("supervisor").getBoolean("clean"))
-        // §7's two cases, case (a): the FRIENDS tunnel lane carries the
+        // its two cases, case (a) the FRIENDS tunnel lane carries the
         // frozen advertisement — grammar-bounded by construction upstream.
         assertEquals("100.64.1.2", payload.getJSONObject("supervisor").getString("advertisedAddress"))
         assertEquals("tunnel-invite", payload.getJSONObject("join").getString("kind"))
@@ -247,7 +247,7 @@ class RealmStatusPayloadTest {
 
     @Test
     fun `friends plain-lan carries a null advertised address and the lan join kind`() {
-        // §7's two cases, case (b): the plain-LAN lane is null on either
+        // its two cases, case (b) the plain-LAN lane is null on either
         // DB provider; the LAN address appears only in the PAGE's join
         // section, never in the payload.
         val payload = RealmStatusPayload.build(
@@ -267,7 +267,7 @@ class RealmStatusPayloadTest {
 
     @Test
     fun `a dead tunnel never shows a stale url`() {
-        // §5.4: when tunnelState != live, public.url is null.
+        // when tunnelState != live, public.url is null.
         val payload = RealmStatusPayload.build(
             inputs(tunnelState = TunnelState.DOWN, publicUrl = "https://warm-underscore-example.trycloudflare.com"),
         )
@@ -300,7 +300,7 @@ class RealmStatusPayloadTest {
         val running = RealmStatusPayload.build(inputs())
         assertEquals(1.0, running.getJSONObject("rates").getDouble("xpKill"), 0.0)
         assertEquals("engine-default", running.getJSONObject("rates").getString("source"))
-        // §7: the down state reports the conf lane as not-running (the
+        // the down state reports the conf lane as not-running (the
         // controller feeds notRunning(); the builder serializes verbatim).
         val down = RealmStatusPayload.build(
             inputs(

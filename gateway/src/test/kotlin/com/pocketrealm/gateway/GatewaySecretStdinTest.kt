@@ -8,7 +8,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * W6-N3 code-red round 4 (R3-3): the transport secret arrives on STDIN —
+ * the transport secret arrives on STDIN —
  * never argv (a 64-hex argv is Win32_Process-readable by any local
  * process for the endpoint's whole lifetime). Pins the pipe shape: the
  * flag reads one trimmed hex line; empty stdin is a loud BadArgs; passing

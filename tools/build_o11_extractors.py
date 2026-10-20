@@ -19,17 +19,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 try:
     from tools import common
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import common
 try:
     from tools import flavor_layout
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import flavor_layout
 SOURCE = ROOT / "native" / "cmangos"
 TARGET_ABI = "x86_64"
 FLAVOR_ID = "vanilla"
 # The active flavor's core pin (set by select_flavor); vanilla asserts it
-# equals the o09 driver constant so the two cannot drift again (decision D36).
+# equals the o09 driver constant so the two cannot drift again (decision).
 FLAVOR_CORE_COMMIT = o09.CMANGOS_COMMIT
 BUILD = ROOT / "native" / ".build-o11-x86_64" / "extractors"
 PATCHED_SOURCE = ROOT / "native" / ".build-o11-x86_64" / "cmangos-patched"
@@ -53,7 +53,7 @@ PATCHES = [ROOT / "native" / "patches" / "o11-cmangos-safe-mpq-listfile.patch"]
 # The file lives under native/o11-patches/ — NOT native/patches/ —
 # because that tree is blanket-pinned as RUNTIME-lane build input
 # (patches_content in every realm-runtime lockfile rglob-walks it, and
-# the R6 mtime tripwire in test_world_runtime_honest_ready then demands
+# the mtime tripwire in test_world_runtime_honest_ready then demands
 # every win lane's world DLL postdate it). This patch rides only the o11
 # extractor archive; the provenance that matters for it is the o11
 # lockfiles' own source_patches row (path + sha256), which pins it
@@ -96,10 +96,10 @@ def select_abi(abi: str) -> None:
     STAGE = root / "extractor-staging" / "jniLibs" / abi
     PROVENANCE = STAGE.parents[1] / "BUILD_PROVENANCE.json"
     # The lockfile is flavor-resolved like every other output: a tbc/wotlk
-    # build must write ITS lockfile, never the shared vanilla one — the S1
+    # build must write ITS lockfile, never the shared vanilla one — the
     # divergence CI (check_repo.check_extractor_provenance) pins the vanilla
     # extractor provenance, and a flavor build silently overwriting it is
-    # exactly the hazard the S1 repair exists to prevent.
+    # exactly the hazard the repair exists to prevent.
     LOCKFILE = ROOT / layout.o11_lockfile(abi)
 
 
@@ -242,7 +242,7 @@ def main() -> int:
                              "fork/pin is registered — port plan S1 item 5)")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
-    # R4-r5-1: the disk-headroom preflight (shared with the o09 lane driver).
+    # the disk-headroom preflight (shared with the o09 lane driver).
     common.require_disk_headroom(ROOT / "native")
     try:
         select_flavor(args.flavor)

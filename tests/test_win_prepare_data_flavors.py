@@ -534,7 +534,7 @@ def test_wotlk_waiver_provenance_resolves_into_the_archived_evidence() -> None:
                     "(out/ is gitignored) — nothing to hold the waiver to")
     importlib.reload(wpd)
     tool_source = (ROOT / "tools/win_prepare_data.py").read_text(encoding="utf-8")
-    # R2-6-1 (W2 code-red round 6): count on BYTES. A decoded read_text()
+    # count on BYTES. A decoded read_text
     # applies universal-newline translation — every CR becomes \n — so the
     # translated "\n count" (2946) is not the artifact's LF count (2407),
     # and a citation checked against it passes for the wrong reason. The
@@ -616,7 +616,7 @@ def test_publish_only_refuses_a_wrong_lane_workspace(
     err = capsys.readouterr().err
     assert "workspace lane identity mismatch" in err
     assert "'wotlk'" in err and "vanilla" in err
-    # R1-r3-1/R2-r3-1/R3-w2r3-1 (W2 code-red round 3): the sha leg FAILS
+    # w2r3-1: the sha leg FAILS
     # CLOSED. A same-lane marker attesting a DIFFERENT digest, no digest at
     # all, a falsy digest, or omitting the key entirely refuses — a
     # digest-less marker attests nothing about the client it was extracted
@@ -731,7 +731,7 @@ def test_prune_refuses_and_deletes_nothing_when_a_pointer_is_unreadable(
     gens.mkdir(parents=True)
     for name in ("tbcgen", "vangen", "newgen", "old1", "old2", "old3"):
         (gens / name).mkdir()
-    # R2-r5-1/R5-w2r5-1: the prune keeps the NEWEST `keep` unprotected dirs by
+    # w2r5-1: the prune keeps the NEWEST `keep` unprotected dirs by
     # st_mtime — the fixture must PIN the ordering (NTFS mtime resolution made
     # the unpinned version flaky) and the assertions below hold the prune to
     # exactly that ordering.

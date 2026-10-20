@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 N4 = ROOT / "out/completion/w6/n4"
 EXIT = N4 / "WAVE-EXIT-N4.md"
 
-# R6-N4-r6-1: the evidence tree is GITIGNORED (an owner-machine
+# the evidence tree is GITIGNORED (an owner-machine
 # artifact) — on a fresh clone or CI the whole module must SKIP, never
 # go red (the graceful-skip convention test_w6_nostr_pins.py
 # established for the same situation). Every test here reads artifacts
@@ -225,7 +225,7 @@ def test_aggregate_counts_helper_returns_none_without_xml():
         assert wrapper.aggregate_counts(Path(tmp)) is None
 
 
-# --------------------------------------------------------------- round 2
+# ---------------------------------------------------------------
 
 
 def _gateway_tree_test_census() -> int:
@@ -364,7 +364,7 @@ def test_d98_amendment_supersedes_the_impossible_seat_tuple():
             f"an impossible seat tuple ({a_p}+{a_s}, {b_p}+{b_s} on a "
             f"{census}-test tree) is quoted in the Decision Log"
         )
-    # the round-2 correction must exist and name the archived seat logs
+    # the correction must exist and name the archived seat logs
     assert "n4-seat-alpha.log" in decisions and "n4-seat-beta.log" in decisions, (
         "the D98 round-2 amendment must cite the archived seat logs"
     )
@@ -453,7 +453,7 @@ def test_canonical_tuples_in_both_exit_records_equal_their_artifacts():
     )
 
 
-# --------------------------------------------------------------- round 3
+# ---------------------------------------------------------------
 
 
 def _last_n4_amendment() -> str:
@@ -482,7 +482,7 @@ def test_d98_archive_inventory_and_tier2_citation_match_the_disk_and_exit_record
         "the latest D98 amendment carries no archive-inventory sentence"
     )
     named_suffixes = set(re.findall(r"\bmv[a-z0-9]{6}\b", decisions_last))
-    # SUBSET semantics (round-6 finalize): later verification runs add
+    # SUBSET semantics: later verification runs add
     # archives journaled by their seats — the amendment must not name
     # PHANTOM archives, but the on-disk set may legitimately be larger.
     assert named_suffixes <= set(on_disk), (
@@ -492,7 +492,7 @@ def test_d98_archive_inventory_and_tier2_citation_match_the_disk_and_exit_record
         f"the latest D98 amendment names {sorted(named_suffixes)} but the "
         f"disk holds {on_disk} — record drift on the controlling record"
     )
-    # The LAST 'TIER-2 ROW CITES <suffix>' across every W6-N4 amendment
+    # The LAST 'TIER-2 ROW CITES <suffix>' across every amendment
     # must equal the exit record's tier-2 suffix (one counts run, one
     # citation; earlier amendments' citations are superseded history).
     decisions_all = (ROOT / "docs/DECISIONS-PORT.md").read_text(encoding="utf-8")
@@ -508,7 +508,7 @@ def test_d98_archive_inventory_and_tier2_citation_match_the_disk_and_exit_record
         f"D98's tier-2 citation ({cited}) disagrees with the exit "
         f"record's ({exit_tier2.group(1)}) — one counts run, one citation"
     )
-    # the amendment must retire the stale tuples BY NAME (the R3-R1-1
+    # the amendment must retire the stale tuples BY NAME (the
     # list: 29/29, 26/26, mvdyd58i-as-final — the 35/35 pattern)
     # the cumulative retirement roster must name every stale figure the
     # wave's rounds retired (R3-R1-1's list + the later rounds' own)
@@ -524,8 +524,13 @@ def test_production_diff_sentence_names_every_changed_main_file():
     sourceSet file the wave changed (git diff vs the start commit)."""
     import subprocess
 
+    # W6B repoint: the production-diff pin is wave-local - it checks the
+    # CURRENT wave's changed main files against the CURRENT wave's exit
+    # record (a frozen earlier wave's record can never name a later
+    # wave's files).
+    exit_record = ROOT / "out/completion/w6b/WAVE-EXIT.md"
     diff = subprocess.run(
-        ["git", "diff", "--name-only", "6277d0a", "--",
+        ["git", "diff", "--name-only", "5a22314704973624a16b8c3655a6b4c0504d186c", "--",
          "desktop/src/main/", "gateway/src/main/", "android/app/src/main/"],
         capture_output=True, text=True, cwd=ROOT,
     )
@@ -533,7 +538,7 @@ def test_production_diff_sentence_names_every_changed_main_file():
         line for line in diff.stdout.splitlines() if line.strip()
     )
     assert changed_main, "no main-source changes found (unexpected)"
-    exit_text = EXIT.read_text(encoding="utf-8")
+    exit_text = exit_record.read_text(encoding="utf-8")
     for path in changed_main:
         basename = path.replace("\\", "/").rsplit("/", 1)[-1]
         assert basename in exit_text, (
@@ -562,7 +567,7 @@ def test_d98_counts_run_suffix_resolves_to_an_existing_archive():
         )
 
 
-# --------------------------------------------------------------- round 4
+# ---------------------------------------------------------------
 
 
 def test_seat_isolation_log_carries_the_green_verdict():
@@ -588,7 +593,7 @@ def test_seat_isolation_log_carries_the_green_verdict():
         "classes hashes (the canonical tree untouched)"
     )
     assert int(failures) == 0
-    # the D98 round-3 amendment's citation resolves to THIS artifact
+    # the amendment's citation resolves to THIS artifact
     assert "SEAT-ISOLATION-OK" in (
         ROOT / "docs/DECISIONS-PORT.md").read_text(encoding="utf-8")
 
@@ -659,7 +664,7 @@ def test_relay_payloads_sections_all_nonempty():
         )
 
 
-# --------------------------------------------------------------- round 5
+# ---------------------------------------------------------------
 
 
 def test_gateway_counts_emitter_is_tracked():
@@ -751,13 +756,17 @@ def test_inventory_sentence_names_exactly_the_on_disk_archives():
     assert inventory, "the archive-inventory sentence is missing"
     inv_text = inventory.group(1)
     # no count word (the set grows with every legitimate live run)
-    assert not re.search(r"(SEVEN|SIX|FIVE|FOUR|EIGHT|NINE) complete docker", inv_text), (
+    assert not re.search(r"\b(SEVEN|SIX|FIVE|FOUR|EIGHT|NINE) complete docker", inv_text), (
         "the inventory sentence hard-codes an archive count — the set "
         "grows with every legitimate live run (R5-r5-N4-1's root cause)"
     )
     # every NAMED suffix exists on disk (a subset: newer verification
     # archives are journaled by their seats)
-    named = set(re.findall(r"(mv[a-z0-9]{6})", inv_text))
+    named = set(re.findall(r"\b(mv[a-z0-9]{6})\b", inv_text))
+
+    # self-vector: the findall must fire on a synthetic archive name
+    assert re.findall(r"\b(mv[a-z0-9]{6})\b", "mvzzzz99 rest") == ["mvzzzz99"], (
+        "the archive-name findall is dead (control-byte corruption class)")
     assert named <= set(on_disk), (
         f"the inventory sentence names non-existent archives: "
         f"{sorted(named - set(on_disk))}"
@@ -789,7 +798,7 @@ def test_d98_amendments_tier2_and_counts_attribution_coherent():
     cites = re.findall(r"TIER-2 ROW CITES ([a-z0-9]+)", decisions_last)
     assert cites, "the latest amendment carries no TIER-2 ROW CITES sentence"
     operative = cites[-1]
-    # R5-r6-2 (positional, no hardcoded allowance): every
+    # positional (no hardcoded allowance): every
     # 'docker run <suffix>' attribution must EQUAL the operative cite,
     # or lie inside an explicit [CORRECTED …]/[SUPERSEDED …] span.
     # The bracket-span helper is self-tested below against the stale
@@ -797,7 +806,7 @@ def test_d98_amendments_tier2_and_counts_attribution_coherent():
     # drift from reality.
     def inside_bracket_span(text: str, match_start: int) -> bool:
         # a bracket whose body mentions CORRECTED/SUPERSEDED anywhere
-        # (e.g. "[ATTRIBUTION CORRECTED round 6: ...]")
+        # e.g. "[ATTRIBUTION CORRECTED:...]")
         for span in re.finditer(
                 r"\[[^\]]*(?:CORRECTED|SUPERSEDED)[^\]]*\]", text):
             if span.start() <= match_start <= span.end():

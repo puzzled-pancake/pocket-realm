@@ -339,7 +339,7 @@ def test_plan_v5_f7_arbiter_gates_the_delivery_drain():
         "the arbiter check runs OUTSIDE the chatter lock (ABBA guard)"
     assert "else if (delivered && !entry.longForm)" in drain, \
         "the stamp lands only on a confirmed delivery"
-    # TryClaimAmbientSlot consults the same budget (the W1-W8 features)
+    # TryClaimAmbientSlot consults the same budget (the - features)
     memory = (ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
     assert "AuthoredLineAdmitsLocked(arbCategory, /*exempt=*/false, /*roomOnly=*/false)" in memory, \
         "the ambient slot claim is F7-gated without burning the interval"

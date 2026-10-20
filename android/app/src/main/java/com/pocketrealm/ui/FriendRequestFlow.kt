@@ -8,7 +8,7 @@ import com.pocketrealm.server.FriendAccessClient
  * host approves (the ONE response carrying the accountId), refuses, or the
  * poll budget ends. Pure JVM and transport-injected so the UI-independent
  * transitions are unit-testable; the Composable wires the real
- * [FriendAccessClient] transport and the account-save callback (§5: the
+ * [FriendAccessClient] transport and the account-save callback (the
  * friend's app saves the account for auto-login exactly like the host's
  * account card).
  */
@@ -133,7 +133,7 @@ suspend fun requestFriendAccess(
     }
 
 /**
- * Round-6 R6-r6-1 source contract: plan §1 rule 7 — PEER ADDRESSES ARE
+ * source contract: plan rule 7 — PEER ADDRESSES ARE
  * NEVER DISPLAYED. The friend-request rows render the requesting ACCOUNT
  * name only; the requester's sourceIp stays in the host's audit trail
  * (the diagnostics lane's redaction rules govern it) and must never be
@@ -143,7 +143,7 @@ const val FRIEND_REQUEST_COPY_FORBIDS_SOURCE_IP = "sourceIp"
 
 
 /**
- * Round-6 R6-r6-2: the joiner-side refusal line. The service DELIBERATELY
+ * the joiner-side refusal line. The service DELIBERATELY
  * makes refusals indistinguishable (unknown/expired/burned tokens and the
  * rate lock answer byte-identically — FriendProvisionProtocolTest pins
  * it), so the copy must not assert a cause the protocol cannot know, and

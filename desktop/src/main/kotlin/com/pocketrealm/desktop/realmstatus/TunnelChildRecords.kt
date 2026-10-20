@@ -5,7 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Realm-status browser (design realm-status-browser.md §5.3): the DURABLE
+ * Realm-status browser (design realm-status-browser.md) the DURABLE
  * record of every cloudflared child this app has spawned —
  * `{pid, full command line, process start-time, spawn wall-clock}` per
  * child. The record is what makes the kill rules SAFE:
@@ -55,7 +55,7 @@ class TunnelChildRecords(storeFile: File) {
         }
     }
 
-    /** Triple-match lookup (§5.3): pid AND command line AND start-time.
+    /** Triple-match lookup: pid AND command line AND start-time.
      * The command-line leg compares through the shared
      * [TunnelOrphanSweep.commandLinesMatch] — the recorded line is the
      * spawn's REALIZED line, and the process table's may differ only in

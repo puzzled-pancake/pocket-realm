@@ -29,12 +29,12 @@ import java.util.concurrent.TimeUnit
 /**
  * Realm-status browser (design realm-status-browser.md): the host-side
  * orchestrator — the visibility machine's live instance over the app
- * model. Owns the page server, the page-only cloudflared child, the §5.3
- * orphan gate, the §7 telemetry capture, and the settings verbs.
+ * model. Owns the page server, the page-only cloudflared child, the
+ * orphan gate, the telemetry capture, and the settings verbs.
  *
- * The ONE lifecycle rule (§1) is structural here: NOTHING in the
+ * The ONE lifecycle rule is structural here: NOTHING in the
  * supervisor-state watcher touches the page session except the uptime
- * record fold — a realm stop (user Save & exit, D9 interface loss, crash
+ * record fold — a realm stop (user Save & exit, interface loss, crash
  * recovery) leaves the page up serving the graceful down state; the page
  * dies only when the switch goes OFF, the app exits, the server hits an
  * unrecoverable bind failure, or the supervisor process dies.
@@ -42,7 +42,7 @@ import java.util.concurrent.TimeUnit
 @Suppress("TooManyFunctions") // the orchestrator seam: one verb per surface, per the app-model idiom
 internal class RealmStatusController(
     private val model: DesktopAppModel,
-    /** The §5.3 process-table override — the desktop suite's unit-test
+    /** The process-table override — the desktop suite's unit-test
      * seam (the GAP-3 internal idiom); production passes nothing and
      * gets the bounded PowerShell probe. */
     tableOverride: TunnelOrphanSweep.ProcessTable? = null,
@@ -73,7 +73,7 @@ internal class RealmStatusController(
         logLine = { com.pocketrealm.desktop.DesktopLog.i(TAG, it) },
     )
 
-    /** The live limiter — re-keyed from the settings test hook (§6.2) at
+    /** The live limiter — re-keyed from the settings test hook at
      * every transition that starts the server. */
     @Volatile private var limiter = newLimiter()
 
@@ -95,7 +95,7 @@ internal class RealmStatusController(
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
-    /** The §5.3 gate: held while a lost-record orphan is unacknowledged. */
+    /** The gate: held while a lost-record orphan is unacknowledged. */
     @Volatile private var orphanGatePid: Long? = null
 
     /** §5.3: the pids the host has EXPLICITLY acknowledged this app
@@ -129,10 +129,10 @@ internal class RealmStatusController(
         logWarning = { com.pocketrealm.desktop.DesktopLog.w(TAG, it) },
     )
 
-    /** The roster cache (§6.2: re-read at most once per supervisor poll). */
+    /** The roster cache (re-read at most once per supervisor poll). */
     @Volatile private var rosterCache: Pair<Long, List<String>> = 0L to emptyList()
 
-    /** The world-data cache (§6.2: once per generation, keyed by pointer
+    /** The world-data cache (once per generation, keyed by pointer
      * identity — the envelope gate re-runs only on a real change). */
     @Volatile private var worldCache: WorldCacheEntry? = null
 
@@ -157,7 +157,7 @@ internal class RealmStatusController(
         }
     }
 
-    /** The app-launch leg (§4 boot semantics): a persisted FRIENDS
+    /** The app-launch leg (boot semantics) a persisted FRIENDS
      * restores; a persisted PUBLIC re-arms WITHOUT auto-resuming. Also
      * runs the §5.3 sweep (every app start sweeps) and the §7 unclean-stop
      * recovery fold (the crash-terminated session credits the record). */
@@ -234,7 +234,7 @@ internal class RealmStatusController(
         model.updateSettings { it.copy(cloudflaredPath = path.trim()) }
     }
 
-    /** The limiter test hook (§6.2): persists; the next transition that
+    /** The limiter test hook: persists; the next transition that
      * starts the server re-keys the limiter from the stored value. */
     @Suppress("MagicNumber") // the hook's bounds (1..10_000 req/min) are the reviewed envelope
     fun setPageRateLimitPerMinute(limit: Int) {
@@ -275,12 +275,12 @@ internal class RealmStatusController(
         }
     }
 
-    /** The §5.3 sweep + gate state (runs at boot and before every
+    /** The sweep + gate state (runs at boot and before every
      * visibility transition that binds 18080). */
     private fun runSweepAndGate() {
         when (val outcome = sweep.sweep()) {
             is TunnelOrphanSweep.Outcome.OrphanDetected -> {
-                // §5.3: a pid the host explicitly acknowledged (the
+                // a pid the host explicitly acknowledged (the
                 // accepts-the-exposure case — the process is still live on
                 // purpose) does not re-trip the gate; only an
                 // UNacknowledged orphan holds it.
@@ -304,7 +304,7 @@ internal class RealmStatusController(
 
     /** The machine's Allowed applied to the real sockets — serialized,
      * rebind ordered (§4): stop old server → drain → bind new → flip. */
-    @Suppress("ReturnCount", "MagicNumber") // the refusal exits keep the PRIOR state (§4); 10_000 is the hook's cap
+    @Suppress("ReturnCount", "MagicNumber") // the refusal exits keep the PRIOR state; 10_000 is the hook's cap
     private fun applyTransition(
         target: RealmStatusVisibility,
         bootRestore: Boolean = false,
@@ -312,7 +312,7 @@ internal class RealmStatusController(
         val prior = _uiState.value.visibility
         if (target != RealmStatusVisibility.OFF) {
             runSweepAndGate()
-            // §5.3: the sweep that runs before a binding transition gates
+            // the sweep that runs before a binding transition gates
             // THAT transition — an orphan that appeared after the machine
             // read its (then-clear) input refuses HERE, not one sweep
             // late. Nothing has been torn down yet, so the prior listener
@@ -321,7 +321,7 @@ internal class RealmStatusController(
             // conflict).
             if (orphanGatePid != null) return orphanGateRefusal(prior)
         }
-        // §6.2: the settings test hook re-keys the limiter for this session.
+        // the settings test hook re-keys the limiter for this session.
         limiter = newLimiter()
         // Stop old (bounded drain inside).
         server.stop()
@@ -350,7 +350,7 @@ internal class RealmStatusController(
             RealmStatusServer.StartOutcome.Started -> Unit
         }
         if (target == RealmStatusVisibility.PUBLIC) {
-            // §5.7: a missing binary lands IN PUBLIC with tunnelState
+            // a missing binary lands IN PUBLIC with tunnelState
             // binary-missing, url null, and the failure block rendered —
             // the pinned state-machine consequence (T15).
             tunnel.start()
@@ -414,16 +414,16 @@ internal class RealmStatusController(
     }
 
     // ------------------------------------------------------------------
-    // The telemetry capture (§7): ONE snapshot read per request.
+    // The telemetry capture: ONE snapshot read per request.
     // ------------------------------------------------------------------
 
     @Suppress("LongMethod", "MagicNumber")
-    // the capture is the §7 field table read in order from ONE snapshot —
+    // the capture is the field table read in order from ONE snapshot —
     // splitting it would pass state fragments around and invite a torn read.
-    // GAP-3: internal (not private) is the desktop suite's unit-test seam —
+    // internal (not private) is the desktop suite's unit-test seam —
     // the two-qualified-flavors lane pins read the rendered payload here.
     internal fun captureRender(hostView: Boolean): RealmStatusServer.CapturedRender? {
-        val snapshot = model.supervisor.state.value // ONCE (§4)
+        val snapshot = model.supervisor.state.value // ONCE
         val settings = model.settings.value // the clamped stored set
         val visibility = _uiState.value.visibility
         val generatedAt = System.currentTimeMillis()
@@ -432,11 +432,11 @@ internal class RealmStatusController(
         val statusSource = if (degraded) StatusSource.DEGRADED else StatusSource.LIVE
         val providerMariaDb = activeProviderIsMariaDB()
 
-        // The players block (§3.3 fail-closed split; the world-down zeros
-        // are structural, §7).
+        // The players block (fail-closed split; the world-down zeros
+        // are structural).
         val players = buildPlayers(worldUp, settings, providerMariaDb)
 
-        // GAP-3: the lane this page NAMES — the journaled session lane while
+        // the lane this page NAMES — the journaled session lane while
         // a world runs, else the ACTIVE lane (see [pageFlavorId]).
         val pageFlavor = pageFlavorId(snapshot, worldUp)
 
@@ -452,8 +452,8 @@ internal class RealmStatusController(
             advertised != null -> JoinKind.TUNNEL_INVITE
             else -> JoinKind.LAN_INVITE
         }
-        // §7: the payload is address-free in the plain-LAN lane; the LAN
-        // address renders ONLY in the page's join section (§8.5), and in
+        // the payload is address-free in the plain-LAN lane; the LAN
+        // address renders ONLY in the page's join section, and in
         // PUBLIC it appears NOWHERE (T18c).
         val pageLanAddress = when {
             visibility != RealmStatusVisibility.FRIENDS || advertised != null -> null
@@ -479,7 +479,7 @@ internal class RealmStatusController(
             rates = conf?.rates ?: RealmStatusPayload.Rates.notRunning(),
             players = players,
             worldPrepared = world.prepared,
-            worldGeneration = world.generationPrefix,  // the 8-char prefix (§7) rides the cache
+            worldGeneration = world.generationPrefix,  // the 8-char prefix rides the cache
             worldCounts = world.counts,
             statusSource = statusSource,
             phase = snapshot.phase.name,
@@ -500,7 +500,7 @@ internal class RealmStatusController(
     }
 
     @Suppress("LongMethod", "ComplexCondition", "MagicNumber")
-    // the §3.3 disposition ladder in order: down → lane-unreadable →
+    // the disposition ladder in order: down → lane-unreadable →
     // online-lane-lost → cross-check-failed → native; one reviewed table
     private fun buildPlayers(
         worldUp: Boolean,
@@ -508,7 +508,7 @@ internal class RealmStatusController(
         providerMariaDb: Boolean,
     ): RealmStatusPayload.Players {
         if (!worldUp) {
-            // §7: the down zeros are STRUCTURAL — no world, no players, no
+            // the down zeros are STRUCTURAL — no world, no players, no
             // bot-status lane read; labeled world-down, never "native".
             return RealmStatusPayload.Players(
                 source = PlayerSource.WORLD_DOWN,
@@ -519,7 +519,7 @@ internal class RealmStatusController(
                 botTarget = readActiveConf(worldUp = false)?.botTarget,
             )
         }
-        // The two INDEPENDENT native lanes (§3.3) + the cross-check lane.
+        // The two INDEPENDENT native lanes + the cross-check lane.
         val bot = runCatching { com.pocketrealm.server.WorldNative.botStatusNative() }
             .getOrElse { LongArray(0) }
         val laneReadable = bot.size == BOT_STATUS_SIZE &&
@@ -549,7 +549,7 @@ internal class RealmStatusController(
                 crossCheckOk = false,
                 botTarget = botTarget,
             )
-            // §3.3: the cross-check failing labels the lane — and blocks
+            // the cross-check failing labels the lane — and blocks
             // the PUBLIC enable (the machine gate reads computeCrossCheckOk).
             !crossCheckHolds(total, activeSessions, botDelta) -> RealmStatusPayload.Players(
                 source = PlayerSource.CROSS_CHECK_FAILED,
@@ -572,7 +572,7 @@ internal class RealmStatusController(
         }
     }
 
-    /** The cross-check invariant (§3.3): totalOnline agrees with the world
+    /** The cross-check invariant: totalOnline agrees with the world
      * telemetry's activeSessions lane WITHIN the bot-population delta —
      * either counting semantics (bots-in-sessions or humans-only) passes;
      * a disagreement beyond the whole bot population means a lane is lying.
@@ -584,7 +584,7 @@ internal class RealmStatusController(
         return delta <= botDelta || delta == 0L
     }
 
-    /** The PUBLIC-enable gate's verdict (§3.3; the machine's input). */
+    /** The PUBLIC-enable gate's verdict (the machine's input). */
     private fun computeCrossCheckOk(): Boolean {
         val snapshot = model.supervisor.state.value
         if (!isWorldUp(snapshot)) return true // down: vacuous (structural zeros)
@@ -606,7 +606,7 @@ internal class RealmStatusController(
         if (worldUp) snapshot.flavor
         else runCatching { ActiveFlavor.resolve(STATUS_PAGE_LANE).flavorId }.getOrNull() ?: snapshot.flavor
 
-    /** The world-data block (§7), cached per generation (§6.2): the cheap
+    /** The world-data block, cached per generation: the cheap
      * pointer read keys the cache; the envelope + counts parse runs only
      * when the generation identity changes.
      *
@@ -696,7 +696,7 @@ internal class RealmStatusController(
     }
 
     // ------------------------------------------------------------------
-    // The staged conf facts (§7): the ACTIVE run's mangosd.conf — the
+    // The staged conf facts: the ACTIVE run's mangosd.conf — the
     // start-frozen timeframe badge, the effective rates, the bot target.
     // ------------------------------------------------------------------
 
@@ -757,7 +757,7 @@ internal class RealmStatusController(
         return facts
     }
 
-    /** The start-frozen stage (§7): the ACTIVE conf's stage id through the
+    /** The start-frozen stage: the ACTIVE conf's stage id through the
      * shared registry — NEVER the settings' next-start wish. */
     private fun resolveStage(
         flavorId: String,
@@ -779,7 +779,7 @@ internal class RealmStatusController(
     private fun isWorldUp(snapshot: RuntimeSnapshot): Boolean =
         snapshot.components[RuntimeComponent.WORLD]?.state in WORLD_UP_STATES
 
-    /** §7's producer: on stop, fold `now − startedAtWallMs` (the world's
+    /** its producer: on stop, fold `now − startedAtWallMs` (the world's
      * pinned start) into the durable record. */
     private fun foldUptimeOnStop(snapshot: RuntimeSnapshot) {
         val world = snapshot.components[RuntimeComponent.WORLD] ?: return
@@ -805,7 +805,7 @@ internal class RealmStatusController(
         runCatching { server.stop() }
     }
 
-    /** The production §5.3 process table: a bounded PowerShell probe over
+    /** The production process table: a bounded PowerShell probe over
      * cloudflared processes (pid + full command line + creation time).
      * Any failure degrades to an EMPTY table — detection never breaks the
      * page; the kill rules never scan on a partial table. */
@@ -860,7 +860,7 @@ internal class RealmStatusController(
         )
     }
 
-    /** The §5.3 kill leg (own records only reach this): taskkill /F on the
+    /** The kill leg (own records only reach this) taskkill /F on the
      * verified pid. True when the tool reports success. */
     private fun killProcessByPid(pid: Int): Boolean = runCatching {
         val process = ProcessBuilder("taskkill", "/PID", pid.toString(), "/F", "/T")
@@ -873,7 +873,7 @@ internal class RealmStatusController(
     companion object {
         private const val TAG = "RealmStatus"
 
-        /** GAP-3: the [ActiveFlavor] lane suffix naming the status page's
+        /** the [ActiveFlavor] lane suffix naming the status page's
          * flavor-resolving gates (the page copy and the world-data block). */
         private const val STATUS_PAGE_LANE = "the realm-status page resolves the qualified lane"
 
@@ -903,7 +903,7 @@ internal class RealmStatusController(
         /** The ms→s unit constant (the uptime folds' arithmetic). */
         private const val MS_PER_SECOND = 1_000L
 
-        /** §7's 8-character generation prefix. */
+        /** its 8-character generation prefix. */
         private const val GENERATION_PREFIX_LENGTH = 8
         private const val KILL_TIMEOUT_SECONDS = 10L
 
@@ -913,7 +913,7 @@ internal class RealmStatusController(
             ComponentLifecycle.STOPPING,
         )
 
-        /** §4's bind-conflict copy (also the apply-time refusal's text). */
+        /** its bind-conflict copy (also the apply-time refusal's text). */
         private const val REFUSAL_BIND =
             "Port 18080 is already in use by another program, so the " +
                 "realm-status page cannot start. Close the other program and try again."

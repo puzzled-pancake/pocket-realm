@@ -18,7 +18,7 @@ import java.io.File
  * overlays carry the stage-MARKER scaffolding only — reversible, idempotent
  * `INSERT OR IGNORE` statements against the seed's own `game_event` /
  * `conditions` schema, in id ranges measured absent from the pinned seed.
- * With no measured demotion rows referencing them (the S4 DB pin's work),
+ * With no measured demotion rows referencing them (the DB pin's work),
  * the markers are inert and the DEFAULT stage applies no world-DB SQL at
  * all — existing worlds are unaffected by construction.
  *

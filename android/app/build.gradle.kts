@@ -976,7 +976,7 @@ abstract class ValidateNativeRuntimeFreshnessTask : DefaultTask() {
 }
 
 /**
- * W5: per-flavor o11 extractor staged-bytes verification — the additive twin
+ * per-flavor o11 extractor staged-bytes verification — the additive twin
  * of the vanilla extractors' existence + ELF checks in
  * ValidateSelectedNativeClosureTask. For a flavor whose
  * native/.build-o11-<abi>-<flavor>/extractor-staging tree exists on this
@@ -984,7 +984,7 @@ abstract class ValidateNativeRuntimeFreshnessTask : DefaultTask() {
  * row must resolve to a byte-identical staged file, every staged .so must
  * carry a lockfile pin (nothing unpinned rides), the lockfile must pin the
  * selected ABI, and its cmangos_commit must still equal the flavor's own
- * schemas/sources.json pin (cmangos-core-<flavor> — the D36 divergence
+ * schemas/sources.json pin (cmangos-core-<flavor> — the divergence
  * class, per-flavor leg). A flavor with no staging tree on this host skips
  * additively (LV-flavor-import-34 semantics); like the per-flavor freshness
  * fence, that decision is made at EXECUTION time, never at configuration.
@@ -1065,7 +1065,7 @@ abstract class ValidateFlavorExtractorStagingTask : DefaultTask() {
                 "schemas/sources.json pin '${expectedCmangosCommit.get()}' " +
                 "(cmangos-core-${flavor.get()}); the lane ran against STALE source pins"
         }
-        // R3-r3-1: malformed rows are counted and failed loud, never silently
+        // malformed rows are counted and failed loud, never silently
         // narrowed — a dropped row plus that artifact's absent staged file
         // would otherwise pass this gate with "OK".
         val extractorRows = (record["artifacts"] as? List<*>).orEmpty()
@@ -1426,10 +1426,10 @@ val validateNativeRuntimeFreshness = tasks.register<ValidateNativeRuntimeFreshne
     skipRequested.set(providers.gradleProperty("pocketSkipNativeFreshness").orElse(""))
 }
 
-// W5: the packaging gate learns the per-flavor realm-runtime staging set
+// the packaging gate learns the per-flavor realm-runtime staging set
 // (docs/FLAVOR-ARTIFACT-NAMING.md §2 — the flavor segment precedes the abi
 // segment). The SET ITSELF is derived from its owning table
-// (schemas/flavor.json, R1-r3-1): every qualified non-vanilla flavor gets
+// schemas/flavor.json) every qualified non-vanilla flavor gets
 // the SAME staged-bytes staleness fence the vanilla lane runs, against ITS
 // OWN lockfile and its own sources.json pins (cmangos-core-<flavor> /
 // playerbots-<flavor>) — a future qualified flavor gains both gate families
@@ -1472,14 +1472,15 @@ val perFlavorRuntimeFreshnessTasks = qualifiedPerFlavorIds.map { flavor ->
         expectedPlayerbotsCommit.set(sourcesCommitPin("playerbots-$flavor"))
         requireStagedBytes.set(true)
         skipWhenStagingAbsent.set(true)
-        // R1-r4-1: these fences are deliberately the MARIADB lane only —
+        // these fences are deliberately the MARIADB lane only —
         // the shipped provider (the vanilla fence's sqliteProvider branch
         // has no per-flavor counterpart yet). A per-flavor SQLITE lane
         // (build_o09_realm_runtime.py --backend sqlite stages into
         // realm-staging-sqlite with the sibling -sqlite lockfile) would be
         // UNGATED by this family; extending the lockfile/staging templates
         // to branch on the backend exactly as the vanilla fence does is
-        // D90-owned packaging work. Until then this comment is the
+        // owned packaging work (the owning-table entry for the sqlite
+        // backend-parity extension). Until then this comment is the
         // recorded posture.
         remedy.set(
             "rerun the $flavor lane build: python tools/build_o09_realm_runtime.py " +
@@ -1680,7 +1681,7 @@ android {
     }
 
     sourceSets {
-        // W6-N2 iroh spike (DEBUG-only, opt-in via -PpocketIrohSpike): stage
+        // iroh spike (DEBUG-only, opt-in via -PpocketIrohSpike) stage
         // the uniffi-generated computer.iroh Kotlin + the E:-resident NDK
         // libiroh_ffi.so jniLibs into the DEBUG variant. The spike artifacts
         // live under E:\pocket_realm_toolchain\tmp\iroh-ffi-n2-target (built
@@ -2116,7 +2117,7 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     if (pocketLane == "full") {
         // The realm .so bytes this Sync copies must already have passed the
         // staleness fence: a stale staging dir never reaches the staged-jniLibs
-        // output that feeds every variant's APK merge. The W5 per-flavor
+        // output that feeds every variant's APK merge. The per-flavor
         // fences ride the same edge (additive: they skip flavors whose
         // staging was never built on this host).
         dependsOn(validateNativeRuntimeFreshness)
@@ -2236,7 +2237,7 @@ val validateDatabaseRuntime by tasks.registering {
     // reference would retain the build-script instance.
     val perFlavorIds = qualifiedPerFlavorIds
     doLast {
-        // R2-r4-3: ONE verifier for every MariaDB staging tree — the vanilla
+        // ONE verifier for every MariaDB staging tree — the vanilla
         // leg and the per-flavor legs get identical completeness, ELF
         // e_machine, and provider runtime-manifest identity checks (the
         // per-flavor leg previously checked existence + flavorId only while
@@ -2304,7 +2305,7 @@ val validateDatabaseRuntime by tasks.registering {
         // S1 item 7: the packaging gate learns the per-flavor ledger set
         // (docs/FLAVOR-ARTIFACT-NAMING.md §2). A flavor whose NATIVE staging
         // leg exists must present the same completeness the vanilla lane
-        // requires. R2-r4-1: the skip keys on the native leg
+        // requires. the skip keys on the native leg
         // (jniLibs/<abi>), NEVER on the tree root — an assets-only
         // migrations tree (tools/stage_database_migrations.py writes no
         // jniLibs; the W3-era native/.build-x86_64-tbc tree is exactly that)
@@ -2512,7 +2513,7 @@ androidComponents {
                     // must never package the realm runtimes without
                     // digest validation. validateNativeRuntimeFreshness adds
                     // the staleness fence: staged bytes, provenance, and
-                    // sources.json commit pins must all agree first. The W5
+                    // sources.json commit pins must all agree first. The
                     // per-flavor fences (realm runtime + o11 extractors)
                     // ride the same edges additively.
                     dependsOn(
@@ -2569,7 +2570,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
-    // W6-N1: BIP-340 Schnorr for the Nostr discovery listing signatures
+    // BIP-340 Schnorr for the Nostr discovery listing signatures
     // (the shared discovery/nostr module; the Android JNI variant here).
     implementation(libs.secp256k1.kmp)
     // R4-1 (code-red round 1, serious): the 0.16.0 root artifact publishes
@@ -2592,7 +2593,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    // W6-N2 iroh spike (DEBUG-only, opt-in via -PpocketIrohSpike): JNA for the
+    // iroh spike (DEBUG-only, opt-in via -PpocketIrohSpike) JNA for the
     // uniffi-generated computer.iroh bindings staged from the E:-resident NDK
     // build. The @aar classifier is REQUIRED — the plain JAR ships no
     // android-x86-64 libjnidispatch.so (first emulator attempt died on
@@ -2613,7 +2614,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockwebserver3)
-    // W6-N1: the JVM secp256k1 variant + natives for the host-JVM unit-test
+    // the JVM secp256k1 variant + natives for the host-JVM unit-test
     // lane (the Android JNI variant's .so does not load on a plain JVM;
     // the JVM artifact shadows the identical fr.acinq classes first on the
     // test classpath).
@@ -2624,17 +2625,40 @@ dependencies {
     testImplementation("org.json:json:20240303")
 }
 
-// Round-2 R2-4-2/R3-1: forked unit-test WORKER JVMs take java.io.tmpdir
+// forked unit-test WORKER JVMs take java.io.tmpdir
 // from the OS %TEMP% on C: (org.gradle.jvmargs only configures the daemon)
-// - every test scratch root stays under the E: toolchain root (plan
-// section 1 hard rule 1).
+// - every test scratch root stays under the E: toolchain root.
+// Filtered `--tests` runs are fenced exactly
+// like the desktop lane — a direct unfenced filtered run writes its JUnit
+// XML into the canonical build/test-results/testDebugUnitTest tree and
+// hollows the standing evidence (live-proven this round: the canonical
+// android tree dropped to 291 tests / 33 classes vs the artifact's
+// 1839/231). Focused runs go through tools/focused_android_unit_test.py
+// (it passes -Ppocket.focus to satisfy this fence, and its snapshot/restore
+// — not the label — is what guards the canonical tree); canonical runs
+// carry no filters.
+val androidFilteredRun = gradle.startParameter.taskRequests.any { request ->
+    request.args.any { it.startsWith("--tests") }
+}
+val androidFocusRedirect = providers.gradleProperty("pocket.focus").orNull?.isNotBlank() == true
+if (androidFilteredRun && !androidFocusRedirect) {
+    throw GradleException(
+        "android test-class filters (--tests) are only sanctioned through " +
+            "tools/focused_android_unit_test.py (its snapshot/restore guards " +
+            "the canonical build/test-results/testDebugUnitTest tree) — a " +
+            "bare -Ppocket.focus label does NOT redirect JUnit XML on this " +
+            "lane, so an unfenced filtered run would hollow the standing " +
+            "evidence"
+    )
+}
+
 tasks.withType<Test>().configureEach {
     systemProperty("java.io.tmpdir", "E:/pocket_realm_toolchain/tmp")
 }
 
 // AGP 9 replaced the android unit-test task with AndroidUnitTest, which is
 // NOT an org.gradle.api.tasks.testing.Test subtype (the block above matches
-// nothing on this lane — discovered live in W1 round 4) and its
+// nothing on this lane — discovered live in a focused-run probe) and its
 // reports.junitXml.outputLocation is FINALIZED at task creation, so the
 // desktop lane's -Ppocket.focus redirect is impossible here. The android
 // focused-run lane therefore uses tools/focused_android_unit_test.py: it

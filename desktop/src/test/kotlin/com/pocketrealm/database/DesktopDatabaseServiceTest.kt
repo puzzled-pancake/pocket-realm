@@ -22,7 +22,7 @@ import org.junit.rules.TemporaryFolder
  * (the physical provider distribution is the lane's external dependency).
  */
 class DesktopDatabaseServiceTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the engine's lane resolvers see one honest lane —
      * without it, status()'s lane-keyed reads hit the multi-qualified

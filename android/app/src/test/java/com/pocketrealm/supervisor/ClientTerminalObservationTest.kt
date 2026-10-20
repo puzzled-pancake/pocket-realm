@@ -20,7 +20,7 @@ class ClientTerminalObservationTest {
             killBinderVerdict(""))
         assertEquals(RuntimeActionResult(true, "owned process terminated"),
             killBinderVerdict("""{"ok":true,"killed":true}"""))
-        // a typed refusal carries the service's own reason - the live N1
+        // a typed refusal carries the service's own reason - the live
         // wedge read as "owned process terminated" while the engine had
         // answered "database is not active", hiding the remedy
         assertEquals(RuntimeActionResult(false, "database is not active"),

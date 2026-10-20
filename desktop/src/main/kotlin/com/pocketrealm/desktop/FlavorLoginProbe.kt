@@ -7,7 +7,7 @@ import java.security.MessageDigest
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
- * W3.5 login-topology live verification: launches one STAGED genuine flavor
+ * 5 login-topology live verification: launches one STAGED genuine flavor
  * client on the Windows desktop lane and drives [Win32AutoLogin] against its
  * live login window — the evidence that promotes the tbc/wotlk login
  * topologies from UNVERIFIED (they previously rode the verified vanilla
@@ -60,7 +60,7 @@ fun main() {
     )
 
     // 1. belt-and-braces: never dial a live realm; windowed video.
-    // R3-1: the realmlist leg FAILS CLOSED — a client dir with no locatable
+    // the realmlist leg FAILS CLOSED — a client dir with no locatable
     // realmlist.wtf aborts the probe before any spawn instead of dialing
     // the client's compiled-in default realm.
     val realmlistNotes = aimRealmListsAtLoopback(clientDir)
@@ -87,7 +87,7 @@ fun main() {
         // internally, so drive the CHOREOGRAPHY directly and record the
         // poll verdict first via a second poll (cheap, already stable).
         val pid = process.pid().toInt()
-        // R1-1 re-run support: a forced-kill aftermath leaves the genuine
+        // re-run support: a forced-kill aftermath leaves the genuine
         // client on its known-safe "Hardware changed" modal (it appears
         // tens of seconds into boot), so the dismissal runs CONCURRENTLY
         // with the window poll — click &No (non-destructive) until the
@@ -157,7 +157,7 @@ internal fun realmlistCandidates(clientDir: File): List<File> = buildList {
 }
 
 /**
- * R2-3/R3-1: aims EVERY existing realmlist.wtf at loopback (the old
+ * aims EVERY existing realmlist.wtf at loopback (the old
  * first-candidate rewrite left a Truewow repack's Data/enUS realmlist
  * pointing at its live server) and FAILS CLOSED — a client dir with none
  * of the candidates aborts the probe (IllegalStateException naming the
@@ -176,7 +176,7 @@ internal fun aimRealmListsAtLoopback(clientDir: File): List<String> {
         )
     }
     return candidates.map { target ->
-        // R2-3 (round 5): ALWAYS rewrite — a bare substring check for
+        // ALWAYS rewrite — a bare substring check for
         // "127.0.0.1" let a realmlist whose directive still named a live
         // host pass through uncorrected when the address appeared in a
         // comment. The unconditional rewrite is idempotent (the correct

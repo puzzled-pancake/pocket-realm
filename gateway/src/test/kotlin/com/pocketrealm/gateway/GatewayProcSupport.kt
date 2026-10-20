@@ -6,11 +6,11 @@ import kotlin.io.path.Path
 import kotlin.io.path.absolute
 
 /**
- * W6-N4: the shared gateway-subprocess harness, extracted verbatim from
- * GatewaySubprocessE2E (the N3 two-process loopback E2E) so the reconnect
+ * the shared gateway-subprocess harness, extracted verbatim from
+ * GatewaySubprocessE2E (the two-process loopback E2E) so the reconnect
  * proof (ReconnectRelayE2E / ReconnectDockerE2E) drives the SAME launch /
  * READY-parse / stop machinery instead of drifting a copy. Behavior is
- * byte-for-byte the N3 harness's; only the home moved.
+ * byte-for-byte the harness's; only the home moved.
  */
 
 /** One live gateway child process: stdout line queue, stderr tail, the
@@ -238,7 +238,7 @@ fun parseReadyJson(json: String): ReadyLine {
     return ReadyLine(node, relay?.takeIf { it.isNotEmpty() }, ports, addrs)
 }
 
-/** A fresh 64-hex transport secret (D96 posture: identities are
+/** A fresh 64-hex transport secret (posture: identities are
  * generated at runtime, never embedded in tracked files). */
 fun freshHexSecret(): String {
     val bytes = ByteArray(32)
@@ -299,11 +299,11 @@ private var gamePortLock: java.nio.channels.FileLock? = null
  * probe-then-act race two concurrent seats otherwise run (both probe
  * free, both bind, both phantom-red) is closed by serializing the
  * port-bound E2Es through one lock file (the focused-android wrapper's
- * O_CREAT|O_EXCL pattern, blocking variant; W6-N4 code-red R5-2).
+ * O_CREAT|O_EXCL pattern, blocking variant.
  * False = another seat held the lock for the whole budget → the caller
  * SKIPS honestly. [lockFile] is the pin's seam (tests exercise the
  * semantics on a sandbox file — deleting the SHARED file mid-run is
- * itself the two-inode race, R4-r2-3). */
+ * itself the two-inode race). */
 fun acquireGamePortLock(
     budgetMs: Long = GAME_PORT_LOCK_BUDGET_MS,
     lockFile: File = gamePortLockPath,

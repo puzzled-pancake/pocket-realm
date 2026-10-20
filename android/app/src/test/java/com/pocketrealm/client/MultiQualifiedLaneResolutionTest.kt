@@ -107,7 +107,7 @@ class MultiQualifiedLaneResolutionTest {
     fun persistedPickLanesRefuseADeclaredButUnqualifiedPick() {
         TwoQualifiedFlavors.install()
         for (site in persistedPickLanes) {
-            // W4 flip: wotlk is QUALIFIED now, so the stale-pick refusal uses
+ // Flip: wotlk is QUALIFIED now, so the stale-pick refusal uses
             // a synthetic unqualified lane (the contract is the pick's own
             // qualification, not wotlk's registry state).
             val disabled = ClientFlavors.WOTLK.copy(qualified = false)
@@ -185,7 +185,7 @@ class MultiQualifiedLaneResolutionTest {
     @Test
     fun theFlipFixtureIsSeamOnly() {
         TwoQualifiedFlavors.install()
-        // W4 flip: the PRODUCTION registry now qualifies all three lanes
+ // Flip: the PRODUCTION registry now qualifies all three lanes
         // (the real flip, decision D86) — the fixture's two-lane list stays
         // a test-only seam and never mutates it. The seam's list is still
         // distinguishable from production's THREE (wotlk absent).

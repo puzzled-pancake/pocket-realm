@@ -408,10 +408,10 @@ fun SettingsScreen(
                     "one is an exact manual choice with no fallback.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            // R6-r3-4: the per-flavor graphics-route honest copy — on a
+            // the per-flavor graphics-route honest copy — on a
             // non-vanilla lane the GL routes are refused at launch; the
             // renderer surface states it at selection time.
-            // W4 flip: several qualified flavors with no pick yet refuses
+ // Flip: several qualified flavors with no pick yet refuses
             // loud at the resolver — a render-time card renders the honest
             // first-pick copy instead of crashing composition.
             val settingsLaneFlavorId = remember {
@@ -1185,9 +1185,9 @@ fun SettingsScreen(
         // the shared TimeframeStages core — the qualified flavor's ordered
         // stages, default = final patch, applies at the next realm start.
         SettingCard("World timeframe") {
-            // Round-5 R5-2: resolve through the ActiveFlavor machine — the
+            // resolve through the ActiveFlavor machine — the
             // documented fail-loud resolver; never a silent VANILLA
-            // fallback at the W4 multi-qualified flip. W4 flip: with no
+ // Fallback at the multi-qualified flip — with no
             // pick yet under several qualified flavors the resolver refuses
             // loud — this render lane surfaces the first-pick copy instead
             // of crashing composition (operation gates keep the refusal).
@@ -1363,11 +1363,11 @@ fun SettingsScreen(
         }
 
         HorizontalDivider()
-        // R6-4: the tweaks card is FLAVOR-AWARE — vanilla_tweaks is a
+        // the tweaks card is FLAVOR-AWARE — vanilla_tweaks is a
         // vanilla-only feature (the manifest's wine.vanilla_tweaks); on a
         // tbc/wotlk lane the honest "not available" copy renders instead of
         // the toggles (the wave's own ClientRuntimeContract.flavorTweaksCopy).
-        // W4 flip: no pick yet under several qualified flavors renders the
+ // Flip: no pick yet under several qualified flavors renders the
         // first-pick copy instead of crashing composition (the operation
         // gates keep the loud refusal).
         val activeSettingsFlavorId = remember {

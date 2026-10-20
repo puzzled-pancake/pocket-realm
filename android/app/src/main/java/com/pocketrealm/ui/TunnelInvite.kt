@@ -37,7 +37,7 @@ object TunnelInvite {
         // fail-loud machine every sibling site uses: the holder's persisted
         // pick in :ui, sole-qualified degrades to it, ambiguous refuses
         // loud with the machine's message.
-        // W4 flip: with no pick yet under several qualified flavors the
+ // Flip: with no pick yet under several qualified flavors the
         // resolver refuses loud — the invite line renders the honest
         // first-pick copy instead of crashing composition (there IS no
         // honest invite before a lane exists).
@@ -56,7 +56,7 @@ object TunnelInvite {
     enum class TunnelKind(val displayName: String) {
         TAILSCALE("Tailscale"),
         ZERO_TIER("ZeroTier"),
-        /** The documented advanced recipe (§4.3): advertised loopback, each
+        /** The documented advanced recipe: advertised loopback, each
          * friend runs `cloudflared access tcp` locally. Copy-only, no UI lane. */
         CLOUDFLARED("cloudflared"),
         OTHER("tunnel"),

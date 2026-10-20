@@ -323,16 +323,16 @@ class ClientGenerationStore(roots: com.pocketrealm.desktop.DesktopStorageRoots) 
          * schema constant is pinned here to keep the manifest byte-shape). */
         internal const val IMPORT_JOURNAL_SCHEMA = 4
 
-        /** GAP-3: the [ActiveFlavor] lane suffix naming the active-generation
+        /** the [ActiveFlavor] lane suffix naming the active-generation
          * default-arg gate. */
         private const val ACTIVE_GENERATION_LANE =
             "the active client generation resolves the qualified lane"
 
-        /** G3-7 golden seam: the app-owned `realmlist.wtf` publish bytes. */
+        /** golden seam: the app-owned `realmlist.wtf` publish bytes. */
         internal fun managedRealmlistWtfBytes(): ByteArray =
             "set realmlist 127.0.0.1\r\n".toByteArray()
 
-        /** G3-7 golden seam: the app-owned `WTF/Config.wtf` publish bytes (SAFE_CONFIG normalized). */
+        /** golden seam: the app-owned `WTF/Config.wtf` publish bytes (SAFE_CONFIG normalized). */
         internal fun managedConfigWtfBytes(): ByteArray =
             SAFE_CONFIG.normalizeRawConfigLineEndings().toByteArray()
 

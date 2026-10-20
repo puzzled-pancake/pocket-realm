@@ -190,7 +190,7 @@ internal class PreparedDataStore(private val root: File) {
  * mmapMaps, mmapTiles) — the measured mirror of tools/win_prepare_data.py's
  * FLAVOR_MIN_COUNTS (W2's re-derive; the desktop golden pin holds these rows
  * to the python source). Consumers: [PreparedDataStore.requireActiveEnvelope]'s
- * boot gate (R1-1) and the desktop prep twin's publication gate (R6-3), so a
+ * boot gate and the desktop prep twin's publication gate, so a
  * truncated tbc/wotlk generation the official lane refuses can neither boot
  * nor publish through the twins. Floors are MINIMUMS measured per flavor —
  * never copied across flavors as if measured. */

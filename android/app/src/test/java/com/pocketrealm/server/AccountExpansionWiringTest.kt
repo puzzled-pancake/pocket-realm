@@ -10,7 +10,7 @@ import java.io.File
  * R1-1 (android-core review round 1, serious): account creation has TWO
  * seams and they must never diverge again on the per-flavor expansion
  * write. The verifier path (`createAccountVerifier`, the friend
- * provisioning route) used to skip the F1-10 addon leg entirely - the
+ * provisioning route) used to skip the addon leg entirely - the
  * native INSERT births the row at the seed's expansion default (0), so at
  * the W4.4 flip every provisioned friend on a tbc/wotlk host was silently
  * born classic. Both legs are pinned in ONE source contract: the exact
@@ -133,7 +133,7 @@ class AccountExpansionWiringTest {
     @Test
     fun verifierExpansionWriteTruthTableIsPinnedBehaviorally() {
         // R3-1/R3-2 (review round 3): the verifier lane's decision is
-        // BEHAVIORALLY pinned — the round-2 source-string pins passed while
+        // BEHAVIORALLY pinned — the source-string pins passed while
         // the seam's OR-ed expression kept the collision hole open. Truth
         // table over the pure function the seam consumes:
         // (0, _, _) = true: a fresh create always writes.
@@ -146,7 +146,7 @@ class AccountExpansionWiringTest {
             }
         }
         // (10, true, false) = FALSE: the collision refusal — the exact case
-        // the round-2 OR-ed shape got wrong.
+        // the OR-ed shape got wrong.
         assertTrue(
             !ServerRuntimeContract.verifierExpansionWrite(
                 ServerRuntimeContract.ACCOUNT_EXISTS_CODE,

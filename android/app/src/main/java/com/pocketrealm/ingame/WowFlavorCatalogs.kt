@@ -9,7 +9,7 @@ import com.pocketrealm.client.WowVanillaBindingCatalog
 import com.pocketrealm.client.WowWotlkBindingCatalog
 
 /**
- * W3.3: the flavor-routed settings/binding catalog resolver — the one seam
+ * The flavor-routed settings/binding catalog resolver — the one seam
  * the in-game settings editors (both twins) resolve through, replacing the
  * per-callsite vanilla references. Each flavor's authored catalog
  * ([WowVanillaSettingsCatalog] / [WowTbcSettingsCatalog] /

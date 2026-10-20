@@ -228,7 +228,7 @@ def test_committed_lockfiles_never_record_the_sqlite_backend() -> None:
         # registry through the same registration-checked derivation the
         # writer uses (overlays_for("vanilla", backend)) — these committed
         # lockfiles are VANILLA lanes, so a tbc-only registered entry
-        # (tbc-icu-apple-guard, W5) must not leak into the expected set, while
+        # the tbc-icu-apple-guard patch must not leak into the expected set, while
         # a future registry entry without a "backends" key still defaults
         # into both provenances and a mis-filtered regeneration still diverges
         # from the writer — both caught here instead of trusting the lockfile

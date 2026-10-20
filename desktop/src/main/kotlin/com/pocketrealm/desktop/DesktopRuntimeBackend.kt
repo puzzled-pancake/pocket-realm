@@ -2556,7 +2556,7 @@ class DesktopRuntimeBackend(
         val snapshot = DesktopSettingsStore(roots.settingsFile).load()
         val inputSafeMode = snapshot.inputSafeMode
         // The projector warm-up (the model's app-start warm-up's launch-path
-        // twin): constructing the repository here seeds the fresh-install
+        // desktop twin: constructing the repository here seeds the fresh-install
         // built-in before the projector below reads its registry — a
         // failure must surface in the log, never pass silently (the
         // documented fresh-install seed purpose).

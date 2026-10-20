@@ -34,7 +34,7 @@ from pathlib import Path, PurePosixPath
 try:
     from tools import common
     from tools import flavor_layout
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import common
     import flavor_layout
 

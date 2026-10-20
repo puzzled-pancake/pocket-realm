@@ -10,7 +10,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 /**
- * W6-N1 golden vectors for the realm listing event.
+ * golden vectors for the realm listing event.
  *
  * Grounding (three independent legs):
  *  1. The OFFICIAL BIP-340 test vectors (bitcoin/bips bip-0340
@@ -222,7 +222,7 @@ class RealmListingEventTest {
 
     @Test
     fun joinIsNullWhileTheGatewayIsDownAndStatusPageOptional() {
-        // W6-N3 semantics: join is the HONEST "host gateway not running"
+        // semantics: join is the HONEST "host gateway not running"
         // — a listing still publishes without it, never a stale descriptor.
         val content = goldenContent().copy(statusPageUrl = null)
         val event = RealmListingEvent.build(content, key, GOLDEN_CREATED, auxRand32 = ByteArray(32))
@@ -245,7 +245,7 @@ class RealmListingEventTest {
         val content = goldenContent().copy(
             join = descriptor,
             // A REGISTERED wotlk stage (the store's admission ladder checks
-            // stage registration; the N1 golden fixture's stage predates it).
+            // stage registration; the golden fixture's stage predates it).
             timeframeStage = "wotlk-3.3.5a",
         )
         val event = RealmListingEvent.build(content, key, GOLDEN_CREATED, auxRand32 = ByteArray(32))
@@ -379,7 +379,7 @@ class RealmListingEventTest {
             "download at https://cdn.example.com/client.exe",
             "direct: wss://myhost.dev/relay",
             "ftp://files.example.com/wow",
-            // R3-5/R5-1: the IPv6 and leading-zero spellings are
+            // the IPv6 and leading-zero spellings are
             // connectable address forms — refused, fail-closed.
             "connect at 192.168.000.001",
             "connect at [2001:db8::1]:8085",
@@ -391,27 +391,27 @@ class RealmListingEventTest {
             "gateway 192.168.1",
             "reach me on fe80::1%eth0",
             "[2001:db8::1%25eth0]:8085",
-            // R3-1/R6-3-1 + R3-3/R6-3-2: the sentence-final period and the
+            // the sentence-final period and the
             // dotless decimal are connectable spellings — refused.
             "connect tonight at 10.0.0.1.",
             "join 2130706433 port 8085",
-            // R3-r4-1/R2-1: octal and 4-digit-padded spellings are
+            // octal and 4-digit-padded spellings are
             // connectable on common resolvers — refused, fail-closed.
             "join me at 0177.0.0.1",
             "connect at 0x7f.0x0.0.1",
             "dial 0x7f000001 today",
-            // R2-N5-r1-2: all-hex-letter IPv6 literals are JVM-connectable
+            // all-hex-letter IPv6 literals are JVM-connectable
             // with ZERO decimal digits (InetAddress.getByName resolves
             // "dead:beef::cafe" without DNS) — refused, fail-closed.
             "dead:beef::cafe",
             "DEAD:BEEF::CAFE",
             "[dead:beef::cafe]:8085",
             "cafe:beef:baa::",
-            // R5-N5-r2-1: the dotless pointer with ONE sentence-final
+            // the dotless pointer with ONE sentence-final
             // period — the same infrastructure pointer as "10.0.0.1."
             // (which the canonical IPV4 regex already refuses).
             "direct: 2130706433.",
-            // R2-N5-r3-1 re-adjudicated R2-N5-r4-1: the JVM's
+            // re-adjudicated: the JVM's
             // single-chunk parser is PLAIN DECIMAL with leading zeros
             // IGNORED — all three resolve on the pinned JDK (127.0.0.1 /
             // 16.109.82.129 / 7.91.205.21) and sailed the char-count
@@ -420,12 +420,12 @@ class RealmListingEventTest {
             "dial 000000275600001",
             "fallback 0123456789",
             "fallback 0256985321",
-            // R7-6-1: 7-digit UNPADDED runs are JVM-connectable decimal
+            // 7-digit UNPADDED runs are JVM-connectable decimal
             // ("1000000" -> 0.15.66.64) — refused, aligned with the
             // static sweep's dotless floor.
             "reach 1000000 hosts",
             "over 3000000 players",
-            // R3-4/R6-3-3: the IDN hostname and its punycode form are the
+            // the IDN hostname and its punycode form are the
             // same resolvable hostname — both refused.
             "水.com",
             "join at xn--1rw.com",
@@ -456,12 +456,12 @@ class RealmListingEventTest {
         )
     }
 
-    /** R2-N5-r4-1 + R5-2 (rounds 4-5): the measured JVM-truth negatives
+    /** + the measured JVM-truth negatives
      * and the clock-prose legals — held in their own method so the
      * refusal matrix above stays within the length budget. */
     @Test
     fun dotlessBoundExceedingAndClockProseStayLegal() {
-        // R2-N5-r4-1: a digit run whose DECIMAL value exceeds the
+        // a digit run whose DECIMAL value exceeds the
         // unsigned-32-bit bound does not resolve on the JVM
         // ("037777777777" = decimal 37,777,777,777 -> UnknownHostException
         // on the pinned JDKs), so the fence passes it where the resolving
@@ -470,7 +470,7 @@ class RealmListingEventTest {
             "Server uptime 037777777777 ticks",
             "Legacy counter: 037777777777 (kept for the archive).",
         )
-        // R5-2 (round 5): clock prose is LEGAL — the JVM does not resolve
+        // clock prose is LEGAL — the JVM does not resolve
         // h:mm / h:mm:ss tokens (UnknownHostException measured on the
         // pinned JDKs), so the IPv6 leg exempts the time shape instead of
         // false-refusing "an IP address".

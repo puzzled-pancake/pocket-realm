@@ -148,7 +148,7 @@ data class RealmListingContent(
         /** R5-2: a single tag VALUE may not exceed this length. */
         const val MAX_TAG_VALUE_LENGTH = 128
 
-        /** R5-1(b): the per-entry SERIALIZED budget — the admission fence
+        /** (b) the per-entry SERIALIZED budget — the admission fence
          * bounds entries AND bytes. */
         const val MAX_SERIALIZED_CHARS = 32_768
 
@@ -211,7 +211,7 @@ data class RealmListingContent(
             if (humans < 0 || bots < 0) return null
             val publicUrl = public?.optString("url", "")?.takeIf { it.isNotEmpty() }
                 ?.takeIf { isShapeValidPublicUrl(it) }
-            // R1-2: a missing/unknown flavor key NEVER defaults to vanilla
+            // a missing/unknown flavor key NEVER defaults to vanilla
             // (a fail-open wrong-flavor leak into a world-readable listing)
             // — the beat is skipped fail-closed, exactly like
             // buildForFlavor's unknown-flavor refusal.
@@ -235,7 +235,7 @@ data class RealmListingContent(
                 ),
                 humans = humans,
                 bots = bots,
-                // W6-N3: the payload has no dial descriptor — the PUBLISHER
+                // the payload has no dial descriptor — the PUBLISHER
                 // attaches the live gateway's join descriptor (node + home
                 // relay) after this builder returns, so the listing only
                 // ever carries a descriptor of a gateway that is UP.
@@ -306,7 +306,7 @@ object PrivacyGuard {
      * carrying at least one dot is address-shaped; fail-closed (a bare
      * "3.3.5" version token is refused too — spell it "v3.3.5"). */
     fun isIpV4ShorthandToken(token: String): Boolean =
-        // R2-1: NO caps on part width or dot count — inet_aton and common
+        // NO caps on part width or dot count — inet_aton and common
         // resolvers accept 4-digit leading-zero octets ("0177.0.0.1",
         // "1.1.1.0100") and 2/3-part shorthand; any digits+dots token with
         // a dot is address-shaped, fail-closed.
@@ -420,7 +420,7 @@ object PrivacyGuard {
             val candidate = core.substringBeforeLast(':')
             if (candidate.count { it == ':' } >= 2) core = candidate
         }
-        // R5-2: the time-shape exemption — h:mm / h:mm:ss clock prose
+        // the time-shape exemption — h:mm / h:mm:ss clock prose
         // ("12:30:45", "03:00:00") is left unresolved by the JVM, so it
         // exits the leg with the sub-2-colon and "::" cases instead of
         // drawing a false "an IP address" refusal.
@@ -443,7 +443,7 @@ object PrivacyGuard {
         if (!dotted || spaced) return false
         val labels = token.split('.').filter { it.isNotEmpty() }
         // The last label must be a letters-only TLD shape (any script);
-        // fail-closed on exotic unicode rather than passing it (R3-4).
+        // fail-closed on exotic unicode rather than passing it.
         // The rest must not be a pure number (an IP/decimal leg of the
         // fence already judged those) and must not be a route/path shape.
         val tldOk = labels.size >= 2 &&
@@ -472,10 +472,10 @@ object PrivacyGuard {
             URL_SCHEME to "a URL — addresses and download links are never published",
             HOSTNAME to "a hostname — never published",
         ).firstOrNull { it.first.containsMatchIn(text) }?.second
-        // R3-5/R5-1: the IPv6 and leading-zero spellings ride the token
+        // the IPv6 and leading-zero spellings ride the token
         // walk — their shapes defeat the single canonical regexes. The
         // walk runs ALWAYS, not only when a canonical rule matched.
-        // R5-N5-r2-1: each token is judged with ONE sentence-final period
+        // each token is judged with ONE sentence-final period
         // stripped ("direct: 2130706433." is the same infrastructure
         // pointer as "10.0.0.1." which the canonical IPV4 regex already
         // refuses) — a second period defeats the strip and stays refused
@@ -827,7 +827,7 @@ object RealmListingEvent {
 
 /** Verify seam (kept one call away so the desktop/Android twins share it). */
 internal object Secp256k1Verify {
-    /** Test instrumentation (R7-r2-2): counts the Schnorr verifies so the
+    /** Test instrumentation: counts the Schnorr verifies so the
      * duplicate fast path can pin "a duplicate delivery adds zero". */
     internal var schnorrVerifyCalls: Int = 0
 

@@ -186,7 +186,7 @@ class AddonCatalog private constructor(
             val root = JSONObject(text)
             require(root.getInt("schema") == 1) { "Unsupported addon catalog" }
             require(!root.has("bundled")) { "Retired bundled add-on metadata is not allowed" }
-            // R2-4/R6-3: the asset's own flavor identity must match the
+            // the asset's own flavor identity must match the
             // requested lane — a swapped or mislabeled per-flavor asset
             // (catalog-wotlk loaded as tbc) refuses here instead of
             // rendering the other lane's researched set.
@@ -214,7 +214,7 @@ class AddonCatalog private constructor(
                     "the $flavorId catalog's recommendedIds reference rows outside " +
                         "the catalog (a hand edit)"
                 }
-                // R6-r2-1: EVERY recommended row must carry its per-flavor
+                // EVERY recommended row must carry its per-flavor
                 // recommendation copy — the Recommended screen's
                 // checkNotNull becomes an unreachability invariant enforced
                 // at parse instead of a crash on the tbc/wotlk lanes.

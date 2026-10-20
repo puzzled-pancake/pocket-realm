@@ -1,5 +1,5 @@
 /*
- * Host battery for the A4/A5 trained prompt-format renderer (S4 gate).
+ * Host battery for the A4/A5 trained prompt-format renderer.
  * Two modes, exit-code driven:
  *
  *   bytediff <vectors.json>   THE STAGE GATE: render every vector row via

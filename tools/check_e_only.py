@@ -75,7 +75,7 @@ TOOLCHAIN_VARS: tuple[tuple[str, str, str], ...] = (
 # Vendored upstream trees (their own repos gate their content) and
 # machine-local files never swept for literals.
 EXCLUDED_PREFIXES: tuple[str, ...] = (
-    "docs/",          # historical prose allowlist (section 7: "docs allowlisted")
+    "docs/",          # historical prose allowlist ("docs allowlisted")
     "native/xserver-winlator/",
     "runtime/",
     "out/",           # archived evidence, not buildable config
@@ -86,10 +86,10 @@ EXCLUDED_PREFIXES: tuple[str, ...] = (
 # backslash. The lookbehind keeps prose like "tbc:" inside a message
 # string - a letter can never precede a drive letter - from matching.)
 # The git-bash spelling (`/c/users/...`) is the same C: path in POSIX
-# form — R3-r2-1 caught a staged script carrying it behind the old
+# form — caught a staged script carrying it behind the old
 # regex. The lookbehind keeps prose like "tbc:" from matching.
 # The git-bash spelling (`/c/users/...`) is the same C: path in POSIX
-# form - R3-r2-1 caught a staged script carrying it behind the old
+# form - caught a staged script carrying it behind the old
 # regex. The two-segment requirement (`/c/<dir>/`) keeps base64
 # payloads (cacert.pem) and prose (`//c/...`) from false-matching; the
 # lookbehind keeps prose like "tbc:" from matching.
@@ -313,14 +313,14 @@ def env_redirection_findings() -> tuple[list[dict[str, object]], list[str]]:
                     }
                 )
             continue
-        # Round-3 R3-1a: the direction of a disagreement matters. A C: value
+        # the direction of a disagreement matters. A C: value
         # in the LIVE env with the registry on E: is a stale daemon (a note:
         # this process must not launch toolchains). But a C: value in the
         # REGISTRY with the live env on E: means every NEW shell writes its
         # caches to C: — the persisted truth is the opposite of the
         # redirection, and a note would be a fail-open lie. That direction
         # is a finding naming the source.
-        # Round-4 R3-4/R2-3: a redirection that exists ONLY in the live
+        # a redirection that exists ONLY in the live
         # process env (persisted registry UNSET) means every new shell -
         # and CI - gets NO redirection: Gradle/pip/cargo default their
         # caches to C:\\Users\\<u>. The charter deliverable is the machine/
@@ -372,12 +372,12 @@ def env_redirection_findings() -> tuple[list[dict[str, object]], list[str]]:
     return findings, notes
 
 
-# R3-3: C:-resident project artifacts that were disclosed and retired carry
+# C:-resident project artifacts that were disclosed and retired carry
 # an inventory here. A pip.ini under %APPDATA% existing WITHOUT an entry is
 # a finding — the W7 section 0.8 "C: carries no project artifacts" gate
 # re-checks this list, so the delete-or-waive decision cannot be forgotten.
 DISCLOSED_C_ARTIFACTS: tuple[str, ...] = (
-    # (empty as of 2026-10-08: the W0 pip.ini was retired — PIP_CACHE_DIR at
+    # empty as of 2026-10-08: the pip.ini was retired — PIP_CACHE_DIR at
     # user-env scope covers the redirection; add a path here ONLY with an
     # owner-signed Decision Log waiver and a retire stage)
 )
@@ -407,7 +407,7 @@ def configured_cache_root_findings() -> tuple[list[dict[str, object]], list[str]
         value = os.environ.get(name) or _registry_user_env(name) or ""
         if value:
             candidates[name] = value
-        # round-3 R3-1a: the registry is what NEW shells read — check it
+        # the registry is what NEW shells read — check it
         # even when the live env already redirects (both must be clean)
         registry_value = _registry_user_env(name) or ""
         if registry_value:
@@ -447,7 +447,7 @@ def configured_cache_root_findings() -> tuple[list[dict[str, object]], list[str]
                     "detail": f"{name}={value!r} is configured ONTO C:\\ — relocate under E:\\",
                 }
             )
-    # Round-4 R2-1: the PRODUCT's durable-state root (%LOCALAPPDATA%
+    # the PRODUCT's durable-state root (%LOCALAPPDATA%
     # PocketRealm) resolved the way pip.ini is - an existing C:-resident
     # tree without an owner-signed disclosed-artifact entry is a finding
     # (plan section 1.1: any C: write is Serious; section 0.8: C: carries
@@ -472,7 +472,7 @@ def configured_cache_root_findings() -> tuple[list[dict[str, object]], list[str]
                 "escalated the relocate-or-waive decision; the gate stays red "
                 "until the owner rules"
             )
-    # R3-4: OS %TEMP% residue — disclosed, loud, and NOT asserted until the
+    # OS %TEMP% residue — disclosed, loud, and NOT asserted until the
     # owner rules on machine-wide TEMP/TMP redirection (WAVE-EXIT deferral).
     on_c = [
         name for name in ("TEMP", "TMP")
@@ -540,7 +540,7 @@ def _tracked_text_files(root: Path) -> list[Path] | None:
             # the <unreadable> E-LITERAL finding (the leak_sweep shape).
             paths.append(path)
             continue
-        # Round-3 R3-2: UTF-16/32 text (a real class — PowerShell 5.1's
+        # UTF-16/32 text (a real class — PowerShell 5.1's
         # Out-File default) carries NUL bytes but is NOT binary: decode via
         # BOM instead of skipping it silently.
         if bytes([0]) in head_bytes:
@@ -667,7 +667,7 @@ def literal_findings(root: Path) -> tuple[list[dict[str, object]], int]:
                     }
                 )
             elif indirection and _ENV_INDIRECTION_RE.search(_code_half(line)):
-                # Round-4 R2-1: LOCALAPPDATA/APPDATA/user.home indirection
+                # LOCALAPPDATA/APPDATA/user.home indirection
                 # builds C: roots with NO C: literal - the class that put the
                 # desktop product's durable state on %LOCALAPPDATA%.
                 findings.append(
@@ -681,7 +681,7 @@ def literal_findings(root: Path) -> tuple[list[dict[str, object]], int]:
     return findings, len(paths)
 
 
-# The env-indirection producers (round-4 R2-1): OS user-profile locations
+# The env-indirection producers: OS user-profile locations
 # a project root can be built from instead of E:.
 _ENV_INDIRECTION_RE = re.compile(
     r"LOCALAPPDATA|APPDATA|user\.home|getUserProfile"
@@ -723,17 +723,17 @@ def _code_half(line: str) -> str:
     return line[:cut]
 
 
-# Round-4 R2-1: the DESIGNED producers of the desktop product's
+# the DESIGNED producers of the desktop product's
 # %LOCALAPPDATA% root - the owning surfaces of the indirection class,
-# each pending the owner's relocation decision (D50). Any NEW producer
+# each pending the owner's relocation decision. Any NEW producer
 # fails the gate until it joins this table or moves under E:.
-# Round-5 R5-1: exactly TWO owning resolvers remain - the Kotlin side
+# exactly TWO owning resolvers remain - the Kotlin side
 # (DesktopStorageRoots.defaultRoot: POCKET_REALM_DATA_ROOT -> the shipped
 # LOCALAPPDATA fallback) and the Python side (tools/common.product_data_root,
 # the same contract). Every other surface resolves through them, so the
-# D50 override relocates the WHOLE product; any NEW LOCALAPPDATA producer
+# override relocates the WHOLE product; any NEW LOCALAPPDATA producer
 # fails the gate until it routes through a resolver.
-# R3-2/R5-1 (native-server round 1): a THIRD owning resolver joins them -
+# / (native-server): a THIRD owning resolver joins them -
 # the native crash tracer (win_exception_shim.cpp pocket_crash_file), the
 # native twin of the same contract (override root first, LOCALAPPDATA
 # fallback), pinned byte-shared with both by tests/test_crash_trace_root.py.

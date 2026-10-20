@@ -67,7 +67,7 @@ from pathlib import Path
 
 try:
     from tools import common
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import common
 
 DEFAULT_MANIFEST = Path(__file__).resolve().parent.parent / "schemas" / "flavor.json"
@@ -77,18 +77,18 @@ CLIENT_ID_RE = re.compile(r"^wow-[0-9]+\.[0-9]+\.[0-9]+[a-z]?-[0-9]+$")
 DATABASE_KEYS = ("realmd", "world", "characters", "logs")
 VERSION_RESOURCE_RE = re.compile(r"^\d+\.\d+\.\d+(\.\d+)?\Z")
 ALLOWED_GRAPHICS_ROUTES = frozenset({"dxvk", "opengl", "virgl"})
-# D3: the GL/VirGL lanes are vanilla-qualified only; every other flavor ships
+# the GL/VirGL lanes are vanilla-qualified only; every other flavor ships
 # DXVK until a parity stage proves otherwise.
 VANILLA_ONLY_GRAPHICS_ROUTES = ("opengl", "virgl")
-# Correction C1: the numeric gamebuild column is TrinityCore's schema and must
+# Correction: the numeric gamebuild column is TrinityCore's schema and must
 # never appear in this manifest, under any group (leak-sweep candidate
 # enforced here by key name).
 FORBIDDEN_MANIFEST_KEYS = ("gamebuild",)
-# Correction C3: the auth-challenge opcode is ONE shared constant across the
-# three branches (register §0). Pinned so nobody reintroduces a per-flavor
+# Correction: the auth-challenge opcode is ONE shared constant across the
+# three branches (register). Pinned so nobody reintroduces a per-flavor
 # opcode "parameterization".
 SHARED_AUTH_CHALLENGE_OPCODE = "0x1EC"
-# Correction C8: the char-level cache-file set is WotLK-era; only the wotlk
+# Correction: the char-level cache-file set is WotLK-era; only the wotlk
 # flavor may carry it in its wtf descriptor.
 WOTLK_ONLY_WTF_CACHE_FILES = True
 WTF_LAYOUTS = ("account-level", "3-level")
@@ -96,7 +96,7 @@ WTF_LAYOUTS = ("account-level", "3-level")
 # flavor group's upstream URL against a source's upstream_url first, then falls
 # back to the flavor's per-flavor source ids and finally the legacy vanilla ids
 # (covers fork URLs like the playerbots mirror; the tbc/wotlk per-flavor ids
-# landed with the S1 per-flavor sources.json entries).
+# landed with the per-flavor sources.json entries).
 FALLBACK_SOURCE_IDS = {
     "vanilla": {
         "server_core": ["cmangos-core"],
@@ -116,10 +116,10 @@ FALLBACK_SOURCE_IDS = {
 }
 
 
-# Round-3 R3-3/R3-5: the registered flavor identity table (build -> owning
+# the registered flavor identity table (build -> owning
 # flavor id) is derived per validate() call and PRE-REGISTERED before any
-# per-flavor check runs (round-4 R2-2: populating it inside the consuming
-# loop made the C1 foreign-build rejection order-dependent — the FIRST
+# per-flavor check runs (populating it inside the consuming
+# loop made the foreign-build rejection order-dependent — the FIRST
 # flavor never saw the later flavors' builds — and the module global leaked
 # registrations across calls, making the gate non-deterministic in-process).
 
@@ -151,7 +151,7 @@ def _check_flavor(flavor: dict, index: int, errors: list[str],
     client_id = flavor.get("client_id")
     if not isinstance(client_id, str) or not CLIENT_ID_RE.match(client_id):
         _err(errors, f"{where}.client_id must look like 'wow-1.12.1-5875', got {client_id!r}")
-    # Round-5 R5-R2-1: the clientId is the LOAD-BEARING managed identity
+    # the clientId is the LOAD-BEARING managed identity
     # (stamped into every client-manifest.json), so it must be CONSISTENT
     # with the flavor's own build and version resource - the shape regex
     # alone accepted 'wow-1.12.1-9999' for build 5875, a vanilla<->tbc
@@ -236,7 +236,7 @@ def _check_flavor(flavor: dict, index: int, errors: list[str],
                     f"{where}.realmd.accepted_builds {accepted!r} does not include the "
                     f"flavor's own build {build}",
                 )
-        # Round-3 R3-3: the C1 rule is the flavor's OWN accepted set — a
+        # the rule is the flavor's OWN accepted set — a
         # foreign REGISTERED build in the list would configure a wrong-flavor
         # client/server pair (vanilla's 5875 client authenticating against a
         # tbc realmlist). Manifest is the source of record the W4.2 3x3
@@ -264,7 +264,7 @@ def _check_flavor(flavor: dict, index: int, errors: list[str],
                 "'realmbuilds' in all three branches; 'gamebuild' is TrinityCore's schema)",
             )
 
-    # Correction C3: frame descriptors carry only verified facts (vanilla's
+    # Correction: frame descriptors carry only verified facts (vanilla's
     # 26-byte proof response today; null until S8 verifies the other branches).
     auth_frame = flavor.get("auth_frame")
     if isinstance(auth_frame, dict):
@@ -276,7 +276,7 @@ def _check_flavor(flavor: dict, index: int, errors: list[str],
                 f"or null (verified at S8), got {proof!r}",
             )
 
-    # Correction C8: WTF layout descriptor.
+    # Correction: WTF layout descriptor.
     wtf = flavor.get("wtf")
     if isinstance(wtf, dict):
         if wtf.get("layout") not in WTF_LAYOUTS:
@@ -295,7 +295,7 @@ def _check_flavor(flavor: dict, index: int, errors: list[str],
                 "char-level cache set is WotLK-era (correction C8)",
             )
 
-    # Corrections C6/C7: pristine-exe provenance + LAA fact.
+    # Corrections: pristine-exe provenance + LAA fact.
     client_binary = flavor.get("client_binary")
     if isinstance(client_binary, dict):
         md5 = client_binary.get("known_exe_md5")
@@ -358,7 +358,7 @@ def _check_flavor(flavor: dict, index: int, errors: list[str],
                         f"{where}.wine.graphics_routes must be within "
                         f"{sorted(ALLOWED_GRAPHICS_ROUTES)}, got {unknown!r}",
                     )
-                # D3: the GL/VirGL lanes are qualified against vanilla only; a
+                # the GL/VirGL lanes are qualified against vanilla only; a
                 # new flavor declaring them must record a D-log exception.
                 if flavor.get("qualified") is True and flavor.get("id") != "vanilla":
                     gl_routes = [route for route in routes if route in VANILLA_ONLY_GRAPHICS_ROUTES]
@@ -520,7 +520,7 @@ def _resolve_source(group: dict, fallback_ids: list[str], sources: list[dict]) -
         if own_entries:
             expected = own_entries
         elif len(expected) == 1 and expected[0].get("id") == fallback_ids[-1]:
-            # Round-3 R3-4: the flavor's OWN entries are ABSENT from
+            # the flavor's OWN entries are ABSENT from
             # sources.json and only the legacy tail remains — binding the
             # group to the vanilla entry is exactly the coordinated
             # two-file lie (delete cmangos-core-tbc, point the group at
@@ -551,7 +551,7 @@ def _check_source_pins(
     fid = flavor.get("id")
     fallback_table = FALLBACK_SOURCE_IDS.get(fid if isinstance(fid, str) else "", {})
     if not fallback_table:
-        # round-2 R2-2: an unknown flavor id used to skip the whole binding
+        # an unknown flavor id used to skip the whole binding
         # silently — a doctored flavor with 40-'f' commits bound to nothing
         # and passed. Unknown ids fail loud: every committed flavor must
         # bind its pins.
@@ -646,15 +646,15 @@ def validate(manifest_path: Path, sources_path: Path | None = None) -> list[str]
     build_owners: dict[int, str] = {}
     version_owners: dict[str, str] = {}
     prefix_owners: dict[str, tuple[str, str]] = {}
-    # Round-3 R3-5: the measured exe identities are flavor-unique too — a
+    # the measured exe identities are flavor-unique too — a
     # flavor registering another flavor's exe hash/size would qualify a
     # lane whose published telltale is byte-identical to a DIFFERENT lane's
     # genuine client.
     exe_md5_owners: dict[str, str] = {}
     exe_sha256_owners: dict[str, str] = {}
     exe_size_owners: dict[int, str] = {}
-    # Round-4 R2-2: register EVERY flavor's build before any per-flavor
-    # check runs — the C1 foreign-build rejection must see all
+    # register EVERY flavor's build before any per-flavor
+    # check runs — the foreign-build rejection must see all
     # registered builds regardless of manifest ordering.
     registered_builds: dict[int, str] = {}
     for flavor in flavors:
@@ -741,7 +741,7 @@ def validate(manifest_path: Path, sources_path: Path | None = None) -> list[str]
                 else:
                     prefix_owners[key] = (owner, segment)
 
-        # Round-3 R3-5: exe-identity uniqueness (mirrors build_owners).
+        # exe-identity uniqueness (mirrors build_owners).
         client_binary = flavor.get("client_binary") if isinstance(flavor, dict) else None
         wine = flavor.get("wine") if isinstance(flavor, dict) else None
         if isinstance(client_binary, dict):
@@ -785,7 +785,7 @@ def validate(manifest_path: Path, sources_path: Path | None = None) -> list[str]
     if qualified_count == 0:
         _err(errors, "at least one flavor must be qualified (the app must ship a lane)")
 
-    # Correction C3: the auth-challenge opcode is one shared constant — if the
+    # Correction: the auth-challenge opcode is one shared constant — if the
     # manifest records it at all, it must be exactly 0x1EC, never per-flavor.
     auth = manifest.get("auth")
     if auth is not None:
@@ -799,7 +799,7 @@ def validate(manifest_path: Path, sources_path: Path | None = None) -> list[str]
                 "per-flavor frame descriptors live in each flavor's auth_frame)",
             )
 
-    # Single-lane contract (D9): the runtime qualifies exactly one flavor;
+    # Single-lane contract: the runtime qualifies exactly one flavor;
     # the manifest may opt out explicitly, but never silently.
     single_lane = manifest.get("single_qualified_lane", True)
     if not isinstance(single_lane, bool):
@@ -813,7 +813,7 @@ def validate(manifest_path: Path, sources_path: Path | None = None) -> list[str]
         )
 
     # Provenance binding: every flavor's commit pins must be the very commits
-    # recorded in schemas/sources.json (R3-4/D16; widened by correction C4 —
+    # recorded in schemas/sources.json; widened by correction —
     # the tbc/wotlk bots pins are pinned while their flavors stay unqualified).
     # A drifted pin means the manifest claims a source the repo does not pin.
     if any(

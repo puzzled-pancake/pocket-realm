@@ -110,7 +110,7 @@ fun HomeScreen(
     val lanStopReason by model.lanStopReason.collectAsState()
     val lanStopCopy = lanStopReason?.let(RuntimeFailureCopy::humanize)
 
-    // D8 for the join-instead affordance: joining while a local realm is up
+    // for the join-instead affordance: joining while a local realm is up
     // saves-and-stops that realm first (DesktopAppModel's join preflight) —
     // which disconnects any guests in it. The same stop-with-guests consent
     // Save & exit got, at the identical teardown's second button.
@@ -179,7 +179,7 @@ fun HomeScreen(
 
     // ------------------------------------------------------------------
     // D4 (design-lan §3.1): the projected advertisement for the invite
-    // line — the realmlist.address row the host start wrote (§2.2), never
+    // line — the realmlist.address row the host start wrote, never
     // the stored lanAddress, so the card cannot promise an address the
     // realm no longer advertises. Read once per hosting phase change (the
     // same blocking-in-remember pattern as resolveClientDir above);
@@ -247,7 +247,7 @@ fun HomeScreen(
             onSelect = { chip ->
                 ActiveFlavor.select(chip.flavor.flavorId)
                 flavorChips = ActiveFlavor.switcherChips()
-                // R1-1: the pick must outlive this process — at the W4
+                // the pick must outlive this process — at the
                 // multi-qualified flip a restart without the persisted key
                 // lands every fail-loud resolver in a refusal until a
                 // re-pick. The write rides the same tap (the Android twin's
@@ -325,8 +325,8 @@ fun HomeScreen(
             // Design-timeframe §6: "where in time is my world" is always
             // answerable next to the realm status, without opening Settings.
             timeframeLine = remember(settings) {
-                // Round-5 R5-2: the ActiveFlavor machine, never a silent
-                // VANILLA fallback at the W4 multi-qualified flip. W4 flip:
+                // the ActiveFlavor machine, never a silent
+ // VANILLA fallback at the multi-qualified flip —
                 // with several qualified flavors and no pick yet the
                 // resolver refuses loud — a render-time lane must not crash
                 // composition, so the unresolved state renders the honest
@@ -346,7 +346,7 @@ fun HomeScreen(
             },
         )
         // Design-tunnel §4.1/§6/§9.4: the host-over-the-internet card —
-        // tunnel detection, the honest reachability line, and the §6
+        // tunnel detection, the honest reachability line, and the
         // invite block (address only). LAN_HOST only: the same start
         // serves both lanes.
         if (settings.runtimeMode == RuntimeMode.LAN_HOST) {
@@ -606,7 +606,7 @@ private fun RealmControlCard(
             }
             // Design-timeframe §6: the active stage next to the realm status.
             Text(timeframeLine, style = MaterialTheme.typography.bodySmall)
-            // D2/D9: when hosting stopped because the LAN interface was
+            // when hosting stopped because the LAN interface was
             // lost, the stopped card says why (the shared humanized copy).
             if (phase == RuntimePhase.STOPPED && lanStopCopy != null) {
                 Text(lanStopCopy, style = MaterialTheme.typography.bodySmall)
@@ -1008,8 +1008,8 @@ private fun InviteAddressRow(address: String) {
  * Design-tunnel §4.1/§6/§9.4: the host-over-the-internet card. One card,
  * one copy button, rendered from live state: the tunnel-adapter detection
  * (the §4.4.4 allowlist lane) with Tailscale-first guidance, the honest
- * reachability line (bind vs advertised, plus the §9.4 caveat that the app
- * cannot probe its own NAT reachability), and the §6 invite block —
+ * reachability line (bind vs advertised, plus the caveat that the app
+ * cannot probe its own NAT reachability), and the invite block —
  * ADDRESS BLOCK ONLY (the credential is the Guests card's separate
  * in-person handoff, never invite text). Rendered from the model's
  * settings-derived effective advertisement, so the block always matches
@@ -1044,7 +1044,7 @@ private fun InternetHostCard(model: DesktopAppModel) {
                 },
                 style = MaterialTheme.typography.bodySmall,
             )
-            // §4.1 seat-limit honesty: Tailscale's free tier is account-limited
+            // seat-limit honesty: Tailscale's free tier is account-limited
             // well below the realm's player cap — a host walking this lane
             // should know before ten friends accept.
             Text(
@@ -1054,7 +1054,7 @@ private fun InternetHostCard(model: DesktopAppModel) {
                 style = MaterialTheme.typography.bodySmall,
             )
             if (advertised != null) {
-                // §9.4: the reachability line — present tense ONLY while a
+                // the reachability line — present tense ONLY while a
                 // world is actually up. While stopped nothing listens and the
                 // endpoint is the configured/last-spec value, so the line
                 // states the configuration, not a live fact. The mode label
@@ -1108,7 +1108,7 @@ private fun InternetHostCard(model: DesktopAppModel) {
                         "and hand the password over separately (in person or a private message).",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                // §2 encryption honesty: the protocol authenticates but does
+                // encryption honesty: the protocol authenticates but does
                 // not conceal — the tunnel is the only confidentiality layer.
                 Text(
                     "Encryption honesty: game payloads are NOT encrypted. The tunnel is " +
@@ -1125,11 +1125,11 @@ private fun InternetHostCard(model: DesktopAppModel) {
 
 /**
  * Design realm-status-browser.md: the realm-status page's hosting card —
- * the three-state visibility switch (fail-closed OFF default, §4), the
- * MOTD editor (clamped at the settings write, §6.3), the roster consent
- * toggle (§3.4), the §5.3 orphan notice (acknowledge/adopt), and the
+ * the three-state visibility switch (fail-closed OFF default), the
+ * MOTD editor (clamped at the settings write), the roster consent
+ * toggle, the orphan notice (acknowledge/adopt), and the
  * PUBLIC showcase's shape-gated link + honest posture/failure copy (§8.7).
- * The §3.5 consent copy enumerates the published set before the PUBLIC
+ * The consent copy enumerates the published set before the PUBLIC
  * flip (the trim list the payload actually carries).
  */
 @Composable
@@ -1218,7 +1218,7 @@ private fun RealmStatusCard(model: DesktopAppModel) {
 
             val public = ui.visibility == RealmStatusVisibility.PUBLIC
             if (public || ui.visibility == RealmStatusVisibility.FRIENDS) {
-                // §3.5: the consent copy enumerates the host-relevant
+                // the consent copy enumerates the host-relevant
                 // published set VERBATIM — and it renders BEFORE the flip
                 // (a host reads exactly what enabling Public publishes),
                 // staying up after the flip for reference.
@@ -1335,7 +1335,7 @@ private fun GuestsCard(model: DesktopAppModel) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Guests", style = MaterialTheme.typography.titleMedium)
-            // D7: the budget display — bot admission verdict × players online.
+            // the budget display — bot admission verdict × players online.
             Text(budgetLine(admissionVerdict, players), style = MaterialTheme.typography.bodyMedium)
             Text(
                 "Create an account for a guest — a friend in the room with you, or a " +
@@ -1527,7 +1527,7 @@ private fun GuestsCard(model: DesktopAppModel) {
  * half off the world's real-player count (falling back to the world's
  * active-session count when the host plays clientless).
  */
-// internal (not private) so the round-6 R6-1 bot-labeling pin reaches it
+// internal (not private) so the bot-labeling pin reaches it
 internal fun budgetLine(
     verdict: DesktopBotAdmissionVerdict?,
     players: DesktopAppModel.LanPlayersOnline?,
@@ -1537,7 +1537,7 @@ internal fun budgetLine(
         verdict.adapted -> "Bots: ${verdict.effectiveTarget} (admission lowered: ${verdict.reason})"
         else -> "Bots: ${verdict.effectiveTarget} (admission steady)"
     }
-    // Round-6 R6-1: bots labeled, never padded (the android twin's line).
+    // bots labeled, never padded (the android twin's line).
     val people = when {
         players == null -> "Players: the world has not reported yet"
         players.realPlayers > 0 -> "${players.realPlayers} players in world (you + ${players.guests} guests)"
@@ -1592,16 +1592,16 @@ private fun FriendAccessSummaryCard(model: DesktopAppModel, onOpenPlayers: () ->
 }
 
 /**
- * The join-mode friend card (§3): host address, invite code, desired
+ * The join-mode friend card: host address, invite code, desired
  * username, password (typed twice) — the password is derived into an SRP6
  * verifier ON THIS DEVICE and only `{username, sHex, vHex}` crosses to the
  * host, bound to the invite token. On approval the account is saved for
- * auto-login exactly like the host's own account card (§5); on refusal the
+ * auto-login exactly like the host's own account card; on refusal the
  * derived verifier is dropped (the client drops it for every non-PROVISIONED
  * verdict).
  */
 @Composable
-@Suppress("LongMethod", "CyclomaticComplexMethod", "MagicNumber") // the friend-side request form is one reviewed surface; the poll loop mirrors the design-remote-accounts §5 flow
+@Suppress("LongMethod", "CyclomaticComplexMethod", "MagicNumber") // the friend-side request form is one surface; the poll loop mirrors the flow
 private fun JoinRequestAccessCard(model: DesktopAppModel) {
     val settings by model.settings.collectAsState()
     val scope = rememberCoroutineScope()
@@ -1631,7 +1631,7 @@ private fun JoinRequestAccessCard(model: DesktopAppModel) {
                     "The host sees only a verifier and approves you by name.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            // §6 exposure honesty: the provisioning listener binds the host's
+            // exposure honesty: the provisioning listener binds the host's
             // LAN address only, so this card cannot reach a host through a
             // tunnel — say so where the address is typed, not just in the
             // field's refusal.
@@ -1725,7 +1725,7 @@ private fun JoinRequestAccessCard(model: DesktopAppModel) {
                         ) {
                             is com.pocketrealm.server.FriendAccessClient.Verdict.Submitted -> {
                                 status = "Request submitted — waiting for the host to approve you…"
-                                // The read-only poll (§5): the host's approval
+                                // The read-only poll: the host's approval
                                 // is what turns this into a saved account.
                                 var unreachableStreak = 0
                                 while (pending) {
@@ -1745,7 +1745,7 @@ private fun JoinRequestAccessCard(model: DesktopAppModel) {
                                             status = "Request submitted — waiting for the host to approve you…"
                                         }
                                         is com.pocketrealm.server.FriendAccessClient.Verdict.Unreachable -> {
-                                            // §6: a dropped host must never present
+                                            // a dropped host must never present
                                             // as "waiting for the host to click
                                             // Approve" — surface the first mid-wait
                                             // failure and keep retrying.
@@ -1777,7 +1777,7 @@ private fun JoinRequestAccessCard(model: DesktopAppModel) {
                                             pending = false
                                         }
                                         is com.pocketrealm.server.FriendAccessClient.Verdict.Refused -> {
-                                            // Round-6 R6-r6-2: indistinguishable by protocol design;
+                                            // indistinguishable by protocol design;
                                             // never assert a cause, never invite retries against a lock.
                                             status = joinerRefusalCopy()
                                             pending = false
@@ -1794,7 +1794,7 @@ private fun JoinRequestAccessCard(model: DesktopAppModel) {
                                 pending = false
                             }
                             is com.pocketrealm.server.FriendAccessClient.Verdict.Refused -> {
-                                // Round-6 R6-r6-2: indistinguishable by protocol design;
+                                // indistinguishable by protocol design;
                                 // never assert a cause, never invite retries against a lock.
                                 status = joinerRefusalCopy()
                                 pending = false

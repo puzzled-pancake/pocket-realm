@@ -1,4 +1,4 @@
-// W6-N2 iroh spike — two-endpoint echo over computer.iroh:iroh 1.1.0 (desktop).
+// iroh spike — two-endpoint echo over computer.iroh:iroh 1.1.0 (desktop).
 //
 // GATE harness for docs/NOSTR-IROH-BUILD-PLAN.md stage 2. Measures, per leg:
 //   - multi-MB byte-tunnel transfer (64 KiB framed bidirectional echo, sha256-verified)
@@ -9,7 +9,7 @@
 //   - long-lived-flow rate-limit behavior (throughput per 5 s window over a
 //     multi-minute relayed flow; hard-kill detection = connection/stream errors)
 //
-// Relay-only addressing (the same shape the N3 discovery record will publish:
+// Relay-only addressing (the same shape the discovery record will publish:
 // node id + home relay URL, NO IPs) is exercised on the relay leg via
 // EndpointAddr(hostId, relayUrl, addresses = []).
 package com.pocketrealm.spike.iroh
@@ -273,7 +273,7 @@ suspend fun runJoin(args: Array<String>, out: PrintStream) {
 
     val hostId = EndpointId.fromBytes(hexToBytes(hostIdHex))
     // Direct leg: explicit ip:port, no relay. Relay leg: node id + home relay URL
-    // ONLY — the exact shape the N3 discovery record will carry (never an IP).
+    // ONLY — the exact shape the discovery record will carry (never an IP).
     val addr = if (relayLeg) {
         log("join addressing: RELAY-ONLY (node id + home relay url, no direct addresses)")
         EndpointAddr(hostId, homeRelay, emptyList())

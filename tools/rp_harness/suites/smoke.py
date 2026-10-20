@@ -189,7 +189,7 @@ def _report(steps: list[dict], suite_started: float, transcript: Transcript,
             session, sentinel: str | None = None) -> dict:
     for record in steps:
         record.pop("started", None)
-    # H2 (round-3 R7#4): reconnect/backoff events are first-class
+    # reconnect/backoff events are first-class
     # transcript events and FAIL smoke (the battery suite tolerates
     # them; run_suite still raises on exhausted retries). Checked here
     # so every exit path - early return or clean finish - sees it.

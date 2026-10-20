@@ -7,13 +7,13 @@ import com.pocketrealm.desktop.realmstatus.RealmStatusPayload.TunnelState
 import org.json.JSONObject
 
 /**
- * Realm-status browser (design realm-status-browser.md §8): the static,
+ * Realm-status browser (design realm-status-browser.md) the static,
  * server-rendered showcase page. No JS, mobile-tolerable, every dynamic
- * value HTML-escaped, and the public-URL interpolation SHAPE-GATED (§5.5):
+ * value HTML-escaped, and the public-URL interpolation SHAPE-GATED:
  * a URL that fails [RealmStatusPayload.isShapeValidPublicUrl] renders the
  * failure block and never reaches a `data-copy` attribute.
  *
- * The one-snapshot rule (§4) holds here too: the page renders from the
+ * The one-snapshot rule holds here too: the page renders from the
  * exact payload JSON the request captured, never a second state read.
  */
 object RealmStatusPage {
@@ -60,7 +60,7 @@ object RealmStatusPage {
             append("4px;padding:0 .4rem;margin-left:.4rem;font-size:.8rem}.down{color:#a33}")
             append(".muted{color:#666}.card{border:1px solid #ddd;border-radius:6px;padding:1rem;")
             append("margin:1rem 0}</style></head><body>")
-            // §8.1 header: name + flavor badge + start-frozen timeframe badge.
+            // header: name + flavor badge + start-frozen timeframe badge.
             append("<h1>")
             append(escape(realm.optString("name", "my realm")))
             append("<span class=\"badge\">").append(escape(realm.optString("flavor", "")))
@@ -72,12 +72,12 @@ object RealmStatusPage {
                 append("</span>")
             }
             append("</h1>")
-            // §8.2 the host-set MOTD, escaped at render.
+            // the host-set MOTD, escaped at render.
             val description = realm.optString("description", "")
             if (description.isNotEmpty()) {
                 append("<p>").append(escape(description)).append("</p>")
             }
-            // §8.3 the status block.
+            // the status block.
             append("<div class=\"card\"><p>")
             when {
                 degradedStatus -> append("Status unavailable.")
@@ -92,12 +92,12 @@ object RealmStatusPage {
             append("</p>")
             append("<p class=\"muted\">").append(escape(ratesLine(rates))).append("</p>")
             append("<p class=\"muted\">").append(escape(worldLine(world))).append("</p></div>")
-            // §8.4 the players block.
+            // the players block.
             append("<div class=\"card\">").append(playersLine(players)).append("</div>")
-            // §8.5 the join section.
+            // the join section.
             append("<div class=\"card\"><h2>Joining</h2>")
             if (pageLanAddress != null) {
-                // The ONE surface where the LAN address may appear (§7): the
+                // The ONE surface where the LAN address may appear: the
                 // FRIENDS plain-LAN page, LAN-reachable by construction.
                 append("<p><code>set realmlist ").append(escape(pageLanAddress))
                 append("</code> <span class=\"muted\">(on the host's local network)</span></p>")
@@ -105,7 +105,7 @@ object RealmStatusPage {
                 append("<p>").append(escape(join.optString("hint", ""))).append("</p>")
             }
             append("</div>")
-            // §8.6 the graceful-down lifecycle copy: the public link REMAINS
+            // the graceful-down lifecycle copy: the public link REMAINS
             // LIVE through realm stops while the visibility session is on.
             if (down) {
                 append(
@@ -114,7 +114,7 @@ object RealmStatusPage {
                         "(the app reopening) always needs the host to re-enable it.</p></div>",
                 )
             }
-            // §8.7 the host's loopback-only public-link block.
+            // the host's loopback-only public-link block.
             if (hostView) {
                 append(hostLinkBlock(public, tunnelState))
             }
@@ -163,7 +163,7 @@ object RealmStatusPage {
         return block.toString()
     }
 
-    @Suppress("ReturnCount") // the three §8.4 render branches (degraded / down / live) are the contract
+    @Suppress("ReturnCount") // the three render branches (degraded / down / live) are the contract
     private fun playersLine(players: JSONObject): String {
         // Degraded lane: the §8.4 copy, never a 0-split (§3.3).
         if (players.optString("source") != PlayerSource.NATIVE.wire) {

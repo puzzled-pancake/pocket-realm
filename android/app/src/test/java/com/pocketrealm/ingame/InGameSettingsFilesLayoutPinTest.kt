@@ -14,11 +14,11 @@ import org.junit.Before
  * the vanilla strategy produces byte-for-byte the paths InGameSettingsFiles
  * always produced (pinned here against literal expectations for a canonical
  * client root, account and scope set), and no flavor but vanilla resolves to
- * a layout until H4-5 adds WotLK's per-realm/per-character routes as a NEW
+ * a layout until adds WotLK's per-realm/per-character routes as a NEW
  * strategy.
  */
 class InGameSettingsFilesLayoutPinTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before

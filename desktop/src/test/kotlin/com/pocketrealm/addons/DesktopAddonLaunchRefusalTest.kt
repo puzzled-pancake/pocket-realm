@@ -30,7 +30,7 @@ import org.junit.Before
  * with the addon projection as its newest leg).
  */
 class DesktopAddonLaunchRefusalTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -59,7 +59,7 @@ class DesktopAddonLaunchRefusalTest {
     @Test
     fun `a running client is refused before any addon projection side effect`() {
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
-        // W4 flip: the backend's start pins the boot lane from the persisted
+ // Flip: the backend's start pins the boot lane from the persisted
         // settings BEFORE the duplicate-launch guard — the roots need the
         // pick or the lane resolver refuses before the guard under test.
         com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile).save(

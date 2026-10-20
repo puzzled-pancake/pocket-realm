@@ -105,7 +105,7 @@ class ArchiveQuickCheckTest {
 }
 
 class ImportExtractionPolicyTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; the
+    /** flip fixture: the sole-qualified degrade is retired; the
      * extraction-policy lanes pin the VANILLA lane (holder select). */
     @Before
     fun pinTheVanillaLaneForTheFlipExtraction() {
@@ -118,7 +118,7 @@ class ImportExtractionPolicyTest {
         ActiveFlavor.reset()
     }
 
-    // W4 flip: getter — the ImportLimits default resolves the active lane
+ // Flip: getter — the ImportLimits default resolves the active lane
     // and fields initialize before the @Before pin.
     private val policy: ImportExtractionPolicy get() = ImportExtractionPolicy()
 
@@ -201,7 +201,7 @@ class ImportExtractionPolicyTest {
 }
 
 class ArchiveClientScannerTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired;
+    /** flip fixture: the sole-qualified degrade is retired;
      * the scanner lanes pin the VANILLA lane (holder select). */
     @Before
     fun pinTheVanillaLaneForTheFlip() {

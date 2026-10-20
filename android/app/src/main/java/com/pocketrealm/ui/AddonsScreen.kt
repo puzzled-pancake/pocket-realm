@@ -76,7 +76,7 @@ fun AddonsHubScreen(
             contentPadding = PaddingValues(bottom = 12.dp),
         ) {
             item {
-                // R6-1: the AndroidPort copy is flavor-conditional — on a
+                // the AndroidPort copy is flavor-conditional — on a
                 // non-vanilla lane the built-in is NOT installed (the seed
                 // skips; catalog row 151 is absent), so the authored honest
                 // exclusion note (catalog.flavorNote) renders instead.
@@ -103,9 +103,9 @@ fun AddonsHubScreen(
             item {
                 AddonHubRow(
                     title = "Recommended for Pocket Realm",
-                    // R5-6-3: the hardware-tested claim is the VANILLA trio's
-                    // frozen D29 evidence — a non-vanilla lane's curated set
-                    // is research reference (round-3 demotion), so the copy
+                    // the hardware-tested claim is the VANILLA trio's
+                    // frozen evidence — a non-vanilla lane's curated set
+                    // is research reference (demotion), so the copy
                     // branches instead of claiming the same evidence class.
                     summary = if (catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
                         "The three add-ons tested on Pocket Realm hardware."
@@ -168,7 +168,7 @@ internal fun activeFlavorForAddons(): ClientFlavor =
     ActiveFlavor.resolve("add-ons resolve the qualified lane")
 
 /**
- * W4 flip: with several qualified flavors and no pick yet, the resolver
+ * Flip: with several qualified flavors and no pick yet, the resolver
  * refuses loud (by design — never a silent vanilla list). A RENDER lane
  * must not crash composition, so every entry screen checks
  * [ActiveFlavor.displayedId] first and renders the honest first-pick copy
@@ -202,7 +202,7 @@ fun RecommendedAddonsScreen(onOpenAddon: (String) -> Unit) = renderSafePickGate 
     }
 
     AddonPage(repository, state) {
-        // R5-6-3: the same flavor branch as the hub row — vanilla's D29
+        // the same flavor branch as the hub row — vanilla's
         // trio carries the hardware-tested evidence; the tbc/wotlk
         // recommendation sets are research-curated reference rows.
         val testedCopy =

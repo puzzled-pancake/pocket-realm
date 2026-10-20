@@ -38,7 +38,7 @@ object UpdateApply {
         stagedPackage: File,
         currentImage: File?,
         consent: Boolean,
-        /** R3-r2-2 (desktop-twin round 2): the release manifest's sha256 —
+        /** (desktop-twin) the release manifest's sha256 —
          * RE-HASHED at apply time, so a staged file swapped on disk in the
          * window between download and the (possibly hours-later) consent
          * click is refused instead of applied unverified. The download's
@@ -64,7 +64,7 @@ object UpdateApply {
     ): ApplyOutcome {
         val refusal = refusalReason(stagedPackage, currentImage, consent)
         if (refusal != null) return ApplyOutcome.Refused(refusal)
-        // R3-r2-2: the hash gate fails closed AT APPLY — the consuming seam
+        // the hash gate fails closed AT APPLY — the consuming seam
         // must never trust a mutable staged file whose only verification
         // happened at download finalize.
         if (expectedSha256 != null) {

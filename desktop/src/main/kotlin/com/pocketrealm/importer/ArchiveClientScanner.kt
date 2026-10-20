@@ -143,7 +143,7 @@ class ArchiveClientScanner(
         val unified = entries.map { it.name.replace('\\', '/').trimEnd('/') to it }
         fun hasData(parent: String): Boolean {
             val dataPath = if (parent.isEmpty()) "Data" else "$parent/Data"
-            // R4-r5-1: a real client zipped without explicit directory
+            // a real client zipped without explicit directory
             // entries (python zipfile / many Unix tools) still carries
             // every file path through Data/ - derive the directory from
             // the file paths instead of demanding a literal dir entry.
@@ -265,7 +265,7 @@ class ArchiveClientScanner(
     }
 
 /** W4: the whole MPQ audit for the desktop archive lane - the locale
- * walk, the per-form missing check, and the R1-1/R2-5-2 exact-set leg
+ * walk, the per-form missing check, and the /-2 exact-set leg
  * (an unknown patch-*.mpq on a non-vanilla lane is VAL-04 naming the
  * file; vanilla keeps its documented tolerance). Extracted from
  * verifyExtracted for complexity/nesting. */

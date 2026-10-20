@@ -78,7 +78,7 @@ class GatewayArgsAndFixturePins {
 
     @Test
     fun `the fakestack fixture build matches the owning wotlk registry`() {
-        // R3-R1-3: the extracted fixture's u16 LE build must equal
+        // the extracted fixture's u16 LE build must equal
         // ClientFlavors.WOTLK.build — the fixture cannot silently drift
         // from the registry (the comment must never lie).
         val frame = FakeStackProtocol.fixtureFor(18085)

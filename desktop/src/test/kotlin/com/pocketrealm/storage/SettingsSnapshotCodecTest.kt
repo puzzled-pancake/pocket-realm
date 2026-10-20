@@ -20,7 +20,7 @@ import org.junit.Before
  * byte-stable; defaults apply to fresh installs only).
  */
 class SettingsSnapshotCodecTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -71,7 +71,7 @@ class SettingsSnapshotCodecTest {
         assertFalse(decoded.autoLoginOnLaunch)
     }
 
-    // ---- W6-N3: the iroh relay-only switch + transport identity ---------
+    // ---- the iroh relay-only switch + transport identity ---------
 
     /** The relay-only switch DEFAULTS ON (owner-adopted ruling 3): a
      * fresh snapshot and a settings JSON with the key ABSENT both land on
@@ -371,7 +371,7 @@ class SettingsSnapshotCodecTest {
         // Rejection at the read layer (the degrade-per-field posture): a
         // never-registered id, an impossible patch, and a case-swapped id
         // all degrade to "" — a flavor change can never strand a world
-        // silently. (W4 flip: the tbc/wotlk stages are REGISTERED now, so
+        // silently. (flip: the tbc/wotlk stages are REGISTERED now, so
         // they survive the read — asserted on the live-registry leg below.)
         listOf(
             "vanilla-9.9",
@@ -387,7 +387,7 @@ class SettingsSnapshotCodecTest {
                 degraded.timeframeStage,
             )
         }
-        // W4 flip: the registered tbc/wotlk stages survive the read.
+ // Flip: the registered tbc/wotlk stages survive the read.
         listOf("tbc-2.4.3", "wotlk-3.3.5a").forEach { registered ->
             val kept = Settings.Snapshot.fromJson(
                 JSONObject().put("timeframeStage", registered).toString(),
@@ -399,7 +399,7 @@ class SettingsSnapshotCodecTest {
             )
         }
         // The write path normalizes too: an impossible value constructed in
-        // memory never re-persists. (W4 flip: the registered tbc stage is
+        // memory never re-persists. (flip: the registered tbc stage is
         // legitimate state now — it round-trips through the write.)
         assertTrue(
             !Settings.Snapshot(timeframeStage = "vanilla-9.9").toJson().contains("vanilla-9.9"),
@@ -427,7 +427,7 @@ class SettingsSnapshotCodecTest {
         assertEquals("", decoded.selectedFlavorId)
         assertEquals(null, decoded.selectedFlavorOrNull())
         // and the round trip of a decoded-legacy snapshot re-serializes the
-        // same persisted JSON bytes (a pre-R1-1 file never grows a lane)
+        // same persisted JSON bytes (a pre- file never grows a lane)
         assertEquals(text, Settings.Snapshot.fromJson(text).toJson())
     }
 

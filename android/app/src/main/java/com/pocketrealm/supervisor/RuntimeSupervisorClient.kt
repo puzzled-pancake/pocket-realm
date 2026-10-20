@@ -37,7 +37,7 @@ class RuntimeSupervisorClient(context: Context) {
         val bound = appContext.bindService(
             Intent(appContext, RealmService::class.java), connection, Context.BIND_AUTO_CREATE)
         check(bound) { "RuntimeSupervisor bind failed" }
-        // §6.4 failure emission (design realm-status-browser.md): the poll
+        // failure emission (design realm-status-browser.md) the poll
         // must never go SILENT on a dead lane. Binder death after a live
         // connection, a status that never arrives within the startup grace,
         // and a decode failure (an unknown phase enum from a newer

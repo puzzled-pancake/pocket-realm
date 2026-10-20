@@ -251,7 +251,7 @@ def test_records_android_and_desktop_prose_tuples_equal_their_artifacts():
     assert len(d99_rows) == 1, (
         f"expected exactly one D99 table row, found {len(d99_rows)}"
     )
-    # self-check (R6-r6-2): the row is the real D99 row — a delimiter or
+    # self-check: the row is the real row — a delimiter or
     # format drift fails loudly instead of degrading to an empty scan.
     assert "LEAK SWEEP PRIVACY SCOPE" in d99_rows[0], (
         "the extracted D99 row is not the privacy-scope row — the "
@@ -267,7 +267,7 @@ def test_records_android_and_desktop_prose_tuples_equal_their_artifacts():
         "WAVE-EXIT N5 section": " ".join(n5_section.split()),
     }
     # the "canonical" word is required: the round LEDGER rows quote drifted
-    # intermediate trees ("android 114/18" — R2-N5-r4-3's clobber receipt)
+    # intermediate trees ("android 114/18" — its clobber receipt)
     # that are dated history, not canonical-tuple claims.
     tuple_re = re.compile(
         r"android canonical \**(\d{3,4})/(\d{2,3})"
@@ -285,9 +285,9 @@ def test_records_android_and_desktop_prose_tuples_equal_their_artifacts():
                 f"standing artifact holds {expected} — refresh the prose "
                 f"(the stale-tuple class R6-r6-1)"
             )
-    # the retired tuples must not survive in the N5 CHECKLIST bullets —
-    # the round LEDGER rows quote them as dated finding narration (the
-    # reviewers' own texts) and stay allowed there.
+    # the retired tuples must not survive in the CHECKLIST bullets —
+    # the findings-ledger rows quote them as dated narration (the
+    # ledger's own texts) and stay allowed there.
     checklist = " ".join(
         l for l in n5_section.splitlines() if l.lstrip().startswith("- [")
     )
@@ -320,7 +320,7 @@ def test_verdict_measured_table_is_carried_by_the_n2_measurement_record():
         ("16 MiB byte-exact", measurements, "16 MiB) echoed both directions"),
         ("24 MiB byte-exact over 107 s", measurements,
          "24 MiB) echoed both directions"),
-        # the genuine-IP-change numbers are the N4 record's (the narration
+        # the genuine-IP-change numbers are the record's (the narration
         # receipt's own ASCII-arrow form, quoted there):
         ("172.30.0.2 → 172.31.0.3", n4_record, "172.30.0.2 -> 172.31.0.3"),
     )
@@ -402,9 +402,9 @@ def test_verdict_l0_rows_match_the_live_pytest_collection():
         f"the exit record quotes {seven_row.group(1)} collected across the "
         f"seven modules but the live collection is {seven} — refresh the row"
     )
-    # R2-4/R6-N5-r5-1: the checklist's sweep-contract growth bullet and
+    # the checklist's sweep-contract growth bullet and
     # D99(1)'s new-contract-tests clause are held to the live collection
-    # too — the two sites whose staleness survived to round 5.
+    # too — the two sites whose staleness survived to.
     sweep_tests = collected("tests/test_leak_sweep.py")
     standing = 46
     grew = re.search(

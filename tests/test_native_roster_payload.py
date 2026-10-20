@@ -151,7 +151,7 @@ def test_ban_duration_validator_matches_the_core_time_parser_domain():
     guard = guard[:guard.index("invalid-duration")]
     accepted_units = set(re.findall(r"c == '([a-zA-Z])'", guard))
     assert accepted_units, "ban_account's duration char class not found"
-    # R1-r3-1 (round 3): the shared ban_account compiles into ALL THREE
+    # the shared ban_account compiles into ALL THREE
     # flavor lanes, so the parser contract holds against EVERY pinned
     # core's TimeStringToSecs — an expansion core that drops a unit the
     # shared validator still accepts would re-open the permanent-ban bug

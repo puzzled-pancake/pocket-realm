@@ -14,18 +14,18 @@ import kotlinx.coroutines.withContext
  * the host actions the Players surfaces render. The owner (the desktop
  * app model / the Android RealmService) feeds it the runtime state on
  * every change — the listener's lifecycle is a property of a HOSTING
- * SESSION (§6): bound only while a LAN_HOST start with friend access
+ * SESSION: bound only while a LAN_HOST start with friend access
  * enabled is up (from WORLD_READY), stopped with the realm, never bound
  * otherwise.
  *
  * All moderation/provisioning verbs route through the shared
- * [DurableRuntimeSupervisor] (§12: "provision/ban/gm verbs publish durable
+ * [DurableRuntimeSupervisor] ("provision/ban/gm verbs publish durable
  * actions the way provisionAccount already does") and append rows to the
- * host audit store (§12: invites/provisioning/approvals/bans/GM changes —
+ * host audit store (invites/provisioning/approvals/bans/GM changes —
  * no secrets, token hash only).
  */
-// TooManyFunctions: the hub owns the design's host verb set (§5 invites,
-// §5 approvals, §9 moderation, §10 gm, §11 roster) by design — splitting it
+// TooManyFunctions: the hub owns the design's host verb set (invites,
+// approvals, moderation, gm, roster) by design — splitting it
 // would scatter one state machine across files.
 @Suppress("TooManyFunctions")
 class FriendAccessController(
@@ -184,7 +184,7 @@ class FriendAccessController(
         // attempt-1 row. A FIRST approval that lands on an existing account
         // is an identity COLLISION: refused (REJECTED, no provisioning, no
         // addon write — the seam refuses without the authorization), which
-        // is the §3.5 contract this controller's own doc records.
+        // is the contract this controller's own doc records.
         val allowExistingAccount = store.hasPriorAttempt(inviteId)
         val verifier = store.markApproved(inviteId)
         refresh()
@@ -222,7 +222,7 @@ class FriendAccessController(
 
     suspend fun characters(username: String): CharactersRead = backend.accountCharacters(username)
 
-    /** Ban (§9) through the supervisor's journal seam, then the §12 audit row. */
+    /** Ban through the supervisor's journal seam, then the audit row. */
     suspend fun ban(username: String, duration: String, reason: String): Pair<Boolean, String> {
         val result = supervisor.banFriendAccount(username, duration, reason)
         store.auditModeration(
@@ -232,7 +232,7 @@ class FriendAccessController(
         return result.ok to result.detail
     }
 
-    /** Unban (§9) through the supervisor's journal seam, then the §12 audit row. */
+    /** Unban through the supervisor's journal seam, then the audit row. */
     suspend fun unban(username: String): Pair<Boolean, String> {
         val result = supervisor.unbanFriendAccount(username)
         store.auditModeration(
@@ -242,7 +242,7 @@ class FriendAccessController(
         return result.ok to result.detail
     }
 
-    /** Per-friend gmlevel 0..3 (§10) through the supervisor's journal seam,
+    /** Per-friend gmlevel 0..3 through the supervisor's journal seam,
      * then the §12 audit row. */
     suspend fun setGmLevel(username: String, level: Int): Boolean {
         val ok = supervisor.setFriendGmLevel(username, level)

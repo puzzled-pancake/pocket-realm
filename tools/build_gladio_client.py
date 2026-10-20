@@ -36,7 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 try:
     from tools import common
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import common
 SOURCE = ROOT / "native" / ".providers-extracted" / "gladio-source"
 SOURCE_URL = "https://github.com/brunodev85/gladio.git"

@@ -10,7 +10,7 @@ import org.junit.Test
 /**
  * W3.6 (D15(4) retirement): the graphics_routes / vanilla_tweaks manifest
  * fields have their Kotlin projection — the registry carries the manifest
- * values, the prepare gate refuses a non-flavor route with the honest D3
+ * values, the prepare gate refuses a non-flavor route with the honest
  * copy, and the tweaks/GL surfaces have their per-flavor copy. The vanilla
  * lane is unaffected (all three routes + tweaks stay available).
  */
@@ -22,7 +22,7 @@ class FlavorGraphicsRouteTest {
     }
 
     @Test fun `tbc and wotlk ship dxvk only with tweaks off`() {
-        // Decision D3: the GL lanes are validated against vanilla's GL
+        // Decision: the GL lanes are validated against vanilla's GL
         // usage only; the later flavors are DXVK (d3d9) routes.
         for (flavor in listOf(ClientFlavors.TBC, ClientFlavors.WOTLK)) {
             assertEquals(setOf("dxvk"), flavor.graphicsRoutes)

@@ -27,7 +27,7 @@ import org.junit.rules.TemporaryFolder
  * against the Android twin's shape (ports, database paths, log layout),
  * the honest DATA_MISSING refusal without prepared world data, the
  * lifecycle record, and the log-rotation gate. Pure JVM — no realm
- * DLLs; the GAP-4 realmlist-projection leg alone drives the SQLite
+ * DLLs; the realmlist-projection leg alone drives the SQLite
  * seam (skipped unless pocket_sqlite.dll is built, like every other
  * seam-consuming test).
  */
@@ -44,15 +44,15 @@ class DesktopServerRuntimeFilesTest {
         ActiveFlavor.reset()
     }
 
-    /** The GAP-4 projection leg's SQLite seam (see [requireNativeIfDemanded]). */
+    /** The projection leg's SQLite seam (see [requireNativeIfDemanded]). */
     private val seamDll = File("../native/.build-win-x86_64/sqlite-seam-build/pocket_sqlite.dll")
 
     private val owner = ComponentOwner(sessionId = "test", instanceToken = "test")
 
     private fun files(): Pair<DesktopStorageRoots, ServerRuntimeFiles> {
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
-        // W4 flip: the sole-qualified degrade is RETIRED - with three
-        // qualified flavors an absent pick refuses loud (the W4
+ // Flip: the sole-qualified degrade is RETIRED - with three
+        // qualified flavors an absent pick refuses loud (the
         // contract). The fixture pins the lane the tests were written
         // against BOTH ways (persisted + holder); per-test picks
         // override it (the boot-lane-binding tests write their own).
@@ -65,7 +65,7 @@ class DesktopServerRuntimeFilesTest {
         )
     }
 
-    /** W4 flip: pins the fixture's lane BOTH ways the flip contract reads
+ /** Flip: pins the fixture's lane BOTH ways the flip contract reads
      * a lane - the persisted settings pick (the boot path's
      * worldLaneFlavor) AND the holder's selection (the companion
      * [ServerRuntimeFiles.serverFlavor]'s ActiveFlavor.resolve default).
@@ -327,7 +327,7 @@ class DesktopServerRuntimeFilesTest {
     @Test
     fun confDatabaseNamesResolveThroughTheFlavorRegistry() {
         val (roots, files) = files()
-        // W4 flip: all three lanes are qualified and the server lane is
+ // Flip: all three lanes are qualified and the server lane is
         // the persisted selection's (default vanilla when the test roots'
         // settings carry no pick under... the sole-qualified degrade is
         // RETIRED - the test pins the DEFAULT settings state explicitly:
@@ -1312,7 +1312,7 @@ class DesktopServerRuntimeFilesTest {
         assertEquals("", legacy.llmModelId)
     }
 
-    /** GAP-4: serverDatabases() resolves through the [ActiveFlavor]
+    /** serverDatabases resolves through the [ActiveFlavor]
      * machine, not the single-qualified vanilla pin. At the S5 flip
      * (two qualified flavors) the machine's honesty holds — with no
      * Home-switcher selection the resolution refuses loud instead of
@@ -1341,7 +1341,7 @@ class DesktopServerRuntimeFilesTest {
         assertEquals(wotlk.databases, ServerRuntimeFiles.serverDatabases(wotlk))
     }
 
-    /** GAP-4: realmd.conf tracks the active flavor's realmd database —
+    /** realmd.conf tracks the active flavor's realmd database —
      * LoginDatabaseInfo names the selected lane's file at the flip, and
      * today's sole-qualified registry keeps emitting the exact vanilla
      * bytes (the golden pins' hard constraint: resolution changes,
@@ -1352,7 +1352,7 @@ class DesktopServerRuntimeFilesTest {
         val vanilla = testFlavor("vanilla", qualified = true)
         val wotlk = testFlavor("wotlk", qualified = true, build = 12340)
         ActiveFlavor.qualifiedSource = { listOf(vanilla, wotlk) }
-        // R1-r2-1: the START path resolves the PERSISTED pick (the D62/D63
+        // the START path resolves the PERSISTED pick (the /
         // binding the desktop never had) — the switcher's tap persists it,
         // so the fixture persists the pick instead of flipping only the
         // in-memory machine.
@@ -1442,7 +1442,7 @@ class DesktopServerRuntimeFilesTest {
     @Test
     fun `the disabled conf staging leg runs the fail-loud gate R6-5`() {
         // R6-5/R2-6-1 (code-red round 6): the desktop aiplayerbot-disabled
-        // leg is the desktop twin of the android R2-1 (round 5) fix — the
+        // leg is the desktop twin of the android fix — the
         // staged body must pass BotConfStaging for the boot lane (proven
         // here by driving the real worldConfig write), and the gate must
         // textually precede the disabled write (the source-shape pin).
@@ -1463,7 +1463,7 @@ class DesktopServerRuntimeFilesTest {
             verdict.isClean,
         )
         // The literal is flavor-invariant: it validates clean on every
-        // registered lane (the reviewer's independent jshell probe
+        // registered lane (the independent jshell probe
         // confirmed all three before the gate was wired).
         for (flavor in listOf("vanilla", "tbc", "wotlk")) {
             assertTrue(

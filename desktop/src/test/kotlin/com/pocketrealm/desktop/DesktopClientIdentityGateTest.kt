@@ -40,7 +40,7 @@ import org.junit.Before
  *    GENERATION through the fail-closed reader when a pointer is published.
  */
 class DesktopClientIdentityGateTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -53,7 +53,7 @@ class DesktopClientIdentityGateTest {
     fun unpinTheVanillaLaneForTheFlip() {
         ActiveFlavor.reset()
     }
-    /** W4 flip: persists the VANILLA pick into these roots' settings — the
+ /** Flip: persists the VANILLA pick into these roots' settings — the
      * launcher resolves the persisted lane, not the holder. */
     private fun pickVanilla(roots: DesktopStorageRoots) {
         com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile).save(
@@ -75,7 +75,7 @@ class DesktopClientIdentityGateTest {
         includeClient = false,
     )
 
-    // W4 flip: by-lazy — ImportLimits' DEFAULT maxTotalBytes resolves the
+ // Flip: by-lazy — ImportLimits' DEFAULT maxTotalBytes resolves the
     // active lane, and instance fields initialize BEFORE any @Before runs;
     // a constructor-time resolve would refuse under several qualified
     // flavors even with the fixture pin in place.
@@ -166,7 +166,7 @@ class DesktopClientIdentityGateTest {
         )
     }
 
-    /** LVF-flavor-import-003 / row LV-flavor-import-20: a client-less folder
+    /** a client-less folder
      * *is* the scanner gate's own VAL-01 case — the launch-boundary refusal
      * must carry the gate's authored copy, never the preempting bare
      * `WoW.exe not found under …` check that used to run first. */

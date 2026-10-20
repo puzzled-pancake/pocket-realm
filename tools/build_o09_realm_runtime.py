@@ -22,11 +22,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 try:
     from tools import common
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import common
 try:
     from tools import flavor_layout
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import flavor_layout
 NATIVE = ROOT / "native"
 TARGET_ABI = "x86_64"
@@ -43,10 +43,10 @@ CMANGOS_COMMIT = "ce83805d48f9c98b2af617096be5347acb8a1f17"
 PLAYERBOTS_COMMIT = "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d"
 MAX_PAGE = 0x4000
 BACKEND = "mysql"
-# Active flavor (S1 --flavor; default vanilla). The vanilla build pins are the
+# Active flavor (--flavor; default vanilla). The vanilla build pins are the
 # constants above and must agree with schemas/flavor.json (select_flavor
 # asserts it); tbc/wotlk resolve their pins from the flavor manifest and fail
-# loud there until their forks/pins are registered (S1 negative-test class 1).
+# loud there until their forks/pins are registered (negative-test class 1).
 ACTIVE_FLAVOR = "vanilla"
 ACTIVE_CMANGOS_COMMIT = CMANGOS_COMMIT
 ACTIVE_PLAYERBOTS_COMMIT = PLAYERBOTS_COMMIT
@@ -235,11 +235,11 @@ CMANGOS_OVERLAYS = [
     },
 ]
 
-# --- S1 overlay split (port plan S1 item 4; consumed by CP-2/S2) -------------
+# --- S1 overlay split (S1 item 4; consumed by CP-2/S2) -------------
 # The overlay table above is split into two definitions BY SCOPE:
 #   * "expansion-neutral" — the SQLite-backend-injection/engine-layer family:
 #     semantics are flavor-independent (the database dialect layer is the same
-#     code in every cmangos branch). CP-2/S2 still re-verifies each anchor
+# code in every cmangos branch). the applying code still re-verifies each anchor
 #     text against the branch before applying it.
 #   * "flavor" — overlays whose anchor text/semantics are branch facts
 #     (Master.cpp lifecycle family, PocketRealmInteraction, GridMap/MoveMap
@@ -266,7 +266,7 @@ OVERLAY_SCOPES = {
     "db-sqlite-connection-hardening": "expansion-neutral",
     "tbc-icu-apple-guard": "flavor",
 }
-# TBC re-derived anchor variants (port plan S2 item 3 / CP-2). The tbc branch
+# TBC re-derived anchor variants (S2 item 3 / CP-2). The tbc branch
 # (puzzled-pancake/mangos-tbc pocket-realm @ ffbf97675) drifts from classic at
 # exactly five core overlay sites (verified anchor-by-anchor against both
 # pinned trees); the overlay INTENT is unchanged, only the surrounding
@@ -462,9 +462,9 @@ def core_anchor_restore_pair(classic_upstream: str, classic_android: str,
 
 
 # Per-flavor overlay registration: the flavor overlay ids each branch's build
-# may apply. Vanilla registered at S1; tbc registered at its S2 build after
-# the CP-2 re-derivation documented above (all eight flavor-scoped overlays
-# re-anchored, none dropped); wotlk registered at its own S2 build
+# may apply. Vanilla registered first; tbc registered at its build after
+# the re-derivation documented above (all eight flavor-scoped overlays
+# re-anchored, none dropped); wotlk registered at its own build
 # (2026-10-08) on the re-derivation already present above — the five
 # core_anchor_pair sites alias the tbc text (verified byte-identical against
 # native/cmangos-wotlk during the 2026-10-06 DLL build) and the three mmap
@@ -472,7 +472,7 @@ def core_anchor_restore_pair(classic_upstream: str, classic_android: str,
 # the guard upstream; the instance-aware m_loadedMMaps lookups re-derive the
 # graceful-miss semantics). Same sorted flavor-scoped list tbc got: all
 # eight flavor overlays apply, none dropped.
-# W5: tbc-only overlay ids, registered for tbc IN ADDITION to the shared
+# tbc-only overlay ids, registered for tbc IN ADDITION to the shared
 # flavor-scoped set; vanilla/wotlk keep the shared set EXACTLY (their trees
 # already gate ICU on APPLE-only, so registering tbc-icu-apple-guard there
 # would put an unapplied row into their lockfiles and move the vanilla
@@ -981,7 +981,7 @@ WIN_STATIC_OPENSSL_ANDROID = """  if(POCKET_REALM_WIN_DEPS)
     )
   endif()
 """
-# W5 tbc lane: the pinned cmangos-tbc tree gates its ICU find on
+# tbc lane: the pinned cmangos-tbc tree gates its ICU find on
 # `if (UNIX OR APPLE)` — classic and wotlk gate `if (APPLE)` only — and the
 # NDK toolchain sets UNIX=1 while the android dep prefix stages no ICU, so
 # the tbc Android configure died at FindICU before any target existed
@@ -3536,7 +3536,7 @@ PB_SAY_ASYNC_ANDROID = """                // same key law as llmTurnKey above: w
                 }
                 futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), llmSpeakerGuid, PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY, llmLicenseStamp, llmHistoryKey, bot->GetName(), chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, 0u, PlayerbotLlmBridge::NoteLongFormCued(bot->GetGUIDLow(), llmLicenseStamp), llmReqId, llmFallback);
 """
-# A1b containment: RequestNewLines on the cloud lane is generation-
+# containment: RequestNewLines on the cloud lane is generation-
 # quota'd (llmRpgChatPerDay, counting GENERATIONS - one trigger is 5-11
 # turns) with a silent stop + one Basic line per UTC day on exhaustion.
 PB_RPG_QUOTA_UPSTREAM = """bool RpgAIChatAction::RequestNewLines()
@@ -5286,7 +5286,7 @@ PB_IFACE_CONCUR_ANDROID = """    if (sPlayerbotLLMInterface.generationCount >= m
         return {};
     }
 """
-# S10: the endpoint/key override legs inside GenerateHttp - the composer
+# the endpoint/key override legs inside GenerateHttp - the composer
 # path POSTs to its own endpoint through the same hardened client. Both
 # anchors patch pristine lines the driver never touched before.
 PB_IFACE_EP_URL_UPSTREAM = """    ParsedUrl parsedUrl = sPlayerbotAIConfig.llmEndPointUrl;
@@ -5353,7 +5353,7 @@ CORE_LOGIN_ONBOARDING_ANDROID = """    SendEnchantmentDurations();              
 #endif
 }
 """
-# S6: ChatReplyDo gains the event-turn flag threaded from the event
+# ChatReplyDo gains the event-turn flag threaded from the event
 # drain (the former "(event) " string prefix was player-forgeable: any
 # whisper could have claimed the event path). Defaulted so the upstream
 # call sites (the chat dispatch holder, the debug gen path) compile
@@ -6262,7 +6262,7 @@ def prepare_cmangos_source() -> None:
             PB_FISH_RESPAWN_TIME_WOTLK_ANDROID,
         )
     if ACTIVE_FLAVOR == "wotlk":
-        # wotlk S2 re-derivation: the guard lives in Map::LoadMapAndVMap and
+        # wotlk re-derivation: the guard lives in Map::LoadMapAndVMap and
         # its semantics are already upstream - pin the text (see
         # MMAP_GUARD_WOTLK_ANCHOR); the two MoveMap overlays re-derive on the
         # instance-aware m_loadedMMaps lookup.
@@ -6373,7 +6373,7 @@ def prepare_cmangos_source() -> None:
         raise RuntimeError(f"source overlay target unexpectedly exists: {interaction}")
     interaction.write_bytes(pocket_interact_source(ACTIVE_FLAVOR).read_bytes())
     bot_root = mirror / "playerbot"
-    # LVF-bot-actors-003+008: the random-bot provisioning/allowlist repair
+    # the random-bot provisioning/allowlist repair
     # ships as tracked full-file overlays under native/patches/playerbots/
     # (the submodule itself stays byte-pristine). Copied BEFORE every anchor
     # overlay below: the overlay files keep the upstream bytes at all anchor
@@ -6595,7 +6595,7 @@ def prepare_cmangos_source() -> None:
     replace_anchor(cmangos / "CMakeLists.txt", BACKEND_SELECT_UPSTREAM, BACKEND_SELECT_ANDROID)
     # Windows MSVC lane: keep the pinned static OpenSSL the only linked copy
     replace_anchor(cmangos / "CMakeLists.txt", WIN_STATIC_OPENSSL_UPSTREAM, WIN_STATIC_OPENSSL_ANDROID)
-    # W5 tbc lane: narrow the ICU find guard to APPLE (tbc-icu-apple-guard).
+    # tbc lane: narrow the ICU find guard to APPLE (tbc-icu-apple-guard).
     # The classic/wotlk trees gate APPLE-only already, so this anchor pair is
     # tbc-scoped: running it for another flavor cannot match (and the missing
     # anchor would refuse loud) — exactly why the call is branch-gated here
@@ -7143,7 +7143,7 @@ def package_seed_transcripts(stage_root: Path) -> dict:
     sys.path.insert(0, str(ROOT / "tools"))
     import seed_sqlite_from_manifest as seeder  # noqa: E402
     # The transcript lane is flavor-resolved end-to-end (review round 2,
-    # R2-2 medium): the seeder runs THIS flavor's canonical ledger
+    # medium) the seeder runs THIS flavor's canonical ledger
     # (flavor_layout.migration_ledger()[0]) — the old call passed no
     # manifest_path, so every flavor staged the VANILLA classic*
     # transcripts and then compared them against a per-flavor baseline that
@@ -7158,10 +7158,10 @@ def package_seed_transcripts(stage_root: Path) -> dict:
     manifest_path = ROOT / layout.migration_ledger()[0]
     baseline_path = ROOT / layout.sqlite_seed_baseline()
     # Review round 3 (R3-r3-2): the augment dir is flavor-resolved too —
-    # passing only the ledger (the round-2 fix) still paired a tbc/wotlk
+    # passing only the ledger still paired a tbc/wotlk
     # restage with the VANILLA schemas/seed-augment dir whose PROVENANCE
     # pins the vanilla golden manifest hash, so every per-flavor run died
-    # on the augment provenance guard and the D59 retire path was
+    # on the augment provenance guard and the retire path was
     # dead-on-arrival. A flavor's own augment dir (schemas/seed-augment-
     # <flavor>) is absent until that lane deliberately captures — a clean
     # zero-append, never a vanilla capture fold.
@@ -7421,7 +7421,7 @@ def write_lockfiles() -> list[str]:
             dict(entry) for entry in overlays_for(flavor, backend)]
         record["playerbots_source_overlays"] = PLAYERBOTS_OVERLAYS
         record["patches_content"] = patches
-        # R1-3/R3-3: the honest staleness marker. A warm-dir refresh moves
+        # the honest staleness marker. A warm-dir refresh moves
         # the SOURCE pins without rebuilding, so the recorded artifact
         # bytes correspond to the PREVIOUS patch set until a real build
         # lands. Derived per lane: any recorded artifact file whose mtime
@@ -7504,7 +7504,7 @@ def main() -> int:
     if args.write_lockfiles:
         write_lockfiles()
         return 0
-    # R4-r5-1: the disk-headroom preflight — hour-scale native builds on a
+    # the disk-headroom preflight — hour-scale native builds on a
     # volume below the documented floor fail here with a reclaim remedy,
     # never as a wasted multi-GB ENOSPC build.
     common.require_disk_headroom(ROOT / "native")

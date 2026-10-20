@@ -9,18 +9,18 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * W3.4 fail-loud conf staging (port plan S3.6): the staged
+ * Fail-loud conf staging: the staged
  * `aiplayerbot-*.conf` keys must all be KNOWN for the flavor's bots build —
  * the core silently drops unknown keys, so an unvalidated emission ships a
  * world that quietly ignores the app's policy values. The known set is the
  * flavor's conf matrix (dist-documented) + the built lane's core-read keys
  * (the patch-injected LLM* family) + the PocketRealm.* overlay family, and
- * the excluded families (correction C9: the wotlk VoiceChat inert stub) are
+ * the excluded families (correction: the wotlk VoiceChat inert stub) are
  * honored with their own naming — the matrix consumers honor
  * excluded_keys, not just the generator.
  */
 class BotConfStagingTest {
-    /** W4 flip fixture: the conf staging resolves the ACTIVE flavor's
+    /** flip fixture: the conf staging resolves the ACTIVE flavor's
      * known keys — pin the VANILLA lane (holder select). */
     @Before
     fun pinTheVanillaLaneForTheFlip() {
@@ -92,7 +92,7 @@ class BotConfStagingTest {
     }
 
     @Test fun `excluded families are honored with their own naming`() {
-        // correction C9: the wotlk VoiceChat family is an inert stub with
+        // correction: the wotlk VoiceChat family is an inert stub with
         // zero conf keys — the matrix never emits it and the validator must
         // refuse a staged key from the family with the EXCLUDED naming
         // (never the generic unknown-key error, never a silent pass).
@@ -126,7 +126,7 @@ class BotConfStagingTest {
     }
 
     @Test fun `an unknown overlay key is refused - the family is enumerated not accepted`() {
-        // R2-1: the PocketRealm family has NO blanket accept — the four keys
+        // the PocketRealm family has NO blanket accept — the four keys
         // the built core reads are ENUMERATED in the catalog's code-read
         // sets, so a typo'd overlay key (the exact silent-drop class) fails
         // like any other unknown key.
@@ -241,7 +241,7 @@ class BotConfStagingTest {
     }
 
     @Test fun `a hyphenated unknown key is refused - R4-1 grammar fix`() {
-        // R4-1: the KEY_LINE grammar accepted hyphens, but a hostile
+        // the KEY_LINE grammar accepted hyphens, but a hostile
         // hyphenated unknown key must be caught (the old grammar silently
         // skipped every hyphenated line).
         val verdict = BotConfStaging.validate(
@@ -282,7 +282,7 @@ class BotConfStagingTest {
     }
 
     @Test fun `the tool-exemplar conf key is refused - the core never reads it`() {
-        // R4-1: tool-exemplar is a SEASONING_ID whose conf key the built
+        // tool-exemplar is a SEASONING_ID whose conf key the built
         // core's kBlocks array never looks up — staging it must abort.
         val verdict = BotConfStaging.validate(
             "vanilla",
@@ -295,7 +295,7 @@ class BotConfStagingTest {
     }
 
     @Test fun `the disabled emission stages clean for every flavor - R2-1`() {
-        // R2-1 (round 5): the aiplayerbot-disabled.conf staging leg runs
+        // the aiplayerbot-disabled.conf staging leg runs
         // the SAME fail-loud gate as the profile legs (ServerRuntimeFiles
         // wires it), so the emission itself must validate clean for every
         // registered flavor — a drifted disabled key fails here first.

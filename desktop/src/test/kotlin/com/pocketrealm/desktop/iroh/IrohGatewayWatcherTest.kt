@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
  * flood cannot grow the hosting app's memory.
  *
  * The stub gateway is a real OS process: it prints the READY line and
- * stays alive (R4-r2-1), or floods error lines and exits (R4-r2-3).
+ * stays alive (-1), or floods error lines and exits (-3).
  */
 class IrohGatewayWatcherTest {
 
@@ -88,7 +88,7 @@ class IrohGatewayWatcherTest {
         }
     }
 
-    /** R4-r2-1's twin: a post-READY process death flips Ready → Error (the
+    /** its twin: a post-READY process death flips Ready → Error (the
      * stale-Ready guard, round-1 R3-2). */
     @Test
     fun aPostReadyProcessDeathFlipsReadyToError() {
@@ -187,7 +187,7 @@ class IrohGatewayWatcherTest {
         }
     }
 
-    /** R4-N3-3's death-drain leg: the gateway queues its error line and
+    /** its death-drain leg: the gateway queues its error line and
      * dies while Ready — the death watcher reads the QUEUED line and
      * surfaces its verbatim code/detail; the generic fallback runs only
      * when the queue is truly empty. */
@@ -329,7 +329,7 @@ class IrohGatewayWatcherTest {
         }
     }
 
-    /** Round-5 R6-2(b): the launch-failure ladder is TOTAL — an
+    /** (b) the launch-failure ladder is TOTAL — an
      * IOException from the spawn (not a GatewayLaunchException) lands in
      * JoinState.Error under the VAL-IROH-JOIN-* code instead of escaping
      * startJoin and stranding the lane in Starting. */

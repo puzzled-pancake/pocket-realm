@@ -33,7 +33,7 @@ from pathlib import Path
 RPTEST_USER = "RPTEST"
 RPTEST_PASS = "rptest"
 
-# Round-5 R5-1 (D50): the shared product-root resolver (tools/common.py)
+# the shared product-root resolver (tools/common.py)
 # so the harness and every tool surface agree with the app on ONE root.
 import sys as _sys  # noqa: E402
 
@@ -79,14 +79,14 @@ class DesktopHost:
             argv.append(f"-PrpPassword={password}")
         if bots > 0:
             argv.append(f"-PrpBots={bots}")
-        # W4 flip: a non-vanilla lane loads its OWN MariaDB win runtime
+ # Flip: a non-vanilla lane loads its OWN MariaDB win runtime
         # (gradle -PrpFlavor routes the per-flavor DLL root) and the
         # engine's per-lane migration state keys off the persisted pick
         # the driver writes before this boot.
         if flavor and flavor != "vanilla":
             argv.append(f"-PrpFlavor={flavor}")
         env = dict(os.environ)
-        # Round-5 R5-1 (D50): the child rpHost JVM must resolve the SAME
+        # the child rpHost JVM must resolve the SAME
         # product data root the harness tools do - set the override
         # explicitly so a registry-only variable (invisible to some spawn
         # contexts) can never boot the app back onto %LOCALAPPDATA%.

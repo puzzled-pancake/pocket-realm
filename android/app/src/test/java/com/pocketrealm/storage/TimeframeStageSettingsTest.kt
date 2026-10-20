@@ -21,7 +21,7 @@ import org.junit.Before
  * patch — existing worlds unaffected).
  */
 class TimeframeStageSettingsTest {
-    /** W4 flip fixture: the storage layer resolves against the live
+    /** flip fixture: the storage layer resolves against the live
      * qualified registry — pin the VANILLA lane (holder select). */
     @Before
     fun pinTheVanillaLaneForTheFlip() {
@@ -81,7 +81,7 @@ class TimeframeStageSettingsTest {
             "vanilla-1.12.1",
             TimeframeStages.resolveStored("vanilla-1.12.1"),
         )
-        // W4 flip: the confValue() leg resolves through the ActiveFlavor
+ // Flip: the confValue leg resolves through the ActiveFlavor
         // HOLDER (no selection argument) — the pinned lane above supplies
         // it. Under the retired sole-qualified degrade this call never
         // needed the pin; the flip makes the pin load-bearing here.
@@ -98,7 +98,7 @@ class TimeframeStageSettingsTest {
         // flavor and a never-registered id both degrade to "" — the reader
         // resolves "" to the final patch, so no lane can be silently pinned.
         listOf(
-            // W4 flip: tbc-2.4.3 is a REGISTERED stage now — the never-
+ // Flip: tbc-2.4.3 is a REGISTERED stage now — the never-
             // registered impossibles below are the degrade corpus.
             "tbc-2.4.4", // never a stage
             "vanilla-9.9", // never a stage

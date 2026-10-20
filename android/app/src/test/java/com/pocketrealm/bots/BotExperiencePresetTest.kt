@@ -11,7 +11,7 @@ import org.junit.After
 import org.junit.Before
 
 class BotExperiencePresetTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests pin the VANILLA lane (holder select) so resolvers see one lane. */
     @Before
     fun pinTheVanillaLaneForTheFlip() {

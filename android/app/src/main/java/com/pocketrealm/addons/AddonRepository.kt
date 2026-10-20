@@ -480,7 +480,7 @@ class AddonRepository private constructor(context: Context) {
     }
 
     private fun installVoiceOverLocked(resolved: ResolvedGitHub, token: AddonOperationToken) {
-        // R5-3/R6-r2-2/R6-r2-3: the era resolves ONCE and routes the
+        // the era resolves ONCE and routes the
         // artifacts AND the user-facing copy — no hard-coded vanilla labels
         // on the era-aware flow.
         val era = VoiceOverReleaseResolver.eraFor(
@@ -606,7 +606,7 @@ class AddonRepository private constructor(context: Context) {
         val latestRelease = requireNotNull(resolved.latestRelease) {
             "VoiceOver does not have a current GitHub release"
         }
-        // R5-3: the era rides the ACTIVE lane — the resolver selects the
+        // the era rides the ACTIVE lane — the resolver selects the
         // era-matching player zip and data pack.
         val era = VoiceOverReleaseResolver.eraFor(
             com.pocketrealm.client.ActiveFlavor.resolve(

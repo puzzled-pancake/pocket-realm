@@ -75,7 +75,7 @@ class DesktopFirstPickStateTest {
 
     @Test
     fun theSettingsAboutLineNamesTheShippedVanillaRuntimeWithoutAPick() {
-        // R6-1: the About card's render line must not resolve the active
+        // the About card's render line must not resolve the active
         // lane through the ambiguous refusal — it renders the shipped
         // vanilla runtime telltale until a pick exists.
         val roots = roots()

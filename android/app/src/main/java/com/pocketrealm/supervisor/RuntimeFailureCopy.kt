@@ -7,7 +7,7 @@ package com.pocketrealm.supervisor
  * so journal details like `UNVERIFIED_ORPHAN` or a start timeout never reach
  * the user verbatim; the raw detail still goes to logs unchanged.
  *
- * D9 (design-lan §7): the LAN-aware entries — the interface-loss stop reason,
+ * The LAN design’s failure-copy section: the LAN-aware entries — the interface-loss stop reason,
  * the stale LAN address refusal, the join preflight client refusal, the
  * pre-join reachability probe outcomes, and the ban surfacing. Both
  * platforms decode through this one shared file; the raw details stay in

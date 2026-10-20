@@ -128,8 +128,8 @@ class DesktopStorageRootsTest {
         try {
             val expectedBase = System.getenv("LOCALAPPDATA")
                 ?: System.getProperty("user.home")
-            // The env leg is INJECTED as absent (the W3 hermetic seam): a
-            // runner whose process carries the D50 user-scope var (every
+            // The env leg is INJECTED as absent (the hermetic seam) a
+            // runner whose process carries the user-scope var (every
             // shell started after the relocation) must not flip this
             // default-arm assertion.
             assertEquals(
@@ -188,7 +188,7 @@ class DesktopStorageRootsTest {
     }
     @Test
     fun `a relative override is rejected as an absolute-path requirement`() {
-        // R2r3-4 (desktop-twin round 3): the fail-open arm of the R2-1 fix —
+ // (desktop-twin ): the fail-open arm of the fix —
         // a relative override resolves per-process CWD (the rpHost harness,
         // a jpackage install and a dev run would each land the durable tree
         // somewhere else, and with a CWD on C: the whole tree lands on C:).

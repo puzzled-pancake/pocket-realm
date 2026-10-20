@@ -181,7 +181,7 @@ class WorldRuntimeService : Service() {
                 settingsSnapshot = settingsSnapshot,
             )
             bootLane = worldLaneFlavor(PreparedDataStore.SERVER_DATA_LANE, settingsSnapshot)
-            // R4-1: the boot-time lane-vs-runtime gate (BEFORE any native
+            // the boot-time lane-vs-runtime gate (BEFORE any native
             // call) — the packaged Android runtime is vanilla-lane only.
             ServerRuntimeFiles.requireAndroidRuntimeLaneMatches(
                 checkNotNull(bootLane) { "the world boot lane resolved null" },
@@ -283,8 +283,8 @@ class WorldRuntimeService : Service() {
             // flavor state, exactly like the start lanes' resolve). A
             // refused addon op fails the answer naming its own error,
             // never a silently classic tbc/wotlk account. R1-arch-1: the
-            // write also runs on the designed HOST RETRY leg. R2-1 (review
-            // round 2, serious): the retry vs COLLISION discriminator is
+            // write also runs on the designed HOST RETRY leg. The
+            // retry-vs-collision discriminator is
             // the PASSWORD — the retry re-submits the exact credential
             // attempt 1 created the row with (the desktop ACCOUNT_VERIFIED
             // precedent); a mismatched password on ACCOUNT_EXISTS is a
@@ -295,7 +295,7 @@ class WorldRuntimeService : Service() {
             } else {
                 true
             }
-            // R2-2: the BOOT lane — the world DB being written is the one
+            // the BOOT lane — the world DB being written is the one
             // this process booted; a Home switch after start must never
             // re-lane the expansion write.
             val expansion = (bootLane
@@ -359,7 +359,7 @@ class WorldRuntimeService : Service() {
             // at the W4.4 flip every provisioned friend account on a
             // tbc/wotlk host was silently born classic (the core then
             // refuses expansion races/classes and maps for the account).
-            // Mirror createAccount's F1-10 leg: the ACTIVE flavor's level is
+            // Mirror createAccount's leg: the ACTIVE flavor's level is
             // written after a successful create and before first login; a
             // refused addon op fails the answer naming its own error, never
             // a silently classic tbc/wotlk friend. R1-arch-1: the write also
@@ -368,7 +368,7 @@ class WorldRuntimeService : Service() {
             // approvalFailed returned the row to SUBMITTED) — skipping here
             // re-opens the hole on exactly the lane the retry design serves.
             val accountExists = accountExists(username)
-            // R2-2: the BOOT lane — the world DB being written is the one
+            // the BOOT lane — the world DB being written is the one
             // this process booted; a Home switch after start must never
             // re-lane the expansion write.
             val expansion = (bootLane
@@ -383,7 +383,7 @@ class WorldRuntimeService : Service() {
             // addon write on the existing row; the approval leg then rejects
             // the invite (never PROVISIONED, never a success reveal).
             // R3-1 (android-core review round 3, serious): the decision is
-            // CONJUNCTIVE on the authorization — the round-2 expression OR-ed
+            // CONJUNCTIVE on the authorization — the expression OR-ed
             // the gated leg with shouldWriteExpansion, whose rc==10 leg is
             // authorization-blind, so the gate was a no-op and every
             // collision still wrote the existing row and answered ok=true.

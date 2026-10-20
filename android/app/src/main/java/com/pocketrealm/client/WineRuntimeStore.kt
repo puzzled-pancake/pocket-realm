@@ -1939,7 +1939,7 @@ internal class WineRuntimeStore(private val context: Context) {
         const val SETTINGS_DELIVERY_LANE =
             "the game-settings delivery resolves the persisted lane"
 
-        /** GAP-3: the [ActiveFlavor] lane suffix naming the ARM runtime's
+        /** the [ActiveFlavor] lane suffix naming the ARM runtime's
          * managed-client authorization gate. */
         private const val ARM_RUNTIME_AUTHORIZATION_LANE =
             "the ARM translated runtime authorizes the active lane's client"
@@ -2257,8 +2257,8 @@ internal class WineRuntimeStore(private val context: Context) {
                 val text = file.readText(Charsets.UTF_8)
                 var next = text
                 val appliedNames = mutableSetOf<String>()
-                // R1-2: the delivery loop resolves the PERSISTED lane's
-                // catalog (the D9-compliant idiom — the :world process never
+                // the delivery loop resolves the PERSISTED lane's
+                // catalog (the -compliant idiom — the:world process never
                 // sees the :ui holder's selection, so the multi-process
                 // settings store is the selection source, exactly like the
                 // ARM authorization gate above) — never the vanilla catalog

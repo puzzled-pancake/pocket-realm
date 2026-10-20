@@ -27,7 +27,7 @@ class PortMuxTest {
 
     @Test
     fun `the mux carries exactly the two game ports`() {
-        // The two constants restate the owning tables' (round-4 R1-r4-1:
+        // The two constants restate the owning tables' (
         // the cross-spelling pin is IrohJoinGuardsTest.
         // `the shared contract's ports are the game's fixed ports` on the
         // desktop lane, whose classpath carries every owning tree).
@@ -35,7 +35,7 @@ class PortMuxTest {
         assertTrue(PortMux.isAllowedPort(GatewayContract.PORT_WORLD))
         assertFalse(PortMux.isAllowedPort(3725))
         assertFalse(PortMux.isAllowedPort(8080))
-        // Round-6 R6-2-1: port 0 is the RESERVED keep-alive lane (the
+        // port 0 is the RESERVED keep-alive lane (the
         // joiner's loss probe) — allowed at the mux, never a game lane.
         assertTrue(PortMux.isAllowedPort(GatewayContract.PORT_KEEPALIVE))
         assertFalse(PortMux.isAllowedPort(-1))
@@ -44,7 +44,7 @@ class PortMuxTest {
 
     @Test
     fun `an unknown port refuses at encode and decode`() {
-        // Round-6 R6-2-1: port 0 is the RESERVED keep-alive lane (allowed
+        // port 0 is the RESERVED keep-alive lane (allowed
         // at the mux, never a game lane) — the refused set drops it.
         for (port in listOf(1, 2, 80, 443, 3725, 8080, 65535)) {
             try {

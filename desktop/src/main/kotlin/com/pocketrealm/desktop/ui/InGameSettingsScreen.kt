@@ -566,7 +566,7 @@ private fun BindingsEditorCard(
                             )
                             when {
                                 token == null -> captureNote =
-                                    // R6-2: flavor-neutral — the binding token
+                                    // flavor-neutral — the binding token
                                     // set resolves per flavor.
                                     "that key has no binding in the stock panels"
                                 token in com.pocketrealm.ingame.WowFlavorCatalogs

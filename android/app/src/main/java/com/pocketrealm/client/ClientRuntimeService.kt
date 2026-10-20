@@ -199,7 +199,7 @@ class ClientRuntimeService : Service() {
             // W3.6 per-flavor graphics-route gate: when the prepare request
             // names its client AND an ARM renderer route, the route must be
             // one of THAT flavor's manifest routes (tbc/wotlk: DXVK only,
-            // decision D3). Absent clientId (self-test lanes) and the
+            // decision). Absent clientId (self-test lanes) and the
             // x86-lane default (renderer absent) skip the gate.
             if (renderer in setOf("dxvk", "opengl", "virgl")) {
                 request.optString("clientId", "").takeIf { it.isNotBlank() }

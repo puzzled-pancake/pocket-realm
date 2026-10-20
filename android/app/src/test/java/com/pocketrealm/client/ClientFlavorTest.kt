@@ -38,7 +38,7 @@ class ClientFlavorTest {
             ClientFlavors.qualified(),
         )
         assertTrue(ClientFlavors.VANILLA.isQualified)
-        // W4 flip: the tbc/wotlk identities are qualified too.
+ // Flip: the tbc/wotlk identities are qualified too.
         assertTrue(ClientFlavors.TBC.isQualified)
         assertTrue(ClientFlavors.WOTLK.isQualified)
     }
@@ -47,7 +47,7 @@ class ClientFlavorTest {
     fun managedClientGateAuthorizesOnlyQualifiedIds() {
         assertFalse(ClientFlavors.isManagedClientId(null))
         assertTrue(ClientFlavors.isManagedClientId(ClientFlavors.VANILLA.clientId))
-        // W4 flip: all three registered lanes authorize import/launch.
+ // Flip: all three registered lanes authorize import/launch.
         assertTrue(ClientFlavors.isManagedClientId(ClientFlavors.TBC.clientId))
         assertTrue(ClientFlavors.isManagedClientId(ClientFlavors.WOTLK.clientId))
         assertFalse(ClientFlavors.isManagedClientId("wow-9.9.9-9999"))
@@ -60,7 +60,7 @@ class ClientFlavorTest {
         assertEquals(ClientFlavors.WOTLK, ClientFlavors.byVersionResource("3.3.5.12340"))
         assertNull(ClientFlavors.byVersionResource("9.9.9.9999"))
         assertEquals(ClientFlavors.VANILLA, ClientFlavors.qualifiedByVersionResource("1.12.1.5875"))
-        // W4 flip: the tbc/wotlk identities resolve qualified now.
+ // Flip: the tbc/wotlk identities resolve qualified now.
         assertEquals(ClientFlavors.TBC, ClientFlavors.qualifiedByVersionResource("2.4.3.8606"))
         assertEquals(ClientFlavors.WOTLK, ClientFlavors.qualifiedByVersionResource("3.3.5.12340"))
         assertNull(ClientFlavors.qualifiedByVersionResource("9.9.9.9999"))
@@ -78,7 +78,7 @@ class ClientFlavorTest {
         assertEquals(11, ClientFlavors.VANILLA.requiredMpqs.size)
         // S5.1 registration (lanes item 13): the exact sets enumerated from the
         // staged genuine clients — Data/ root plus the enus/ locale segment,
-        // lowercase forward-slash paths relative to Data/ (correction C2).
+        // lowercase forward-slash paths relative to Data/ (correction).
         assertEquals(
             setOf(
                 "common.mpq", "expansion.mpq", "patch.mpq", "patch-2.mpq",
@@ -99,7 +99,7 @@ class ClientFlavorTest {
             ),
             ClientFlavors.WOTLK.requiredMpqs,
         )
-        // No patch-4: the WotLK exact set deliberately excludes it (C2).
+        // No patch-4: the WotLK exact set deliberately excludes it.
         assertFalse("patch-4.mpq" in ClientFlavors.WOTLK.requiredMpqs)
     }
 
@@ -187,7 +187,7 @@ class ClientFlavorTest {
         assertEquals(4L * 1024L * 1024L * 1024L, ClientFlavors.VANILLA.extractedEstimateBytes)
         assertEquals(20L * 1024L * 1024L * 1024L, ClientFlavors.VANILLA.maxTotalBytes)
         // Null until measured for the flavor (port plan S5).
-        // W4 flip (R4-3): the estimates cover the measured client trees (the
+ // Flip: the estimates cover the measured client trees (the
         // managed-copy floor) — 12 GiB tbc / 24 GiB wotlk; caps 24/40 GiB.
         assertEquals(12L * 1024L * 1024L * 1024L, ClientFlavors.TBC.extractedEstimateBytes)
         assertEquals(24L * 1024L * 1024L * 1024L,
@@ -200,7 +200,7 @@ class ClientFlavorTest {
     @Test
     fun declaredFlavorDatabaseNamesFollowTheFlavorSlug() {
         // Vanilla's classic* provenance set is pinned above; the declared lanes
-        // follow the same <slug>* convention for when S5 seeds their databases.
+        // follow the same <slug>* convention for when seeds their databases.
         val tbc = ClientFlavors.TBC.databases
         assertEquals("tbcrealmd", tbc.realmd)
         assertEquals("tbcmangos", tbc.world)
@@ -233,24 +233,24 @@ class ClientFlavorTest {
 
     @Test
     fun planCorrectionsC1C3C7C8ArePinnedInTheRegistry() {
-        // C1: realmbuilds accepted sets (never a gamebuild column).
+        // realmbuilds accepted sets (never a gamebuild column).
         assertEquals("5875 6005 6141", ClientFlavors.VANILLA.realmdAcceptedBuilds)
         assertEquals("8606", ClientFlavors.TBC.realmdAcceptedBuilds)
         assertEquals("12340", ClientFlavors.WOTLK.realmdAcceptedBuilds)
-        // C3: ONE shared auth-challenge opcode; every branch's frame length is
+        // ONE shared auth-challenge opcode; every branch's frame length is
         // verified (S8, lanes item 14): vanilla 26 (BUILD_6005 form), tbc/wotlk
         // 32 (sAuthLogonProof_S: cmd+error+M2[20]+accountFlags+surveyId+unkFlags).
         assertEquals(0x1EC, ClientFlavors.AUTH_CHALLENGE_OPCODE)
         assertEquals(26, ClientFlavors.VANILLA.proofResponseBytes)
         assertEquals(32, ClientFlavors.TBC.proofResponseBytes)
         assertEquals(32, ClientFlavors.WOTLK.proofResponseBytes)
-        // C7: shipped 5875, 8606 and 12340 images are all NOT large-address-
+        // shipped 5875, 8606 and 12340 images are all NOT large-address-
         // aware — tbc/wotlk measured at S5.1 from the staged exes' PE
         // characteristics (no 0x0020 LAA bit).
         assertEquals(false, ClientFlavors.VANILLA.largeAddressAware)
         assertEquals(false, ClientFlavors.TBC.largeAddressAware)
         assertEquals(false, ClientFlavors.WOTLK.largeAddressAware)
-        // C8: WTF layouts and the WotLK-only char-level cache set.
+        // WTF layouts and the WotLK-only char-level cache set.
         assertEquals("account-level", ClientFlavors.VANILLA.wtfLayout)
         assertEquals("3-level", ClientFlavors.TBC.wtfLayout)
         assertEquals("3-level", ClientFlavors.WOTLK.wtfLayout)
@@ -267,7 +267,7 @@ class ClientFlavorTest {
 
     @Test
     fun planCorrectionC6ExeProvenanceIsRegisteredPerFlavor() {
-        // C6: vanilla's pristine-exe size is the pinned installer fact (its
+        // vanilla's pristine-exe size is the pinned installer fact (its
         // MD5 cross-check stays unregistered); tbc/wotlk carry the full S5.1
         // registrations measured on the staged genuine clients (lanes item 13)
         // — sizes and MD5s equal the anzz1 pristine prefixes.

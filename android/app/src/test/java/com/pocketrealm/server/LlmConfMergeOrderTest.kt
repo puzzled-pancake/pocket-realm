@@ -21,7 +21,7 @@ import org.junit.Before
  * guard also fails if an appended line can ever be malformed.
  */
 class LlmConfMergeOrderTest {
-    /** W4 flip fixture: the conf merge resolves the ACTIVE lane's
+    /** flip fixture: the conf merge resolves the ACTIVE lane's
      * known keys — pin the VANILLA lane (holder select). */
     @Before
     fun pinTheVanillaLaneForTheFlip() {

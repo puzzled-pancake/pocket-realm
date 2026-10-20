@@ -58,7 +58,7 @@ internal class DesktopDatabaseService(private val engine: DesktopMariaDbEngine) 
 
     fun queryHealth(): JSONObject = guarded { engine.queryHealth() }
 
-    /** R1-r3-5 (desktop-twin round 3): the harness gates' verifier
+    /** (desktop-twin) the harness gates' verifier
      * seeding + proof-3 read + cleanup for the MariaDB lane — the engine's
      * owner-gated SQL path. The read is not `guarded` (that helper types
      * JSONObject); the engine method is internally synchronized. */

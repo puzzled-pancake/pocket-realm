@@ -14,17 +14,17 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 
 /**
- * W6-N1: the public-realm browser — the shared read-side controller both
+ * the public-realm browser — the shared read-side controller both
  * platforms render. Owns the relay pool (keyless: browsing reads, it never
  * writes) and the listing store, and exposes one render-ready state.
  *
  * The empty state is HONEST by construction: [State] carries the relay
  * connectivity so the UI can name an unreachable network instead of
- * claiming the network is provably empty (code-red R6-3), and the
+ * claiming the network is provably empty, and the
  * "seen on N relays" merge evidence is REAL — each delivery carries its
- * source relay (R2-5).
+ * source relay.
  *
- * Collector hygiene (code-red R4-3): every collector this class launches
+ * Collector hygiene: every collector this class launches
  * is tracked and cancelled by [browse]/[idle], and the class scope's job
  * is PARENTED to the caller's scope — a screen's rememberCoroutineScope
  * cancellation tears the browser down instead of leaking the collector
@@ -86,7 +86,7 @@ class PublicRealmBrowser(
         val relaysTotal: Int get() = relays.size
     }
 
-    /** PARENTED to the caller's job (R4-3) and pinned to Dispatchers.IO
+    /** PARENTED to the caller's job and pinned to Dispatchers.IO
      * (R4-r2-1): the collectors run store.accept's verify ladder (SHA-256
      * + Schnorr + JSON parses) on a worker dispatcher, never on the UI
      * thread the caller's rememberCoroutineScope rides. */

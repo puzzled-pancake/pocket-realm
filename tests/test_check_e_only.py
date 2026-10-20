@@ -192,8 +192,8 @@ def test_repo_gate_is_wired_into_check_repo():
     assert "check_e_drive_gate" in source and "check_e_only" in source
 
 
-# ---- R2-1/R3-2 (code-red round 1): the gate fails CLOSED when its
-# scanner cannot run, and sweeps UNTRACKED commit-candidates (R1-1/R3-1).
+# ---- the gate fails CLOSED when its
+# scanner cannot run, and sweeps UNTRACKED commit-candidates.
 
 
 def test_non_git_root_fails_closed(tmp_path):
@@ -412,7 +412,7 @@ def test_no_new_localappdata_producers_outside_the_resolvers(tmp_path):
     ), findings
 
 
-# ---- R3-4/R5-2 (native-server round 1): the scanner's comment-marker
+# ---- the scanner's comment-marker
 # split must not truncate at a pointer DECLARATOR's `*` — that blinded
 # the gate to exactly `const char* base = std::getenv("LOCALAPPDATA");`,
 # the shape its own third owning resolver shipped in.

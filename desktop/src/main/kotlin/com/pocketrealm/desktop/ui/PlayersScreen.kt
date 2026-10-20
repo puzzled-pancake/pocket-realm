@@ -45,19 +45,19 @@ import kotlinx.coroutines.launch
  * surface for remote friend accounts.
  *
  *  - Friend access card: the provisioning listener's live state (off /
- *    listening on <addr:port> / failed to bind — the §6 exposure invariant:
+ * listening on <addr:port> / failed to bind — the exposure invariant:
  *    invite affordances never render without it), the invite composer
  *    (note + Generate; the code shows ONCE in a copyable dialog — the raw
- *    token is never stored, §5), open invites with Revoke, and the
+ * token is never stored), open invites with Revoke, and the
  *    pending-request cards (requested username, source IP, note, age) with
  *    Approve / Reject.
- *  - Friends card: the roster — username, accountId, bot label (R5-5),
+ * Friends card: the roster — username, accountId, bot label,
  *    gmlevel, online, ban state, last logon (the TIMESTAMP only — the
- *    address is never displayed, plan §1 rule 7), failed attempts since
- *    that logon (the LIVE failed_logins counter, labeled as such, §12) —
- *    with per-row gmlevel (§10; level 3 labeled "full console" honestly),
- *    Ban (1h/24h/permanent + reason) and Unban (§9), and the per-friend
- *    character list (§8).
+ * address is never displayed, plan rule 7), failed attempts since
+ * that logon (the LIVE failed_logins counter, labeled as such) —
+ * with per-row gmlevel (level 3 labeled "full console" honestly),
+ * Ban (1h/24h/permanent + reason) and Unban, and the per-friend
+ * character list (§8).
  *
  * The host's OWN account stays the Home "Local account" card — Players
  * never creates or edits the host identity (§7).
@@ -265,7 +265,7 @@ fun PlayersScreen(model: DesktopAppModel) {
             }
         }
 
-        // ---- Audit tail (§12; no secrets ride these rows) ----
+        // ---- Audit tail (no secrets ride these rows) ----
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Recent friend-access activity", style = MaterialTheme.typography.titleMedium)
@@ -284,7 +284,7 @@ fun PlayersScreen(model: DesktopAppModel) {
         }
     }
 
-    // The once-only invite code dialog (§5: the raw token is never stored).
+    // The once-only invite code dialog (the raw token is never stored).
     freshToken?.let { (inviteId, token) ->
         AlertDialog(
             onDismissRequest = { model.friendAccess.dismissFreshToken() },
@@ -340,7 +340,7 @@ private fun PendingRequestCard(
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            // Plan §1 rule 7: peer addresses are NEVER displayed (the
+            // Plan rule 7: peer addresses are NEVER displayed (the
             // sourceIp stays in the audit trail, never on this surface).
             Text(
                 "Request: ${row.username ?: "?"}",
@@ -350,7 +350,7 @@ private fun PendingRequestCard(
                 row.note.ifEmpty { "no note" } + " — submitted " + renderAge(row.submittedAtMs),
                 style = MaterialTheme.typography.bodySmall,
             )
-            // §7's decision window, at the surface where the host acts on
+            // its decision window, at the surface where the host acts on
             // it: the invite expires 15 minutes after the friend submitted
             // (SUBMISSION_WINDOW_MS), and a late Approve silently lands
             // EXPIRED — say the deadline and, when it is computable, the
@@ -399,7 +399,7 @@ private fun FriendRowCard(
                 // R3-1/R5-4 (rule 7): the last-logon ADDRESS is never
                 // rendered — the payload dropped it and this card names
                 // only the timestamp. Bot rows carry an explicit "bot"
-                // label above (R5-5), never padding the friends roster.
+                // label above, never padding the friends roster.
                 "Last logon: " + account.lastLogon.ifEmpty { "never" } +
                     " · failed attempts since then: ${account.failedLogins} (live counter, resets on logon)",
                 style = MaterialTheme.typography.bodySmall,
@@ -499,7 +499,7 @@ private fun renderAge(submittedAtMs: Long?): String {
 private fun org.json.JSONObject.optStringOrNull(key: String): String? =
     if (has(key) && !isNull(key)) optString(key).ifEmpty { null } else null
 
-// The §10 levels map to cmangos security classes; 3 is labeled honestly.
+// The levels map to cmangos security classes; 3 is labeled honestly.
 @Suppress("MagicNumber") // the gm band is the data
 private val GM_LEVELS = listOf(0 to "Player", 1 to "Helper", 2 to "Moderator", 3 to "Full console")
 private const val RECENT_DECIDED_ROWS = 6

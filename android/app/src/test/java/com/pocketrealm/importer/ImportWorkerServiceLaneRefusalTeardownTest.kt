@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * R4-r3-1 (W4 code-red round 3): the flip's no-pick import refusal is the
+ * The flip's no-pick import refusal is the
  * DESIGNED first-run outcome — and before this wave's fix both service
  * arms returned from it WITHOUT the teardown, leaking one 8h
  * PARTIAL_WAKE_LOCK per attempt and leaving the foreground service up

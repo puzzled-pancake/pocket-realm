@@ -513,7 +513,7 @@ internal class DatabaseEngine(private val context: Context) {
         // ClientFlavors state, identical bytes in every process), never the
         // Home switcher's UI-local ActiveFlavor selection this :database
         // process cannot see (r2/r3's contract keeps that resolve in the
-        // seam's caller); the gate stays honest at the S5 flip — zero or
+        // seam's caller); the gate stays honest at the flip — zero or
         // several qualified flavors refuse loud here, before any SQL
         // crosses the client, instead of guessing the vanilla row.
         val realmdDatabase = realmdDatabaseName()
@@ -553,7 +553,7 @@ internal class DatabaseEngine(private val context: Context) {
         "the MariaDB bootstrap seeds the persisted lane's databases"
 
     private fun bootstrapDatabaseNames(): ClientFlavor.DatabaseNames {
-        // W4 (D72 retirement, owner ruling 2026-10-12): the android twin of
+        // The android twin of
         // the desktop lane's routing — the lane is the PERSISTED Home
         // selection (this :database process cannot see the :ui holder, so
         // the persisted pick is the only cross-process lane source), sole
@@ -3411,9 +3411,9 @@ internal class DatabaseEngine(private val context: Context) {
         private const val TAG = "DatabaseEngine"
         private const val MIN_INITIALIZE_BYTES = 768L * 1024 * 1024
         private const val MIN_START_BYTES = 128L * 1024 * 1024
-        // R4-r2-3: the gate is a SNAPSHOT budget — applyPinnedMigrations
+        // the gate is a SNAPSHOT budget — applyPinnedMigrations
         // takes a full pre-migration datadir snapshot (measured ~1.76 GiB
-        // on the W4 tbc/wotlk lanes) while the live datadir keeps its
+        // on the tbc/wotlk lanes) while the live datadir keeps its
         // bytes, and the post-migration family grows on top. 1.5 GiB sat
         // BELOW the measured snapshot cost; 3 GiB covers snapshot + live
         // datadir headroom on the largest qualified lane (wotlk).

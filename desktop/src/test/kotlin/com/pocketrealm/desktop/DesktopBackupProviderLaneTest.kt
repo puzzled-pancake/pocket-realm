@@ -42,7 +42,7 @@ import org.junit.Before
  * no natives (plain files satisfy the isFile check the verb runs).
  */
 class DesktopBackupProviderLaneTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -209,7 +209,7 @@ class DesktopBackupProviderLaneTest {
     private fun selectProvider(roots: DesktopStorageRoots, provider: Settings.DatabaseProvider) {
         roots.settingsFile.parentFile?.mkdirs()
         roots.settingsFile.writeText(
-            // W4 flip: the lane selection rides every settings rewrite (the
+ // Flip: the lane selection rides every settings rewrite (the
             // engines here are constructed WITHOUT a bootLane supplier, so
             // they resolve the lane from the persisted pick).
             Settings.Snapshot(
@@ -475,7 +475,7 @@ class DesktopBackupProviderLaneTest {
                 repoRootOverride = staging.parentFile.parentFile.parentFile,
             ),
             processes = ScriptedMariaDbProcesses(),
-            // W4 flip: the engine resolves the lane from the persisted pick.
+ // Flip: the engine resolves the lane from the persisted pick.
             bootLane = { null },
         )
         // The crashed process: prepared, a named backup taken, the restore
@@ -488,7 +488,7 @@ class DesktopBackupProviderLaneTest {
         File(datadir, "realm_note.txt").writeText("before")
         val snapshot = com.pocketrealm.database.DatabaseSnapshotStore(
             roots.databaseSnapshots,
-            // W4 flip: the restore compatibility gate resolves the lane from
+ // Flip: the restore compatibility gate resolves the lane from
             // the persisted pick — the test pins it through the seam.
             persistedActiveFlavorId = { "vanilla" },
         ).create(datadir, "manual-pending-${System.currentTimeMillis()}", databaseStopped = true)

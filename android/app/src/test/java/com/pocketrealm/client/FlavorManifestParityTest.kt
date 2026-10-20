@@ -73,7 +73,7 @@ class FlavorManifestParityTest {
                 flavor.botRandomMaps,
             )
 
-            // Correction C1: realmbuilds accepted-build set (never gamebuild).
+            // Correction: realmbuilds accepted-build set (never gamebuild).
             val realmd = manifest.getJSONObject("realmd")
             assertEquals("realmbuilds", realmd.getString("column"))
             assertEquals(flavor.realmdAcceptedBuilds, realmd.getString("accepted_builds"))
@@ -82,13 +82,13 @@ class FlavorManifestParityTest {
                 flavor.realmdAcceptedBuilds.split(" ").contains(flavor.build.toString()),
             )
 
-            // Correction C3: per-flavor frame descriptor; the OPCODE is the
+            // Correction: per-flavor frame descriptor; the OPCODE is the
             // shared constant asserted once below, never per-flavor.
             val authFrame = manifest.getJSONObject("auth_frame")
             assertEquals(flavor.proofResponseBytes, optionalInt(authFrame, "proof_response_bytes"))
             assertFalse(authFrame.has("smsg_auth_challenge_opcode"))
 
-            // Correction C8: WTF layout + WotLK-only char-level cache set.
+            // Correction: WTF layout + WotLK-only char-level cache set.
             val wtf = manifest.getJSONObject("wtf")
             assertEquals(flavor.wtfLayout, wtf.getString("layout"))
             val cacheFiles = wtf.getJSONArray("character_cache_files")
@@ -97,13 +97,13 @@ class FlavorManifestParityTest {
                 (0 until cacheFiles.length()).map { cacheFiles.getString(it) }.toSet(),
             )
 
-            // Corrections C6/C7: pristine-exe provenance + the LAA fact.
+            // Corrections: pristine-exe provenance + the LAA fact.
             val clientBinary = manifest.getJSONObject("client_binary")
             assertEquals(flavor.knownExeMd5, optionalString(clientBinary, "known_exe_md5"))
             assertEquals(flavor.knownExeSizeBytes, optionalLong(clientBinary, "known_exe_size_bytes"))
             assertEquals(flavor.largeAddressAware, optionalBoolean(clientBinary, "large_address_aware"))
 
-            // Correction C9: the conf matrix's excluded families come from the
+            // Correction: the conf matrix's excluded families come from the
             // manifest verbatim (the generator enforces them tool-side).
             val confMatrix = manifest.getJSONObject("conf_matrix")
             val excluded = confMatrix.getJSONArray("excluded_keys")
@@ -136,7 +136,7 @@ class FlavorManifestParityTest {
         )
         assertTrue(ClientFlavors.ALL.isNotEmpty())
 
-        // Correction C3: ONE shared auth-challenge opcode across the three
+        // Correction: ONE shared auth-challenge opcode across the three
         // branches — pinned on both sides of the parity gate.
         assertEquals(0x1EC, ClientFlavors.AUTH_CHALLENGE_OPCODE)
         val auth = root.getJSONObject("auth")

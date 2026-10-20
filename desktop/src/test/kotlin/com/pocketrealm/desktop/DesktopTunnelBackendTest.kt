@@ -27,7 +27,7 @@ import org.junit.Before
  *    plain-endpoint path keeps writing the endpoint address;
  *  - the conf writers accept the wildcard bind ("0.0.0.0", the raw conf
  *    value tunnel hosting binds) and a wildcard bind is non-loopback, so
- *    the D11 lockout rides it;
+ * the lockout rides it;
  *  - the host ban writes the `account_banned` row realmd enforces at the
  *    next logon challenge (AuthSocket.cpp:466-477): permanent = expires_at
  *    == banned_at, timed = expires_at == banned_at + duration.
@@ -35,7 +35,7 @@ import org.junit.Before
  * Pure JVM + the SQLite seam DLL — no realm/world natives.
  */
 class DesktopTunnelBackendTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before

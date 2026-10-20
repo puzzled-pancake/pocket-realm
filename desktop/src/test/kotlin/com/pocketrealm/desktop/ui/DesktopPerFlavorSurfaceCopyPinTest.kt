@@ -9,7 +9,7 @@ import org.junit.Test
  * R6-1/R6-5 (code-red round 4): the desktop add-ons screen's AndroidPort
  * copy is FLAVOR-CONDITIONAL (mirroring the android fix) and the desktop
  * in-game settings screen's vanilla-catalog remainder is recorded for the
- * W4 flip checklist.
+ * flip checklist.
  */
 class DesktopPerFlavorSurfaceCopyPinTest {
 
@@ -120,7 +120,7 @@ class DesktopPerFlavorSurfaceCopyPinTest {
     }
 
     @Test fun `the hardware-tested claim branches by flavor R5-6-3`() {
-        // Desktop parity of the android R5-6-3 fix: the tested-on-hardware
+        // Desktop parity of the android fix: the tested-on-hardware
         // copy is the vanilla trio's evidence and must sit in
         // vanilla-conditional branches naming the honest fallback.
         val source = java.io.File(

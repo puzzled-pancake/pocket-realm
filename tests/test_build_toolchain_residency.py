@@ -115,15 +115,15 @@ def test_both_native_lane_entrypoints_call_the_guards():
     )
 
 
-# R3-r6-2 (W5 code-red round 6): the WIN lane's C:-resident MSVC/WinGet
-# toolchain is a PRE-EXISTING recorded disposition (D76: the owner owns the
-# MSVC C:-residency disclosure) — the residency blind spot was that no gate
+# the WIN lane's C:-resident MSVC/WinGet
+# toolchain is a PRE-EXISTING, disclosed disposition — the residency blind
+# spot was that no gate
 # watched the win warm dirs at all, so a future toolchain drift (a new
 # compiler identity appearing in a reconfigured cache) would be invisible.
 # This pin freezes the DISCLOSED identity baseline: every win warm-dir
 # compiler/linker record must match one of the recorded patterns; any NEW
 # identity fails loud instead of drifting silently.
-# The machine-local owner path segment (D53 close-out class); spelled
+# The machine-local path segment; spelled
 # at runtime so no PII literal is embedded in this file.
 _OWNER_SEGMENT = "da" + "vid"
 
@@ -132,9 +132,9 @@ _WIN_COMPILER_GLOBS = (
     "native/.build-win-*/**/CMakeFiles/*/CMakeCXXCompiler.cmake",
 )
 _WIN_DISCLOSED_IDENTITY_PATTERNS = (
-    "c:/program files (x86)/microsoft visual studio/",  # D76-disclosed MSVC
+    "c:/program files (x86)/microsoft visual studio/",  # disclosed MSVC
     # The owner-segment literals are constructed at runtime so this file
-    # never embeds the machine-local path (D53 close-out class).
+    # never embeds the machine-local path (close-out class).
     "c:/users/" + _OWNER_SEGMENT + "/appdata/local/microsoft/winget/packages/brechtsanders.winlibs",  # WinGet lld-link
     "c:/users/" + _OWNER_SEGMENT + "/.bun/bin/",   # user-toolchain lld-link shim
     "c:/users/" + _OWNER_SEGMENT + "/.cargo/bin/",  # user-toolchain lld-link shim

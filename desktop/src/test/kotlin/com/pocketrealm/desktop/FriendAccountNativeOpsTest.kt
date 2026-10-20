@@ -20,7 +20,7 @@ import org.junit.Test
 
 /**
  * The native relay ops for remote friend accounts (design-remote-accounts
- * §3/§8/§9/§11), executed for real against the staged
+ * executed for real against the staged
  * pocket_world_runtime.dll and a live world: verifier provisioning (the
  * friend-side derivation via [VsrpMath], no password anywhere), the
  * duplicate-name refusal, the roster read (ban state / failed-logins /
@@ -79,7 +79,7 @@ class FriendAccountNativeOpsTest {
         // The two draws carry DIFFERENT prefixes on purpose: adjacent
         // nanoTime calls share their top hex digits, so two bare take(8)
         // draws render identical names unless the pair straddles a ~64µs
-        // boundary (round-2: both printed FRND25ACD485 and the backend
+        // boundary (both printed FRND25ACD485 and the backend
         // rightly refused friendB with ACCOUNT_EXISTS). The prefix makes
         // the names distinct by construction; the draws keep per-run
         // freshness for the finally-wipe.
@@ -101,7 +101,7 @@ class FriendAccountNativeOpsTest {
                 }
             }
 
-            // ---- §3: the friend derives (s, v) locally; only the hexes cross.
+            // ---- the friend derives (s, v) locally; only the hexes cross.
             val verifier = VsrpMath.verifierFor(friendA, "Friend-Pass-1")
             println(
                 "PROVISION_INPUT: name=$friendA len=${friendA.length} " +
@@ -119,7 +119,7 @@ class FriendAccountNativeOpsTest {
             )
             val accountId = provision[1]
 
-            // §3.5: the name collision returns ACCOUNT_EXISTS (10); the host
+            // the name collision returns ACCOUNT_EXISTS (10); the host
             // rejects the request — no verify-and-adopt for the verifier path.
             val duplicate = WorldNative.createAccountVerifierNative(friendA, verifier.sHex, verifier.vHex)
             org.junit.Assert.assertEquals(
@@ -128,7 +128,7 @@ class FriendAccountNativeOpsTest {
                 duplicate.getOrElse(0) { -1L },
             )
 
-            // §11: the roster read sees the fresh friend at gmlevel 0, not
+            // the roster read sees the fresh friend at gmlevel 0, not
             // banned, offline, with no logon history and a zero counter.
             val roster = FriendRosterJson.parseAccounts(WorldNative.accountListNative())
             org.junit.Assert.assertNull(roster.first)
@@ -140,7 +140,7 @@ class FriendAccountNativeOpsTest {
             org.junit.Assert.assertEquals(0L, friendRow.failedLogins)
             org.junit.Assert.assertEquals("", friendRow.lastLogon)
 
-            // §10: the host raises the friend's gmlevel; the roster reflects it.
+            // the host raises the friend's gmlevel; the roster reflects it.
             org.junit.Assert.assertEquals(
                 0,
                 WorldNative.setAccountGmLevelNative(friendA, 1, ServerRuntimeContract.CONTROL_TIMEOUT_MS),
@@ -151,7 +151,7 @@ class FriendAccountNativeOpsTest {
                     .second.single { it.username == friendA }.gmLevel,
             )
 
-            // §9: ban through the console relay lands the account_banned row
+            // ban through the console relay lands the account_banned row
             // the roster's ban-state column reads; unban clears it.
             val banRaw = WorldNative.banAccountNative(friendA, "1h", "friend-ops test", ServerRuntimeContract.CONTROL_TIMEOUT_MS)
             println("BAN_RAW: $banRaw")
@@ -227,7 +227,7 @@ class FriendAccountNativeOpsTest {
             }
             org.junit.Assert.assertTrue("a lapsed suspension must not render as banned", lapsed)
 
-            // §8: a fresh account owns zero characters; the op answers ok.
+            // a fresh account owns zero characters; the op answers ok.
             val characters = FriendRosterJson.parseCharacters(WorldNative.accountCharactersNative(friendA))
             org.junit.Assert.assertNull(characters.first)
             org.junit.Assert.assertTrue(characters.second.isEmpty())
@@ -250,7 +250,7 @@ class FriendAccountNativeOpsTest {
             )
             org.junit.Assert.assertTrue(backendVerdict.accountId > 0)
 
-            // §3.5 name normalization: the friend side derives its verifier
+            // name normalization: the friend side derives its verifier
             // from the UPPERCASED identity (Srp6AccountMath) and every logon
             // lookup rides the raw wire name the client uppercases — so the
             // op must store the NORMALIZED form (AccountMgr.cpp:44's
@@ -276,9 +276,9 @@ class FriendAccountNativeOpsTest {
             )
             val twinVerifier = VsrpMath.verifierFor(mixedName.uppercase(), "Friend-Pass-3")
             val twinVerdict = kotlinx.coroutines.runBlocking {
-                // R2-1: a first approval (no attempt bookkeeping) landing on
+                // a first approval (no attempt bookkeeping) landing on
                 // an existing account is a COLLISION — refused with no addon
-                // write on the existing row (the §3.5 contract restored).
+                // write on the existing row (the contract restored).
                 backend.provisionAccountVerifier(mixedName.uppercase(), twinVerifier.sHex, twinVerifier.vHex, false)
             }
             org.junit.Assert.assertEquals(

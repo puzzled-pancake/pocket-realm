@@ -86,11 +86,11 @@ class RelaySession:
         try:
             return self.runner(argv, timeout)
         except (RelayError, subprocess.TimeoutExpired) as error:
-            # round-9 R7: run() is the adb lane for the connect/pull
+            # run is the adb lane for the connect/pull
             # legs too (wait-for-device, forward, pull) - a hung adb
             # raised a raw TimeoutExpired here, escaping the suite's
             # documented exit-2 RelayError contract that send()'s
-            # round-8 arm already enforces on the console round trip.
+            # already enforces on the console round trip.
             if isinstance(error, subprocess.TimeoutExpired):
                 error = RelayError(f"adb invocation timed out: {error}")
             if not check:
@@ -171,7 +171,7 @@ class RelaySession:
             try:
                 response = self._round_trip(payload, timeout_s)
             except (RelayError, subprocess.TimeoutExpired) as error:
-                # round-8 R7: a hung adb (subprocess.TimeoutExpired from
+                # a hung adb (subprocess.TimeoutExpired from
                 # the runner) is a RELAY failure like any other -
                 # normalize it so the retry/backoff + transcript
                 # machinery sees one error class (it used to escape

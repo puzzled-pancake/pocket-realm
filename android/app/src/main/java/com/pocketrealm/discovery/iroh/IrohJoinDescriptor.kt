@@ -4,7 +4,7 @@ import com.pocketrealm.discovery.nostr.NostrJson
 import org.json.JSONObject
 
 /**
- * W6-N3: the iroh join descriptor — the frozen listing schema's `join`
+ * the iroh join descriptor — the frozen listing schema's `join`
  * field, no longer null. This is the ONLY thing a joiner dials by:
  * the host's iroh NODE ID and its HOME RELAY URL. Never an IP address,
  * never a hostname pair, never a port — the owner-adopted constraint-2
@@ -84,11 +84,11 @@ data class IrohJoinDescriptor(
          * port at all. */
         private const val MAX_RELAY_PORT_VALUE = 65535L
 
-        /** The port floor (R2-2): 0 is the socket wildcard, never a relay
+        /** The port floor: 0 is the socket wildcard, never a relay
          * port a client could dial. */
         private const val MIN_RELAY_PORT_VALUE = 1L
 
-        /** The relay URL's total cap (round-5 R6-2): real relay URLs are
+        /** The relay URL's total cap: real relay URLs are
          * far below it; a hostile many-label hostname must refuse at the
          * descriptor fence, not die on the child process's command-line
          * cap. */
@@ -141,7 +141,7 @@ data class IrohJoinDescriptor(
          * address is caught by the same digits-and-dots rule).
          */
         fun validateRelayUrl(relay: String): String? = when {
-            // Round-5 R6-2: the TOTAL length is bounded BEFORE the leg
+            // the TOTAL length is bounded BEFORE the leg
             // walk — the per-label caps admit a hostile hostname of many
             // ≤63-char labels (~32k chars) that would ride the gateway
             // child's argv and die on Windows' CreateProcess cap (an

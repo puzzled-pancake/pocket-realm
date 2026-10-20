@@ -77,7 +77,7 @@ def test_core_content_contract():
 
 # -------------------------------------------------------------- battery ----
 def test_battery_100_generations_zero_parse_failures(json_client_binary):
-    # THE A9 GATE: 100 generations with escaped quotes/newlines/unicode -
+    # THE GATE: 100 generations with escaped quotes/newlines/unicode -
     # zero parse failures on the JSON path. The regex-failure count is
     # reported (baseline evidence) but only the JSON path gates the stage.
     result = _run(json_client_binary, "battery", "100")

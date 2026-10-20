@@ -224,9 +224,9 @@ def test_era_stages_staging_implies_ledger_524_fixed_disposition():
             f"finding 5.24)")
 
 
-# R4-1/R3-r2-1 (W1 code-red round 2): the wave's evidence pack (index +
+# the evidence pack (index +
 # exit record) must never quote a gate output that no longer reproduces on
-# the tree — the D70 truth class ("a claim's cited artifact must be the
+# the tree — the truth class ("a claim's cited artifact must be the
 # claim's own run"). The leak_sweep OK line is cheap to re-derive at gate
 # time, so a quote of it is held against the LIVE tool.
 _W1_EVIDENCE_PACK = (
@@ -268,11 +268,11 @@ def test_w1_evidence_pack_quoted_leak_sweep_output_matches_the_live_tool():
             "refresh the evidence pack (the D70 rule)")
 
 
-# R2-1/R5-1 (W1 code-red round 3): era-state claims in the W1 evidence pack
+# era-state claims in the evidence pack
 # are held against the PINNED artifact bytes, not against memory of an older
 # observation — ledger 5.24's original 2026-10-02 "PRE-era" state no longer
 # describes the vanilla lane (rebuilt pre-wave), and a pack that repeats it
-# misdirects W3 planning.
+# misdirects planning.
 _ERA_STRINGS = (
     "PocketRealm.TimeframeStage",
     "vanilla-1.12.1",
@@ -302,7 +302,7 @@ def test_w1_evidence_pack_era_state_claims_match_the_pinned_artifacts():
         ROOT / rel for rel in _W1_EVIDENCE_PACK if (ROOT / rel).is_file()
     ]
     if not pack_files:
-        return  # no W1 evidence pack in this tree
+        return  # no evidence pack in this tree
     texts = {p: p.read_text(encoding="utf-8", errors="replace") for p in pack_files}
     # (a) a PRE-era claim about the vanilla lane requires the pinned vanilla
     #     world DLL to contain NONE of the era strings;
@@ -336,7 +336,7 @@ def test_w1_evidence_pack_era_state_claims_match_the_pinned_artifacts():
                 f"{[s for s, present in state.items() if not present]}")
 
 
-# R4-r3-1 (W1 code-red round 3): the canonical JUnit XML trees behind the
+# the canonical JUnit XML trees behind the
 # counts artifacts get clobbered by concurrent seats' focused Gradle runs
 # (observed live in round 3: android tree hollowed to 1-2 classes mid-round).
 # Whenever a tree EXISTS it must re-aggregate to exactly its artifact's
@@ -383,7 +383,7 @@ def test_canonical_junit_trees_match_the_counts_artifacts():
             "suite and regenerate (R4-r3-1)")
 
 
-# R6-r3-1 (W1 code-red round 3): the wave exit must record the full
+# the wave exit must record the full
 # repo-pytest posture — either a full-tree pytest artifact (log whose
 # collected count covers the tests/ tree) or the recorded Decision-Log line
 # that the full run is the orchestrator script's post-wave gate (the
@@ -391,7 +391,7 @@ def test_canonical_junit_trees_match_the_counts_artifacts():
 def test_w1_exit_records_the_full_repo_pytest_posture():
     wave_exit = ROOT / "out/completion/w1/WAVE-EXIT.md"
     if not wave_exit.is_file():
-        return  # no W1 exit record in this tree
+        return  # no exit record in this tree
     text = wave_exit.read_text(encoding="utf-8", errors="replace")
     if "full repo-pytest" not in text:
         return  # the exit makes no full-suite claim: nothing to hold
@@ -402,11 +402,11 @@ def test_w1_exit_records_the_full_repo_pytest_posture():
         "no recorded line for that posture — add the D-entry (R6-r3-1)")
 
 
-# R4-r4-1 (W1 code-red round 4): detekt figures quoted in the W1 evidence
+# detekt figures quoted in the evidence
 # pack are held against the LIVE lanes, the same truth class as the
 # leak_sweep quote pin — the round-2/3 pack claimed "zero new issues from
-# W1 edits" while the wave's own round-1 edit had introduced a 491st
-# desktop LongMethod (found in round 4).
+# edits" while the wave's own round-1 edit had introduced a 491st
+# Desktop LongMethod (found in ).
 _DETEKT_QUOTE_PATTERN = re.compile(
     r"(desktop|android)\s*(?::app)?\s*(\d+) weighted issues", re.IGNORECASE)
 # a bare lane+figure pair ("android :app 153") rides the same sentence as a
@@ -430,7 +430,7 @@ def _live_detekt_count(cwd: Path, args: list[str]) -> int:
     combined = (run.stdout or "") + (run.stderr or "")
     match = re.search(r"Analysis failed with (\d+) weighted issues", combined)
     if match is not None:
-        # The R5-2 posture change (decision D84) made both lanes' detekt
+        # The posture change made both lanes' detekt
         # gates GREEN; a weighted-issues failure is a real regression again
         # — refuse with the actionable state, never re-derive silently.
         raise AssertionError(
@@ -475,8 +475,8 @@ def test_w1_evidence_pack_quoted_detekt_counts_match_the_live_lanes():
             "the lane's detekt state; refresh the pack (the D70 rule)")
 
 
-# R6-1/R2-r4-1 (W1 code-red round 4): focused reviewer Gradle runs are
-# §2.4-sanctioned, so they must write OUTSIDE the canonical JUnit trees —
+# focused Gradle runs are
+# sanctioned, so they must write OUTSIDE the canonical JUnit trees —
 # both builds implement the `-Dpocket.focus=<label>` redirect and the exit
 # record documents the exact command; this pin holds the three pieces
 # together so the protocol cannot silently unwind.
@@ -517,7 +517,7 @@ def test_focused_gradle_runs_redirect_out_of_the_canonical_trees():
         "stop clobbering the canonical trees (R2-r4-1)")
 
 
-# R2-r5-3 (W1 code-red round 5): the android focused-run wrapper's
+# the android focused-run wrapper's
 # snapshot/restore is guarded by an exclusive lock — a second concurrent seat
 # must REFUSE LOUD instead of proceeding snapshot-less (its cleanup would
 # destroy the first seat's canonical snapshot or leak focused results into
@@ -581,10 +581,10 @@ def test_focused_android_wrapper_refuses_concurrent_seats(
         "the wrapper must clean up its snapshot and lock in every path")
 
 
-# R2-r5-4/R3-r5-1/R4-r5-1 (W1 code-red round 5): a build-file comment that
+# a build-file comment that
 # claims a residual "is recorded as an owner-visible residual … in
 # out/completion/w1/WAVE-EXIT.md" must have its subject ACTUALLY present in
-# the cited file — the D70 rule applied to code citations.
+# the cited file — the rule applied to code citations.
 def test_build_file_residual_citations_resolve_into_wave_exit():
     build = ROOT / "android/app/build.gradle.kts"
     text = build.read_text(encoding="utf-8", errors="replace")
@@ -602,7 +602,7 @@ def test_build_file_residual_citations_resolve_into_wave_exit():
             "the residual bullet (R2-r5-4/R3-r5-1/R4-r5-1)")
 
 
-# R4-r5-2/R6-r5-3 (W1 code-red round 5): a "(N tests)" quote naming a test
+# a "(N tests)" quote naming a test
 # class in the evidence pack must equal the class's canonical JUnit XML
 # tests attribute — the same quoted-count truth class as the leak_sweep and
 # detekt pins.
@@ -653,7 +653,7 @@ def test_w1_evidence_pack_quoted_class_counts_match_the_canonical_xml():
         return  # no quotes and no tree: nothing to reconcile
 
 
-# R5-R1-1/R2-r5-2/R5-r5-1/R6-r5-1 (W1 code-red round 5): the desktop
+# the desktop
 # focused-run protocol is verified at EXECUTION level — the textual wiring
 # pin cannot catch a doFirst set against Gradle's property finalization
 # (exactly how the round-4 desktop half shipped broken). Runs the documented
@@ -696,7 +696,7 @@ def test_desktop_focused_run_redirects_live(tmp_path):
                   ignore_errors=True)
 
 
-# R6-r6-arch-1 (W1 code-red round 6): the android unit-test worker tmpdir
+# arch-1: the android unit-test worker tmpdir
 # residual is MEASURED, not assumed — WorkerTmpdirInstrumentationTest records
 # the java.io.tmpdir a real AndroidUnitTest worker resolves on every
 # canonical android run, and this gate holds the WAVE-EXIT record to that
@@ -728,8 +728,8 @@ def test_android_worker_tmpdir_measurement_matches_the_residual():
                 "tmpdir gap — restore the owner-visible residual (R6-r6-arch-1)")
 
 
-# R3-1/R4-1/R5-1/R6-3 (W5 code-red round 1): a decision-record failure
-# narrative must cite evidence that still exists. The W5 implementer overwrote
+# a decision-record failure
+# narrative must cite evidence that still exists. The implementer overwrote
 # both failing-run logs with the green reruns under the same archive names, so
 # "died at FindICU ... (out/completion/w5/o09-tbc-arm64-build.log first
 # attempt)" pointed at a green log. The convention is now: failing runs are
@@ -783,7 +783,7 @@ def test_first_attempt_archives_carry_a_real_failure_signature():
 
 def test_w5_decision_rows_cited_logs_exist_and_match_their_claims():
     if not _W5.is_dir():
-        return  # no W5 evidence in this tree: nothing to hold
+        return  # no evidence in this tree: nothing to hold
     text = _DECISIONS.read_text(encoding="utf-8", errors="replace")
     w5_section_start = text.find("| D88 |")
     w5_section = text[w5_section_start:] if w5_section_start >= 0 else text
@@ -806,7 +806,7 @@ def test_w5_decision_rows_cited_logs_exist_and_match_their_claims():
             )
 
 
-# R6-r2-1 (W5 code-red round 2): the source-offer provenance doc still
+# the source-offer provenance doc still
 # claimed the AArch64 Gladio client "is built ... by tools/build_gladio_client.py"
 # with a 530400-byte / 1d9663bb... artifact — a lane that errors on use since
 # D45(7) retired it (W5 archived the death), and a digest matching nothing
@@ -844,10 +844,10 @@ def test_gladio_provenance_row_cites_the_vendored_reality():
     )
 
 
-# R6-r3-1 (W5 code-red round 3): the wiki still named W5 as the pending owner
-# of Android per-flavor runtimes after W5 exited — the exact falsifiable-
-# pending-owner class R4-r2-1 fixed in the Kotlin copy. The copy must point
-# at the recorded follow-up (D90) instead.
+# the wiki still named as the pending owner
+# of Android per-flavor runtimes after exited — the exact falsifiable-
+# pending-owner class fixed in the Kotlin copy. The copy must point
+# at the recorded follow-up instead.
 _GETTING_STARTED = ROOT / "docs/wiki/Getting-Started.md"
 
 
@@ -877,10 +877,10 @@ def test_wiki_runtime_lane_copy_points_at_the_recorded_followup():
     )
 
 
-# R6-r3-2 (W5 code-red round 3): failure narratives in tools comments must
-# cite failure archives, never green reruns — the round-1 overwrite class
+# failure narratives in tools comments must
+# cite failure archives, never green reruns — the overwrite class
 # survived in tools/build_o09_realm_runtime.py after the decision-row pins
-# covered only docs/DECISIONS-PORT.md.
+# covered only the design doc.
 _TOOLS_DIR = ROOT / "tools"
 
 
@@ -912,14 +912,14 @@ def test_tools_failure_citations_resolve_to_failure_archives():
     )
 
 
-# R6-r3-3 (W5 code-red round 3): plan §9 requires every wave archive to carry
-# WAVE-EXIT.md; the W5 decision rows exist, so the exit record must too.
+# plan requires every wave archive to carry
+# WAVE-EXIT.md; the decision rows exist, so the exit record must too.
 def test_w5_exit_record_exists_once_the_wave_records_decisions():
     decisions = (ROOT / "docs/DECISIONS-PORT.md").read_text(
         encoding="utf-8", errors="replace")
     w5_dir = ROOT / "out/completion/w5"
     if "| D88 |" not in decisions or not w5_dir.is_dir():
-        return  # no W5 record in this tree: nothing to hold
+        return  # no record in this tree: nothing to hold
     exit_record = w5_dir / "WAVE-EXIT.md"
     assert exit_record.is_file(), (
         "out/completion/w5/WAVE-EXIT.md is missing while the W5 decision rows "
@@ -933,9 +933,9 @@ def test_w5_exit_record_exists_once_the_wave_records_decisions():
     )
 
 
-# R6-r4-4 / R3-r4-3 / R1-r4-2 (W5 code-red round 4): the WAVE-EXIT record is
+# the WAVE-EXIT record is
 # itself a citation surface — every negative-test archive it names must
-# exist and carry the CURRENT remedy text (the round-1-era archives printed
+# exist and carry the CURRENT remedy text (the -era archives printed
 # superseded remedies), and its "verified live" claims must resolve to
 # archived runs, never journal narration.
 _W5_EXIT = ROOT / "out/completion/w5/WAVE-EXIT.md"
@@ -947,7 +947,7 @@ _CURRENT_REMEDY_MARKERS = (
 
 def test_wave_exit_negative_evidence_archives_carry_the_current_remedies():
     if not _W5_EXIT.is_file() or not _W5.is_dir():
-        return  # no W5 exit record in this tree: nothing to hold
+        return  # no exit record in this tree: nothing to hold
     text = _W5_EXIT.read_text(encoding="utf-8", errors="replace")
     assert "round-2 live remedy verification" not in text, (
         "WAVE-EXIT cites the round-2 live remedy verification, which is "
@@ -1005,9 +1005,9 @@ def test_wave_exit_apk_claims_resolve_to_the_verification_archive():
     )
 
 
-# R6-r6-1 / R4-r6-3 / R4-r6-1 / R4-r6-2 (W5 code-red round 6): the WAVE-EXIT
+# the WAVE-EXIT
 # record is auditable content, not narrative — its findings ledger must cover
-# every reviewer id the wave's tracked files cite (round 4 was silently
+# every reviewer id the tracked files cite (was silently
 # dropped once), its rounds sections must match the LIVE-PROGRESS codered-rN
 # sequence, its L0 sweep measurement must equal the live tool, and its
 # focused-suite tally must cite an archived invocation whose counts it

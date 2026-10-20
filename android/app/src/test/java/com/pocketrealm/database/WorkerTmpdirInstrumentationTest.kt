@@ -4,7 +4,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * R6-r6-arch-1 (W1 code-red round 6): MEASURES the java.io.tmpdir a real
+ * -arch-1: MEASURES the java.io.tmpdir a real
  * AGP 9 AndroidUnitTest worker resolves — the recorded owner-visible
  * residual (out/completion/w1/WAVE-EXIT.md, Deferred section) was
  * code-derived ("not yet instrumented"); this test converts it into a

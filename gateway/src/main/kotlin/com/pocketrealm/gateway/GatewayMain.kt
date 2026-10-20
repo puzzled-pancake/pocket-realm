@@ -15,7 +15,7 @@ import kotlinx.coroutines.withTimeout
 import java.util.Base64
 
 /**
- * W6-N3: the iroh gateway process (see build.gradle.kts for why a
+ * the iroh gateway process (see build.gradle.kts for why a
  * process). Modes per [GatewayContract]:
  *
  *   host: muxes the loopback game stack (realmd 3724 + mangosd 8085) over
@@ -104,7 +104,7 @@ fun main(args: Array<String>) {
 
 object GatewayMain {
 
-    /** W6-N4 (found by the first real-relay exercise of the descriptor
+    /** (found by the first real-relay exercise of the descriptor
      * ladder): iroh renders N0's relay URLs in the FQDN root-dot form
      * ("https://usw1-1.relay.n0.iroh.link./" — N2's captured READY line),
      * and [IrohJoinDescriptor]'s fail-closed host ladder refuses an
@@ -270,7 +270,7 @@ data class Args(
                             "--addr <ip:port> (--direct-allowed)",
                     )
                 }
-                // R3-4: a RELAY-ONLY join without the LISTING's home relay
+                // a RELAY-ONLY join without the LISTING's home relay
                 // would silently fall back to iroh's default relay set —
                 // the documented posture is the listing's home relay and
                 // nothing else, so the missing --relay refuses loudly.
@@ -363,7 +363,7 @@ class HostStackUnreachableExit(message: String) : RuntimeException(message)
 // ------------------------------------------------------------- iroh plumbing
 
 /** Builds the endpoint options: the E:-pinned JNA tmpdir aside, the shape
- * is the N2 spike's measured configuration. [relayDisabled] selects the
+ * is the spike's measured configuration. [relayDisabled] selects the
  * loopback/offline posture (tests, and documented dev lanes): no relay at
  * all, direct addressing only. */
 internal fun endpointOptions(parsed: Args, relayDisabled: Boolean): EndpointOptions {
@@ -381,7 +381,7 @@ internal fun endpointOptions(parsed: Args, relayDisabled: Boolean): EndpointOpti
         else -> RelayMode.defaultMode()
     }
     return EndpointOptions(
-        // TRANSPORT PRIVACY POSTURE (round-6 R3-r6-1, named per the pin
+        // TRANSPORT PRIVACY POSTURE (named per the pin
         // test_gateway_build_pins_the_relay_only_transport_posture):
         // presetN0() installs PkarrPublisher::n0_dns() +
         // DnsAddressLookup::n0_dns() — it is NOT discovery-free — and the

@@ -16,13 +16,13 @@ import androidx.compose.ui.unit.dp
 import com.pocketrealm.discovery.nostr.PublicRealmBrowser
 
 /**
- * The Public realms section (W6-N1; rows carry the W6-N3 join posture):
+ * The Public realms section (rows carry the join posture):
  * the shared relay browser's live listings — or the honest empty-network
  * copy when none are published. Rows are the shared model's projection,
- * INCLUDING the honest internet-join availability copy (code-red R6-7:
+ * INCLUDING the honest internet-join availability copy (
  * the row says when a listing is joinable / flavor-mismatched / gateway-
  * down — the JOIN ACTION itself is desktop-only this wave, recorded in
- * D93(8), because the Android lane has no in-app iroh dialer yet).
+ * 8), because the Android lane has no in-app iroh dialer yet).
  */
 @Composable
 fun PublicRealmsSection(browser: PublicRealmBrowser) {
@@ -35,7 +35,7 @@ fun PublicRealmsSection(browser: PublicRealmBrowser) {
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.testTag("realm-browser-public-title"),
         )
-        // R6-2-1: the relay-IP disclosure holds while the browser is
+        // the relay-IP disclosure holds while the browser is
         // connected — populated or not.
         Text(
             RealmBrowserModel.RELAY_IP_DISCLOSURE,
@@ -113,8 +113,8 @@ private fun PublicRealmListingRow(row: RealmBrowserModel.Row.PublicRealms.Public
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        // R6-7: the honest join posture copy (never the descriptor; the
-        // join ACTION is a desktop affordance this wave — D93(8)).
+        // the honest join posture copy (never the descriptor; the
+        // join ACTION is a desktop affordance this wave (D93§8).
         RealmBrowserModel.joinActionCopy(row.joinAvailability)?.let { copy ->
             Text(
                 copy + if (

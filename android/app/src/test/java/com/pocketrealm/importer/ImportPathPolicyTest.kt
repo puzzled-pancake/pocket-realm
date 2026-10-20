@@ -9,7 +9,7 @@ import org.junit.After
 import org.junit.Before
 
 class ImportPathPolicyTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -23,7 +23,7 @@ class ImportPathPolicyTest {
         ActiveFlavor.reset()
     }
 
-    // W4 flip: getter, not a field - ImportLimits' default resolves the
+ // Flip: getter, not a field - ImportLimits' default resolves the
     // active lane and fields initialize before the @Before pin.
     private val policy: ImportPathPolicy get() = ImportPathPolicy(ImportLimits(minFiles = 1, minTotalBytes = 0))
 

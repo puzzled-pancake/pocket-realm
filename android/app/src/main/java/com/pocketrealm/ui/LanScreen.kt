@@ -354,7 +354,7 @@ private fun RealmBrowserCard(
     var browserAddress by remember { mutableStateOf("") }
     var probing by remember { mutableStateOf(false) }
     var probeStatus by remember { mutableStateOf<String?>(null) }
-    // The live Public realms browser (W6-N1): connected while the card
+    // The live Public realms browser: connected while the card
     // shows, honestly idle when it does not.
     val publicBrowser = remember { PublicRealmBrowser(scope, RelayUrls.DEFAULTS) }
     androidx.compose.runtime.LaunchedEffect(Unit) { publicBrowser.browse() }
@@ -744,7 +744,7 @@ private const val FRIEND_ROSTER_POLL_MS = 5_000L
 private const val FRIEND_STATE_POLL_MS = 4_000L
 
 /** The desktop PlayersScreen twin's moderation surface constants: the
- * honest per-level permission labels (§10: level 3 is "full console",
+ * honest per-level permission labels (level 3 is "full console",
  * never an unlabeled "gm3") and the ban-reason cap. */
 private val GM_LEVELS = listOf(0 to "Player", 1 to "Helper", 2 to "Moderator", 3 to "Full console")
 private const val BAN_REASON_MAX_CHARS = 96
@@ -820,7 +820,7 @@ private fun FriendAccessHostPane(
                                 freshCode = created.optString("inviteId") to created.optString("token")
                                 status = null
                             } else {
-                                // structured refusal copy (R6-1): a cap
+                                // structured refusal copy: a cap
                                 // refusal and an unreachable supervisor
                                 // are different situations with different
                                 // remedies - never one guessed line
@@ -961,7 +961,7 @@ private fun FriendAccessHostPane(
                     val row = invites.optJSONObject(index) ?: continue
                     when (row.optString("state")) {
                         "SUBMITTED" -> {
-                            // Plan §1 rule 7: peer addresses are NEVER
+                            // Plan rule 7: peer addresses are NEVER
                             // displayed - the request row names the account
                             // only (the sourceIp stays in the audit trail
                             // the diagnostics lane already guards).
@@ -1150,7 +1150,7 @@ private fun FriendRequestPane(
     // the provisioning listener binds the HOST'S PRIVATE LAN address only,
     // so this field validates the LAN grammar (parseLan — private/link-local
     // only, hostnames and public IPv4 refused) and the card carries the
-    // §6 note. A tunnel (CGNAT) address can join the realm through the Join
+    // note. A tunnel (CGNAT) address can join the realm through the Join
     // pane, but it can never reach this card — green-lighting it here would
     // only guarantee a "could not reach" after the connect timeout.
     val addressValid = runCatching { RealmEndpoint.parseLan(hostAddress.trim()) }.isSuccess
@@ -1249,7 +1249,7 @@ private fun FriendRequestPane(
                                     }
                                 }
                                 FriendRequestOutcome.Refused ->
-                                    // Round-6 R6-r6-2: the refusal cause is
+                                    // the refusal cause is
                                     // indistinguishable by protocol design -
                                     // never assert one, never invite retries
                                     // against a rate lock.

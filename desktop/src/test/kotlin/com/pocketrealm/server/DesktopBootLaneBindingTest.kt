@@ -18,8 +18,8 @@ import java.io.File
 /**
  * R1-r2-1 (desktop-twin round 2): the desktop twin never received the
  * android lane's boot-lane binding (D62's persisted-state resolution +
- * D63 R2-2m's start-pinned boot lane) — every per-flavor resolution
- * resolved the LIVE ActiveFlavor machine at call time, so at the W4 flip
+ * The start-pinned boot lane) — every per-flavor resolution
+ * resolved the LIVE ActiveFlavor machine at call time, so at the flip
  * a Home switch between world start and provisioning re-laned the
  * expansion write onto the boot lane's world database, and a switch
  * mid-start could tear the conf's database names vs the prepared-data
@@ -99,7 +99,7 @@ class DesktopBootLaneBindingTest {
 
     @Test
     fun thePersistedPickResolvesTheBootLaneWithoutTheHolder() {
-        // W4 flip: the sole-qualified degrade is RETIRED — with three
+ // Flip: the sole-qualified degrade is RETIRED — with three
         // qualified lanes an absent persisted pick refuses loud, and the
         // PERSISTED pick (not the holder) resolves the boot lane. This
         // test pins the persisted-pick leg: the pick survives the holder
@@ -152,7 +152,7 @@ class DesktopBootLaneBindingTest {
             "the boot-lane pin must die with the world it served",
             "_bootLane.value = null" in backend,
         )
-        // R1-r3-1: the stage legs (conf emission, overlay desiredStage,
+        // the stage legs (conf emission, overlay desiredStage,
         // lifecycle record) resolve through the PINNED lane — the bare
         // confValue( delegates to the live holder machine.
         assertTrue(
@@ -166,12 +166,12 @@ class DesktopBootLaneBindingTest {
                 "load re-opens the mid-window straddle)",
             "bootLaneSnapshot ?: DesktopSettingsStore(roots.settingsFile).load()" in backend,
         )
-        // R3-1: the realm leg threads the pinned snapshot into realmdConfig
+        // the realm leg threads the pinned snapshot into realmdConfig
         assertTrue(
             "the realm leg must thread the pinned snapshot into realmdConfig",
             "files.realmdConfig(bindAddress, bootLaneSnapshot)" in backend,
         )
-        // R3-1: the projection legs read the pinned lane
+        // the projection legs read the pinned lane
         assertTrue(
             "the projection's build list must read the pinned lane",
             "(bootLane ?: ServerRuntimeFiles.serverFlavor()).realmdAcceptedBuilds" in backend,
@@ -296,7 +296,7 @@ class DesktopBootLaneBindingTest {
     @Test
     fun theMariaDbEngineCarriesTheW12BootstrapGuardAndRouting() {
         // R4-r4-1 (code-red round 4): split out of
-        // theHarnessSeamsConsumeThePinnedBootLaneToo, whose round-1 growth
+        // theHarnessSeamsConsumeThePinnedBootLaneToo, whose growth
         // pushed it over detekt's LongMethod threshold — the engine guard +
         // bootstrap-routing pins are their own seam.
         val root = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
@@ -309,12 +309,12 @@ class DesktopBootLaneBindingTest {
         assertTrue(
             "the desktop engine must keep the lane-routed bootstrap: the " +
                 "machine's resolution (holder fallback) then the shared " +
-                "MariaDbBootstrap composition — W4 (D72 retirement, owner " +
-                "ruling 2026-10-12) removed the W1.2 vanilla-only requirement " +
+                "MariaDbBootstrap composition — the W1.2 " +
+                "vanilla-only requirement is removed " +
                 "(the per-flavor ledgers provision and apply each lane's own " +
                 "family), and the shape guard stays",
             "com.pocketrealm.server.ServerRuntimeFiles.serverFlavor()" in engine &&
-                "D72 RETIRED, owner ruling 2026-10-12" in engine &&
+                "requirement is GONE" in engine &&
                 "MariaDbBootstrap.initialAuthSql(" in engine &&
                 "bootstrapDatabaseNames()" in engine,
         )

@@ -97,7 +97,7 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
     }
 
     companion object {
-        /** R1-1/R2-5-2: the tbc/wotlk mpq_set notes promise exact-set
+        /** The tbc/wotlk mpq_set notes promise exact-set
      * semantics for the patch train — an unknown patch-*.mpq (not in the
      * flavor's own set) is VAL-04 naming the file, enforced now that both
      * flavors qualify. Vanilla keeps its documented tolerance (its own
@@ -164,7 +164,7 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
                 // later-expansion client with VAL-04. Walk Data (bounded
                 // depth) and match each required key by its own form: a
                 // slash key ("enus/locale-enus.mpq") must resolve at that
-                // path RELATIVE to Data (R2-R4-2: a basename-only match
+                // path RELATIVE to Data (a basename-only match
                 // accepted a path-doctored set — Data/decoy/ with no
                 // Data/enUS/ — whose client cannot load its data), a bare
                 // key matches by basename (the vanilla flat set).

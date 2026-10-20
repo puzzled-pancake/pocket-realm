@@ -146,7 +146,7 @@ internal class NostrListingPublisher(
         val lastPublishedAtMs: Long? = null,
         val beats: Int = 0,
         val errorCopy: String? = null,
-        /** The current beat's write-lane outcome (R2-6): OK acks vs
+        /** The current beat's write-lane outcome: OK acks vs
          * rejections per relay for [listingEventId]. The 'Live' claim is
          * only honest once at least one relay accepted the frame. */
         val lastBeatOkCount: Int = 0,
@@ -166,7 +166,7 @@ internal class NostrListingPublisher(
      * sockets) and double-publish beats. */
     private val gateMutex = kotlinx.coroutines.sync.Mutex()
 
-    /** Pool-construction count (the R5-R3-1 test's seam). */
+    /** Pool-construction count (the test's seam). */
     internal var poolCreations: Int = 0
         private set
 
@@ -316,7 +316,7 @@ internal class NostrListingPublisher(
     private fun retractCarrier(): RelayPool? = pool ?: buildRetractCarrier()
 
     private fun buildRetractCarrier(): RelayPool? {
-        // R4-r2-2/R2B-2: prefer the RETIRED pool's relay set — the
+        // Prefer the RETIRED pool's relay set — the
         // listing was published THERE, and a just-made edit must not
         // silently re-point the retraction.
         val relays = lastPoolRelays.takeIf { it.isNotEmpty() }
@@ -393,7 +393,7 @@ internal class NostrListingPublisher(
      */
     internal suspend fun evaluateGates() {
         gateMutex.withLock {
-        // R5-3: a user-typed banned MOTD must not kill the watcher or
+        // a user-typed banned MOTD must not kill the watcher or
         // vanish — the failure lands on the card's error channel and the
         // gate ladder stays alive for the next beat.
         runCatching {
@@ -412,7 +412,7 @@ internal class NostrListingPublisher(
         }
     }
 
-    /** One relay's OK/rejection for the current beat (R2-6): the beat's
+    /** One relay's OK/rejection for the current beat: the beat's
      * outcome counts drive the honest 'Live' copy. */
     private fun onWriteAck(ack: RelayPool.WriteAck) {
         val beatId = publishedEvent?.idHex ?: return
@@ -491,7 +491,7 @@ internal class NostrListingPublisher(
             return
         }
         val activePool = ensurePool()
-        // W6-N3: the host gateway runs under the SAME gate ladder as the
+        // the host gateway runs under the SAME gate ladder as the
         // listing it serves. Ensure it before the beat; the beat carries
         // the descriptor only when the endpoint actually reached READY (a
         // still-starting gateway publishes join:null — the honest
@@ -500,13 +500,13 @@ internal class NostrListingPublisher(
             val secret = model.ensureIrohGatewayIdentity()
             if (secret != null) {
                 seams.ensureHostGateway(secret)
-                // Round-6 R4-r6-2: the ensure (RE)ARMS the host-stop
+                // the ensure (RE)ARMS the host-stop
                 // latch — deactivate stops the gateway exactly once per
                 // armed cycle. Without the latch, the identity settings
                 // write re-fires the (unmutexed) settings collector into
                 // an extra evaluateGates that can land AFTER a gate drop
                 // and take the retract leg again — a second stop that,
-                // interleaved with the R2-r5-2 relaunch beat, kills a
+                // interleaved with the relaunch beat, kills a
                 // freshly relaunched gateway.
                 hostStopArmed = true
             }
@@ -531,7 +531,7 @@ internal class NostrListingPublisher(
             lastBeatOkCount = 0,
             lastBeatRejectCount = 0,
             lastBeatOutcomeCopy = null,
-            // R6-3-8: a good beat clears any stale failure copy - the
+            // a good beat clears any stale failure copy - the
             // card must never render "Live ... VAL-NOSTR-..." contradictions.
             errorCopy = null,
         )
@@ -576,10 +576,10 @@ internal class NostrListingPublisher(
         acksCollectorJob = null
         beatAcks.clear()
         _uiState.value = _uiState.value.copy(paused = false)
-        // W6-N3: a gate drop stops the host gateway too — no listing, no
+        // a gate drop stops the host gateway too — no listing, no
         // discovery surface, no listening endpoint (a public realm's
-        // transport exists exactly as long as its listing does). Round-6
-        // R4-r6-2: the stop is LATCHED — exactly one stop per armed
+        // transport exists exactly as long as its listing does).
+        // the stop is LATCHED — exactly one stop per armed
         // cycle (the latch rearms only on the next ensure), so the
         // settings-collector's extra evaluation after a drop can never
         // double-stop (and never kill a freshly relaunched gateway).
@@ -603,7 +603,7 @@ internal class NostrListingPublisher(
                 if (delivered) {
                     DesktopLog.i(TAG, "nostr listing retracted (NIP-09) after a gate drop")
                 } else {
-                    // R2-3: the loss is never silent — the host sees why
+                    // the loss is never silent — the host sees why
                     // the listing is still circulating.
                     _uiState.value = _uiState.value.copy(
                         errorCopy = "the NIP-09 retract could not be delivered " +
@@ -643,7 +643,7 @@ internal class NostrListingPublisher(
                 )
             }
         }
-        // R2-6: the write lane's outcome is visible — each OK/rejection of
+        // the write lane's outcome is visible — each OK/rejection of
         // the current beat updates the honest status copy.
         acksCollectorJob = scope.launch {
             newPool.acks.collect { ack -> onWriteAck(ack) }
@@ -686,13 +686,13 @@ internal class NostrListingPublisher(
      * honest — it appears only while the switch is on AND (no relay has
      * rejected the current beat, or at least one relay accepted it).
      */
-    // The status-copy ladder IS the honesty contract (R2-6/R5-3/R5-r5-1):
+    // The status-copy ladder IS the honesty contract:
     // one branch per host-visible truth.
     @Suppress("CyclomaticComplexMethod")
     fun publishStatusCopy(state: UiState): String {
         val suffix = state.errorCopy?.let { " $it" } ?: ""
         val allRejected = state.lastBeatRejectCount > 0 && state.lastBeatOkCount == 0
-        // R5-3/R5-r5-1: the beat was SENT but NO relay has answered (zero
+        // the beat was SENT but NO relay has answered (zero
         // acks AND zero rejections — dead sockets never send ack frames).
         val zeroAnswered = state.active && state.lastBeatOkCount == 0 &&
             state.lastBeatRejectCount == 0

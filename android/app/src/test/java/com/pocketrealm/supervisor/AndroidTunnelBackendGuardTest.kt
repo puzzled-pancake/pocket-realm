@@ -80,7 +80,7 @@ class AndroidTunnelBackendGuardTest {
         )
     }
 
-    // ---- the projection detail (§5: the projected row is reported back) ----
+    // ---- the projection detail (the projected row is reported back) ----
 
     @Test fun theProjectedDetailNamesTheAdvertisementAndTheBindWhenTheyDiverge() {
         // The divergent-detail shape is asserted at the seam the supervisor

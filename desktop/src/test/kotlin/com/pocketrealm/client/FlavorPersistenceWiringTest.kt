@@ -9,7 +9,7 @@ import org.junit.Test
  * R1-1 (desktop-twin round 1): the desktop flavor-switcher pick is
  * PERSISTED and RE-HYDRATED, the Android twin's contract — before this,
  * the desktop lane never wrote the pick and never re-applied it on cold
- * start, so at the W4 multi-qualified flip every restart landed in an
+ * start, so at the multi-qualified flip every restart landed in an
  * unselected registry state whose fail-loud resolvers (add-ons screen,
  * home timeframe line, provisionAccount's accountExpansion, the backend's
  * active-generation lane) refused until a re-pick.

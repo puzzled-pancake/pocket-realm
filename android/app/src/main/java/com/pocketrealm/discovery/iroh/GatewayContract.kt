@@ -4,8 +4,8 @@ package com.pocketrealm.discovery.iroh
  * W6-N3 (docs/NOSTR-IROH-BUILD-PLAN.md stage 3): the one contract between
  * the app (Kotlin 2.0.x lane) and the iroh gateway PROCESS (Kotlin 2.2.21 /
  * JDK 21 / computer.iroh:iroh 1.1.0 — the artifact's Kotlin 2.2 metadata is
- * unreadable by the app lanes, so the transport rides a child process; D92
- * §0). Both sides compile THIS file from the shared manifest, so the line
+ * unreadable by the app lanes, so the transport rides a child process;
+ * Both sides compile THIS file from the shared manifest, so the line
  * protocol, exit codes, and ports can never drift.
  *
  * The gateway speaks on stdout one line at a time:
@@ -33,7 +33,7 @@ object GatewayContract {
     const val MODE_HOST: String = "host"
     const val MODE_JOIN: String = "join"
 
-    /** The mux keep-alive lane (round-6 R6-2-1): port id 0 is RESERVED —
+    /** The mux keep-alive lane: port id 0 is RESERVED —
      * the join gateway probes it every KEEPALIVE beat and the host echoes
      * one byte, so a dead host endpoint is detected in seconds (QUIC's
      * own idle timeout only surfaces at ~26s). Never a game lane. */

@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 try:
     from tools import common
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import common
 SOURCE = (
     ROOT / "native" / ".providers-extracted" / "winlator-app-ca3d735" /
@@ -87,7 +87,7 @@ MEMBERS = (
 )
 
 # The vendored box64-gladio-eaa2a8d glibc client (R2-1, W5 code-red round 1).
-# The ARM Gladio BUILD lane is retired (D45(7)) — these are the exact reviewed
+# The ARM Gladio BUILD lane is retired ((7)) — these are the exact reviewed
 # bytes the retired lane last produced (2026-09-30, provenance copied to
 # native/prebuilt-renderers/box64-gladio-eaa2a8d/BUILD_PROVENANCE.json), now
 # tracked so a fresh checkout can always satisfy the arm64 closure gate that
@@ -345,7 +345,7 @@ def main() -> int:
         },
         "packages": records,
     }
-    # R2-1: re-stage the vendored gladio package AFTER the atomic replace, so
+    # re-stage the vendored gladio package AFTER the atomic replace, so
     # the wiped tree always regains the ARM libGL package the closure gate
     # digest-pins. Fail-closed on the vendored bytes: a changed or missing
     # prebuilt aborts before anything is published.

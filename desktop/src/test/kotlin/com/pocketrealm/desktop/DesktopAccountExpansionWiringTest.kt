@@ -5,7 +5,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * R1-arch-2 (android-core review round 1, serious): the friend-provisioning
+ * R1-arch-2 (android-core review, serious): the friend-provisioning
  * cluster's TWO ends must never drift on the per-flavor expansion write
  * (FriendProvisionProtocol: "so the two ends cannot drift"). The Android
  * twin (AccountExpansionWiringTest) pins WorldRuntimeService; this pin
@@ -20,7 +20,7 @@ import java.io.File
  *    to the active flavor's expansion, never answer ok while the row is
  *    still silently classic;
  *  - the desktop expansion resolves through the BOOT lane
- *    (bootLane ?: ServerRuntimeFiles.serverFlavor — R1-r2-1: the lane is
+ * bootLane ?: ServerRuntimeFiles.serverFlavor —: the lane is
  *    pinned at world start from the persisted selection, so a Home switch
  *    after start can never re-lane the write).
  */

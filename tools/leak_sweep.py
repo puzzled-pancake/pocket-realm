@@ -126,7 +126,7 @@ BANNED_STRINGS = (
     "classiccharacters",
     "classiclogs",
     # R2UI-3 (android-ui-tests review round 2): the per-flavor expansion MPQ
-    # names join the banned set (§4.6: expansion.mpq / lichking.mpq outside
+    # names join the banned set (expansion.mpq / lichking.mpq outside
     # their owning client-shape and addon-asset tables).
     "expansion.mpq",
     "lichking.mpq",
@@ -160,7 +160,7 @@ _STRING_RES = tuple(
     (literal, re.compile(re.escape(literal), re.IGNORECASE)) for literal in BANNED_STRINGS
 )
 
-# v2 scope (D18 redesign; round-1 R1-1/R3-1 extension): inside a git
+# v2 scope (redesign extension) inside a git
 # checkout the sweep covers EVERY COMMITTED-OR-COMMITTABLE text file
 # (git ls-files --cached --others --exclude-standard), so no production
 # tree - tracked or awaiting the finalize commit - can silently sit
@@ -171,7 +171,7 @@ _STRING_RES = tuple(
 # runtime blobs; binaries are skipped by a NUL-byte sniff. Outside a git
 # repo (synthetic test trees) the sweep falls back to the legacy
 # enumerated SCAN_ROOTS walk so scope tests keep working - and a scan
-# that resolves ZERO files is a loud degraded-scan failure (R2-2).
+# that resolves ZERO files is a loud degraded-scan failure.
 SCAN_ROOTS: tuple[tuple[str, bool, tuple[str, ...]], ...] = (
     ("android/app/src/main", True, (".kt", ".java", ".xml")),
     ("android/app/src/debug", True, (".kt", ".java")),
@@ -255,7 +255,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "retires": "never (owning-table test)",
     },
     # Seed plumbing legitimately names the vanilla databases it seeds,
-    # checkpoints, bridges, and verifies; S4 retires each entry when artifact
+    # checkpoints, bridges, and verifies; each entry retires when artifact
     # naming routes per flavor through the registry resolver.
     {
         "path": "tools/checkpoint_dbs.py",
@@ -317,7 +317,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "seed plumbing: row-count sanity floors over the vanilla databases",
         "retires": "S4 retires: per-flavor ledger routing",
     },
-    # Retire at S4 (per-flavor DB routing): the database engine layer names the
+    # Retire (per-flavor DB routing) the database engine layer names the
     # vanilla databases it creates, grants, migrates, and bridges.
     {
         "path": "android/app/src/main/java/com/pocketrealm/database/DatabaseEngine.kt",
@@ -337,7 +337,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "user-state bridge: slices of the vanilla realmd/characters databases",
         "retires": "S4 retires: per-flavor DB routing through ClientFlavors",
     },
-    # Retire at S5 (host-side client qualification helpers): host lanes that
+    # Retire (host-side client qualification helpers) host lanes that
     # validate/stage the genuine 1.12.1.5875 client during bring-up.
     {
         "path": "tools/stage_o07_client.py",
@@ -461,7 +461,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     # S6 (extractor manifest provenance) currently owns nothing: the extractor
     # lanes (build_o11_extractors.py, build_o09_realm_runtime.py) sweep clean.
-    # Retire at S7 (vanilla client datasets & UX copy): capture-sourced vanilla
+    # Retire (vanilla client datasets & UX copy) capture-sourced vanilla
     # datasets and user-facing copy that describe the 5875 client by name.
     {
         "path": "android/app/src/main/java/com/pocketrealm/client/ClientTweaks.kt",
@@ -537,7 +537,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "UX copy describes tweaks in terms of the genuine 1.12.1 build 5875 client",
         "retires": "S7 retires: per-flavor client datasets and UX copy",
     },
-    # Retire at S4 (per-flavor DB routing): the gradle build gate verifies the
+    # Retire (per-flavor DB routing) the gradle build gate verifies the
     # staged seed assets of the four vanilla databases against the sibling
     # lockfile before they ship in the APK.
     {
@@ -546,7 +546,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "gradle build gate: verifies the staged vanilla seed databases against the lockfile",
         "retires": "S4 retires: per-flavor ledger routing",
     },
-    # Retire at S5 (per-flavor fixtures): the debug/androidTest/test source
+    # Retire (per-flavor fixtures) the debug/androidTest/test source
     # sets legitimately stage synthetic vanilla-lane material — synthetic PE
     # and MPQ archives for import tests, registry drift guards, device-side
     # runners — that pins the build-5875 client and the vanilla database
@@ -713,7 +713,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     # from schemas/flavor.json - it carries NO banned literal and needs
     # no allowlist entry (the former build-5875 probe entry went stale
     # with the rewrite and was removed, per the stale-entry rule).
-    # v2 git-tracked sweep (D18): trees newly covered, allowlisted by class.
+    # v2 git-tracked sweep: trees newly covered, allowlisted by class.
     {
         "path_prefix": "docs/",
         "literals": None,
@@ -829,7 +829,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "desktop seed-verification gate names the classic* databases (surfaced by the v2 sweep)",
         "retires": "S4 retires: per-flavor DB routing",
     },
-    # R5-2 (round 5): the detekt baseline is a DERIVED artifact whose
+    # the detekt baseline is a DERIVED artifact whose
     # entries quote the owning sources' signature text verbatim, so it
     # inherits this consolidated exemption — the matcher resolves a path to
     # its FIRST entry only, so every literal the file may carry lives in
@@ -1039,7 +1039,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "desktop patcher applies byte-addressed vanilla tweaks pinned to the build-5875 image",
         "retires": "S7 retires: per-flavor client datasets",
     },
-    # W4 (R6-3): the tutorial requirement body is DERIVED from the
+    # the tutorial requirement body is DERIVED from the
     # registry's qualified set — the main-source literals moved to the
     # test batteries that pin the derived copy.
     {
@@ -1048,7 +1048,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "the tutorial test pins the derived requirement names every qualified build (vanilla's build stays a test literal)",
         "retires": "W7 retires: final program-wide literal round",
     },
-    # Per-flavor win lockfiles (tool-written by the W0 rebuilds).
+    # Per-flavor win lockfiles (tool-written by the rebuilds).
     {
         "path": "schemas/realm-runtime-lockfile-sqlite-win-tbc.json",
         "literals": VANILLA_DB_NAMES,
@@ -1068,7 +1068,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         ),
         "retires": "S4 retires: per-flavor DB routing re-keys the transcripts",
     },
-    # G3 golden fixtures (D27: byte-stable pins, never edited).
+    # G3 golden fixtures (byte-stable pins, never edited).
     {
         "path": "android/app/src/test/resources/fixtures/g3/client-manifest-current-release.json",
         "literals": None,
@@ -1666,7 +1666,7 @@ def _git_tracked_files(root: Path) -> list[Path] | None:
         except OSError:
             pass  # unreadable files surface as <unreadable> findings
         else:
-            # Round-3 R3-2: UTF-16/32 text carries NUL bytes but is text —
+            # UTF-16/32 text carries NUL bytes but is text —
             # a whole file class (PowerShell 5.1 Out-File default) used to
             # vanish from the sweep silently. Decode via BOM; skip only
             # genuinely binary files.
@@ -1893,12 +1893,12 @@ PRIVACY_RECORD_LANES: tuple[str, ...] = (
     "gateway/src/main/kotlin/com/pocketrealm/gateway/JoinGateway.kt",
     "gateway/src/main/kotlin/com/pocketrealm/gateway/GatewayIo.kt",
     "desktop/src/main/kotlin/com/pocketrealm/desktop/iroh/IrohGatewayManager.kt",
-    # R7-1's first live catch: the join-lane refusal ladder — the descriptor
+    # its first live catch: the join-lane refusal ladder — the descriptor
     # lane's decision table (loopback-ownership copy only; clean on arrival).
     "desktop/src/main/kotlin/com/pocketrealm/desktop/iroh/IrohJoinGuards.kt",
 )
 
-# R7-1: the on-disk membership pin's reviewed carve-out — files living in a
+#: the on-disk membership pin's reviewed carve-out — files living in a
 # payload-ADJACENT directory that deliberately build nothing that is
 # published (lifecycle, serving, tunnel plumbing). A NEW .kt file under the
 # swept trees is a pin failure until it joins a table or THIS carve-out —
@@ -1918,7 +1918,7 @@ PRIVACY_NON_PAYLOAD_CARVEOUTS: frozenset[str] = frozenset({
 })
 # RealmListRewrite sits in both tables by role: it is a payload module (an
 # address literal in its output builder would be a leak) whose ONE loopback
-# constant is the documented joiner-side exception. R1-2: the file is NOT
+# constant is the documented joiner-side exception. the file is NOT
 # exempt from judgment — the payload IP legs run on it line-scoped, and only
 # a line carrying JOINER_WORLD_TARGET may hold an address; any other literal
 # in the file is a finding (the constant's presence is pinned in
@@ -1927,11 +1927,11 @@ PRIVACY_PAYLOAD_IP_EXEMPT: frozenset[str] = frozenset(
     {"android/app/src/main/java/com/pocketrealm/discovery/iroh/RealmListRewrite.kt"}
 )
 
-# R2-2 (round 5) follow-up: the MEASURED BOUND constants the fence itself
+# follow-up: the MEASURED BOUND constants the fence itself
 # declares (0xFFFFFFFFL / 0x7FFFFFFFL) are 8-hex-digit runs shaped exactly
 # like the dotless-hex addresses the leg catches — but they are the
 # judge's own bounds, not published addresses. Lines DECLARING them (by
-# declaration shape, the R1-2 pattern) are exempt; any other line in the
+# declaration shape, the pattern) are exempt; any other line in the
 # file stays judged. Pinned beside the JOINER_WORLD_TARGET carve-out.
 PRIVACY_BOUND_DECLARATIONS: dict[str, str] = {
     "android/app/src/main/java/com/pocketrealm/discovery/nostr/RealmListingEvent.kt":
@@ -1944,11 +1944,11 @@ PRIVACY_BOUND_DECLARATIONS: dict[str, str] = {
 }
 
 # Canonical 4-part dotted-quad with the fence's adjudicated boundaries
-# (R2-N5-r1-1; R2-1/R3-N5-r5-1 round 5 dropped the 1-4 digit width cap:
+# dropped the 1-4 digit width cap:
 # 5/6-digit zero-padded octets are JVM-resolvable decimal —
 # "00010.0.0.1" -> 10.0.0.1, "10.0.0.00177" -> 10.0.0.177) — and ONE
 # sentence-final period admitted ("play at 10.0.0.1." — the fence's IPV4
-# trailing-dot alternative, R3-1/R6-3-1). Word/dot boundaries so a longer
+# trailing-dot alternative). Word/dot boundaries so a longer
 # dotted token or an identifier never yields a fragment.
 _PRIVACY_IPV4_RE = re.compile(
     r"(?<![\w.])(?:\d{1,}\.){3}\d{1,}(?:\.(?![0-9.])|(?![\w.]))"
@@ -2022,7 +2022,7 @@ _PRIVACY_DOTLESS_HEX_RE = re.compile(
 _PRIVACY_IPV6_SPAN_RE = re.compile(r"(?<![\w:.])[0-9A-Fa-f:.]+(?![\w:.])")
 _PRIVACY_IPV6_CHARS = frozenset("0123456789abcdefABCDEF:.")
 _PRIVACY_IPV6_HEX = frozenset("0123456789abcdefABCDEF")
-# iroh's direct-address vocabulary (the N3 captured-payload grep's exact
+# iroh's direct-address vocabulary (the captured-payload grep's exact
 # substring, source-level twin).
 _PRIVACY_ADDR_MARKER = "addr="
 
@@ -2164,8 +2164,8 @@ def _privacy_ip_legs(code: str) -> list[str]:
         lowered = span.lower()
         if "." not in lowered or "0x" not in lowered:
             continue
+        # the same ONE sentence-final period the IPv4 legs
         # R5-N5-r2-1: the same ONE sentence-final period the IPv4 legs
-        # admit — judge the span with it stripped ("0x7f.0x0.0.1." is the
         # same pointer as "0x7f.0x0.0.1"); a second period stays a refusal
         # (the stripped form still ends in a dot → an empty chunk fails).
         if lowered.endswith("."):
@@ -2191,7 +2191,7 @@ def _privacy_ip_legs(code: str) -> list[str]:
         # JVM-connectable), and never exactly "::" (Kotlin's ::-reference).
         if span == "::" or span.count(":") < 2:
             continue
-        # R5-2: an h:mm / h:mm:ss TIME token is prose, not an address —
+        # an h:mm / h:mm:ss TIME token is prose, not an address —
         # the JVM does not resolve it (UnknownHostException measured), so
         # the span is exempt from the IPv6 judgment.
         if re.fullmatch(r"\d{1,2}(:\d{2}){1,2}", span):
@@ -2288,7 +2288,7 @@ def _privacy_surface_findings(
                     }
                 )
                 continue
-        # R1-2: the carve-out file IS judged — its ONE documented constant
+        # the carve-out file IS judged — its ONE documented constant
         # DECLARATION line is the only place an address may appear
         # (R3-1, round 2: keyed to the declaration SHAPE, not substring
         # membership — a line that merely REFERENCES the constant cannot
@@ -2413,7 +2413,7 @@ def sweep(
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
-            # Round-3 R3-2: a UTF-16/32 BOM file fails the utf-8 read by
+            # a UTF-16/32 BOM file fails the utf-8 read by
             # design — decode via its BOM before calling it unreadable.
             decoded = _decode_bom_text(path)
             if decoded is not None:

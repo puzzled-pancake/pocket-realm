@@ -27,7 +27,7 @@ class PocketRealmNavigationTest {
         assertEquals("Stopping…", realmStatusBadge(RealmState.Stopping(forced = false)))
         assertEquals("Recovering…", realmStatusBadge(RealmState.Recovering("x")))
         assertEquals("Needs attention", realmStatusBadge(RealmState.Failed("x")))
-        // §6.4: the unreachable lane never reads as a clean stop — the
+        // the unreachable lane never reads as a clean stop — the
         // badge must name the supervisor loss explicitly.
         assertEquals(
             "Supervisor unreachable",

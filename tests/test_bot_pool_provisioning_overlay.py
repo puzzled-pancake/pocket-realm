@@ -167,7 +167,7 @@ def test_driver_wires_the_overlay_files_before_the_anchors() -> None:
     src = (ROOT / "tools" / "build_o09_realm_runtime.py").read_text(encoding="utf-8")
     wiring = (
         'bot_root = mirror / "playerbot"\n'
-        '    # LVF-bot-actors-003+008: the random-bot provisioning/allowlist repair\n'
+        '    # the random-bot provisioning/allowlist repair\n'
     )
     assert wiring in src, "driver must copy the overlay files right after the mirror root"
     copy_pos = src.find('patches" / "playerbots" / "RandomPlayerbotMgr.cpp')

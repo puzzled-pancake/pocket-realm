@@ -5,7 +5,7 @@ import computer.iroh.BiStream
 import java.net.Socket
 
 /**
- * W6-N3 raw byte pumps. The D92 transport finding ("lock-step echo frames
+ * raw byte pumps. The transport finding ("lock-step echo frames
  * at 64 KiB stall — the gateway echo must read concurrently or keep
  * lock-step frames ~1 KiB") is honored by construction: every direction is
  * its OWN coroutine doing small chunked copies (16 KiB reads, immediate

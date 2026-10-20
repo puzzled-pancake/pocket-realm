@@ -82,7 +82,7 @@ def cpp_string(text: str) -> str:
 
 # --- era --------------------------------------------------------------------
 
-# The curated per-stage delta schema (design §5; R5-r1-1, review round 1):
+# The curated per-stage delta schema (design §5):
 #   delta_from_flavor_final: {
 #     "always_ban_add": ["term", ...],
 #     "sense_phrases_add": [["needle", negatable-bool], ...],

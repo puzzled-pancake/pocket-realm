@@ -271,7 +271,7 @@ internal fun InGameSettingsHubScreen(
                 scope.launch { runCatching { state.editor.discardAll() } }
             },
         )
-        // R5-1: the hub counts render the ACTIVE lane's own catalog sizes
+        // the hub counts render the ACTIVE lane's own catalog sizes
         // (the flavor-routed seam), never a hard-coded vanilla count.
         val hubLane = ActiveFlavor.displayedId?.let { id ->
             com.pocketrealm.client.ClientFlavors.ALL.firstOrNull { it.flavorId == id }
@@ -406,7 +406,7 @@ internal fun InGameCategoryScreen(section: WowSettingSection) {
     val settings = remember { Settings(context) }
     val snap by settings.flow.collectAsState(initial = Settings.Snapshot())
     val state = rememberInGameSettingsState()
-    // R5-1: the rows render the ACTIVE lane's own catalog (the flavor-
+    // the rows render the ACTIVE lane's own catalog (the flavor-
     // routed seam), never a hard-coded vanilla list.
     val lane = ActiveFlavor.displayedId?.let { id ->
         com.pocketrealm.client.ClientFlavors.ALL.firstOrNull { it.flavorId == id }

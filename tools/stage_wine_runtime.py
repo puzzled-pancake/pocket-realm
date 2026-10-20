@@ -46,7 +46,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 try:
     from tools import common
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import common
 GLIBC_ROOTFS = ROOT / "runtime" / "glibc-rootfs-x86_64"
 WINE_EXTRACT = ROOT / "native" / ".providers-extracted" / "wine-kron4ek-11-14-vanilla-wow64"

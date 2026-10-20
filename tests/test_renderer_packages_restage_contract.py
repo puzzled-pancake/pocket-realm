@@ -116,11 +116,11 @@ def test_stager_restages_gladio_after_the_atomic_replace(tmp_path, monkeypatch):
     staged = renderer_stage / stager.GLADIO_PACKAGE_ID / "libGL.so.1"
     assert staged.read_bytes() == PREBUILT.read_bytes()
 
-    # R2-r2-1: the manifest SHAPE is part of the contract. `packages` is the
+    # the manifest SHAPE is part of the contract. `packages` is the
     # closed DXVK SELECTION catalog the app enumerates and the gradle gate
     # pins (exact 2-row set, every row backend=='dxvk'); gladio is recorded
     # under `opengl_packages` — exactly once, with the pinned sha256. The
-    # round-1 variant appended the gladio row into `packages`, which fails
+    # variant appended the gladio row into `packages`, which fails
     # the gradle closed-catalog check; both shapes must not be able to pass.
     manifest = json.loads(
         (renderer_stage / "catalog.json").read_text(encoding="utf-8"))

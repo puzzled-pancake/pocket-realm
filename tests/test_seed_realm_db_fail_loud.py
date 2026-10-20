@@ -146,7 +146,7 @@ def test_antispam_insert_with_trailing_escaped_backslash_applies() -> None:
     conn.close()
 
 
-# LVF-server-db-017: the mangos base dump's entry-0 placeholder row
+# the mangos base dump's entry-0 placeholder row
 # (native/cmangos/sql/base/mangos.sql:936) inserts only (`Entry`) while
 # `Name` VARCHAR(200) NOT NULL (mangos.sql:926) carries no DEFAULT. MySQL
 # non-strict replay backfills Name with '' and lands the row; bare SQLite
@@ -453,7 +453,7 @@ def test_main_no_world_dump_opt_in_seeds_schema_only(monkeypatch, tmp_path) -> N
 
 
 # ---------------------------------------------------------------------------
-# Wrong-flavor --world-dump refusal (slice round 1, R5)
+# Wrong-flavor --world-dump refusal (slice)
 # ---------------------------------------------------------------------------
 
 def test_world_dump_identity_error_names_the_flavors_own_repo(
@@ -523,7 +523,7 @@ def test_main_no_world_dump_skips_the_identity_check(
 
 
 # ---------------------------------------------------------------------------
-# R2-1 (review round 1, serious): a doctored db_content.seed must not
+# a doctored db_content.seed must not
 # escape the flavor's db repo.
 # ---------------------------------------------------------------------------
 
@@ -624,7 +624,7 @@ def test_main_doctored_seed_pin_refused_before_any_seed(
     monkeypatch.setattr(flavor_layout, "load_flavor_manifest", fake_load)
     # Pin verification is this test's isolation boundary, not its subject
     # (the doctored manifest still carries the real pins, but scanning the
-    # submodule tree is R2-2's lane): pass it through.
+    # submodule tree is its lane) pass it through.
     monkeypatch.setattr(
         flavor_layout, "require_flavor_pins",
         lambda flavor_id, **_: {"server_core": "isolation",
@@ -640,7 +640,7 @@ def test_main_doctored_seed_pin_refused_before_any_seed(
 
 
 # ---------------------------------------------------------------------------
-# R2-2 (review round 1): the vanilla lane verifies the pins it seeds from.
+# the vanilla lane verifies the pins it seeds from.
 # ---------------------------------------------------------------------------
 
 def test_vanilla_lane_verifies_its_pins(monkeypatch, tmp_path) -> None:
@@ -667,7 +667,7 @@ def test_vanilla_lane_verifies_its_pins(monkeypatch, tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# R1-3 (review round 1): the world dump must carry the flavor's OWN
+# the world dump must carry the flavor's OWN
 # db_version revision family — the in-repo copy class the path leg cannot
 # see (a tbc Full_DB under native/classic-db still passes the path check).
 # ---------------------------------------------------------------------------
@@ -727,12 +727,12 @@ def test_pinned_dumps_carry_only_their_own_family(flavor) -> None:
     assert seed_realm_db._world_dump_content_error(plan, plan.world_dump) is None
 
 
-# Review round 2 (R2-1 serious): the round-1 sniff classified only the
+# the sniff classified only the
 # FIRST any-family hit per 1 MiB window, so a composite dump whose first
 # marker is own-family and whose foreign marker sits later in the SAME
 # window (>64 bytes from the end, so the overlap tail cannot save it) was
 # ACCEPTED — seeding foreign world content under the flavor's DB names
-# with rc=0, the exact class D55's "no foreign-family marker may appear
+# with rc=0, the exact class its "no foreign-family marker may appear
 # anywhere in the stream" contract refuses. Every hit is now classified.
 
 @pytest.mark.parametrize("flavor", ("vanilla", "tbc", "wotlk"))

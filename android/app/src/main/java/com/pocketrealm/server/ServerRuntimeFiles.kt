@@ -195,19 +195,19 @@ internal class ServerRuntimeFiles(context: Context) {
             settingsSnapshot,
         )
         val botConfig = if (botProfile != null) {
-            // R5-R6-2: the conf VALUES ride the same pinned boot lane as
+            // the conf VALUES ride the same pinned boot lane as
             // the staging gate — never the :ui holder.
             val botConfText = botProfile.playerbotConfig(laneFlavor) +
                 (llmConfigOverrides(botProfile, snapshot) ?: "")
             // W3.4 fail-loud conf staging: an unknown key for the flavor's
             // bots build aborts the start instead of being silently dropped
-            // by the core's config parser; excluded families (C9 VoiceChat)
+            // by the core's config parser; excluded families (VoiceChat)
             // are refused with their own naming.
             BotConfStaging.requireStagingSafe(laneFlavor.flavorId, botProfile.id, botConfText)
             secureWrite(File(run, "aiplayerbot-${botProfile.id}.conf"), botConfText)
         } else {
             val disabledConfText = aiplayerbotDisabledConfText()
-            // R2-1 (round 5): the disabled staging leg runs the SAME gate —
+            // the disabled staging leg runs the SAME gate —
             // a drifted or excluded key in the disabled emission fails the
             // world start exactly like a profile conf would.
             BotConfStaging.requireStagingSafe(laneFlavor.flavorId, "disabled", disabledConfText)

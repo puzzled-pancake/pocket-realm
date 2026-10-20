@@ -16,11 +16,11 @@ import kotlinx.coroutines.runBlocking
  *  1. the process must be fresh (phase at rest, lifetime unspent);
  *  2. a named backup of the stopped datadir;
  *  3. model.restoreBackup — the PUBLIC path (consent gate re-check,
- *     BEGIN, the production world-ready proof — which GAP-2 now boots
+ * BEGIN, the production world-ready proof — which now boots
  *     BOTS-DISABLED, so the committed state is the picked bytes, no bot
  *     population — clean stop, COMMIT), asserting the completion copy
  *     discloses the spent lifetime;
- *  4. the DESK-25 consequence is real: worldLifetimeSpent() == true;
+ * 4. the DESK-25 consequence is real: worldLifetimeSpent == true;
  *  5. the next ORDINARY start refuses WRONG_STATE — the exact refusal
  *     the disclosure names (an accepted start here would mean the
  *     one-lifetime contract broke, not that restore got friendlier);

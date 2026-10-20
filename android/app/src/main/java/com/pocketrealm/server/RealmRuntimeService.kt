@@ -46,7 +46,7 @@ class RealmRuntimeService : Service() {
             files.prepareRealmLogsForStart(currentNativeState())
             files.writeLifecycle("realm", false, "start", bind)
             activeBindAddress = bind
-            // R4-1: the boot-time lane-vs-runtime gate (BEFORE any native
+            // the boot-time lane-vs-runtime gate (BEFORE any native
             // call) — the packaged Android runtime is vanilla-lane only.
             ServerRuntimeFiles.requireAndroidRuntimeLaneMatches(
                 files.worldLaneFlavor("the realmd boot resolves the active lane"),

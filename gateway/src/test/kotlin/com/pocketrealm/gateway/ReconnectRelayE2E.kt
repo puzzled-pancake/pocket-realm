@@ -42,9 +42,9 @@ import kotlin.test.assertTrue
  * The physical hotspot/CGNAT leg is NOT exercised here: this desktop has
  * one connected interface (Wi-Fi 2; Ethernet 2 disconnected) and the
  * shell is not elevated, so an interface toggle is both impossible and
- * self-severing; the owner already scheduled the physical leg for the W7
- * device day (D92 §2's record stands). The desktop approximations above
- * are recorded as approximations in the wave evidence (D98).
+ * self-severing; the owner already scheduled the physical leg for the
+ * device day (its record stands). The desktop approximations above
+ * are recorded as approximations in the wave evidence.
  *
  * LIVE-LEG DURABILITY (code-red round 1, R4-3/R4-4/R6-N4-r1-1): the
  * offline gate is a real JUnit ASSUMPTION (an unreachable relay ABORTS
@@ -134,7 +134,7 @@ class ReconnectRelayE2E {
         }
         val evidenceDir = waveEvidenceDir().apply { mkdirs() }
         val hostSecret = freshHexSecret() // the REALM key: constant across the change
-        // The fake realm stack on ALT loopback ports (the N3 one-machine
+        // The fake realm stack on ALT loopback ports (the one-machine
         // shape): the host gateway's loopback dials MUST NOT touch the
         // joiner's own 3724/8085 listeners on this shared machine — that
         // collision recurses every client flow host→joiner→host (found
@@ -250,7 +250,7 @@ class ReconnectRelayE2E {
             // dials it).
             fakeRealm.close()
             fakeWorld.close()
-            // Archive BEFORE anything surfaces (R4-4: a red run carries
+            // Archive BEFORE anything surfaces (a red run carries
             // its verbatim gateway lines).
             archivePayloads(evidenceDir, attempt, listOf("host1" to host1, "join1" to join1, "host2" to host2, "join2" to join2))
             File(evidenceDir, "n4-relay-narration-$attempt.txt").writeText(

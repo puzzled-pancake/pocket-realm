@@ -185,7 +185,7 @@ object GameSettingsDeliveryPlanner {
             return revision > prior.revision
         }
 
-        // R1-2: the planner resolves the ACTIVE flavor's catalog — a
+        // the planner resolves the ACTIVE flavor's catalog — a
         // tbc/wotlk-catalog setting queued through the flavor-routed editor
         // must plan (the vanilla-hardcoded byId returned null and silently
         // blocked it forever).

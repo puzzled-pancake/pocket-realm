@@ -1,5 +1,5 @@
 /*
- * Host battery for the A9 real-JSON response client (S2). Three modes,
+ * Host battery for the real-JSON response client. Three modes,
  * exit-code driven:
  *
  *   invariants        envelope edge cases: content null/missing/empty,
@@ -7,7 +7,7 @@
  *                     /v1/completions text shape, error envelopes, pretty
  *                     printing, non-JSON bodies; retry splice correctness;
  *                     truncation trim
- *   battery [n]       the A9 gate: n (default 100) generated replies with
+ * battery [n] the gate: n (default 100) generated replies with
  *                     escaped quotes, newlines, tabs, raw UTF-8 and
  *                     \uXXXX escapes (incl. surrogate pairs), backslashes
  *                     and tool markers must parse with ZERO failures and

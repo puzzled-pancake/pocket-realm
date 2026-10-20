@@ -13,7 +13,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The §6 lifecycle pins for the host-side provisioning listener: the accept
+ * The lifecycle pins for the host-side provisioning listener: the accept
  * loop dies LOUDLY — a live-socket accept failure (EMFILE and friends arrive
  * as SocketException on a healthy ServerSocket) publishes
  * [ProvisioningListener.ListenerState.Failed], so the hub/UI never shows

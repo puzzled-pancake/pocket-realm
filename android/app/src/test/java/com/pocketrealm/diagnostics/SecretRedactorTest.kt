@@ -33,7 +33,7 @@ class SecretRedactorTest {
         assertTrue(output.contains(hash))
     }
 
-    /** R7-r2-1/R3-r2-1 (W6-N1 round 2): the realm's Nostr identity key is
+    /** The realm's Nostr identity key is
      * a signing secret — its key name matches SENSITIVE_KEY and the value
      * is scrubbed from any structured body. */
     @Test fun nostrPrivateKeyHexIsRedactedFromStructuredBodies() {

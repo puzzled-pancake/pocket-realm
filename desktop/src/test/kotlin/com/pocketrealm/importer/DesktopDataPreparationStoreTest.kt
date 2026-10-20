@@ -31,7 +31,7 @@ import org.junit.Before
  * seam (skips cleanly when the DLL is not built).
  */
 class DesktopDataPreparationStoreTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -97,7 +97,7 @@ class DesktopDataPreparationStoreTest {
                 DataStage.DBC_MAPS -> {
                     File(workDir, "dbc").mkdirs()
                     File(workDir, "maps").mkdirs()
-                    // R1-1/R6-3: the twin's publication gate enforces the
+                    // the twin's publication gate enforces the
                     // ACTIVE flavor's floors, so the stub emits the WORST
                     // (wotlk) row's counts — every lane's gate passes.
                     val floors = listOf("vanilla", "tbc", "wotlk").map { publicationMinimums(it) }
@@ -412,7 +412,7 @@ class DesktopDataPreparationStoreTest {
         // R1-2 (W2 code-red round 1): the extractor home mirrors
         // WIN_BUILD_ROOTS per flavor (vanilla unsuffixed, tbc/wotlk suffixed)
         // and the provenance stamp is each flavor's OWN server_core commit —
-        // vanilla's stays the D36 four-way-pinned CMANGOS_COMMIT.
+        // vanilla's stays the four-way-pinned CMANGOS_COMMIT.
         assertEquals(
             File("repo/native/.build-win-x86_64/bin/x64_Release/Extractors"),
             extractorToolsDir(File("repo"), "vanilla"),
@@ -471,7 +471,7 @@ class DesktopDataPreparationStoreTest {
 
     @Test
     fun `mmtile name contract accepts the wotlk alt tile on no other lane`() {
-        // W2: wotlk's MoveMapGen emits %03u%02i%02i_NN.mmtile alt tiles
+        // wotlk's MoveMapGen emits %03u%02i%02i_NN.mmtile alt tiles
         // (cmangos-wotlk MapBuilder.cpp:1090; its runtime loads both forms,
         // MoveMap.cpp:28 TILE_ALT_FILE_NAME_FORMAT) — the wotlk lane accepts
         // exactly one _NN suffix; vanilla/tbc keep the strict 7-digit shape

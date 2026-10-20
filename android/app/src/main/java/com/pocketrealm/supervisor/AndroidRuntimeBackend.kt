@@ -620,7 +620,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 true,
                 "ACCOUNT_CREATED",
                 verdict.optLong("accountId"),
-                gmLevel = 0, // friends provision at gmlevel 0 (the host raises it explicitly, §10)
+                gmLevel = 0, // friends provision at gmlevel 0 (the host raises it explicitly)
             )
         }
     }
@@ -881,7 +881,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 prepared.getString("effectiveTweaks"),
             ).toJson()
             if (prepared.optBoolean("tweaksFallback")) {
-                // GAP-3: the diagnostic names the launch's resolved lane
+                // the diagnostic names the launch's resolved lane
                 // build ([flavor]) — never a re-resolution that could
                 // crash on a second qualified flavor.
                 AppLog.w(
@@ -1366,7 +1366,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         private const val REALMD_BUILDS_LANE =
             "the realmlist projection resolves the active lane's accepted builds"
 
-        /** GAP-3: the [ActiveFlavor] lane suffix naming the launch-path
+        /** the [ActiveFlavor] lane suffix naming the launch-path
          * client-build resolution (the persisted Home-switcher pick — the
          * same multi-process source [REALMD_BUILDS_LANE] resolves, replacing
          * the former companion `val CLIENT_BUILD_ID =

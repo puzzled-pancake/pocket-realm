@@ -102,7 +102,7 @@ class RealmBuildsProjectionContractTest {
 
     @Test
     fun theEngineResolvesThePersistedLaneNeverTheUiHolder() {
-        // W4 flip (R1-1/D72 retirement): the engine resolves the PERSISTED
+        // flip (retirement) the engine resolves the PERSISTED
         // Home selection through ActiveFlavorState (the same machine the
         // desktop twin uses) — never the :ui-local ActiveFlavor holder this
         // process cannot see, and never a silent vanilla guess.
@@ -132,7 +132,7 @@ class RealmBuildsProjectionContractTest {
         // never serve it, and re-picking vanilla cannot recover a family
         // that was never provisioned). The bootstrap resolver must refuse
         // LOUD, naming the scope + the remedy, BEFORE it can return any
-        // non-vanilla database names. W5 built the host-side per-flavor
+        // non-vanilla database names. built the host-side per-flavor
         // native lanes; the on-device packaging routing is the recorded
         // open follow-up (decision D90) — the refusal cites it, never a
         // wave name.
@@ -273,7 +273,7 @@ class RealmBuildsProjectionContractTest {
             "the gate resolves the registry's qualified lane",
             "ClientFlavors.qualified()" in gate,
         )
-        // W4 flip (D72 retirement): the ambiguous no-pick state still refuses
+        // flip (retirement) the ambiguous no-pick state still refuses
         // loud (the ActiveFlavorState resolve), but the vanilla-only
         // requirement is GONE — each qualified lane provisions its own
         // database family.
@@ -282,8 +282,8 @@ class RealmBuildsProjectionContractTest {
             "ActiveFlavorState(persisted)" in gate,
         )
         assertTrue(
-            "the D72 retirement marker must be present on the android twin",
-            "D72 retirement" in gate,
+            "the android-twin routing marker must be present on the android twin",
+            "The android twin of" in gate,
         )
         assertTrue(
             "the projection must route through the one bootstrap resolver (W1.2)",

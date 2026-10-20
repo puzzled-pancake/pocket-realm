@@ -94,7 +94,7 @@ class FriendProvisionProtocolTest {
 
     @Test
     fun theRefusalBlobIsTheStableIdenticalResponse() {
-        // §5: byte-identical for unknown token, expired, burned, and
+        // byte-identical for unknown token, expired, burned, and
         // rate-locked — pinned literally so an edit here is a reviewed event.
         assertEquals(
             "{\"schema\":1,\"ok\":false,\"error\":\"REQUEST_REFUSED\"}",

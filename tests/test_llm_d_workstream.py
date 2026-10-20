@@ -239,7 +239,7 @@ def test_d3_chatter_rung_rides_the_staged_power_file_as_a_cap():
     assert "rungCap = profile.llmSpeech.chatterRung," in wiring, \
         "ServerRuntimeFiles threads the selected profile's cap into the staging"
     # the conf side still names the staged file (the pre-existing emission
-    # D3 rides - regression guard)
+    # rides - regression guard)
     policy = LLM_POLICY.read_text(encoding="utf-8")
     assert 'AiPlayerbot.LLMChatterPowerFile = \\"$chatterPowerFile\\"' in policy
 

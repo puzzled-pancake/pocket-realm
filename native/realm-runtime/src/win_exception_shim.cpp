@@ -19,8 +19,8 @@
  *    pipe. The handlers below append a diagnosis line (kind, thread,
  *    exception code, stack frames as module!offset) to the product's
  *    resolved data root (POCKET_REALM_DATA_ROOT, else
- *    %LOCALAPPDATA%\PocketRealm — the owning resolvers' contract,
- *    R3-2/R5-1) at crash-trace.txt so a repro run names the failing
+ *    %LOCALAPPDATA%\PocketRealm — the owning resolvers' contract —
+ * recorded at crash-trace.txt so a repro run names the failing
  *    module. Diagnosis tooling, not recovery: every handler terminates
  *    the process exactly as it would have.
  */
@@ -131,12 +131,12 @@ void pocket_resolve_frame(void* address, char* nameOut, size_t nameCap,
 HANDLE pocket_crash_file()
 {
     char path[MAX_PATH];
-    // R3-2/R5-1: the tracer resolves the SAME data root the whole product
+    // the tracer resolves the SAME data root the whole product
     // resolves (DesktopStorageRoots.defaultRoot and
     // tools/common.product_data_root are the two owning resolvers this
     // file mirrors): POCKET_REALM_DATA_ROOT, when set, IS the PocketRealm
     // root itself; only when it is unset does the shipped
-    // %LOCALAPPDATA%\PocketRealm default apply. The D50 override therefore
+    // %LOCALAPPDATA%\PocketRealm default apply. The override therefore
     // relocates the crash tracer with the product instead of stranding
     // the trace on C:. tests/test_crash_trace_root.py pins this ordering
     // byte-shared with the owning resolvers.

@@ -187,7 +187,7 @@ def test_bot2bot_containment_semantics():
     # (device byte-identity), the daily quota via CloudQuotaAdmits
     # (0 = surface off), and the per-bot consecutive depth cap reset by
     # a real-player trigger. Depth is checked BEFORE the quota (the
-    # R1#1/R8#1): a later stage's rejection must not spend an earlier
+    # a later stage's rejection must not spend an earlier
     # stage's quota - the street-ladder law.
     src = (PATCHES / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
     body = src.split("bool PlayerbotLlmMemory::BotToBotAdmits")[1].split("\n}")

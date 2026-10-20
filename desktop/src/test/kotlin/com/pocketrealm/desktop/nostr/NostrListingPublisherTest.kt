@@ -37,7 +37,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * W6-N1 heartbeat lifecycle (the frozen contract's host-side rules):
+ * heartbeat lifecycle (the frozen contract's host-side rules):
  *  - NEVER published while visibility is OFF/FRIENDS, or while the host's
  *    switch is off, or while the world is down;
  *  - published while the realm is up and PUBLIC, with content derived
@@ -214,7 +214,7 @@ class NostrListingPublisherTest {
         val event = NostrEvent.fromRelayFrame(frame!!).single().second
         // The listing verifies and matches the payload (the frozen schema,
         // bots labeled 3 humans / 12 bots; join null because the test
-        // seams carry no gateway — the honest W6-N3 "not joinable now").
+        // seams carry no gateway — the honest "not joinable now").
         assertTrue(RealmListingEvent.verifyListing(event).ok)
         val content = event.content
         assertTrue(content.contains("\"name\":\"my realm\""))
@@ -345,7 +345,7 @@ class NostrListingPublisherTest {
         assertNotNull(nextEventFrame(10))
         visibility.set(RealmStatusVisibility.FRIENDS)
         runBlocking { seated.evaluateGates() }
-        // Round-6 R4-r6-2's determinism probe: the beat's identity
+        // its determinism probe: the beat's identity
         // settings write re-fires the model's settings collector, and the
         // extra evaluation it triggers can land AFTER the gate drop —
         // pump it explicitly (a settings write + one more evaluation).
@@ -457,7 +457,7 @@ class NostrListingPublisherTest {
         assertTrue(com.pocketrealm.desktop.nostr.NostrListingPublisher.publishStatusCopy(accepted).contains("Live —"))
     }
 
-    /** R6-4/R2B-3: a corrupt stored identity surfaces the regeneration
+ /** A corrupt stored identity surfaces the regeneration
      * path — the publish card shows the Waiting copy (never a false
      * 'Live') until the healed identity publishes, and the stored key is
      * replaced. */
@@ -658,7 +658,7 @@ class NostrListingPublisherTest {
         )
     }
 
-    /** R5-3/R5-r5-1: the 0-ok/0-reject dead-set case never claims Live.
+    /** The 0-ok/0-reject dead-set case never claims Live.
      * Pure projection — no boot needed; the suite constructs the state. */
     @Test
     fun liveCopyIsNotClaimedWhileEveryRelayIsDead() {
@@ -734,7 +734,7 @@ class NostrListingPublisherTest {
             p2.boot()
             model.updateSettings { it.copy(nostrDiscoveryEnabled = true) }
             kotlinx.coroutines.delay(300) // the collector regenerates + evaluates
-            // R5-R3-1: fire overlapping evaluations; the gate mutex must
+            // fire overlapping evaluations; the gate mutex must
             // serialize them onto ONE pool (no orphaned double-build).
             val jobs = List(2) { launch { p2.evaluateGates() } }
             jobs.forEach { it.join() }

@@ -71,14 +71,14 @@ from pathlib import Path
 
 try:
     from tools import flavor_layout
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import flavor_layout
 
 try:
     from tools.sqlite_seed_translator import (
         _split_value_rows, _strip_comments_and_count,
         _sub_outside_literals, TranslationReport)
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     from sqlite_seed_translator import (
         _split_value_rows, _strip_comments_and_count,
         _sub_outside_literals, TranslationReport)
@@ -505,7 +505,7 @@ REQUIRED_VERSIONS = {
 
 
 # ---------------------------------------------------------------------------
-# Per-flavor seed plan (port plan S4 item 3)
+# Per-flavor seed plan (S4 item 3)
 # ---------------------------------------------------------------------------
 
 # The version-table name is the same in every cmangos branch (verified by
@@ -719,7 +719,7 @@ def _world_dump_identity_error(plan: SeedPlan, world_dump: Path) -> str | None:
     return None
 
 
-# Content identity sniff (review round 1, R1-3): the world-db revision
+# Content identity sniff (review): the world-db revision
 # marker dialects are the SAME regexes stage_database_migrations' per-flavor
 # rules use for the cutoff computation — a cmangos Full_DB's db_version
 # INSERT carries required_<rev>_<n>_mangos_<name> rows in exactly its own
@@ -762,7 +762,7 @@ def _world_dump_content_error(plan: SeedPlan, world_dump: Path) -> str | None:
             # is classified (review round 2, R2-1 serious: the old
             # first-hit-only `search` accepted a composite dump whose FIRST
             # marker was own-family and whose foreign marker sat later in
-            # the same window — the D55 contract is that NO foreign marker
+            # the same window — the contract is that NO foreign marker
             # appears anywhere in the stream).
             while True:
                 chunk = handle.read(1024 * 1024)
@@ -1003,8 +1003,8 @@ def main() -> int:
     args = ap.parse_args()
 
     # R2-2 (review round 1): EVERY flavor verifies its pins before seeding —
-    # vanilla included, like stage_database_migrations.select_inputs ("S1
-    # ran this check only for tbc/wotlk as the pre-S4 stopgap; ... vanilla
+    # vanilla included, like stage_database_migrations.select_inputs ("
+    # ran this check only for tbc/wotlk as the earlier stopgap;... vanilla
     # is verified like the rest"). The old `!= "vanilla"` guard let a stale
     # (HEAD != pin) or dirty native/cmangos / native/classic-db checkout
     # seed all four vanilla DBs with rc=0 and no pin attestation — the
@@ -1077,7 +1077,7 @@ def main() -> int:
     # refuse it here, before any database is written — first by PATH (the
     # dump must live in the flavor's own db repo), then by CONTENT (its
     # db_version revision markers must belong to the flavor's own branch;
-    # R1-3: the in-repo copy class the path leg cannot see). --no-world-dump
+    # the in-repo copy class the path leg cannot see). --no-world-dump
     # never reads the dump, so its path is unvalidated by design.
     identity_error = (
         None if args.no_world_dump

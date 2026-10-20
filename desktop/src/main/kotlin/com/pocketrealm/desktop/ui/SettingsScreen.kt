@@ -186,7 +186,7 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
                                 "app itself.",
                             style = MaterialTheme.typography.bodySmall,
                         )
-                        // §4.5: the characters-on-host copy (join pane twin
+                        // the characters-on-host copy (join pane twin
                         // lives in the join branch below).
                         Text(
                             "Hosting note: characters your guests create are saved in THIS " +
@@ -245,7 +245,7 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
                                 "card's \"Join LAN host instead\" does this in one step.",
                             style = MaterialTheme.typography.bodySmall,
                         )
-                        // §4.4: the join auto-login is verified-safe (the
+                        // the join auto-login is verified-safe (the
                         // stored local credential is never typed at the
                         // host's login screen) — the copy says so.
                         Text(
@@ -253,7 +253,7 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
                                 "your local account stays yours.",
                             style = MaterialTheme.typography.bodySmall,
                         )
-                        // §4.5: characters live on the host.
+                        // characters live on the host.
                         Text(
                             "Characters you play here are saved on the host's realm — they " +
                                 "appear wherever that host's realm runs, and stop existing " +
@@ -362,7 +362,7 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
                 )
                 Text(
                     "Native runtime: " + com.pocketrealm.BuildConfig.nativeRuntimeBuildIdFor(
-                        // W4 flip (R6-1): the RENDER line resolves through
+ // Flip: the RENDER line resolves through
                         // the machine's canonical displayedId — no pick yet
                         // renders the vanilla lane's telltale rather than
                         // crashing composition.
@@ -454,7 +454,7 @@ internal fun timeframeCardFlavor(): com.pocketrealm.client.ClientFlavor =
     com.pocketrealm.client.ActiveFlavor.resolve(TIMEFRAME_CARD_LANE)
 
 /**
- * W4 flip: with several qualified flavors and no pick yet the resolver
+ * Flip: with several qualified flavors and no pick yet the resolver
  * refuses loud — a render-time card must not crash composition, so the
  * unresolved state surfaces as null (the cards render the honest
  * "pick a game flavor" copy; every OPERATION gate keeps the loud refusal).
@@ -465,7 +465,7 @@ internal fun timeframeCardFlavor(): com.pocketrealm.client.ClientFlavor =
 internal fun renderedFlavorIdOrNull(): String? =
     com.pocketrealm.client.ActiveFlavor.displayedId
 
-/** GAP-3: the [com.pocketrealm.client.ActiveFlavor] lane suffix naming the
+/** the [com.pocketrealm.client.ActiveFlavor] lane suffix naming the
  * timeframe card's resolution gate. */
 private const val TIMEFRAME_CARD_LANE = "the world-timeframe card resolves the qualified lane"
 
@@ -473,15 +473,15 @@ private const val TIMEFRAME_CARD_LANE = "the world-timeframe card resolves the q
  * Design-timeframe §6: the "World timeframe" card — the ordered stages of the
  * ACTIVE QUALIFIED flavor as a selectable list (the flavor's timeline
  * top-to-bottom), default selection = the final patch. The mandatory copy
- * rides the card: the client-version sentence (§0), the apply-time sentence,
- * and — for a backward selection — the §7 consequence sentence. The card never
+ * rides the card: the client-version sentence, the apply-time sentence,
+ * and — for a backward selection — the consequence sentence. The card never
  * fabricates TBC/WotLK stages for a lane that cannot run them: when no flavor
  * is qualified beyond the shipped vanilla lane it shows exactly the vanilla
- * stage list. Disabled while the realm runs (§7: no mid-session switch).
+ * stage list. Disabled while the realm runs (no mid-session switch).
  */
 @Composable
 private fun TimeframeCard(model: DesktopAppModel, storedStage: String, realmRunning: Boolean) {
-    // W4 flip: no pick yet under several qualified flavors renders the
+ // Flip: no pick yet under several qualified flavors renders the
     // first-pick copy instead of crashing composition (the operation gates
     // keep the loud refusal; see [renderedFlavorIdOrNull]).
     val flavorId = remember { renderedFlavorIdOrNull() }
@@ -592,11 +592,11 @@ private fun realmRunningPhase(phase: com.pocketrealm.supervisor.RuntimePhase): B
 @Composable
 private fun ClientTweaksCard(model: DesktopAppModel, tweaks: ClientTweaksConfig) {
     // R6-w3-1 (code-red round 6): the vanilla tweak set is validated against
-    // the 1.12.1 client only — a non-vanilla lane (reachable since the W4
+    // the 1.12.1 client only — a non-vanilla lane (reachable since the
     // qualification flip) must render the honest "not available" copy and
     // NEVER expose the vanilla-client patch-consent toggles (the desktop
     // twin of the android ClientRuntimeContract.flavorTweaksCopy gate).
-    // W4 flip: with several qualified flavors and no pick yet the resolver
+ // Flip: with several qualified flavors and no pick yet the resolver
     // refuses loud — render the first-pick copy instead of crashing
     // composition (the operation gates keep the loud refusal).
     val tweaksLane = remember { com.pocketrealm.client.ActiveFlavor.displayedId }
@@ -916,7 +916,7 @@ private fun pickRealmArchive(onPicked: (java.io.File) -> Unit) {
  * 3724/8085). The app model re-validates before building a launch spec,
  * so an invalid stored value can never start a realm.
  *
- * D6 rev-3 (design-lan §5.2): tunnel-shaped input (canonical numeric IPv4
+ * rev-3 (design-lan §5.2): tunnel-shaped input (canonical numeric IPv4
  * outside the LAN ranges — public addresses, CGNAT 100.64/10) shows the
  * address-class copy right at the field, where the refusal actually
  * happens; every other invalid input keeps the parser's own message.
@@ -960,7 +960,7 @@ private fun LanAddressField(model: DesktopAppModel, value: String, mode: Runtime
         },
         singleLine = true,
     )
-    // Detected interfaces — D3: the desktop twin's FILTERED scan (virtual
+    // Detected interfaces —: the desktop twin's FILTERED scan (virtual
     // adapters excluded, default-route owner first), not the shared
     // policy's raw list: a one-click host must default to an address LAN
     // guests can actually reach.
@@ -988,8 +988,8 @@ private fun LanAddressField(model: DesktopAppModel, value: String, mode: Runtime
  * consequences ride the copy: tunnel friends reach it, plain-LAN guests
  * see a realm they cannot enter (one advertisement for everyone), and the
  * firewall prompt (if any) must be allowed on the network the TUNNEL
- * adapter lives on. Tailscale-first guidance per §4.1; ZeroTier second;
- * cloudflared stays the documented advanced recipe (no UI lane, §4.3).
+ * adapter lives on. Tailscale-first guidance per; ZeroTier second;
+ * cloudflared stays the documented advanced recipe (no UI lane).
  */
 @Composable
 private fun TunnelAdvertisedField(model: DesktopAppModel, value: String, realmRunning: Boolean) {
@@ -1299,7 +1299,7 @@ private fun InstallConfirmRow(
                             stagedPackage = stagedPackage,
                             currentImage = com.pocketrealm.desktop.UpdateApply.currentAppImageDir(),
                             consent = true,
-                            // R3-r2-2: the hash gate re-runs AT APPLY — the
+                            // the hash gate re-runs AT APPLY — the
                             // download-finalize verification ran long before
                             // this click and the staged file is mutable.
                             expectedSha256 = expectedSha256,

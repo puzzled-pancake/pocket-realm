@@ -86,7 +86,7 @@ internal open class DataPreparationStore(
         finiteStage(importId, DataStage.DBC_MAPS, stageRoot, onTick) {
             runTool(importId, DataStage.DBC_MAPS, stageRoot, AD_TOOL,
                 listOf("-i", clientRoot.absolutePath, "-o", stageRoot.absolutePath, "-e", "3"))
-            // R1-1/R6-3: the stage gate enforces the verified flavor's floors,
+            // the stage gate enforces the verified flavor's floors,
             // the same row the publication gate and the boot envelope use.
             val minimums = publicationMinimums(verifiedSourceFlavor(clientRoot).flavorId)
             requireCount(File(stageRoot, "dbc"), ".dbc", minimums.dbc)
@@ -448,7 +448,7 @@ internal open class DataPreparationStore(
         val manifestFile = File(final, "data-manifest.json")
         if (!final.isDirectory || !manifestFile.isFile) return null
         val manifest = JSONObject(manifestFile.readText())
-        // GAP-3 + R2r3-1: recovery resolves the same VERIFIED source
+ // + recovery resolves the same VERIFIED source
         // identity publication stamped — the resume path carries the same
         // quarantine (a mid-prep switch refused at the resume, too), never
         // a `.single()` crash and never a live-machine relabel.
@@ -563,7 +563,7 @@ internal open class DataPreparationStore(
         }
         // R1-2 (W2 code-red round 1): the stamp is the VERIFIED flavor's own
         // core commit — a wotlk run through this lane used to stamp vanilla's
-        // D36 commit over wotlk-core-built extractors.
+        // commit over wotlk-core-built extractors.
         return JSONObject().put("cmangosCommit", cmangosCommitFor(flavor.flavorId))
             .put("artifactSet", JSONArray(artifacts)).put("abi", "windows-x86_64")
     }
@@ -675,7 +675,7 @@ internal open class DataPreparationStore(
         // MoveMapGen prints "[Map NNN] Failed creating navmesh!" on per-map
         // build failures while still exiting 0 (win_prepare_data.py's pin) —
         // and the wotlk generator's alloc failures print the core's own
-        // misspelling "FIALED" (cmangos-wotlk MapBuilder.cpp:950/:961, R5-1):
+        // misspelling "FIALED" (cmangos-wotlk MapBuilder.cpp:950/:961):
         // the oracle matches both spellings, mirroring the python lane.
         internal val MOVEMAP_FAILURE = Regex("\\[Map\\s+\\d+\\].*(?:Failed|FIALED)", RegexOption.IGNORE_CASE)
 
@@ -799,14 +799,14 @@ internal fun mmtileNamePattern(flavorId: String): Regex =
     if (flavorId == "wotlk") MMTILE_NAME_WOTLK_LANE else MMTILE_NAME_ANY_LANE
 
 /** The lane's accepted mmtile shape, for refusal copy that states the ACTIVE
- * contract (R6-2): wotlk's gate accepts the alt form, so its message must say
+ * contract: wotlk's gate accepts the alt form, so its message must say
  * so rather than the flat "7 digits" the other lanes enforce. */
 internal fun mmtileExpectedShape(flavorId: String): String =
     if (flavorId == "wotlk") "7 digits, or 7 digits + _NN" else "7 digits"
 
 /** The flavor's extractor home under [repo] — the mirror of
  * tools/win_prepare_data.py's WIN_BUILD_ROOTS: vanilla keeps the historical
- * unsuffixed root, tbc/wotlk carry the -{flavor} suffix (R1-2: the twin used
+ * unsuffixed root, tbc/wotlk carry the -{flavor} suffix (the twin used
  * to resolve vanilla's extractors for every lane, driving vanilla-built tools
  * against a wotlk client). */
 internal fun extractorToolsDir(repo: File, flavorId: String): File =

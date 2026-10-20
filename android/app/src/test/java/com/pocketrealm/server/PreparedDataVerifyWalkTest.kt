@@ -19,7 +19,7 @@ import java.security.MessageDigest
  * ANY single manifest-listed file is caught on the next verify, whatever
  * its directory class.
  *
- * Measured budget (the record the R4 gate checks against):
+ * Measured budget (the record the gate checks against):
  *  - host (canonical dev machine, 2026-10-09, measured this wave):
  *    SHA-256 throughput 307 MiB/s (3.2 MiB .mmtile sample, python hashlib;
  *    reviewer's independent sample 441 MiB/s, 6.2 MiB .mmtile) over a

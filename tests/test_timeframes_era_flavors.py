@@ -42,7 +42,7 @@ FLAVORS = ("tbc", "wotlk")
 
 # The legitimization moves, corpus-proven both ways: the term must NOT be
 # banned for the flavor AND must hit the flavor's shipped dump (whole-word)
-# — the D50 probe direction ("no longer hits the shipped dump = corpus
+# — the probe direction ("no longer hits the shipped dump = corpus
 # regression").
 LEGITIMIZED_TERMS = {
     # TBC legitimizes every vanilla-banned TBC concept.
@@ -70,7 +70,7 @@ KEPT_GUARDS_TBC = {
     "sewers of dalaran": "WotLK Dalaran (4 lore-text mentions)",
     "mists of pandaria": "post-WotLK expansion title (1 lore mention)",
     "nazjatar": "post-WotLK zone (9 lore-text mentions)",
-    # R5-2: WotLK proper-noun guards (dump-scan counts).
+    # WotLK proper-noun guards (dump-scan counts).
     "argent tournament": "WotLK zone (10 hits)",
     "borean tundra": "WotLK zone (16 hits)",
     "crystalsong": "WotLK forest (6 hits)",
@@ -84,7 +84,7 @@ KEPT_GUARDS_TBC = {
     "taunka": "WotLK tribe (34 hits)",
     "tuskarr": "WotLK tribe (22 hits)",
     "wintergrasp": "WotLK PvP zone (104 hits)",
-    # R2-1 (round 2): full-corpus scan additions.
+    # full-corpus scan additions.
     "vortex pinnacle": "Cata dungeon (88 hits)",
     "utgarde": "WotLK dungeons (16 hits)",
     "grizzly hills": "WotLK zone (15 hits)",
@@ -100,7 +100,7 @@ KEPT_GUARDS_TBC = {
     "wintergarde": "WotLK keep (17 hits)",
     "throne of the tides": "Cata dungeon (6 hits)",
     "amber ledge": "WotLK enclave (5 hits)",
-    # R5-1 (round 5): post-TBC Cata concepts with tbc-dump hits - the hits
+    # post-TBC Cata concepts with tbc-dump hits - the hits
     # are Cata-era lore text in the shared dump, not live TBC vocabulary,
     # and the card-lint shows zero era-legitimate card drops. (vashj'ir
     # carries no guard row: zero whole-word tbc-dump hits - its single
@@ -112,7 +112,7 @@ KEPT_GUARDS_TBC = {
     "tol barad": "Cata PvP isle (25 hits)",
     "wandering isle": "pandaren isle (17 hits)",
     "bilgewater": "Cata goblin cartel (40 hits)",
-    # R6-1 (round 6): the WotLK-era SYSTEMS and FACTIONS the round-2
+    # the WotLK-era SYSTEMS and FACTIONS the
     # zone-only scan missed - each hits the shipped tbc dump as live
     # broadcast_text anachronisms and drops zero era-legitimate cards
     # except where noted (recorded in CARD_DROPS_RECORDED).
@@ -131,7 +131,7 @@ KEPT_GUARDS_TBC = {
 KEPT_GUARDS_WOTLK = {
     "mists of pandaria": "post-WotLK expansion title (1 lore mention)",
     "nazjatar": "post-WotLK zone (8 lore-text mentions)",
-    # R2-2 (round 2): full-corpus scan additions.
+    # full-corpus scan additions.
     "vortex pinnacle": "Cata dungeon (88 hits)",
     "ramkahen": "Cata faction (9 hits)",
     "throne of the tides": "Cata dungeon (6 hits)",
@@ -144,7 +144,7 @@ KEPT_GUARDS_WOTLK = {
     "stonecore": "Cata dungeon (2 hits)",
     "tol barad": "Cata PvP isle (25 hits)",
     "wandering isle": "pandaren isle (17 hits)",
-    # R6-3 (round 6): the MoP zone the MoP-title scan standard missed -
+    # the MoP zone the MoP-title scan standard missed -
     # broadcast_text 75183 ('The presence of the Timeless Isle is proof...')
     # is live MoP text in the shipped WotLK dump.
     "timeless isle": "MoP zone (6 hits)",
@@ -159,16 +159,16 @@ REQUIRED_ANACHRONISM_BANS = {
         "gilneas has opened", "mists of pandaria", "warlords of draenor",
         "zereth mortis", "korthia", "revendreth", "maldraxxus",
         "ardenweald", "nazjatar",
-        # R5-2 WotLK proper-noun guards.
+        # WotLK proper-noun guards.
         "argent tournament", "borean tundra", "crystalsong", "dragonblight",
         "ebon hold", "frenzyheart", "howling fjord", "icecrown",
         "sholazar basin", "storm peaks", "taunka", "tuskarr",
-        # R2-1 (round 2) guards - full-corpus scan (card-safe subset).
+        # guards - full-corpus scan (card-safe subset).
         "vortex pinnacle", "utgarde", "grizzly hills", "transitus shield",
         "ramkahen", "westguard keep", "kamagua", "blackrock caverns",
         "halls of origination", "hodir", "valiance keep", "valgarde",
         "wintergarde", "throne of the tides",
-        # R5-1 (round 5 serious): post-TBC concepts added. Each drops zero
+        # post-TBC concepts added. Each drops zero
         # era-legitimate lore cards (card-lint verified); deepholm/
         # firelands/therazane are NOT here — they are era-legitimate
         # vanilla-era elemental/MC vocabulary the shared cards cite, pruned
@@ -176,7 +176,7 @@ REQUIRED_ANACHRONISM_BANS = {
         "vashj'ir", "ny'alotha", "stormsong valley", "drustvar", "vol'dun",
         "gilneas city", "kezan", "lost isles", "stonecore", "tol barad",
         "wandering isle", "bilgewater",
-        # R6-1 (round 6): the WotLK-era systems/factions the zone-only scan
+        # the WotLK-era systems/factions the zone-only scan
         # missed — inscription/argent crusade/saronite/the skybreaker/
         # sons of hodir/onslaught harbor (R6-1) and timeless isle (R6-3's
         # standard applied to tbc).
@@ -191,10 +191,10 @@ REQUIRED_ANACHRONISM_BANS = {
         "zereth mortis", "korthia", "revendreth", "maldraxxus",
         "ardenweald", "nazjatar", "battle for azeroth", "shadowlands",
         "the war within", "vashj'ir", "ny'alotha",
-        # R2-2 (round 2) guards.
+        # guards.
         "vortex pinnacle", "ramkahen", "blackrock caverns",
         "throne of the tides", "halls of origination", "bilgewater",
-        # R6-3 (round 6): the MoP zone.
+        # the MoP zone.
         "timeless isle",
     ],
 }
@@ -202,7 +202,7 @@ REQUIRED_ANACHRONISM_BANS = {
 # Mirror direction: era-native concepts that must NEVER be banned.
 REQUIRED_NOT_BANNED = {
     "tbc": LEGITIMIZED_TERMS["tbc"] + ["northrend", "dalaran", "lich king",
-                                       # R5-1 round-5 close: elemental-plane /
+                                       # close: elemental-plane /
                                        # vanilla-MC lore the shared cards cite.
                                        "deepholm", "firelands", "therazane"],
     "wotlk": LEGITIMIZED_TERMS["wotlk"] + ["lich king", "worgen", "gilneas",
@@ -260,7 +260,7 @@ def test_flavor_carries_its_own_grounded_baseline(flavor: str) -> None:
         "banned — the W3.1 legitimization move is missing"
     )
     # stage curation no longer carries the pending-flavor-qualification
-    # marker (W3.1 curates before the W4 flip — the marker must be gone).
+    # marker (curates before the flip — the marker must be gone).
     for stage in manifest["stages"]:
         curation = str((stage.get("era_terms") or {}).get("curation", ""))
         assert not curation.startswith("pending-flavor-qualification"), (
@@ -420,18 +420,18 @@ def test_generated_header_serves_distinct_per_flavor_sets() -> None:
         "must stay byte-equivalent (D31/D50)"
     )
 
-# R5-1: the per-flavor LORE-CORPUS card-drop table — the EraLintCards
+# the per-flavor LORE-CORPUS card-drop table — the EraLintCards
 # load-time lint drops any card whose surface trips the ACTIVE stage's ban
 # lists, so a shared-corpus card that legitimately names later-era lore
 # must either survive or its drop must be recorded here (title ->
 # justification). "Eastern Kingdoms" on the wotlk AND tbc lanes is a
 # CORRECT era drop: the card's text narrates the post-Cata shattering
 # (vashj'ir), text an era bot must not cite as [RESULT] truth.
-# R2-1/R2-2 (round 2): the recorded DELIBERATE ALLOWS - later-era proper
+# the recorded DELIBERATE ALLOWS - later-era proper
 # nouns with whole-word dump hits that are deliberately NOT banned because
 # the dump's own rows are era-legitimate lore the lane cites. Audited both
 # ways by test_later_era_terms_are_banned_or_recorded_allows.
-# (R5-3: this table existed TWICE at module level — the second definition
+# this table existed TWICE at module level — the second definition
 # silently shadowed the first; the duplicate is removed and the surviving
 # table is the fuller-worded one the tests always actually read.)
 KEPT_ALLOWS = {
@@ -441,9 +441,9 @@ KEPT_ALLOWS = {
         "suramar": "single lore mention (1 hit); the Legion zone never features",
         "grim batol": "pre-Cata Dragonmaw lore (TBC quest text) - era-legitimate "
                       "for the TBC lane",
-        # R2-1 close (card-lint): these guards dropped real vanilla-era lore
+        # close (card-lint) these guards dropped real vanilla-era lore
         # cards (Molten Core, Baron Geddon, Sulfuras, Human, Tirisfal Glades,
-        # Zeppelin, ...) - pruned to allows per the R5-1 rule.
+        # Zeppelin,...) - pruned to allows per the rule.
         "firelands": "card-lint allow - vanilla-era MC lore (Ragnaros/Firelands) "
                      "cited by Molten Core/Baron Geddon/Sulfuras cards",
         "therazane": "card-lint allow - vanilla-era elemental lore cited by "
@@ -458,7 +458,7 @@ KEPT_ALLOWS = {
         "wyrmrest temple": "card-lint allow - vanilla-era Zeppelin route lore",
         "yogg-saron": "card-lint allow - vanilla-era Northrend/Old God/"
                       "Nerubian lore",
-        # R6-1 (round 6): the generic-word collision class - the dump hits
+        # the generic-word collision class - the dump hits
         # mix era-legitimate prose with later-era system rows, so a ban
         # would false-trip legitimate vocabulary (sampled rows cited).
         "dragon isles": "retail DF home of the dragonflights (4 tbc-dump "
@@ -489,9 +489,9 @@ KEPT_ALLOWS = {
         "stormstout": "the brewery predates the Mists expansion (MC-era "
                       "vocabulary per the round-2 scan)",
         "grim batol": "pre-Cata Dragonmaw lore - era-legitimate for WotLK",
-        # R2-2 close (card-lint): these guards dropped real vanilla-era lore
+        # close (card-lint) these guards dropped real vanilla-era lore
         # cards (Gnome, Molten Core, Earth elemental, Therazane, Trogg, Boat,
-        # Cho'gall, Wildhammer dwarf) - pruned to allows per the R5-1 rule.
+        # Cho'gall, Wildhammer dwarf) - pruned to allows per the rule.
         "deepholm": "card-lint allow - vanilla-era elemental lore cited by "
                     "Earth elemental/Therazane/Trogg cards",
         "firelands": "card-lint allow - vanilla-era MC lore cited by Molten "
@@ -502,8 +502,8 @@ KEPT_ALLOWS = {
         "tiragarde sound": "card-lint allow - vanilla-era Boat route lore",
         "twilight highlands": "card-lint allow - vanilla-era Cho'gall/"
                               "Wildhammer dwarf lore",
-        # R6-1/R6-3 (round 6): the generic-word collision class on this
-        # lane too (the reviewer's own archaeology call), plus dragon isles
+        # the generic-word collision class on this
+        # lane too (an archaeology judgment call), plus dragon isles
         # (4 dump hits; 11 era-legitimate cards - recorded, not banned).
         "dragon isles": "retail DF home of the dragonflights (4 wotlk-dump "
                         "hits); 11 era-legitimate cards cite it in "
@@ -521,7 +521,7 @@ CARD_DROPS_RECORDED = {
     "wotlk": {
         "Eastern Kingdoms": "correct era drop - the card's text is post-Cata "
                             "shattering lore (the term is vashj'ir, a Cata zone)",
-        # R6-3 (round 6): the card's MoP/DF retail narration (Timeless Isle,
+        # the card's MoP/DF retail narration (Timeless Isle,
         # Dragon Isles, Forbidden Reach) is wrong-era truth on this lane.
         "Southsea Freebooters": "correct era drop - the card narrates MoP/DF "
                                 "retail zones (timeless isle is the ban hit; "
@@ -531,7 +531,7 @@ CARD_DROPS_RECORDED = {
         "Eastern Kingdoms": "correct era drop - same post-Cata Shattering "
                             "text as the wotlk lane's recorded drop (the term "
                             "is vashj'ir, a Cata zone; R5-1 round 5)",
-        # R6-1 (round 6): correct-era drops for the TBC lane.
+        # correct-era drops for the TBC lane.
         "Herbalism": "correct era drop - the card cites Inscription, a "
                      "profession that launches with WotLK and does not "
                      "exist on this lane (the term is inscription; R6-1)",
@@ -558,7 +558,7 @@ CARD_DROPS_RECORDED = {
     },
 }
 
-# R6-2 (code-red round 6): the per-flavor CARD-CONTENT recording - a term
+# the per-flavor CARD-CONTENT recording - a term
 # whose dump/card hits are era-legitimate vocabulary or whose ban would
 # mass-drop era-legitimate cards is deliberately NOT banned, and the term
 # is recorded here with its justification (never silent). A card whose
@@ -664,7 +664,7 @@ def test_shared_lore_corpus_card_drops_are_recorded_per_flavor(flavor: str) -> N
         if not line.strip():
             continue
         card = json.loads(line)
-        # R5-3: the replica surface must match the real EraLintCards
+        # the replica surface must match the real EraLintCards
         # dimension exactly — the card's KEYS join the lint surface in
         # the truth core ("IsKnownName treats every key as ground truth,
         # so a contaminated key would neuter the guard"). A ban term
@@ -714,7 +714,7 @@ def test_card_lint_replica_includes_the_keys_dimension() -> None:
 
 
 CONTENT_PROBE_TERMS = (
-    # R6-2 (round 6): the later-era proper-noun set whose card-content
+    # the later-era proper-noun set whose card-content
     # presence the term-ban lint cannot see unless a lane bans it.
     "argent crusade", "fourth war", "timeless isle", "dragon isles",
     "forbidden reach", "inscription",
@@ -803,13 +803,13 @@ def test_later_era_terms_are_banned_or_recorded_allows(flavor: str) -> None:
             "kamagua", "throne of the tides", "amber ledge", "westfall brigade",
             "blackrock caverns", "halls of origination", "wyrmrest", "ulduar",
             "suramar", "grim batol",
-            # R6-1 (round 6): the WotLK-era systems/factions the round-2
+            # the WotLK-era systems/factions the
             # "full-corpus scan" omitted - each dump-hits and must be
             # banned-with-guard or a recorded allow.
             "inscription", "argent crusade", "glyph", "saronite",
             "the skybreaker", "sons of hodir", "onslaught harbor",
             "achievement", "timeless isle",
-            # R6-2's retail-narration terms (banned or recorded, both ways).
+            # its retail-narration terms (banned or recorded, both ways).
             "fourth war", "dragon isles", "forbidden reach",
             "archaeology", "obsidium", "pyrium",
         ],
@@ -817,7 +817,7 @@ def test_later_era_terms_are_banned_or_recorded_allows(flavor: str) -> None:
             "vortex pinnacle", "uldum", "firelands", "therazane", "ramkahen",
             "throne of the tides", "blackrock caverns", "halls of origination",
             "bilgewater", "ulduar", "mount hyjal", "stormstout", "grim batol",
-            # R6-3 (round 6): the MoP zone + the retail-narration and
+            # the MoP zone + the retail-narration and
             # generic-word terms (banned or recorded, both ways).
             "timeless isle", "fourth war", "dragon isles", "forbidden reach",
             "archaeology", "obsidium", "pyrium",

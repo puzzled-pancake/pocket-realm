@@ -112,7 +112,7 @@ class FriendRequestFlowTest {
 
     @Test
     fun aMidWaitHostDropSurfacesAndKeepsCheckingUntilApproval() = runTest {
-        // §6: a dropped host must never present as "waiting for the host to
+        // a dropped host must never present as "waiting for the host to
         // click Approve" — the first mid-wait unreachable surfaces through
         // the wait-update channel while polling continues.
         val saved = mutableListOf<Long>()

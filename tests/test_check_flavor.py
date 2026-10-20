@@ -142,7 +142,7 @@ def test_current_manifest_is_valid():
 
 
 def test_two_qualified_flavors_error_under_default_single_lane(tmp_path):
-    # W4 flip: the shipped manifest carries the explicit
+ # Flip: the shipped manifest carries the explicit
     # single_qualified_lane=false opt-out, so the DEFAULT (key absent)
     # contract is exercised by popping it - two qualified flavors without
     # the opt-out still fail loud (D9's gate never silently retires).
@@ -253,7 +253,7 @@ def test_qualified_extractors_patch_that_exists_passes(tmp_path):
 
 def test_unqualified_extractors_patch_is_not_checked(tmp_path):
     # Only qualified flavors carry the file-existence bar: an unqualified
-    # lane's pins are placeholders until its qualification. W4 flip: the
+ # Lane's pins are placeholders until its qualification. The
     # live manifest qualifies tbc, so the UNQUALIFIED branch is exercised
     # by explicitly de-qualifying it here (storage back to null - the
     # unqualified rule).
@@ -357,7 +357,7 @@ def test_non_list_graphics_routes_is_rejected(tmp_path):
 
 
 def test_non_vanilla_qualified_flavor_is_dxvk_only(tmp_path):
-    # D3: a newly qualified flavor must not declare the GL/VirGL lanes.
+    # a newly qualified flavor must not declare the GL/VirGL lanes.
     manifest = load_manifest()
     manifest["single_qualified_lane"] = False
     tbc = flavor_by_id(manifest, "tbc")
@@ -371,7 +371,7 @@ def test_non_vanilla_qualified_flavor_is_dxvk_only(tmp_path):
 
 
 def test_vanilla_may_keep_its_gl_routes(tmp_path):
-    # D3 restricts only non-vanilla flavors; the shipped lane legitimately
+    # restricts only non-vanilla flavors; the shipped lane legitimately
     # declares all three routes.
     manifest = load_manifest()
     assert "opengl" in flavor_by_id(manifest, "vanilla")["wine"]["graphics_routes"]
@@ -380,20 +380,20 @@ def test_vanilla_may_keep_its_gl_routes(tmp_path):
 
 
 def test_s51_registration_is_complete_for_all_three_qualified_flavors():
-    # Lanes item 13 (S5.1) + the W4 flip (completion-plan §4 W4.4): the
+    # Lanes + the flip (completion-plan) the
     # staged genuine clients' identity is a COMPLETE tuple on every
     # qualified flavor — hashes, size, build list, and MPQ exact set —
     # with the build list naming exactly the flavor's own build, and the
-    # storage budgets are the W4-MEASURED blocks (no null remains).
+    # storage budgets are the -MEASURED blocks (no null remains).
     manifest = load_manifest()
     for fid, build in (("vanilla", 5875), ("tbc", 8606), ("wotlk", 12340)):
         flavor = flavor_by_id(manifest, fid)
         assert flavor["qualified"] is True
         assert flavor["client_binary"]["known_exe_size_bytes"] > 0
         assert flavor["wine"]["known_exe_sha256"] is not None
-        # vanilla's list predates S5.1 and stays [] with its explanatory
+        # vanilla's list predates and stays [] with its explanatory
         # note (the qualified branch only requires a note for the empty
-        # list); the S5.1-registered lanes carry exactly their own build.
+        # list); the registered lanes carry exactly their own build.
         if fid != "vanilla":
             assert flavor["supported_client_builds"] == [build]
         assert flavor["mpq_set"]["required"], f"{fid} MPQ exact set is empty"
@@ -401,21 +401,21 @@ def test_s51_registration_is_complete_for_all_three_qualified_flavors():
         assert isinstance(storage, dict), f"{fid} storage must be the measured block"
         assert storage["extracted_estimate_bytes"] > 0
         assert storage["max_total_bytes"] > 0
-        # the W4-measured tbc/wotlk blocks carry the measurement
-        # provenance; vanilla's pre-W4 block predates the note convention.
+        # the -measured tbc/wotlk blocks carry the measurement
+        # provenance; vanilla's earlier block predates the note convention.
         if fid != "vanilla":
             assert "measured" in storage.get("note", ""), (
                 f"{fid} storage note must carry the measurement provenance")
 
 
 def test_partial_s51_registration_errors(tmp_path):
-    # The pre-S5.1 rule banned any identity datum on an unqualified flavor;
+    # The earlier rule banned any identity datum on an unqualified flavor;
     # the measurements exist now, so the surviving lie is the PARTIAL
     # registration. Stripping one member of the tuple (the build list) must
     # fail loud, naming the completeness rule.
     manifest = load_manifest()
     wotlk = flavor_by_id(manifest, "wotlk")
-    # W4 flip: the live manifest qualifies wotlk, so the UNQUALIFIED
+ # Flip: the live manifest qualifies wotlk, so the UNQUALIFIED
     # branch under test is reached by explicitly de-qualifying it.
     wotlk["qualified"] = False
     wotlk["storage"] = None
@@ -434,7 +434,7 @@ def test_unqualified_supported_client_builds_must_name_only_the_own_build(tmp_pa
     # registration rule refuses.
     manifest = load_manifest()
     tbc = flavor_by_id(manifest, "tbc")
-    # W4 flip: the live manifest qualifies tbc, so the UNQUALIFIED branch
+ # Flip: the live manifest qualifies tbc, so the UNQUALIFIED branch
     # under test is reached by explicitly de-qualifying it.
     tbc["qualified"] = False
     tbc["storage"] = None
@@ -447,7 +447,7 @@ def test_unqualified_supported_client_builds_must_name_only_the_own_build(tmp_pa
 
 
 def test_wine_known_exe_sha256_shape_is_checked(tmp_path):
-    # The S5.1 sha256 telltale is null-or-64-lowercase-hex; a 32-hex MD5
+    # The sha256 telltale is null-or-64-lowercase-hex; a 32-hex MD5
     # pasted into the sha256 slot must fail loud.
     manifest = load_manifest()
     flavor_by_id(manifest, "tbc")["wine"]["known_exe_sha256"] = (
@@ -460,7 +460,7 @@ def test_wine_known_exe_sha256_shape_is_checked(tmp_path):
     ), errors
 
 
-# ---- round-2 R2-1b/R2-2: the provenance binding is fail-closed against
+# ---- the provenance binding is fail-closed against
 # doctored manifests (upstream-rerouting and unknown-flavor attacks).
 
 
@@ -508,7 +508,7 @@ def test_unknown_flavor_id_fails_loud_not_silent_unbound(tmp_path):
     ), errors
 
 
-# ---- round-3 R3-3/R3-4/R3-5: identity + provenance rejections.
+# ---- identity + provenance rejections.
 
 
 def test_accepted_builds_containing_a_foreign_registered_build_fails(tmp_path):
@@ -609,7 +609,7 @@ def test_validate_is_deterministic_across_calls_in_one_process(tmp_path):
     assert any("foreign registered build" in e for e in third), third
 
 
-# ---- round-5 R5-R2-1: the clientId is CONSISTENT with the flavor's own
+# ---- the clientId is CONSISTENT with the flavor's own
 # identity (build suffix, version components), not just shape-valid.
 
 
@@ -652,11 +652,11 @@ def test_wotlk_patch_letter_client_id_stays_consistent():
 
 
 # ---------------------------------------------------------------------------
-# Review round 2 (R2-2): a duplicated sources.json id defeats the by-id
+# a duplicated sources.json id defeats the by-id
 # binding — check_flavor's URL-first match binds whichever duplicate carries
 # the doctored URL, check_repo's by-id dict collapses duplicates (last
 # wins), and check_sources verifies each duplicate independently. All three
-# gates now refuse duplicate ids; the reviewer's breaker
+# gates now refuse duplicate ids; the adversarial breaker case
 # (cmangos-core-tbc twice: honest first, vanilla URL+commit second, with a
 # flavor.json pinning tbc's server_core at the vanilla commit) must fail.
 # ---------------------------------------------------------------------------
@@ -775,11 +775,11 @@ def test_check_sources_refuses_duplicate_ids(tmp_path, monkeypatch, capsys):
 
 
 # ---------------------------------------------------------------------------
-# R2-3 (review round 3): the per-flavor compatibility-constant VALUES were
+# the per-flavor compatibility-constant VALUES were
 # unpinned — check_flavor only requires a non-empty mpq list and an
 # interface number in range, so a qualified lane carrying another flavor's
 # MPQ set or addon interface number validated clean. These are the port
-# plan §3 table constants (addon interfaces 11200/20400/30300) and the C2
+# plan table constants (addon interfaces 11200/20400/30300) and the
 # exact MPQ sets; a change here is a deliberate client-identity decision
 # and must land together with this pin (and the Kotlin ClientFlavor
 # mirrors), never as a silent manifest edit.

@@ -413,7 +413,7 @@ internal fun realmStatusBadge(state: RealmState): String = when (state) {
     is RealmState.Stopping -> "Stopping…"
     is RealmState.Recovering -> "Recovering…"
     is RealmState.Failed -> "Needs attention"
-    // §6.4: the unreachable lane never reads as a clean stop.
+    // the unreachable lane never reads as a clean stop.
     is RealmState.SupervisorUnreachable -> "Supervisor unreachable"
 }
 

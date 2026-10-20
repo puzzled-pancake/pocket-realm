@@ -72,7 +72,7 @@ fun nativeRuntimePathEnv(): Map<String, String> = mapOf(
 )
 
 /**
- * W4 flip (D72 retirement): the per-flavor MariaDB win runtime roots — the
+ * flip (retirement) the per-flavor MariaDB win runtime roots — the
  * vanilla lane keeps its historical dir; tbc/wotlk get their own
  * `native/.build-win-x86_64-<flavor>-mariadb/pocket-runtime-build` (the
  * tools/build_win_realm_runtime.py --flavor <f> --database-backend mariadb
@@ -153,7 +153,7 @@ sourceSets.named("test") {
 detekt {
     buildUponDefaultConfig = true
     config.setFrom("detekt.yml")
-    // Baselines the desktop lane's known detekt debt (R5-2, round 5: the
+    // Baselines the desktop lane's known detekt debt (the
     // FULL main+test set, matching the Android :app:detekt posture — until
     // this round the file carried only the RP-harness debt and the gate sat
     // red on ~496 findings elsewhere). Entries are written by
@@ -187,7 +187,7 @@ dependencies {
     // the same artifact version the Android app pins. The GitHub install
     // twin itself (DesktopAddonRepository) rides java.net.http.
     implementation("com.squareup.okhttp3:okhttp:5.3.0")
-    // W6-N1: BIP-340 Schnorr for the shared discovery/nostr module (the
+    // BIP-340 Schnorr for the shared discovery/nostr module (the
     // Nostr listing signatures). Built with Kotlin 2.1 — the SAME scoped
     // mitigations as okhttp above carry it (stdlib held at 2.0.21 +
     // -Xskip-metadata-version-check). The -jvm artifact is the Kotlin API
@@ -222,7 +222,7 @@ application {
     // drain shuts the session down.
     applicationDefaultJvmArgs = listOf(
         "-Djava.library.path=$nativeLibraryPath",
-        // R3-1/R7-1: the secp256k1 JNI loader extracts its Windows native
+        // the secp256k1 JNI loader extracts its Windows native
         // to the FIRST set property below (fr.acinq.secp256k1.tmpdir) —
         // without this pin the first host Schnorr sign writes the 1.4 MB
         // DLL to %TEMP% on C: (hard rule 1). The test workers carry the
@@ -299,7 +299,7 @@ val validateNativeRuntimeFreshness = nativeRuntimeFenceTask(
 )
 
 tasks.named<Test>("test") {
-    // Round-2 R2-4-2/R3-1: forked test WORKER JVMs take java.io.tmpdir from
+    // forked test WORKER JVMs take java.io.tmpdir from
     // the OS %TEMP% on C: (org.gradle.jvmargs only configures the daemon) -
     // every @TempDir/JUnit scratch root (including SQLite datadir fixtures)
     // must live under the E: toolchain root (plan section 1 hard rule 1).
@@ -531,7 +531,7 @@ tasks.register<JavaExec>("rpHost") {
     description = "Boot the stack and serve the world console ops over stdio JSON lines."
     classpath = sourceSets.named("main").get().runtimeClasspath
     mainClass.set("com.pocketrealm.desktop.RpHostKt")
-    // W4 flip: -PrpFlavor=<tbc|wotlk> loads that lane's MariaDB win runtime
+    // flip: -PrpFlavor=<tbc|wotlk> loads that lane's MariaDB win runtime
     // (the per-flavor build root); the default stays the vanilla lane.
     val rpFlavor = if (project.hasProperty("rpFlavor")) {
         project.property("rpFlavor")?.toString()
@@ -732,7 +732,7 @@ tasks.register("packageApp") {
                 // does NOT chdir, so "." resolved against the caller's cwd
                 // and every loadLibrary-by-name failed in the image.
                 "--java-options", "-Djava.library.path=\$APPDIR",
-                // R3-1/R7-1: same E:-pin as applicationDefaultJvmArgs — the
+                // same E:-pin as applicationDefaultJvmArgs — the
                 // packaged image's first secp256k1 use must not extract its
                 // native to %TEMP% on C:.
                 "--java-options", "-Dfr.acinq.secp256k1.tmpdir=E:/pocket_realm_toolchain/tmp",
@@ -799,7 +799,7 @@ tasks.register("packageApp") {
 
 
 /** Lowercase hex SHA-256 of [file] (the lockfile verification helper —
- * R3-2's llama-server sidecar gate; the same discipline the app module's
+ * its llama-server sidecar gate; the same discipline the app module's
  * packaging applies to vanilla-tweaks and the vendored llama libs). */
 fun sha256Hex(file: File): String {
     val digest = MessageDigest.getInstance("SHA-256")
@@ -901,7 +901,7 @@ fun applyLongPathAwareManifest(exe: File) {
 }
 
 tasks.withType<Test>().configureEach {
-    // Every forked test worker keeps its temp tree on E: (round-2 R2-4-2).
+    // Every forked test worker keeps its temp tree on E:.
     systemProperty("java.io.tmpdir", "E:/pocket_realm_toolchain/tmp")
     // R6-1/R2-r4-1 (W1 code-red round 4): a §2.4-sanctioned FOCUSED run
     // (`-Ppocket.focus=<label>` + --tests ...) writes its JUnit XML under
@@ -910,9 +910,9 @@ tasks.withType<Test>().configureEach {
     // canonical evidence the counts artifacts and the wave-evidence tree
     // pin reconcile against. Canonical runs (no property) keep the
     // historical location, so the canonical trees only ever change via
-    // canonical runs. The set MUST be at configuration time (R5-r5-1/
-    // R5-R1-1: Gradle finalizes task properties at execution start, so the
-    // round-4 doFirst form threw "outputLocation is final" on this lane —
+    // canonical runs. The set MUST be at configuration time (
+    // Gradle finalizes task properties at execution start, so the
+    // doFirst form threw "outputLocation is final" on this lane —
     // the desktop lane has plain Gradle Test tasks and no AGP re-setting
     // report locations; that rationale belonged to the android lane alone).
     val pocketFocusedResults = providers.gradleProperty("pocket.focus")
@@ -920,7 +920,7 @@ tasks.withType<Test>().configureEach {
         .flatMap { layout.buildDirectory.dir(it) }
     if (!providers.gradleProperty("pocket.focus").orNull.isNullOrBlank()) {
         reports.junitXml.outputLocation.set(pocketFocusedResults)
-        // Round-6 R6-N3-r6-2: the JUnit-XML redirect alone was NOT the
+        // the JUnit-XML redirect alone was NOT the
         // fence — the Test task's BINARY results directory stayed
         // canonical, so every sanctioned focused run still attempted to
         // delete build/test-results/test/binary (the observed

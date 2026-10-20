@@ -11,7 +11,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 
-/** GAP-3: the [ActiveFlavor] lane suffix naming the editor's lease gate. */
+/** the [ActiveFlavor] lane suffix naming the editor's lease gate. */
 private const val INGAME_EDITOR_LANE =
     "the in-game settings editor resolves the qualified lane"
 
@@ -128,7 +128,7 @@ internal class InGameSettingsEditor(private val context: Context) {
     }
 
     suspend fun readUvarValues(account: String): Map<String, SavedVariablesCodec.Value>? = underLease { root ->
-        // R2-5: a non-vanilla layout has NO single-file uvar route — the
+        // a non-vanilla layout has NO single-file uvar route — the
         // read degrades to empty instead of reaching the fail-loud backstop.
         if (!InGameSettingsFiles.activeLayout().supportsUvars) return@underLease emptyMap()
         val file = InGameSettingsFiles.accountSavedVariables(root, account)
@@ -269,7 +269,7 @@ internal class InGameSettingsEditor(private val context: Context) {
             }
         }
         if (definition.backend == WowSettingBackend.UVAR) {
-            // R2-5: the single-file route is vanilla-only — refuse honestly
+            // the single-file route is vanilla-only — refuse honestly
             // before the layout backstop can throw mid-stage.
             check(InGameSettingsFiles.activeLayout().supportsUvars) {
                 "\"${definition.label}\" is a vanilla-lane saved variable — the " +
@@ -363,7 +363,7 @@ internal class InGameSettingsEditor(private val context: Context) {
             val current = configValues[definition.key]
             if (classify(id, entry.scope, entry.revision, current)) droppedCvar += id
         }
-        // R2-5: a carried vanilla uvar queue degrades CLEANLY on a
+        // a carried vanilla uvar queue degrades CLEANLY on a
         // non-vanilla lane — every queued uvar drops (the lane has no
         // single-file uvar route) instead of the layout backstop throwing
         // mid-reconcile.

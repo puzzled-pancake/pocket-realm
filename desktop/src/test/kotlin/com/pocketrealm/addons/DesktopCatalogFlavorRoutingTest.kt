@@ -9,7 +9,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * R6-r2-5/R2-4 (code-red round 2): the desktop addon lane is FLAVOR-ROUTED
+ * -5/: the desktop addon lane is FLAVOR-ROUTED
  * — the catalog resolves the active lane's per-flavor asset (the researched
  * tbc/wotlk sets, not the vanilla catalog's free-text projection), the
  * asset's own flavor identity is enforced, and the vanilla lane stays

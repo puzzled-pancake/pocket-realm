@@ -787,7 +787,7 @@ class DurableRuntimeSupervisorTest {
             )
         }
 
-        // The fake's realism contract for the live N1 wedge: the engine's
+        // The fake's realism contract for the live wedge: the engine's
         // stop requires RUNNING, so a stop of a down engine is the service's
         // owner-gated claim release - and any other owner is refused by the
         // same requireOwner gate the kill lanes rely on.
@@ -1383,7 +1383,7 @@ class DurableRuntimeSupervisorTest {
                 // observably down (STOPPED/FAILED) is the service's
                 // owner-gated claim release, never a clean-stop transition.
                 // Success ONLY under the exact recorded claim owner - the
-                // live N1 wedge was exactly this call refusing on both
+                // live wedge was exactly this call refusing on both
                 // supervisor lanes while the claim survived.
                 if (engineState != ComponentLifecycle.READY && engineState != ComponentLifecycle.STARTING) {
                     check(owner == databaseStaleOwner) {

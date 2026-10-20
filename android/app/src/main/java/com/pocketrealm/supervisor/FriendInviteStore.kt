@@ -12,10 +12,10 @@ import org.json.JSONObject
 /**
  * The host side of remote account creation (design-remote-accounts §5): one
  * row per invite in the host app's own store — a dedicated durable file
- * under realm/friend-access, never the settings blob (§5; the settings file
+ * under realm/friend-access, never the settings blob (the settings file
  * already carries mode fields and gets shared around casually).
  *
- * State machine (§5):
+ * State machine:
  *
  * ```
  * OPEN → SUBMITTED → APPROVED → PROVISIONED
@@ -27,7 +27,7 @@ import org.json.JSONObject
  *  - the raw token is NEVER persisted: the row carries `token_hash`
  *    (SHA-256) only, so a copied file tree grants nothing;
  *  - the submitted (s, v) pair is NEVER persisted either — a verifier is
- *    password-equivalent for offline guessing (§2's caveat), so it lives
+ * password-equivalent for offline guessing (§2's caveat), so it lives
  *    only in this process's memory, keyed by invite id, until the host
  *    decides. An app restart mid-approval loses the verifier; the row can
  *    then only be rejected or left to expire. The persisted JSON therefore
@@ -35,12 +35,12 @@ import org.json.JSONObject
  *  - audit rows carry invite id, action, username, accountId, source IP,
  *    timestamp, outcome — never the token (hash only), never s/v.
  *
- * Defaults (§5): single-use, a 15-minute decision window opening at the
+ * Defaults: single-use, a 15-minute decision window opening at the
  * first submission (the retention bound on the held verifier), an optional
  * free-text note, and a hard cap of 8 OPEN invites — generation is refused
  * beyond the cap.
  */
-// TooManyFunctions/LongParameterList: the store is the §5 state machine's
+// TooManyFunctions/LongParameterList: the store is the state machine's
 // whole surface — host actions, the listener's submit/poll verbs, reads,
 // rate rows, and the audit writer — one verb per design rule; the submit
 // signature is the protocol payload, one parameter per field.
@@ -154,7 +154,7 @@ class FriendInviteStore(
      * only. The caller answers REFUSED_RESPONSE on [SubmitResult.Refused].
      */
     // ReturnCount: the early refusals are the protocol's reject legs.
-    @Suppress("LongParameterList", "ReturnCount") // the request payload is exactly these six fields (§3)
+    @Suppress("LongParameterList", "ReturnCount") // the request payload is exactly these six fields
     fun submit(
         inviteId: String,
         token: String,
@@ -418,7 +418,7 @@ class FriendInviteStore(
     }
 
     // ------------------------------------------------------------------
-    // Rate-limit rows (§6 layer 1: "in-memory + persisted row") — the
+    // Rate-limit rows (layer 1: "in-memory + persisted row") — the
     // listener owns the live counters; the store persists the lockout rows
     // so an app restart does not amnesty a locked source.
     // ------------------------------------------------------------------
@@ -434,7 +434,7 @@ class FriendInviteStore(
         val record = RateRecord(ip.take(MAX_IP_CHARS), failures, lockedUntilMs)
         val index = persisted.rate.indexOfFirst { it.ip == record.ip }
         if (index >= 0) persisted.rate[index] = record else persisted.rate += record
-        // §6 layer 1, bounded persistence: a bad-token spray from many
+        // layer 1, bounded persistence: a bad-token spray from many
         // unique source IPs must not grow the store (and its whole-file
         // rewrite) without bound — the row count is capped. Over the cap,
         // insertion-OLDEST UNLOCKED rows are evicted first: a live lockout
@@ -609,7 +609,7 @@ class FriendInviteStore(
         }
     }
 
-    @Suppress("LongParameterList") // one parameter per audit column (§12)
+    @Suppress("LongParameterList") // one parameter per audit column
     private fun audit(
         action: String,
         inviteId: String?,
@@ -630,7 +630,7 @@ class FriendInviteStore(
             auditFile.parentFile?.mkdirs()
             auditFile.appendText(row.toString() + "\n", Charsets.UTF_8)
         }
-        // R4-1: the rotation runs OUTSIDE the append's runCatching — a
+        // the rotation runs OUTSIDE the append's runCatching — a
         // rotation failure must be loud, never silently swallowed (the
         // silent-skip shape would let the file regrow without bound).
         rotateAuditBudgetLocked()
@@ -690,7 +690,7 @@ class FriendInviteStore(
         internal const val MAX_OPEN_INVITES = 8
         internal const val SUBMISSION_WINDOW_MS = 15L * 60L * 1_000L
 
-        /** ≥ the §5 requirement (16+ bytes) with margin: 24 bytes = 192 bits. */
+        /** ≥ the requirement (16+ bytes) with margin: 24 bytes = 192 bits. */
         internal const val TOKEN_BYTES = 24
         internal const val INVITE_ID_CHARS = 6
         internal const val INVITE_ID_RANDOM_BYTES = 5
@@ -727,7 +727,7 @@ class FriendInviteStore(
         internal const val ACTION_EXPIRED = "invite-expired"
         internal const val ACTION_TOKEN_BURNED = "invite-token-burned"
 
-        // §12: the moderation verbs ride the same no-secret audit rows.
+        // the moderation verbs ride the same no-secret audit rows.
         internal const val ACTION_BANNED = "friend-banned"
         internal const val ACTION_UNBANNED = "friend-unbanned"
         internal const val ACTION_GM_CHANGED = "friend-gm-changed"

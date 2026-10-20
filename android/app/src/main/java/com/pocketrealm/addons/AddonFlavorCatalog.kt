@@ -79,7 +79,7 @@ object AddonFlavorCatalog {
                 !negationCovers(addon.clientTarget, token)
         }
 
-    /** Boundary-bounded token match (R2-1 regression guard): the match's
+    /** Boundary-bounded token match (regression guard): the match's
      * neighbours must not be a DIGIT (so 2.4.3 never matches inside
      * 2.4.35, nor 1.12 inside 11.2); a following DOT is the same client
      * line family (the researched "1.12" line covers 1.12.1). */
@@ -110,7 +110,7 @@ object AddonFlavorCatalog {
     internal fun negationCovers(text: String, token: String): Boolean {
         if (text.isBlank()) return false
         // R3-R2-1 (android-ui-tests review round 3): the WHOLE clientTarget
-        // is scanned — no distance window. The round-2 80/40-char window let
+        // is scanned — no distance window. The 80/40-char window let
         // a cue beyond the window ("compatible with every release from the
         // 1.12 line except 2.4.3" with the cue 132 chars before) accept a
         // wrong-lane listing; a clientTarget that negation-covers ANY lane

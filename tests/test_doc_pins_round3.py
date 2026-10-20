@@ -35,7 +35,7 @@ def test_every_lockfile_scheme_resolves_to_the_resolver_output():
     code cannot drift again."""
     for flavor in ("vanilla", "tbc", "wotlk"):
         layout = flavor_layout.resolve(flavor)
-        # the doc's §2 rows these families cover
+        # the doc's rows these families cover
         assert layout.sqlite_win_lockfile() == {
             "vanilla": "schemas/realm-runtime-lockfile-sqlite-win.json",
             "tbc": "schemas/realm-runtime-lockfile-sqlite-win-tbc.json",
@@ -51,7 +51,7 @@ def test_every_lockfile_scheme_resolves_to_the_resolver_output():
             else f"schemas/realm-runtime-lockfile-{flavor}-arm64-v8a.json"
         ), (flavor, layout.realm_runtime_lockfile("arm64-v8a"))
         # migration_ledger returns (canonical, alias-or-None): vanilla keeps
-        # the unsuffixed name as the byte-identical alias (D35); tbc/wotlk
+        # the unsuffixed name as the byte-identical alias; tbc/wotlk
         # have canonical-only names.
         canonical, alias = layout.migration_ledger()
         assert canonical == {
@@ -137,13 +137,13 @@ def test_acid_selection_records_name_the_intree_files():
         assert "not as an acid_*.sql file" not in role, flavor
         assert "[ACID]-tagged commits" not in role, flavor
         assert "D54" in role, (flavor, role)  # the correcting decision
-    # 2. the port plan's S4 item 2 names the file shape, not history grep
+    # 2. the its names the file shape, not history grep
     plan = PORT_PLAN.read_text(encoding="utf-8")
     assert "[ACID]`-tagged commits pulled from the flavor DB repo's history" \
         not in plan, "the disproven history-grep selection is back in the plan"
     assert "ACID/acid_<expansion>.sql`**" in plan
     assert "decision D54" in plan
-    # 3. the correcting decision entry exists, references D33, and names
+    # 3. the correcting decision entry exists, references, and names
     #    both files + the ledger entries the selection actually produces
     decisions = DECISIONS.read_text(encoding="utf-8")
     correction = re.search(

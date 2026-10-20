@@ -76,12 +76,12 @@ private val ARCHIVE_MIME_TYPES = arrayOf(
 
 /** R2-1 (native-server round 1): the screen's client-identity copy
  * resolves the ACTIVE lane's version from the flavor registry — the
- * TunnelInvite.clientRequirementLine precedent (D9). A hard-coded
+ * TunnelInvite.clientRequirementLine precedent. A hard-coded
  * "WoW 1.12.1 client" line on a TBC/WotLK lane was factually wrong copy
  * AND evaded the leak sweep (no version token match). Fails loud with the
  * machine's message on an ambiguous registry, like every sibling site.
  *
- * W4 flip: with no pick yet under several qualified flavors the resolver
+ * Flip: with no pick yet under several qualified flavors the resolver
  * refuses loud — this render lane returns null and the screen renders the
  * first-pick copy instead of crashing composition (the import operation
  * itself keeps the machine's loud refusal). */
@@ -102,7 +102,7 @@ private fun activeClientVersionOrNull(): String? =
 @Composable
 fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValues) {
     val context = LocalContext.current
-    // R2-1: resolved per composition from the live registry — a flavor flip
+    // resolved per composition from the live registry — a flavor flip
     // is honored on the next recomposition, never frozen at first composition.
     val clientVersion = activeClientVersionOrNull()
     val ui = remember { ImportUiState(context) }
@@ -160,7 +160,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     ) {
         Text("Game setup", style = MaterialTheme.typography.headlineSmall)
         if (clientVersion == null) {
-            // W4 flip: no pick yet under several qualified flavors — the
+ // Flip: no pick yet under several qualified flavors — the
             // first-pick copy instead of a "null" version interpolation
             // (the import operation keeps the machine's loud refusal).
             Text(
@@ -768,5 +768,5 @@ internal fun importWatchdogAction(facts: ImportWatchdogFacts): ImportWatchdogAct
 /** The import confirmation dialog (extracted from ClientScreen so the
  * screen's composition complexity stays under the detekt threshold; the
  * copy branches on archive-vs-folder and names the ACTIVE lane's client
- * version — the W4 flip's render-time null path renders the first-pick
+ * version — the flip's render-time null path renders the first-pick
  * copy instead of a "null" interpolation). */

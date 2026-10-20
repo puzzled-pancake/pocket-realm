@@ -8,7 +8,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * W6-N3: the two-process loopback join E2E on the desktop lane — the ask's
+ * the two-process loopback join E2E on the desktop lane — the ask's
  * named test. TWO REAL PROCESSES (java -jar gateway-…-all.jar): the HOST
  * gateway muxing a fake loopback realm stack (realmd lane + world lane),
  * the JOIN gateway binding the joiner-side loopback listeners 3724/8085;
@@ -20,16 +20,16 @@ import kotlin.test.assertTrue
  *
  * Transport posture: BOTH processes run --relay-disabled and the join is
  * --direct-allowed with an explicit loopback address — the ONE-machine
- * shape (a relay leg needs a second network island; the N2 spike measured
+ * shape (a relay leg needs a second network island; the spike measured
  * the relay transport itself, and the relay-only dial SHAPE is pinned at
  * the args/options level here). The host-side fake stack rides the
  * loopback-pinned --realm-target/--world-target overrides because the join
  * gateway's own listeners own the real 3724/8085 on this machine.
  *
- * W6-N4: the process/fake-stack/client-lane machinery moved verbatim to
+ * the process/fake-stack/client-lane machinery moved verbatim to
  * GatewayProcSupport.kt / FakeStack.kt / GatewayClientLane.kt so the
  * reconnect proofs (ReconnectRelayE2E, ReconnectDockerE2E) drive the same
- * harness; this file keeps the three N3 scenarios unchanged.
+ * harness; this file keeps the three scenarios unchanged.
  */
 @ExtendWith(GamePortsGuard::class)
 class GatewaySubprocessE2E {

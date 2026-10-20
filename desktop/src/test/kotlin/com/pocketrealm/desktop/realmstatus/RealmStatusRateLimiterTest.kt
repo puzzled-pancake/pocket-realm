@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The §6.2 PUBLIC limiter keying's header-family pins — the exact shapes
+ * The PUBLIC limiter keying's header-family pins — the exact shapes
  * the spec's T11/T11b/T11c/T11d rows assert at the HTTP layer:
  *
  *  - a validated CF-Connecting-IP (global-unicast IPv4, CGNAT 100.64/10,

@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 try:
     from tools import common
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import common
 PINNED_SOURCE = ROOT / "native" / ".providers-extracted" / "wine-source-1012f3d"
 PINNED_COMMIT = "1012f3d99507b80d4869eabf0853567660a7ecbb"

@@ -65,7 +65,7 @@ import zipfile
 from pathlib import Path
 try:
     from tools import common
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from tools import common
 
@@ -74,7 +74,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SHELL_STORE = ROOT / "build" / "seed-floor-shells"
 
 # version -> (year archive URL, pinned sha256, banner prefix). Immutable
-# upstream URLs. Review round 2 (R3-2 serious): the archives are EXECUTED
+# upstream URLs. Review (serious): the archives are EXECUTED
 # (sqlite3.exe replays the production seed SQL), so a banner check alone is
 # not a provenance discipline — the sha256 pins below were measured from
 # fresh sqlite.org downloads 2026-10-09 (and equal the Aug-26 cached

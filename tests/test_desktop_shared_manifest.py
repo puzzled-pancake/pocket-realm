@@ -129,7 +129,7 @@ def test_desktop_twins_exist():
         assert (ROOT / twin).is_file(), f"missing desktop twin for {label}: {twin}"
 
 
-# R1-2 (review round 1, schemas-tools slice): the two JVM tests that parse
+# the two JVM tests that parse
 # schemas/flavor.json and pin it against the shared registries are the
 # manifest-parity GATES. They live in the shared Android test tree, compile
 # unmodified on the desktop JVM (org.json:json is a desktop dependency, and
@@ -368,8 +368,8 @@ if __name__ == "__main__":
         raise SystemExit(f"{_failed} of {len(_CHECKS)} checks failed")
     print(f"OK: all {len(_CHECKS)} manifest checks passed")
 # ---------------------------------------------------------------------------
-# R2UI-1/R6-r2-1 (android-ui-tests review round 2): the AddonCatalog parse
-# twins must carry the SAME load-time negation guard — the round-1 guard
+# the AddonCatalog parse
+# twins must carry the SAME load-time negation guard — the guard
 # landed only on the android twin while the shared AddonFlavorCatalogTest
 # (shared_tests) ran red on the desktop lane. Any future guard/shape change
 # to either parse must land on both in the same change.

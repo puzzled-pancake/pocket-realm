@@ -145,7 +145,7 @@ def test_wrong_pin_checkout_fails_before_configure(tmp_path: Path) -> None:
     manifest = flavor_layout.load_flavor_manifest()
     # Make the synthetic repo the registered checkout for the wotlk core by
     # pointing the check at tmp_path as the worktree: the flavor's core pin is
-    # registered (S2 item 1 landed the pin; the checkout is the synthetic one),
+    # registered (landed the pin; the checkout is the synthetic one),
     # so the wrong-HEAD checkout trips the pin-mismatch class directly — first
     # against the real registered pin, then deterministically against a
     # known-wrong pin copied into the manifest.
@@ -312,7 +312,7 @@ def test_o09_select_flavor_tbc_resolves_after_s2() -> None:
 # C5 (corrected in fact at S4): ACID ships as the in-tree file for every
 # flavor; the [ACID]-commit-history machinery was removed when the pinned DB
 # repos — both single-commit squashed imports, tbc's with no [ACID]-tagged
-# subject at all — disproved the C5 premise. The per-flavor ACID file
+# subject at all — disproved the premise. The per-flavor ACID file
 # selection is pinned in tests/test_s4_per_flavor_migration_ledger.py.
 # ---------------------------------------------------------------------------
 
@@ -451,7 +451,7 @@ def test_migration_staging_root_is_flavor_resolved() -> None:
 
 
 # ---------------------------------------------------------------------------
-# C1/C3/C8/C9 manifest rules (check_flavor) + C9 generator exclusion
+# manifest rules (check_flavor) + generator exclusion
 # ---------------------------------------------------------------------------
 
 def _manifest_copy() -> dict:
@@ -548,7 +548,7 @@ def test_c9_generator_emits_matrix_and_strips_tokens(tmp_path: Path, monkeypatch
 
 def test_c9_generator_fails_loud_on_missing_dists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from tools import generate_conf_matrix as generator
-    # wotlk's dists are not checked out pre-S2: the surfaces helper finds none.
+    # wotlk's dists are not checked out earlier: the surfaces helper finds none.
     monkeypatch.setattr(
         generator, "flavor_surfaces",
         lambda layout: [tmp_path / "mangosd.conf.dist.in"])  # absent on purpose
@@ -556,7 +556,7 @@ def test_c9_generator_fails_loud_on_missing_dists(tmp_path: Path, monkeypatch: p
 
 
 # ---------------------------------------------------------------------------
-# Win seam / o11 fail-loud lanes (P2-6 item 2, S1 item 5)
+# Win seam and o11 fail-loud lanes
 # ---------------------------------------------------------------------------
 
 def test_win_seam_resolves_registered_flavors() -> None:
@@ -633,7 +633,7 @@ def test_o11_unregistered_flavor_fails_loud() -> None:
 
 
 # ---------------------------------------------------------------------------
-# C4: bots pin data + multi-expansion evidence
+# bots pin data + multi-expansion evidence
 # ---------------------------------------------------------------------------
 
 def test_c4_bots_pins_resolved_and_multi_expansion_tree_verified() -> None:
@@ -730,12 +730,12 @@ def test_submodule_gitlink_drift_marker_fails_loud(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# R3-2 (review round 1): every per-flavor o11 extractor lockfile binds its
-# cmangos_commit to the OWNING flavor's server_core pin — the D36 CI covered
+# every per-flavor o11 extractor lockfile binds its
+# cmangos_commit to the OWNING flavor's server_core pin — the CI covered
 # only the two vanilla lockfiles, so a flavor core re-pin without an
 # extractor rebuild silently left a stale provenance lockfile (the exact
-# c096bada<->ce83805d split class D36 closed for vanilla). Doctored-lockfile
-# rotation on a synthetic tree (the D48 two-file-lie pattern).
+# c096bada<->ce83805d split class closed for vanilla). Doctored-lockfile
+# rotation on a synthetic tree (the two-file-lie pattern).
 # ---------------------------------------------------------------------------
 
 def _synthetic_o11_tree(tmp_path: Path) -> Path:

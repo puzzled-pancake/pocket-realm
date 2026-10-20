@@ -12,7 +12,7 @@ import com.pocketrealm.client.ClientFlavor
  * future qualification flip changes the registry, never this SQL.
  *
  * The resolution LAW stays each engine's own (the recorded W1.2 deferral,
- * docs/DECISIONS-PORT.md D72: resolve fail-loud, require the vanilla lane,
+ * docs/DECISIONS-PORT.md: resolve fail-loud, require the vanilla lane,
  * refuse BEFORE any SQL crosses — android from the static registry, desktop
  * from ServerRuntimeFiles.serverFlavor()); this object owns the shape guard
  * and the SQL composition both twins share, so the twins cannot drift.
@@ -29,7 +29,7 @@ object MariaDbBootstrap {
     const val NAME_PATTERN = "[a-z][a-z0-9_]{0,63}"
     val NAME_REGEX = Regex(NAME_PATTERN)
 
-    /** The secret-escape class the composition refuses (R2-r5-1, widened in
+    /** The secret-escape class the composition refuses (widened in
      * R3-r6-1/R2-r6-1): anything that could terminate the IDENTIFIED BY '…'
      * literal or smuggle a statement boundary — quote, backtick, semicolon,
      * leading/trailing whitespace, and the BACKSLASH (under MariaDB's

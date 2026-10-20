@@ -274,7 +274,7 @@ internal class DesktopGuestBans(
          * doubling closes the string contexts the store writes. */
         fun escape(value: String): String = value.replace("'", "''")
 
-        /** The §12 audit actions (the FriendInviteStore's no-secret rows). */
+        /** The audit actions (the FriendInviteStore's no-secret rows). */
         const val AUDIT_BANNED = "friend-banned"
         const val AUDIT_UNBANNED = "friend-unbanned"
     }

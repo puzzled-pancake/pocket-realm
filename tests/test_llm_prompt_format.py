@@ -78,7 +78,7 @@ def test_vectors_cover_tiers_and_note_legs():
     assert tiers == {1, 2, 3, 4, 5}, f"tier coverage incomplete: {sorted(tiers)}"
     # at least one [BRIDGE AI] lines-note row, one extra-note row, one
     # [Memories] row, one says/events/results head row (the compose surface
-    # S5's bridge overlay will reuse)
+    # its bridge overlay will reuse)
     assert any(r["user"]["lines"] for r in rows), "no lines-note row"
     assert any(r["user"]["extra"] for r in rows), "no extra-note row"
     assert any(r["user"]["mems"] for r in rows), "no memories row"

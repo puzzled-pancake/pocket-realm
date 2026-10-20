@@ -30,7 +30,7 @@ from pathlib import Path
 
 try:
     from tools import common
-except ImportError:  # direct execution: python tools/llm_lab/<script>.py
+except ImportError:
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from tools import common

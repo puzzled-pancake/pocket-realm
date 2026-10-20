@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# W6-N2 iroh spike — RELAY leg driver.
+# iroh spike — RELAY leg driver.
 # Topology: two containers on SEPARATE docker bridge networks (inter-bridge
 # traffic dropped by docker isolation), both with internet NAT. Direct IP
 # paths between them are impossible, so all flow traverses the N0 public
@@ -13,7 +13,7 @@ OUT=/e/pocket_realm_complete/out/completion/w6/n2
 # gitignored secrets.env beside the measurement record — never embedded
 # in a tracked file. Loud refusal when absent: write HOST_SECRET /
 # JOIN_SECRET (64-hex each) into that store and re-run. The measured-run
-# identities died with their containers (docker rm -f below); D96
+# identities died with their containers (docker rm -f below); the
 # records the revocation posture.
 SECRETS="$OUT/secrets.env"
 if [ ! -f "$SECRETS" ]; then

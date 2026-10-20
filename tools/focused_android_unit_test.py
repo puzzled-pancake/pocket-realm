@@ -91,7 +91,7 @@ def run_focused(
     env["JAVA_HOME"] = r"E:\pocket_realm_toolchain\jdk\jdk-17.0.20.8-hotspot"
     env["GRADLE_USER_HOME"] = r"E:\pocket_realm_toolchain\gradle-home"
 
-    # R2-r5-3: exclusive lock — a concurrent seat refuses loud instead of
+    # exclusive lock — a concurrent seat refuses loud instead of
     # proceeding snapshot-less (its cleanup would destroy this seat's
     # canonical snapshot or leak focused results into the restored tree).
     RESULTS.parent.mkdir(parents=True, exist_ok=True)
@@ -109,20 +109,24 @@ def run_focused(
             run = runner(
                 ["cmd", "/c", "gradlew.bat", ":app:testDebugUnitTest",
                  *[f"--tests={t}" for t in tests],
-                 f"-PpocketAbi={abi}", *passthrough, "--console=plain"],
+                 f"-PpocketAbi={abi}",
+                 # the android lane now
+                 # fences unfenced --tests runs, so the wrapper must carry the
+                 # focus label itself (the snapshot/restore below still guards
+                 # the canonical tree — the android redirect is impossible).
+                 "-Ppocket.focus=focused",
+                 *passthrough, "--console=plain"],
                 cwd=ROOT / "android", env=env,
             )
             return run.returncode
         finally:
-            # W6-N4 R3-1/R6-N4-r1-3: aggregate + PRINT the focused
-            # counts while the focused tree still exists (the restore
-            # below deliberately destroys it).
+            # aggregate + PRINT the focused counts while the focused tree
+            # still exists (the restore below deliberately destroys it):
+            # the CANONICAL tree is what every gate reconciles against, so
+            # it is restored byte-for-byte
             marker = aggregate_counts(RESULTS)
             if marker:
                 print(marker, flush=True)
-            # the focused run's own results are disposable: the CANONICAL
-            # tree is what every gate reconciles against, so it is restored
-            # byte-for-byte
             if snapshot_taken:
                 if RESULTS.exists():
                     shutil.rmtree(RESULTS, ignore_errors=True)

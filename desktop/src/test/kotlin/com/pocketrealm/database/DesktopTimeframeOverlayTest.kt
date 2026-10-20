@@ -24,7 +24,7 @@ import org.junit.Before
  * pocket_sqlite seam (skips cleanly where it is not staged).
  */
 class DesktopTimeframeOverlayTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -113,7 +113,7 @@ class DesktopTimeframeOverlayTest {
         requireNativeIfDemanded("sqlite seam", seamDll)
         val datadir = folder.newFolder("sqlite-datadir")
         stageWorldDb(datadir)
-        // W4 flip: the lane under test is the vanilla lane (the sole-
+ // Flip: the lane under test is the vanilla lane (the sole-
         // qualified .single() degrade is retired).
         val defaultStage = TimeframeStages.defaultStageId("vanilla")
         val applied = DesktopTimeframeOverlay.prepareForStart(datadir, defaultStage)
@@ -264,7 +264,7 @@ class DesktopTimeframeOverlayTest {
         assertEquals("vanilla-1.5", applied.appliedStage)
         // The DEFAULT stage routes too — the live provider's ledger is
         // MariaDB's pocketrealm_meta, never the retained SQLite file.
-        // W4 flip: the lane under test is the vanilla lane (the sole-
+ // Flip: the lane under test is the vanilla lane (the sole-
         // qualified .single() degrade is retired).
         val defaultStage = TimeframeStages.defaultStageId("vanilla")
         DesktopTimeframeOverlay.prepareForStart(datadir, defaultStage, ::leg)

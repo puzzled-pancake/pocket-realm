@@ -6,9 +6,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * W6-N4: the READY relay URL canonization pin — the producer-side half
+ * the READY relay URL canonization pin — the producer-side half
  * of the FQDN-root-dot finding (see [GatewayMain.canonicalRelayUrl]).
- * iroh hands us N0's relay URLs with a trailing root dot (the N2 spike's
+ * iroh hands us N0's relay URLs with a trailing root dot (the spike's
  * captured READY line is the receipt); the descriptor ladder fail-closes
  * on it. The gateway canonizes; the descriptor boundary stays STRICT.
  */

@@ -354,14 +354,14 @@ object TimeframeStages {
             TimeframeStage.EraSensePhrase("tol barad", false),
             TimeframeStage.EraSensePhrase("wandering isle", false),
             TimeframeStage.EraSensePhrase("bilgewater", false),
-            // R6-1 (round 6): the WotLK-era systems/factions.
+            // the WotLK-era systems/factions.
             TimeframeStage.EraSensePhrase("inscription", false),
             TimeframeStage.EraSensePhrase("argent crusade", false),
             TimeframeStage.EraSensePhrase("saronite", false),
             TimeframeStage.EraSensePhrase("the skybreaker", false),
             TimeframeStage.EraSensePhrase("sons of hodir", false),
             TimeframeStage.EraSensePhrase("onslaught harbor", false),
-            // R6-3 (round 6): the MoP zone.
+            // the MoP zone.
             TimeframeStage.EraSensePhrase("timeless isle", false),
         ),
     )
@@ -379,7 +379,7 @@ object TimeframeStages {
      * live false ban; the manifest's source note records the probe numbers.
      */
     val WOTLK_FINAL_ERA_BASELINE: TimeframeStage.EraTermClass = TimeframeStage.EraTermClass(
-        // R5-1: n'zoth REMOVED — the shipped shared lore corpus names N'Zoth
+        // n'zoth REMOVED — the shipped shared lore corpus names N'Zoth
         // in vanilla-era lore cards (Naga, Old God); banning it dropped real
         // cards on this lane.
         alwaysBanTerms = listOf("vashj'ir", "ny'alotha"),
@@ -408,7 +408,7 @@ object TimeframeStages {
             TimeframeStage.EraSensePhrase("battle for azeroth", false),
             TimeframeStage.EraSensePhrase("shadowlands", false),
             TimeframeStage.EraSensePhrase("the war within", false),
-            // R2-2 (round 2): Cata guards (dump-scan counts recorded in the
+            // Cata guards (dump-scan counts recorded in the
             // test guard tables).
             TimeframeStage.EraSensePhrase("vortex pinnacle", false),
             TimeframeStage.EraSensePhrase("ramkahen", false),
@@ -416,7 +416,7 @@ object TimeframeStages {
             TimeframeStage.EraSensePhrase("blackrock caverns", false),
             TimeframeStage.EraSensePhrase("halls of origination", false),
             TimeframeStage.EraSensePhrase("bilgewater", false),
-            // R6-3 (round 6): the MoP zone.
+            // the MoP zone.
             TimeframeStage.EraSensePhrase("timeless isle", false),
         )
     )

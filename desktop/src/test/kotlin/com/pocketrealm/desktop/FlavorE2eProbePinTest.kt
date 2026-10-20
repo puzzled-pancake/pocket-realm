@@ -52,7 +52,7 @@ class FlavorE2eProbePinTest {
 
     @Test
     fun `the pin flavor is resolved from the flavor id not ALL first`() {
-        // R3-4: the former ALL.first() always resolved vanilla. The pin
+        // the former ALL.first always resolved vanilla. The pin
         // flavor for flavorId=tbc MUST be the TBC registry entry.
         val resolved = ClientFlavors.ALL.first { it.flavorId == "tbc" }
         assertEquals(ClientFlavors.TBC, resolved)

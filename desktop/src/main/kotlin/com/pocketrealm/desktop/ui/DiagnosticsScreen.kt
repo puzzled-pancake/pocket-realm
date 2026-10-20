@@ -210,7 +210,7 @@ fun DiagnosticsScreen(model: DesktopAppModel) {
  * [DesktopAppModel.restoreBackup] runs.
  */
 @Composable
-@Suppress("LongMethod") // one card, five controls + the GAP-1 consent dialog
+@Suppress("LongMethod") // one card, five controls + the consent dialog
 private fun BackupsCard(model: DesktopAppModel) {
     var backups by remember { mutableStateOf<List<DesktopRuntimeBackend.BackupEntry>>(emptyList()) }
     var status by remember { mutableStateOf("No backup operation ran yet.") }
@@ -222,7 +222,7 @@ private fun BackupsCard(model: DesktopAppModel) {
     val runtimeState by model.state.collectAsState()
     val gate = remember(runtimeState.phase) { model.restoreGate() }
     // The pending restore awaiting explicit consent — non-null renders the
-    // one AlertDialog both restore buttons share (the HomeScreen D8
+    // one AlertDialog both restore buttons share (the HomeScreen
     // stop-with-guests consent shape).
     var pendingRestoreId by remember { mutableStateOf<String?>(null) }
     // GAP-2 (was DESKPROD-2): set when a restore left this app process's
@@ -277,7 +277,7 @@ private fun BackupsCard(model: DesktopAppModel) {
                 },
             ) { Text(if (busy) "Working…" else "Create named backup") }
             OutlinedButton(
-                // GAP-1: gate-first enablement — the supervisor phase must be
+                // gate-first enablement — the supervisor phase must be
                 // Ready, not merely "not busy" (the old cliff surfaced
                 // RESTORE-REFUSED as UI); the tap now only asks for consent.
                 enabled = gate is RestoreGate.Ready && !busy && backups.isNotEmpty(),
@@ -324,7 +324,7 @@ private fun BackupsCard(model: DesktopAppModel) {
                         )
                     }
                     OutlinedButton(
-                        // GAP-1: same gate + consent routing as the newest
+                        // same gate + consent routing as the newest
                         // button — one destructive verb, one dialog.
                         enabled = gate is RestoreGate.Ready && !busy,
                         onClick = { pendingRestoreId = backup.snapshotId },
@@ -356,7 +356,7 @@ private fun BackupsCard(model: DesktopAppModel) {
     // GAP-1 (was DESKPROD-1): the consent dialog both restore buttons route
     // through — success REPLACES the current world (the quarantined
     // pre-restore databases are deleted once the proof boot passes), which
-    // the old one-tap path never disclosed. The HomeScreen D8
+    // the old one-tap path never disclosed. The HomeScreen
     // stop-with-guests consent shape; confirm stays idempotent through the
     // existing busy flag, and a phase change raced under the open dialog is
     // caught by the model's own gate re-check (RESTORE-REFUSED, never a

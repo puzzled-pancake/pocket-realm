@@ -74,7 +74,7 @@ class RuntimeLaneGateTest {
     @Test
     fun tbcBootWithThePerLaneRuntimePresentPassesTheGate() {
         org.junit.Assume.assumeTrue(laneRuntimeDll("tbc").isFile)
-        // R3-3: this pass now includes the sha256 check against the
+        // this pass now includes the sha256 check against the
         // committed tbc lane lockfile pin — the staged bytes must BE the
         // pinned bytes, not merely sit at the lane path.
         backend().requireRuntimeLaneMatches(ClientFlavors.TBC)
@@ -118,7 +118,7 @@ class RuntimeLaneGateTest {
         val fakeRepo = folder.newFolder("stale-lane-repo")
         val runtimeRoot =
             "native/.build-win-x86_64-tbc-mariadb/pocket-runtime-build"
-        // R3-W4-2: the gate covers both lane DLLs — stage both
+        // the gate covers both lane DLLs — stage both
         val realmd = File(fakeRepo, "$runtimeRoot/pocket_realmd_runtime.dll")
         realmd.parentFile.mkdirs()
         realmd.writeBytes(ByteArray(16))

@@ -66,7 +66,23 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--label", required=True,
                         help="exit label, e.g. w1 — names the manifest file")
+    parser.add_argument("--refresh", action="store_true",
+                        help="allow overwriting an existing manifest (R3-2 "
+                             "write-once guard: without this flag an existing "
+                             "label's file is audit history and is never "
+                             "silently rewritten — cite a NEW label or pass "
+                             "--refresh and own the overwrite in the wave "
+                             "ledger/Decision Log)")
     args = parser.parse_args()
+
+    out_path = ROOT / "out/completion/w0" / f"xml-tree-digest-{args.label}.json"
+    if out_path.is_file() and not args.refresh:
+        existing = json.loads(out_path.read_text(encoding="utf-8"))
+        raise SystemExit(
+            f"REFUSED: {out_path.name} already exists (generated "
+            f"{existing.get('generated', '?')}) and audit artifacts are "
+            f"write-once — cite a new label or pass --refresh and record the "
+            f"overwrite in the wave ledger/Decision Log (W6B R3-2)")
 
     manifest = {"generated": datetime.now().astimezone().isoformat(), "trees": {}}
     for artifact_name, xml_globs in TREES:

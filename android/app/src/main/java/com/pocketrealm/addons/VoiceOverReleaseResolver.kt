@@ -4,7 +4,7 @@ import org.json.JSONObject
 
 /**
  * Strictly resolves the two upstream artifacts required by mrthinger's
- * VoiceOver for the ACTIVE flavor. R5-3 (code-red round 1): the resolver was
+ * VoiceOver for the ACTIVE flavor. The resolver was
  * hard-pinned to the Vanilla 1.12 artifacts (player zip
  * AI_VoiceOver-WoW_1.12, data folder AI_VoiceOverData_Vanilla) — on tbc/
  * wotlk lanes that installed a wrong-era root toc (the vanilla interface) plus
@@ -18,7 +18,7 @@ internal object VoiceOverReleaseResolver {
     const val DISPLAY_NAME = "WoW VoiceOver"
     const val PLAYER_FOLDER = "AI_VoiceOver"
 
-    /** The per-expansion upstream tokens (R5-3): [VoiceOverEra.playerToken]
+    /** The per-expansion upstream tokens: [VoiceOverEra.playerToken]
      * is the player zip's client token; [VoiceOverEra.dataFolder] the data
      * pack's folder/toc identity. Vanilla is the default for callers that
      * predate flavor threading. */
@@ -56,7 +56,7 @@ internal object VoiceOverReleaseResolver {
     fun resolve(latestRelease: JSONObject, releaseByTag: (String) -> JSONObject): Resolved =
         resolve(latestRelease, releaseByTag, VoiceOverEra.VANILLA)
 
-    /** The era-aware resolution (R5-3): the era rides the ACTIVE lane. */
+    /** The era-aware resolution: the era rides the ACTIVE lane. */
     fun resolve(
         latestRelease: JSONObject,
         releaseByTag: (String) -> JSONObject,

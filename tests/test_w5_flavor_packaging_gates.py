@@ -99,7 +99,7 @@ def test_per_flavor_gates_ride_every_native_runtime_freshness_edge():
 
 def test_lockfile_name_templates_match_the_naming_schema():
     text = _gradle_text()
-    # docs/FLAVOR-ARTIFACT-NAMING.md §2 via tools/flavor_layout._suffixed_name:
+    # the design doc via tools/flavor_layout._suffixed_name:
     # x86_64 keeps the historical no-abi-suffix form, arm64 carries the abi
     # segment AFTER the flavor segment. Both families must branch identically.
     expected_branches = (
@@ -136,7 +136,7 @@ def test_additive_skip_posture_vanilla_off_per_flavor_on():
 
 def test_per_flavor_remedy_names_the_flavor_lane():
     text = _gradle_text()
-    # R6-1: the vanilla instances keep the lane-generic remedy; the per-flavor
+    # the vanilla instances keep the lane-generic remedy; the per-flavor
     # registration interpolates its own flavor so the printed command rebuilds
     # the STALE tree instead of silently rebuilding vanilla.
     assert text.count(
@@ -155,7 +155,7 @@ def test_per_flavor_remedy_names_the_flavor_lane():
     assert '"\\n  Remedy: " + remedy.get()' in text, (
         "the fence failure must print the per-instance remedy"
     )
-    # R6-r2-2/R1-r2-2: the sibling extractor gate must interpolate BOTH flags —
+    # the sibling extractor gate must interpolate BOTH flags —
     # tools/build_o11_extractors.py defaults --abi to x86_64, so a remedy that
     # omits it rebuilds the wrong-abi tree and the arm64 gate keeps failing.
     assert (
@@ -227,17 +227,18 @@ def test_gate_messages_resolve_their_properties():
 
 
 def test_per_flavor_fences_record_the_mysql_only_posture():
-    """R1-r4-1: the per-flavor fences are deliberately the MariaDB lane
-    only; a per-flavor SQLITE lane would stage ungated. The registration
-    must carry the recorded posture comment naming D90 as the owner of the
-    backend-parity extension."""
+    """The per-flavor fences are deliberately the MariaDB lane only; a
+    per-flavor SQLITE lane would stage ungated. The registration must
+    carry the recorded posture comment naming the owning-table entry for
+    the sqlite backend-parity extension (W6B de-chattered the finding-id
+    prefixes; text and pin moved together)."""
     text = _gradle_text()
-    assert "R1-r4-1: these fences are deliberately the MARIADB lane only" in text, (
+    assert "these fences are deliberately the MARIADB lane only" in text, (
         "the per-flavor registration lost its mysql-only posture comment"
     )
-    assert "D90-owned packaging work" in text, (
-        "the posture comment must name D90 as the owner of the sqlite "
-        "backend-parity extension"
+    assert "owned packaging work (the owning-table entry for the sqlite" in text, (
+        "the posture comment must name the owning-table entry for the "
+        "sqlite backend-parity extension"
     )
 
 

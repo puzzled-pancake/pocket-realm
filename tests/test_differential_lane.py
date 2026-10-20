@@ -159,7 +159,7 @@ def test_oracle_gated_run_caps_only_a_passing_verdict() -> None:
     dirty_a, dirty_b = _pair("standard", gated=True)
     dirty_b = dict(dirty_b, providerMode="MARIADB")  # a provider regression under gating
     dirty = _ORACLE.parity_oracle(dirty_a, dirty_b, "standard")
-    assert dirty["verdict"] == "FAIL"  # the W0 provider gate fired under gating
+    assert dirty["verdict"] == "FAIL"  # the provider gate fired under gating
 
 
 def test_oracle_fails_asymmetric_gate_as_corpus_divergence() -> None:
@@ -227,7 +227,7 @@ def test_w8_revision_pins_derive_from_the_golden_migration_ledger() -> None:
                         .read_text(encoding="utf-8"))
     assert _ORACLE.PINNED_MIGRATION_COUNT == len(ledger["entries"])
     # A well-formed pair (revision state = the ledger-derived pin) passes
-    # the W8 exact pins BY NAME — a reverted literal pin would rename the
+    # the exact pins BY NAME — a reverted literal pin would rename the
     # checks out from under the passing bundle.
     report = _ORACLE.parity_oracle(*_pair("quick"), "quick")
     ok = {f["check"] for f in report["findings"] if f["ok"] is True}

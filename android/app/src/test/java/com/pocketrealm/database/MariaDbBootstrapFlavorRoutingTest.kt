@@ -158,7 +158,7 @@ class MariaDbBootstrapFlavorRoutingTest {
         // R2-r4-1 (code-red round 4): DatabaseNames is publicly constructible,
         // so the composition API cannot assume its input passed the resolver —
         // the shape guard must live at the interpolation point itself
-        // (red-first against the pre-round-4 composition, which interpolated
+        // red-first against the pre- composition, which interpolated
         // verbatim)
         val hostile = ClientFlavor.DatabaseNames(
             realmd = "x`; DROP TABLE classicrealmd; --",
@@ -197,7 +197,7 @@ class MariaDbBootstrapFlavorRoutingTest {
         // into IDENTIFIED BY '…' — the composition must refuse anything that
         // could escape that literal (the generated secrets are hex-48, but
         // the composition API cannot assume its input passed a validated
-        // store), red-first against the pre-round-5 composition which
+        // store), red-first against the pre- composition which
         // interpolated verbatim.
         val names = MariaDbBootstrap.databaseNames(ClientFlavors.VANILLA)
         // R3-r6-1/R2-r6-1 (code-red round 6): the escape class also refuses

@@ -95,7 +95,7 @@ def test_guard_merges_not_defers_in_the_bridge():
     # the directive is the frozen wording from the pure core, never inline
     assert "You have never heard of" not in text, (
         "the frozen directive text lives in PlayerbotLlmTruthCore.h only")
-    # the resolver is shared with the A12 invention post-filter
+    # the resolver is shared with the invention post-filter
     assert "PlayerbotLlmBridge::IsKnownName" in FILTERS_CPP.read_text(encoding="utf-8")
 
 
@@ -166,7 +166,7 @@ def test_lore_conf_keys_exist():
     assert "llmEraBias" in header
 
 
-# ---- design-timeframe §5: the era policy follows the chosen stage ----------
+# ---- design-timeframe: the era policy follows the chosen stage ----------
 
 GENERATED_ERA_HEADER = PATCHES / "PlayerbotLlmEraStages.generated.h"
 GENERATOR = ROOT / "tools" / "generate_timeframe_era.py"
@@ -198,7 +198,7 @@ def test_generated_era_header_matches_its_pin():
 
 
 def test_every_registered_stage_has_an_era_selector_branch():
-    # The per-stage pin (design §5): each registered stage id resolves its
+    # The per-stage pin: each registered stage id resolves its
     # own branch in the generated selector, so curation landing in a
     # manifest cannot silently miss a stage.
     header = GENERATED_ERA_HEADER.read_text(encoding="utf-8")
@@ -307,13 +307,13 @@ def test_vanilla_era_baseline_carries_no_corpus_proven_false_bans() -> None:
                      "kul tiras", "broken isles", "burning crusade"]
     reintroduced = sorted(banned & set(corpus_proven))
 
-    # Round-6 R6-2: the DISCIPLINE sweeps the ENTIRE effective vanilla ban
+    # the DISCIPLINE sweeps the ENTIRE effective vanilla ban
     # list against the shipped corpus. Terms with whole-word hits are
     # false bans UNLESS recorded here as deliberately-kept anachronism
     # guards — each with its justification. The v1 lists are
     # byte-equivalent to the pre-control behavior by design decision
     # (design doc: "v1 = vanilla lane with vanilla-1.12.1 era lists
-    # byte-equivalent to today's"); W3.1's corpus-driven curation owns
+    # byte-equivalent to today's"); its corpus-driven curation owns
     # relaxing them. Every entry names the finding that recorded it.
     KEPT_GUARDS_JUSTIFIED = {
         # shattrath: the TBC hub city — a vanilla-era bot naming it IS the
@@ -333,7 +333,7 @@ def test_vanilla_era_baseline_carries_no_corpus_proven_false_bans() -> None:
     # (checked below, after the corpus pass, that every unguarded-but-hit
     # term would have been caught)
 
-    # The reintroduced check covers ONLY the round-4 pruned terms (they
+    # The reintroduced check covers ONLY the pruned terms (they
     # must never return); kept guards are deliberately banned and are
     # verified below against the corpus instead.
     reintroduced = sorted(banned & set(corpus_proven))
@@ -343,7 +343,7 @@ def test_vanilla_era_baseline_carries_no_corpus_proven_false_bans() -> None:
         "(R5-4-1: bots deflected on real vanilla content)"
     )
 
-    # Slice round 1 (R5): the discipline is now the CODE, not just this
+    # Slice: the discipline is now the CODE, not just this
     # comment — the sweep covers the ENTIRE effective ban list (including
     # every stage grounded_baseline), so a NEW corpus-hitting term added by
     # curation without a KEPT_GUARDS_JUSTIFIED entry fails here instead of
@@ -387,7 +387,7 @@ def test_vanilla_era_baseline_carries_no_corpus_proven_false_bans() -> None:
         "dump - the pin's corpus assumptions changed; re-derive before "
         "trusting the prune"
     )
-    # Round-6 R6-2: every kept guard named in the exception table must
+    # every kept guard named in the exception table must
     # actually still be BANNED (a stale table entry — term removed from
     # the lists but left recorded as kept — is a config error, the
     # leak-sweep stale-entry pattern).

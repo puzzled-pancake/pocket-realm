@@ -146,7 +146,7 @@ def test_counts_artifacts_match_the_junit_xmls_they_claim():
             skipped += int(r.get("skipped", 0))
             classes += 1
         counts = json.loads(artifact_path.read_text(encoding="utf-8"))
-        # Round-6 R6-R4-1: a PARTIAL tree newer than the artifact is a
+        # a PARTIAL tree newer than the artifact is a
         # focused-run clobber, not a stale artifact — skip loudly (the
         # full suite must re-run before finalize trusts either side).
         artifact_mtime = artifact_path.stat().st_mtime
@@ -232,14 +232,14 @@ def test_wave_exit_per_class_counts_cite_their_own_counts_artifact():
     if not wave_exit.is_file():
         return
     text = wave_exit.read_text(encoding="utf-8")
-    # per-class claims inside the W4.3 section, row-scoped: each bullet
+    # per-class claims inside the section, row-scoped: each bullet
     # cites its own suite log (w43-<lane>-friend-suite.log) — the claim
     # must equal the SAME lane's counts artifact, never a sibling lane's
     # (ProvisioningListenerTest exists on both lanes with different
     # battery sizes).
     section = text.split("### W4.3", 1)[-1].split("###", 1)[0]
     # bullets wrap: the log citation may trail the class list — scope by
-    # paragraph (each W4.3 bullet cites exactly one suite log)
+    # paragraph (each bullet cites exactly one suite log)
     lane_for_class = {}
     current_lane = None
     for line in section.splitlines():
@@ -290,7 +290,7 @@ def test_timeframe_ui_surfaces_resolve_through_active_flavor():
         assert "singleOrNull()\n" not in text or "ClientFlavors.qualified().singleOrNull()" not in text, (
             f"{rel}: the silent singleOrNull()?:VANILLA fallback returned"
         )
-        # W4 flip: the RENDER surfaces resolve through the machine's
+ # Flip: the RENDER surfaces resolve through the machine's
         # canonical displayedId (selection, else sole-qualified, else the
         # first-pick copy) — the operation gates keep the loud resolve().
         # Either ActiveFlavor form proves the surface never hardcodes a
@@ -499,9 +499,9 @@ def test_counts_pin_vintage_rule_unit(tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------------
-# R3-3 (review round 1): every tracked project writer routes its tempfile
+# every tracked project writer routes its tempfile
 # scratch through tools/common.toolchain_tmpdir() — OS %TEMP% resolves on
-# the system drive on the canonical host, and the D50(c) exception
+# the system drive on the canonical host, and the (c) exception
 # ("OS-level tools outside the project still use it") is only honest while
 # the PROJECT's own writers are redirected. A new default-tempdir producer
 # fails here until it passes dir=str(common.toolchain_tmpdir()) (or is
@@ -680,7 +680,7 @@ def test_wave_exit_cited_fix_mechanisms_are_index_tracked():
 
     wave_exit = ROOT / "out/completion/w1/WAVE-EXIT.md"
     if not wave_exit.is_file():
-        return  # no W1 exit record in this tree
+        return  # no exit record in this tree
     text = wave_exit.read_text(encoding="utf-8", errors="replace")
     cited = sorted({
         match
@@ -830,10 +830,10 @@ def test_counts_artifact_generated_prose_resolves_into_its_own_suite():
         if not path.is_file():
             continue
         generated = json.loads(path.read_text(encoding="utf-8")).get("generated", "")
-        # Round-6 R4-r6-1: the resolve-to-live rule applies to the NEWEST
+        # the resolve-to-live rule applies to the NEWEST
         # segment only - the dated history is provenance and its tuples are
         # preserved verbatim (they record what WAS measured at their dates;
-        # the round-4 sweep that rewrote them was the falsification class).
+        # the sweep that rewrote them was the falsification class).
         # The newest segment is the last ' | '-separated one.
         generated_newest = generated.split(" | ")[-1]
         # a '<lane> counts N/M' tuple must carry the NAMED lane's own numbers
@@ -1012,16 +1012,16 @@ def test_counts_artifact_generated_prose_preserves_historical_tuples():
         histories[name] = generated
     # Regen twice; the history (everything but the newest segment) must
     # be byte-stable — the scripts interpolate the NEWEST segment only.
-    # W6-N5: the N5 writers run LAST — the N3 scripts re-run here rewrite
+    # the writers run LAST — the scripts re-run here rewrite
     # their living-counter segments with current numbers, and below a later
     # writer that rewrite would bake a misdated tuple into the frozen
-    # history (the R4-r6-1 class); the N5 writers retire the N3 segments
+    # history (the class); the writers retire the segments
     # and re-append their own, so each history ends the run exactly as it
-    # began (D99(2) + the R5-1 android twin).
+    # began ((2) + the android twin).
     for script in ("n3-regen-counts.py", "n5-regen-android-counts.py",
                    "n3-regen-desktop-counts.py",
                    "n5-regen-desktop-counts.py"):
-        # R6-N5-r2-5 (finalize): a writer that exits non-zero (the
+        # a writer that exits non-zero (the
         # fail-closed drift guard, a red canonical tree) must fail the pin
         # — a silent non-zero exit would make the byte-stability check
         # vacuous.
@@ -1080,9 +1080,9 @@ def test_concurrent_reconciliation_runs_stay_green_and_converged():
 
     before = {a: digest(a) for a in artifacts}
     child_env = dict(os.environ, POCKET_REGEN_CONCURRENCY_CHILD="1")
-    # R3-N5-r3-2: the protocol runs 5 times — the round-2 two-shot passed
-    # while the N3 writers still rewrote every run (their superseded-skip
-    # is round 3's fix); 5/5 green requires the writers to be genuinely
+    # the protocol runs 5 times — the two-shot passed
+    # while the writers still rewrote every run (their superseded-skip
+    # is its fix); 5/5 green requires the writers to be genuinely
     # no-op-when-unchanged, not lucky.
     for round_no in range(1, 6):
         procs = [
@@ -1221,7 +1221,7 @@ def test_counts_writer_refuses_a_drifted_tree_fail_closed():
     import sys
     import time
 
-    # R4-r2-2 follow-up: this probe plants a doctored tuple and restores
+    # this probe plants a doctored tuple and restores
     # it — two concurrent instances racing the plant/restore pairs can
     # leak the doctored state (captured live this round: the desktop
     # artifact stuck at the planted 9999/99 after two children restored
@@ -1256,7 +1256,7 @@ def _probe_drift_refusal_impl():
     import sys
 
     artifact = ROOT / "out/completion/w0/desktop-test-counts.json"
-    # R4-r5-1 follow-up: since the desktop lane gained its native
+    # since the desktop lane gained its native
     # DESKTOP-CANONICAL-COUNTS emitter, a drifted tuple whose cited log
     # carries the MATCHING marker is a legitimate re-measure (the writer
     # re-binds) — the falsification case is a drifted tuple whose cited
@@ -1348,3 +1348,29 @@ def test_counts_artifact_history_segments_are_unique():
             f"{name} carries duplicated dated segments (the "
             f"append-without-dedupe class): {duplicates}"
         )
+
+
+def test_all_first_party_python_modules_parse():
+    """W6B code-red round 6 (R6-1/R5-r6-1/R3-1): every git-tracked .py under
+    tests/, tools/, and scripts/ must parse — a syntax-broken module (the
+    round-6 IndentationError in test_w6n4_evidence_pins.py) silently stops
+    every pin in that module from enforcing and interrupts the exit gate's
+    full-pytest collection."""
+    import ast
+    import subprocess
+    tracked = subprocess.run(
+        ["git", "ls-files", "tests/*.py", "tools/*.py", "scripts/*.py",
+         "tools/*/*.py"],
+        cwd=ROOT, capture_output=True, text=True).stdout.splitlines()
+    assert tracked, "no tracked python files found"
+    broken = []
+    for rel in tracked:
+        try:
+            ast.parse((ROOT / rel).read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError as exc:
+            broken.append(f"{rel}:{exc.lineno}: {exc.msg}")
+    assert not broken, (
+        "syntax-broken first-party python modules (their pins silently "
+        "stopped enforcing): " + "; ".join(broken)
+    )
+

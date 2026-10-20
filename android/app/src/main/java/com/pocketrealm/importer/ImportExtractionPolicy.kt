@@ -14,7 +14,7 @@ package com.pocketrealm.importer
  * admitted universe is the UNION of the declared layouts — the identity gate
  * (VAL-03, version resource -> qualified flavor) selects the flavor, this
  * policy only decides copy-vs-exclude. Each [RootLayout] row is derived from
- * the measured staged client root for that flavor (census §0; the vanilla
+ * the measured staged client root for that flavor (census; the vanilla
  * row is today's set, byte-for-byte) and lands add-only.
  *
  * Extraction-time byte caps stay in the copy loop; this class is pure naming
@@ -107,7 +107,7 @@ class ImportExtractionPolicy(
 
 /**
  * Per-flavor client-root layout (census lanes item 17), derived from the
- * measured staged clients (census §0: `WoW_Classic_ENG_1.12.1`,
+ * measured staged clients (census: `WoW_Classic_ENG_1.12.1`,
  * `ExcaliburWoW Burning Crusade 2.4.3`, `World.of.Warcraft.3.3.5a.Truewow`).
  * Every set is case-folded (`ImportPathPolicy.caseFoldKey` form); rows follow
  * the vanilla row's canonical-superset style — the staged vanilla root does

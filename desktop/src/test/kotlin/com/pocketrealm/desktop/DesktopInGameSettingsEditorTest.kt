@@ -34,7 +34,7 @@ import org.junit.Before
  * it degenerates to an in-process mutex).
  */
 class DesktopInGameSettingsEditorTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -422,7 +422,7 @@ class DesktopInGameSettingsEditorTest {
 
     @Test
     fun `a carried vanilla uvar queue degrades cleanly on a non-vanilla lane - R2-5`() {
-        // W4-shaped: tbc qualified + selected while the queue was staged on
+        // shaped: tbc qualified + selected while the queue was staged on
         // vanilla. The drain resolves the ACTIVE flavor's catalog — the
         // vanilla uvar ids resolve null there and are BLOCKED (retained),
         // never a mid-drain crash from the tbc layout's fail-loud backstop.
@@ -465,7 +465,7 @@ class DesktopInGameSettingsEditorTest {
     /** A vanilla-shaped client tree built through the VANILLA layout (the
      * carried state the queue was staged against). */
     private fun syntheticClientRootVanillaShape(): File {
-        // W4 flip: the layout routes resolve the ACTIVE flavor — this helper
+ // Flip: the layout routes resolve the ACTIVE flavor — this helper
         // builds the VANILLA shape, so it pins the vanilla lane itself (the
         // calling test's finally may have reset the holder).
         ActiveFlavor.reset()

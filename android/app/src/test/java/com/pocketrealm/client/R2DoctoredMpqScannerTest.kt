@@ -12,18 +12,18 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * R2 adversarial breaker (android-core round 1): doctored MPQ sets and
+ * Adversarial breaker (android-core ): doctored MPQ sets and
  * wrong-flavor client identities against the import scanners.
  *
  * Attack class: a client tree whose Data/ set is not the flavor's registered
  * set — missing members, corrupted members, EXTRA members — and a PE whose
  * version resource names a flavor the lane never qualified. Every wrong
- * input must land in an actionable VAL failure (port plan invariant 2), and
+ * input must land in an actionable VAL failure (invariant 2), and
  * the wrong-flavor identity must be refused BEFORE any MPQ-set comparison
  * runs (the scanner's own stated rule).
  */
 class R2DoctoredMpqScannerTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; the
+    /** flip fixture: the sole-qualified degrade is retired; the
      * scanner gates pin the VANILLA lane (holder select). */
     @Before
     fun pinTheVanillaLaneForTheFlip() {
@@ -55,7 +55,7 @@ class R2DoctoredMpqScannerTest {
 
     @Test
     fun `a tbc identity mpq-compares against its own set and refuses a foreign tree`() {
-        // W4 flip (the former pre-flip pin refused the tbc identity on
+        // flip (the former pre-flip pin refused the tbc identity on
         // VAL-03 outright): a tbc exe now RESOLVES qualified, so the MPQ
         // comparison runs against the TBC lane's own set — this tree
         // carries the vanilla base + tbc locale members but not the tbc
@@ -113,8 +113,8 @@ class R2DoctoredMpqScannerTest {
         // UNKNOWN patch-N member loads it silently in the client (patch MPQs
         // are applied by the engine in name order). The scanner checks the
         // MISSING direction and header validity only — the extra member is
-        // not an exact-set rejection today. Port-plan correction C2 records
-        // exact-set semantics for the S5 tbc/wotlk registration; this test
+        // not an exact-set rejection today. Port-plan correction records
+        // exact-set semantics for the tbc/wotlk registration; this test
         // pins the CURRENT vanilla posture so any tightening flips it
         // deliberately instead of silently.
         val access = tree(exe = vanillaExe(), mpqs = VANILLA_BASE_MPQS + "patch-9.mpq")

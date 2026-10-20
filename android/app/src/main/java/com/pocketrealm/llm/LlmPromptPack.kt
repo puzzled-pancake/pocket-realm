@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** The [com.pocketrealm.client.ActiveFlavor] lane suffix naming the
- * prompt-pack identity resolution (W3.2). */
+ * prompt-pack identity resolution. */
 private const val PROMPT_IDENTITY_LANE =
     "the prompt-pack identity resolves the active flavor's world title"
 

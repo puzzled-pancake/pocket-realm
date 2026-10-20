@@ -9,7 +9,7 @@ import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import java.io.File
 
 /**
- * W3.7 negative interface matrix: every client-line mismatch is refused
+ * 7 negative interface matrix: every client-line mismatch is refused
  * fail-closed with the ACTIVE lane's own accepted-interface copy — never a
  * silent install, never another lane's copy. The three accepts are positive
  * controls (a flavor's own interface passes its lane).
@@ -39,7 +39,7 @@ class AddonInterfaceMatrixTest {
     private fun foreignIfaces(flavorId: String): List<Int> =
         allIfaces.filter { it !in ifacesFor(flavorId) }
 
-    /** All three flavors qualified (the W4 flip shape) through the test
+    /** All three flavors qualified (the flip shape) through the test
      * seam; the selection is the active lane under test. */
     private fun installAllQualified(selection: String) {
         ActiveFlavor.reset()
@@ -85,7 +85,7 @@ class AddonInterfaceMatrixTest {
         mismatches.forEach { (interfaceLine, lane, accepted) ->
             installAllQualified(lane)
             try {
-                // R4-1: an EXPLICIT policy pins the accepted set to the lane
+                // an EXPLICIT policy pins the accepted set to the lane
                 // under test, so the companion's frozen init state cannot
                 // leak across tests sharing this JVM.
                 val policy = AddonArchiveValidator.Policy(
@@ -135,7 +135,7 @@ class AddonInterfaceMatrixTest {
     }
 
     @Test fun `multi-root-TOC refusal is lane-neutral on a tbc lane - R6-r3-1`() {
-        // R6-r3-1: the multi-root-TOC refusal must not hard-code a vanilla
+        // the multi-root-TOC refusal must not hard-code a vanilla
         // lane name — the accepted-interface set is the ACTIVE flavor's.
         val tbcInterface = ClientFlavors.TBC.addonInterfaces.first()
         installAllQualified("tbc")

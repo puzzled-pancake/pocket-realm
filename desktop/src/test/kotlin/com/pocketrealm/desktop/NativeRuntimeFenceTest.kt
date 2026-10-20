@@ -184,7 +184,7 @@ class NativeRuntimeFenceTest {
         assertTrue("committed lockfile has no seed_transcripts pins", record.has("seed_transcripts"))
         // Every database packageApp bundles must carry a parseable pin in
         // the COMMITTED lockfile — a deleted row used to silently narrow
-        // the fence's seed coverage below what ships (the R3 twin-drift
+        // the fence's seed coverage below what ships (the twin-drift
         // finding; the android validateRealmRuntime leg errors on the
         // same gap).
         val seedRows = record.getJSONObject("seed_transcripts")

@@ -1,7 +1,7 @@
 package com.pocketrealm.desktop.realmstatus
 
 /**
- * Realm-status browser (design realm-status-browser.md §5.3): the orphan
+ * Realm-status browser (design realm-status-browser.md) the orphan
  * sweep — kill rules are STRICT, detection is layered.
  *
  *  - Killing is OWN-RECORDS-ONLY, always: a leftover is killed only when
@@ -13,7 +13,7 @@ package com.pocketrealm.desktop.realmstatus
  *  - The record store is consulted FIRST: a process matching the record of
  *    a LIVE owning instance is not an orphan and is skipped — a second app
  *    instance's sweep must never announce the first instance's healthy
- *    child as "not started by this app". On this install the DESK-113
+ * child as "not started by this app". On this install the DESK-113
  *    exclusive single-instance lock IS the owning-instance-liveness
  *    oracle: when this sweep runs, the only possibly-running instance is
  *    this one, so "the record's child is live" reduces to "the tunnel
@@ -23,7 +23,7 @@ package com.pocketrealm.desktop.realmstatus
  *    lost in the very crash that orphaned the child) are NEVER auto-killed
  *    — the same command line is what a user debugging this very page would
  *    legitimately run. Older-than-this-app record-less matches surface the
- *    loud hosting-card notice and hold the §5.3 transition gate (every
+ * loud hosting-card notice and hold the transition gate (every
  *    transition that binds 18080 — FRIENDS included) until the host
  *    acknowledges or adopts (the controller remembers an explicit ack
  *    PER-PID, so a re-detected acknowledged pid does not re-trip the gate;
@@ -116,7 +116,7 @@ class TunnelOrphanSweep(
         Outcome.Clear
     }
 
-    /** Adoption (§5.3): take an orphan into the records under the SAME
+    /** Adoption: take an orphan into the records under the SAME
      * kill rules — after this, the child is this instance's own. */
     fun adopt(entry: ProcessEntry) {
         records.put(

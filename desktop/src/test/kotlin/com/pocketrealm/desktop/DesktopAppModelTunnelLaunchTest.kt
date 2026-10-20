@@ -40,7 +40,7 @@ class DesktopAppModelTunnelLaunchTest {
                 lanAddress = "192.168.1.50",
                 allowLanPlayers = true,
                 tunnelAdvertisedAddress = "100.64.12.34",
-                // D19: the unseeded-datadir refusal this leg pins is the
+                // the unseeded-datadir refusal this leg pins is the
                 // SQLITE dev/compat lane's; select it explicitly (the
                 // shipped default is MariaDB).
                 databaseProvider = Settings.DatabaseProvider.SQLITE,
@@ -107,7 +107,7 @@ class DesktopAppModelTunnelLaunchTest {
     @Test
     fun localModeIgnoresAResidualTunnelAddress() {
         // LOCAL is loopback-only by contract and never reads the tunnel
-        // field: a leftover value keeps LOCAL byte-identical (§5) — the
+        // field: a leftover value keeps LOCAL byte-identical — the
         // start proceeds past the launch gate (and refuses later on the
         // unseeded datadir, like any fresh install).
         val roots = DesktopStorageRoots(folder.newFolder("roots-local-tunnel"))
@@ -116,7 +116,7 @@ class DesktopAppModelTunnelLaunchTest {
             Settings.Snapshot(
                 runtimeMode = RuntimeMode.LOCAL,
                 tunnelAdvertisedAddress = "100.64.12.34",
-                // D19: the unseeded-datadir refusal this leg pins is the
+                // the unseeded-datadir refusal this leg pins is the
                 // SQLITE dev/compat lane's; select it explicitly (the
                 // shipped default is MariaDB).
                 databaseProvider = Settings.DatabaseProvider.SQLITE,
@@ -240,7 +240,7 @@ class DesktopAppModelTunnelLaunchTest {
 
     @Test
     fun theMonitorLegsAreModeAware() {
-        // §10, the SHARED InterfaceWatch table: the watched leg derives from
+        // the SHARED InterfaceWatch table: the watched leg derives from
         // the SESSION SNAPSHOT's frozen advertisement (never a live settings
         // re-read, which a mid-session edit could re-target) — plain LAN
         // watches the LAN endpoint; a tunnel advertisement watches the

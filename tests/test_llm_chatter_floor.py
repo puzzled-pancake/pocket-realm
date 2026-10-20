@@ -169,7 +169,7 @@ def test_spacing_doubling_capped_at_8x():
         "for (Player* player : players)")[0]
     assert "std::max<uint32>(\n                        policy.floorMinSpacingSec, kCloudFloorBaseSec) <<" in refill
     assert "std::min(s.failStreak.load(), kFailStreakCapShift)" in refill
-    # the real A5 base spacing (floorMinSpacingSec is 0 on every live
+    # the real base spacing (floorMinSpacingSec is 0 on every live
     # rung today - the cloud floor stages >= 270)
     assert "kCloudFloorBaseSec = 270" in text
     # the doubling table implied by the real constants, as a host check

@@ -48,7 +48,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import build_o09_realm_runtime as o09  # noqa: E402
 try:
     from tools import flavor_layout
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import flavor_layout
 from common import pe_info, sha256_file  # noqa: E402
 
@@ -56,7 +56,7 @@ BUILD = ROOT / "native" / ".build-win-x86_64"
 VCPKG_INSTALLED = ROOT / "native" / "win-deps" / "vcpkg_installed" / "x64-windows-static-md"
 WIN_PREFIX = ROOT / "native" / ".deps" / "prefix-win-x86_64"
 # The seam DLL is the flavor-agnostic SQLite engine + JNI surface (decision
-# D37): one physical artifact shared by every flavor's lane, so SEAM_BUILD
+# one physical artifact shared by every flavor's lane, so SEAM_BUILD
 # does NOT carry the flavor suffix even when BUILD does (select_win_flavor).
 SEAM_BUILD = ROOT / "native" / ".build-win-x86_64" / "sqlite-seam-build"
 # The extractors' home: backend-UNsuffixed like SEAM_BUILD and the provider
@@ -102,7 +102,7 @@ def select_win_flavor(flavor_id: str, backend: str = "sqlite") -> None:
     # suffix: the tools are backend-agnostic, and both consumers
     # (tools/win_prepare_data.py EXTRACTORS; the desktop DataPreparationStore
     # dev walk) resolve the backend-unsuffixed root — routing them into the
-    # suffixed lane root stranded them where no consumer scans (the R4
+    # suffixed lane root stranded them where no consumer scans (the
     # cross-tool gap: --extractors --database-backend mariadb used to land
     # them under -mariadb, and win_prepare_data's extractor remedy, repeated
     # with the mariadb flag, reproduced the gap).
@@ -441,10 +441,10 @@ def write_lockfile(backend: str = "sqlite") -> None:
                     and flavor_sibling.is_file() else SIBLING_SQLITE_LOCKFILE)
     sibling = json.loads(sibling_path.read_text(encoding="utf-8"))
     seed_pins = sibling.get("seed_transcripts")
-    # Round-2 R2-1a: a NON-vanilla flavor's lockfile must never present
+    # a NON-vanilla flavor's lockfile must never present
     # vanilla transcripts as its own pinned seed state silently. Bind to
     # the flavor's OWN baseline when it carries transcript digests; while
-    # it does not (W2/W5 measure them), record an explicit placeholder
+    # it does not (measure them), record an explicit placeholder
     # note naming the retiring mechanism — the provenance record says what
     # the bytes are, not what the lane wishes they were.
     flavor_baseline_path = (
@@ -472,7 +472,7 @@ def write_lockfile(backend: str = "sqlite") -> None:
                 "record incoherent seed pins in the win lockfile")
     # The flavor-resolved overlay set — the same record AND gate as the
     # android lane's writer (o09.overlays_for): a flavor whose per-flavor
-    # overlay set is not registered (wotlk before its S2 re-derivation) is
+    # overlay set is not registered (wotlk before its re-derivation) is
     # refused here, before any artifact bytes are read, so this lane can
     # never record an unreviewed overlay table as reviewed lockfile state.
     overlays = [dict(entry) for entry in o09.overlays_for(o09.ACTIVE_FLAVOR, backend)]
@@ -566,7 +566,7 @@ def write_lockfile(backend: str = "sqlite") -> None:
         # documents are written together by --write-lockfile. R3R1-5 (W4
         # code-red round 3): a NON-VANILLA lane must reference its OWN
         # lane-scoped provider document, never the vanilla-scoped shared
-        # one (D60/D86) — the shared document's own lane_scope note says
+        # one — the shared document's own lane_scope note says
         # non-vanilla lanes must not use it, and a future consumer
         # following the reference would land in a document whose pins
         # (the vanilla 414-entry manifest) describe a different lane.
@@ -985,7 +985,7 @@ def main() -> int:
     select_win_flavor(args.flavor, backend)
     # Per-flavor overlay registration gate (the seam lane's
     # resolve_flavor_or_die contract): a flavor whose overlay set is not yet
-    # registered (wotlk before its S2 re-derivation) fails loud HERE, before
+    # registered (wotlk before its re-derivation) fails loud HERE, before
     # the --write-lockfile short-circuit can record an unreviewed lane
     # state as a committed lockfile.
     o09.overlays_for(args.flavor, backend)

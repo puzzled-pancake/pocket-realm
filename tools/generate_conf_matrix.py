@@ -46,13 +46,13 @@ from pathlib import Path
 
 try:
     from tools import flavor_layout
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import flavor_layout
 
 ROOT = Path(__file__).resolve().parents[1]
 FLAVOR_MANIFEST = ROOT / "schemas" / "flavor.json"
 
-# The .conf.dist surfaces each flavor's pinned trees carry (H1-17 current
+# The .conf.dist surfaces each flavor's pinned trees carry (current
 # state). Paths are relative to a flavor's core/bots submodule root; a
 # missing dist is a fail-loud (the flavor's pins are not checked out).
 CORE_SURFACES = (
@@ -254,7 +254,7 @@ def check(flavor_ids=("tbc", "wotlk")) -> list[str]:
     return errors
 
 
-# --- W3.4: the packaged Kotlin key catalog (the staging validator's data) ---
+# ---: the packaged Kotlin key catalog (the staging validator's data) ---
 
 KOTLIN_CATALOG = (
     ROOT / "android/app/src/main/java/com/pocketrealm/server/"
@@ -269,7 +269,7 @@ OVERLAY_KEY_FAMILY = "PocketRealm."
 # applied INTO each core's in-tree PlayerBots module (the tree the o09/winx
 # drivers build), and its PlayerbotAIConfig/... sources READ a large LLM*
 # key family the upstream .conf.dist surfaces never document. The matrices
-# stay the DIST-documented surface (the R4-1 provenance contract); the
+# stay the DIST-documented surface (the provenance contract); the
 # catalog merges these CORE-READ keys so the staging validator knows the
 # keys the running core actually consumes.
 _CORE_READ_GETTER_RE = re.compile(
@@ -350,11 +350,11 @@ def render_kotlin_catalog(records: dict[str, dict]) -> str:
     out.append(" * sha256 to the matrix records; tools/generate_conf_matrix.py")
     out.append(" * --check fails loud on drift.")
     out.append(" *")
-    out.append(" * The staged-conf validator's data (W3.4 fail-loud): every key the")
+    out.append(" * The staged-conf validator's data (fail-loud): every key the")
     out.append(" * server runtime stages into aiplayerbot-*.conf must be known for")
     out.append(" * the FLAVOR's bots build (the flavor's matrix keys, plus the")
     out.append(" * PocketRealm.* overlay family the patches inject), and every")
-    out.append(" * excluded family (correction C9: the wotlk VoiceChat inert stub)")
+    out.append(" * excluded family (correction: the wotlk VoiceChat inert stub)")
     out.append(" * is refused with its own naming — the matrix consumers honor")
     out.append(" * excluded_keys, not just the generator.")
     out.append(" */")
@@ -364,7 +364,7 @@ def render_kotlin_catalog(records: dict[str, dict]) -> str:
     out.append("@Suppress(\"LargeClass\")")
     out.append("internal object GeneratedBotConfKeyCatalog {")
     out.append("")
-    # W3 gate-fix (llm_key_parity): the catalog stores AiPlayerbot-family
+    # key-parity gate (llm_key_parity) the catalog stores AiPlayerbot-family
     # keys as BARE FRAGMENTS through the aiKeys() builder - the runtime
     # reconstructs the full key with AI_PREFIX - so the generated file never
     # carries a contiguous "AiPlayerbot.<name>" string literal. The
@@ -409,7 +409,7 @@ def render_kotlin_catalog(records: dict[str, dict]) -> str:
         out.append("        ).toSet(),")
     out.append("    )")
     out.append("")
-    out.append("    /** The flavor's excluded key families (correction C9 data). */")
+    out.append("    /** The flavor's excluded key families (correction data). */")
     out.append("    val excludedFamiliesByFlavor: Map<String, Set<String>> = mapOf(")
     for flavor_id in flavor_ids:
         families = sorted(
@@ -422,7 +422,7 @@ def render_kotlin_catalog(records: dict[str, dict]) -> str:
     # The core-read delta: the patch-injected keys the built core reads.
     # AiPlayerbot-family keys ride the fragment builder; OTHER families
     # (the PocketRealm overlay) are stored IN FULL — running them through
-    # aiKeys() would corrupt them with the wrong prefix (the W3 gate-fix).
+    # aiKeys would corrupt them with the wrong prefix (the key-parity gate).
     for flavor_id in flavor_ids:
         code_read = sorted(records[flavor_id].get("code_read_keys", {}))
         ai = [k for k in code_read if k.startswith("AiPlayerbot.")]

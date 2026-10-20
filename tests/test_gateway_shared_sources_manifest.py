@@ -390,7 +390,7 @@ def test_wiki_pages_describe_the_n3_listing_and_join_lane():
         .read_text(encoding="utf-8")
     assert "Internet play is first-party since the iroh gateway" in accounts
     assert "relay-only switch" in accounts
-    # R6-4-4: the wiki states the dev-checkout posture — the gateway
+    # the wiki states the dev-checkout posture — the gateway
     # transport ships with the developer checkout, and a build without it
     # refuses the Join action saying exactly that (never silent, never a
     # dial into the void).

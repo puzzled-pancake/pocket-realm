@@ -13,13 +13,13 @@ import org.junit.Before
 /**
  * Design-tunnel §6/§4.4.3/§5: the tunnel lane's pure contract — the invite
  * artifact (ADDRESS BLOCK ONLY: the hard rule design-lan §4.2 supersedes
- * round-1's §6 credential-embedding with), the tunnel-kind copy split, and
+ * its credential-embedding with), the tunnel-kind copy split, and
  * the mode-aware join validation/probe copy. SHARED: this suite runs on
  * BOTH platforms (desktop/shared-sources.json shared_tests), pinning the
  * same invite/grammar contract the desktop run built for the Android port.
  */
 class TunnelInviteTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests that do not exercise the Home pick flow pin the VANILLA lane
      * (holder select) so the resolvers see one honest lane. */
     @Before
@@ -73,7 +73,7 @@ class TunnelInviteTest {
 
     @Test
     fun inviteNeverCarriesACredential() {
-        // The §6 hard rule: no working username+password inside the pasted
+        // The hard rule: no working username+password inside the pasted
         // artifact — delivery of the secret is a separate sensitive step.
         val invite = TunnelInvite.inviteText(
             realmName = "Whispering Pines",

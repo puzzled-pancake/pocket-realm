@@ -7,7 +7,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 /**
- * W6-N3: the join descriptor — the frozen schema's `join` field, now
+ * the join descriptor — the frozen schema's `join` field, now
  * carried (never an IP), with byte-stable serialization and a fail-closed
  * admission ladder.
  */

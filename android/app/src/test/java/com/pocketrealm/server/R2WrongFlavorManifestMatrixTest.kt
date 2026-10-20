@@ -16,18 +16,18 @@ import java.security.MessageDigest
 import org.junit.After
 
 /**
- * R2 adversarial breaker (android-core round 1): the wrong-flavor manifest
+ * Adversarial breaker (android-core ): the wrong-flavor manifest
  * matrix against the fail-closed consume-side gates.
  *
  * Attack class: a data-manifest (or a pointer that authenticates one) that
  * does not belong to the authenticating lane must be REFUSED with a loud,
- * actionable message — never silently coerced onto the lane (port plan
+ * actionable message — never silently coerced onto the lane (
  * invariant 2/4). Every test here plants a doctored generation tree in the
  * VANILLA pointer namespace (the lane that exists today) and demands the
  * reader refuse it.
  */
 class R2WrongFlavorManifestMatrixTest {
-    /** W4 flip fixture: the bare-root fallback and the wrong-flavor
+    /** flip fixture: the bare-root fallback and the wrong-flavor
      * refusal resolve the ACTIVE lane through the holder — pin the
      * VANILLA lane so both legs see one lane. */
     @Before
@@ -104,7 +104,7 @@ class R2WrongFlavorManifestMatrixTest {
 
     @Test
     fun `absent and explicit-null flavor aliases behave identically on the vanilla lane`() {
-        // D27 control: the pre-flavor byte shape (no key) must keep opening.
+        // control: the pre-flavor byte shape (no key) must keep opening.
         PreparedDataStore.validateDataManifestEnvelope(vanillaManifest(), ClientFlavors.VANILLA)
         val explicitNull = vanillaManifest().put("flavor", JSONObject.NULL)
         PreparedDataStore.validateDataManifestEnvelope(explicitNull, ClientFlavors.VANILLA)
@@ -236,7 +236,7 @@ class R2WrongFlavorManifestMatrixTest {
     }
 
     // ------------------------------------------------------------------
-    // Data-prep source verification (the R2-4 publish-time gate)
+    // Data-prep source verification (the publish-time gate)
     // ------------------------------------------------------------------
 
     @Test
@@ -270,7 +270,7 @@ class R2WrongFlavorManifestMatrixTest {
 
     @Test
     fun `data preparation bare-root falls back to the active lane documented posture`() {
-        // The recorded bare-root posture (D48 quarantine tests): a clientRoot
+        // The recorded bare-root posture (quarantine tests) a clientRoot
         // with NO manifest stamps the active lane rather than refusing. Pinned
         // here as documentation — a future tightening flips this test
         // deliberately.

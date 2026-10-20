@@ -120,7 +120,7 @@ internal class ManagedClientStore(context: Context) {
         // wotlk generation (locale MPQs, no base/interface) refused its
         // own boot. The gate resolves the generation's OWN flavor's
         // required set over a bounded-depth basename walk.
-        // R2-R4-2: match each registry key by its own form — a slash key
+        // match each registry key by its own form — a slash key
         // at that path RELATIVE to Data (a basename-only match accepted a
         // path-doctored generation whose client cannot load its data), a
         // bare key by basename.

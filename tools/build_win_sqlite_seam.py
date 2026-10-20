@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import build_win_realm_runtime as realm  # noqa: E402
 try:
     from tools import flavor_layout
-except ImportError:  # direct execution: python tools/<script>.py
+except ImportError:
     import flavor_layout
 
 BUILD = ROOT / "native" / ".build-win-x86_64" / "sqlite-seam-build"

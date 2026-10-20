@@ -37,7 +37,7 @@ FLAVOR_IDS = ("vanilla", "tbc", "wotlk")
 # Per-flavor name suffix. Vanilla carries NO suffix: every path below equals
 # the pre-parameterization literal for vanilla, which is the byte-identity
 # proof surface. (The vanilla migration ledger is the one seal-critical case
-# with an explicit canonical/alias pair — G3-3/D35.)
+# with an explicit canonical/alias pair — G3-3/.)
 _SUFFIX = {"vanilla": "", "tbc": "-tbc", "wotlk": "-wotlk"}
 
 # Flavor -> port-plan stage that registers each group's fork/pin.

@@ -41,7 +41,7 @@ import kotlinx.coroutines.withContext
  * The Realm Browser (the multi-flavor discovery surface): LAN realms
  * through the shared [LanJoinProbe] seam (this device's own realm, a
  * probe-any-host row), the hosted realm-status page link, and the REAL
- * Public realms section (W6-N1): a live relay browser over the shared
+ * Public realms section: a live relay browser over the shared
  * [PublicRealmBrowser] seam — real listings when hosts publish, the
  * honest empty network when none do — plus the host-side publish
  * controls (the realm listing heartbeat) for this device's own realm.
@@ -106,7 +106,7 @@ fun RealmBrowserScreen(model: DesktopAppModel) {
     }
     val nowSeconds = System.currentTimeMillis() / MILLIS_PER_SECOND
     val activeFlavorId = com.pocketrealm.client.ActiveFlavor.displayedId
-    // W6-N3: rows carry the honest join posture; the Join action pairs a
+    // rows carry the honest join posture; the Join action pairs a
     // row with its live listing card (the descriptor itself never renders).
     val publicRealmRows = browserState.listings.map { card ->
         RealmBrowserModel.publicRealmRow(
@@ -249,7 +249,7 @@ fun RealmBrowserScreen(model: DesktopAppModel) {
                     if (target != null) {
                         scope.launch {
                             // The verb suspends on Dispatchers.IO (code-red
-                            // R1-2/R4-1/R6-1) — the UI thread only launches it.
+                            // — the UI thread only launches it.
                             val operation = model.startIrohJoin(
                                 target.second, listingFlavorId = target.first,
                             )
@@ -291,7 +291,7 @@ private fun DisposableBrowserStop(browser: PublicRealmBrowser) {
     }
 }
 
-/** The internet-join lane's inputs (code-red round 1: one parameter
+/** The internet-join lane's inputs (one parameter
  * object instead of nine — the renderer and the verbs travel together). */
 private data class PublicRealmsJoinLane(
     val joinState: com.pocketrealm.desktop.iroh.IrohGatewayManager.JoinState,
@@ -320,7 +320,7 @@ private fun PublicRealmsCard(
                 fontWeight = FontWeight.SemiBold,
             )
             JoinLaneControls(joinLane)
-            // R6-2-1: the disclosure holds while the browser is connected.
+            // the disclosure holds while the browser is connected.
             Text(
                 RealmBrowserModel.RELAY_IP_DISCLOSURE,
                 style = MaterialTheme.typography.bodySmall,
@@ -356,7 +356,7 @@ private fun PublicRealmsCard(
     }
 }
 
-/** One published realm row (bots labeled, never padded); W6-N3 adds the
+/** One published realm row (bots labeled, never padded); adds the
  * honest join action (the row's availability posture drives it). */
 @Composable
 private fun PublicRealmRow(
@@ -391,7 +391,7 @@ private fun PublicRealmRow(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        // W6-N3: the join action — a real button when joinable, the honest
+        // the join action — a real button when joinable, the honest
         // posture copy otherwise (never an address; the descriptor's node
         // id and relay never render).
         joinActionCopy(row.joinAvailability)?.let { copy ->
@@ -413,7 +413,7 @@ private fun PublicRealmRow(
     }
 }
 
-/** The host-side publish controls' render inputs (R6-1: the report lines
+/** The host-side publish controls' render inputs (the report lines
  * ride with the copy so "check the relays below" is always real). */
 private data class HostPublishCard(
     val nostrState: com.pocketrealm.desktop.nostr.NostrListingPublisher.UiState,
@@ -441,7 +441,7 @@ private fun HostPublishControls(card: HostPublishCard) {
                 )
                 Column {
                     Text("Publish this realm's listing", style = MaterialTheme.typography.bodyMedium)
-                    // R2-6/R6-4: the honest publish-status projection —
+                    // the honest publish-status projection —
                     // every-relay-rejected never reads as 'Live', and the
                     // error channel (VAL copies) renders here.
                     Text(
@@ -450,7 +450,7 @@ private fun HostPublishControls(card: HostPublishCard) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.testTag("realm-browser-public-status"),
                     )
-                    // R6-1: the per-relay reports render under the status
+                    // the per-relay reports render under the status
                     // copy — "check the relays below" points at real lines.
                     card.reportLines.forEach { line ->
                         Text(

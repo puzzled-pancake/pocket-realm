@@ -49,8 +49,8 @@ def _record() -> dict:
 # --- P2-6: per-flavor win SQLite-seam lockfiles -----------------------------
 # Naming: realm-runtime-lockfile-sqlite-win-{flavor}.json; the unqualified
 # file above is the vanilla alias. Only vanilla's lockfile exists today — the
-# tbc/wotlk pins are re-derived per branch at S2 (the seam DLL itself is
-# flavor-agnostic, decision D37), so the per-flavor tests assert the
+# tbc/wotlk pins are re-derived per branch at (the seam DLL itself is
+# flavor-agnostic, decision), so the per-flavor tests assert the
 # expected-loud state: lockfile absent, and the seam build refuses before any
 # MSVC work.
 
@@ -58,7 +58,7 @@ def test_per_flavor_lockfile_naming_is_registered() -> None:
     from tools import flavor_layout
     assert flavor_layout.resolve("vanilla").sqlite_win_lockfile() == \
         "schemas/realm-runtime-lockfile-sqlite-win.json"
-    # wotlk: the S2 work landed (core pocket-realm @ c3a8d86f; overlay set
+    # wotlk: the work landed (core pocket-realm @ c3a8d86f; overlay set
     # re-derived at the 2026-10-06 DLL build and registered 2026-10-08) —
     # the lockfile must exist and pin the wotlk lane with the same parity
     # the tbc template below asserts.
@@ -79,9 +79,9 @@ def test_per_flavor_lockfile_naming_is_registered() -> None:
                               "pocket_world_runtime.dll", "pocket_sqlite.dll"]
     for artifact in record["artifacts"]:
         assert artifact["pe_machine"] == "0x8664"
-    # tbc: the S2 work landed (core pocket-realm @ ffbf97675 = upstream base +
+    # tbc: the work landed (core pocket-realm @ ffbf97675 = upstream base +
     # the four Pocket Realm adaptation commits; overlay set re-derived and
-    # registered at CP-2) — the lockfile must exist and pin the tbc lane.
+    # registration) — the lockfile must exist and pin the tbc lane.
     tbc_lockfile = ROOT / "schemas" / "realm-runtime-lockfile-sqlite-win-tbc.json"
     assert tbc_lockfile.is_file(), (
         "tbc: S2 landed but the lane lockfile is missing — run "
@@ -574,11 +574,11 @@ def test_each_backend_builds_in_its_own_root(monkeypatch) -> None:
         "native/.build-win-x86_64/sqlite-seam-build/pocket_sqlite.dll",
         "native/.build-win-x86_64-mariadb/pocket-runtime-build/libmysql.dll",
     ], "the mariadb lane still writes the sqlite lane's shared build root"
-    # The seam DLL stays the ONE shared artifact (decision D37): the
+    # The seam DLL stays the ONE shared artifact: the
     # backend suffix must never reach it.
     assert tool.SEAM_BUILD == \
         tool.ROOT / "native" / ".build-win-x86_64" / "sqlite-seam-build"
-    # The extractors' home is the OTHER backend-suffix exception (the R4
+    # The extractors' home is the OTHER backend-suffix exception (the
     # cross-tool gap): the four tools are backend-agnostic, and BOTH
     # documented consumers resolve a fixed backend-unsuffixed path —
     # tools/win_prepare_data.py (EXTRACTORS = native/.build-win-x86_64/
@@ -759,7 +759,7 @@ def test_provider_lockfile_artifacts_carry_both_path_forms(tmp_path, monkeypatch
     assert client["sha256"] == sha(client_dll)
 
 
-# --- LVF-flavor-import-014: --write-lockfile composes with --extractors -----
+# --- --write-lockfile composes with --extractors -----
 # The driver used to short-circuit on --write-lockfile before the extractors
 # leg, silently dropping the requested build. The pins here drive main() with
 # the MSVC/git/submodule legs stubbed and assert the composed invocation
@@ -1222,13 +1222,13 @@ def test_vanilla_win_lockfile_carries_no_placeholder_note() -> None:
 
 
 # ---------------------------------------------------------------------------
-# R2-3 (review round 2, medium): the Windows MariaDB provider contract is
-# scoped VANILLA-lane (decision D60) — the shared PROVIDER_STAGING root's
+# the Windows MariaDB provider contract is
+# scoped VANILLA-lane — the shared PROVIDER_STAGING root's
 # staged migration manifest IS the vanilla ledger golden, so a non-vanilla
 # write would either be refused by the desktop verifier against the vanilla
 # pin or silently re-key the committed vanilla provenance. The lockfile
 # records the scope machine-readably (lane_scope) and the writer refuses
-# non-vanilla lanes loud until W1.3 defines per-flavor provider staging.
+# non-vanilla lanes fail loud until W1.3 defines per-flavor provider staging.
 # ---------------------------------------------------------------------------
 
 def test_provider_lockfile_is_scoped_to_the_vanilla_lane() -> None:
@@ -1240,7 +1240,7 @@ def test_provider_lockfile_is_scoped_to_the_vanilla_lane() -> None:
     scope = record.get("lane_scope") or {}
     assert scope.get("flavors") == ["vanilla"], scope
     assert scope.get("decision") == "D60"
-    # the migration pin IS the vanilla ledger golden (the G3-3 bytes —
+    # the migration pin IS the vanilla ledger golden (the bytes —
     # alias and canonical byte-copies hash identically), never a
     # tbc/wotlk ledger
     vanilla_alias = hashlib.sha256(
@@ -1274,7 +1274,7 @@ def test_write_provider_lockfile_scopes_non_vanilla_lanes_to_their_own_document(
     import hashlib
     import build_win_realm_runtime as w
 
-    # R3R1-4 (W4 code-red round 3): BOTH write targets are redirected to
+    # BOTH write targets are redirected to
     # tmp_path — a unit test must never rewrite a committed provenance
     # document from live staged bytes (the lane target previously wrote
     # the REAL file, silently healing committed-vs-staged drift instead
@@ -1358,9 +1358,9 @@ def test_tbc_mariadb_win_lane_lockfile_and_telltale_are_pinned() -> None:
     record = json.loads(lockfile.read_text(encoding="utf-8"))
     assert record["database_backend"] == "mariadb"
     assert record["flavor"] == "tbc"
-    # R3R1-5 (W4 code-red round 3): the runtime lockfile must cross-
+    # the runtime lockfile must cross-
     # reference its OWN lane-scoped provider document — the shared
-    # document is the vanilla golden (D60/D86) and its lane_scope says
+    # document is the vanilla golden and its lane_scope says
     # non-vanilla lanes must not use it; the embedded provider record
     # must be the lane's own (its lane_scope + lane_migrations pin name
     # THIS lane), so a future consumer following the reference lands in
@@ -1392,9 +1392,9 @@ def test_wotlk_mariadb_win_lane_lockfile_and_telltale_are_pinned() -> None:
     record = json.loads(lockfile.read_text(encoding="utf-8"))
     assert record["database_backend"] == "mariadb"
     assert record["flavor"] == "wotlk"
-    # R3R1-5 (W4 code-red round 3): the runtime lockfile must cross-
+    # the runtime lockfile must cross-
     # reference its OWN lane-scoped provider document — the shared
-    # document is the vanilla golden (D60/D86) and its lane_scope says
+    # document is the vanilla golden and its lane_scope says
     # non-vanilla lanes must not use it; the embedded provider record
     # must be the lane's own (its lane_scope + lane_migrations pin name
     # THIS lane), so a future consumer following the reference lands in

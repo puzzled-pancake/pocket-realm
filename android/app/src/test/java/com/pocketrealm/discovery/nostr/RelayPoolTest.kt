@@ -29,7 +29,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 /**
- * W6-N1 mock-relay suite (L3, MockWebServer playing relays):
+ * mock-relay suite (L3, MockWebServer playing relays):
  *  - a GOOD relay: receives the browse REQ, delivers an EVENT frame into
  *    the read lane, acks the publish with OK true;
  *  - a BAD relay: malformed/garbage frames are ignored, never crash;
@@ -40,7 +40,7 @@ import org.junit.Test
  *    a mined nonce whose id carries the demanded leading zero bits.
  */
 // The mock-relay suite grew with the round-2..4 caps/probes; the class is
-// one cohesive socket harness (the R2/R3/R4 reviewer tests live beside the
+// one cohesive socket harness (the negative tests live beside the
 // originals by design).
 @Suppress("LargeClass")
 class RelayPoolTest {
@@ -60,11 +60,11 @@ class RelayPoolTest {
 
     @org.junit.Before
     fun resetNip11ProbeSeam() {
-        // R2-N5-r4-2: the probe seam is process-global and NEVER reset by
+        // the probe seam is process-global and NEVER reset by
         // the pool — without this reset the capped-probe test's wait loop
         // exits on a STALE count from an earlier test's probe and its
         // truncation assertion passes off a value this test never
-        // produced (the suite-scale revert of the R4-r2-1 critique).
+        // produced (the suite-scale revert of the critique).
         RelayPool.lastNip11ProbeBytes = -1
     }
 
@@ -218,7 +218,7 @@ class RelayPoolTest {
             // into the store.
             val delivery = received.poll(15, TimeUnit.SECONDS)
             assertNotNull("no event delivered by the mock relay", delivery)
-            // R2-5: the delivery carries its SOURCE RELAY (the merge
+            // the delivery carries its SOURCE RELAY (the merge
             // evidence), never a fabricated constant.
             assertEquals(relayUrl(server), delivery!!.relayUrl)
             assertTrue(
@@ -363,7 +363,7 @@ class RelayPoolTest {
         }
     }
 
-    // ------------------------------------- hostile-relay caps (R2-3/R3-3)
+    // ------------------------------------- hostile-relay caps
 
     /** A relay that rejects EVERY submission with a pow demand gets the
      * original frame plus ONE mined re-send — never the unbounded
@@ -485,11 +485,11 @@ class RelayPoolTest {
         }
     }
 
-    // ---------------------------------------- validator round-trip (R2-2)
+    // ---------------------------------------- validator round-trip
 
     @Test
     fun validatorRefusesUrlsOkHttpCannotDial() {
-        // The R2-2 probe set: shape-valid but undialable URLs.
+        // The probe set: shape-valid but undialable URLs.
         for (bad in listOf(
             "wss://relay.example:70000",
             "wss://relay.example:0",
@@ -539,7 +539,7 @@ class RelayPoolTest {
         }
     }
 
-    // ---------------------------- burst + dispatcher lanes (R4-r2-1)
+    // ---------------------------- burst + dispatcher lanes
 
     /** A relay bursting 500 valid-shape EVENT frames with a NOTICE right
      * behind them: the lane stays live and the burst drains within a
@@ -581,7 +581,7 @@ class RelayPoolTest {
         }
     }
 
-    // ---------------------------------- two-relay merge evidence (R2-5)
+    // ---------------------------------- two-relay merge evidence
 
     @Test
     fun oneEventCarriedByBothRelaysYieldsRelaysSeenTwo() {
@@ -619,7 +619,7 @@ class RelayPoolTest {
         }
     }
 
-    // ----------------- R4-r2-1 / R4-2: bounded flood + frame gate
+    // ----------------- bounded flood + frame gate
 
     /** R4-2: a 500-frame burst against a SLOW consumer (20 ms per event)
      * stays bounded — the DROP_OLDEST flow drops the oldest envelopes
@@ -734,7 +734,7 @@ class RelayPoolTest {
         }
     }
 
-    // -------------------------- R4-2 frame gate / R2-4 ack surfacing
+    // -------------------------- frame gate / ack surfacing
 
     /** R4-2: a hostile NIP-11 capability doc of 12 MB is capped before
      * parse — supportedNips stays empty and the socket survives. */
@@ -754,7 +754,7 @@ class RelayPoolTest {
         val pool = newPool()
         try {
             pool.start(listOf(relayUrl(server)), NostrFilter())
-            // R4-r2-1: wait on the PROBE-COMPLETION seam (the consumed byte
+            // wait on the PROBE-COMPLETION seam (the consumed byte
             // count) — the old loop tracked report existence, which passes
             // identically under a capped AND an uncapped probe.
             val deadline = System.currentTimeMillis() + 15_000

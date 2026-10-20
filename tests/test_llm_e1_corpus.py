@@ -35,19 +35,19 @@ BANTER_TEST = ROOT / "tools" / "test_llm_banter_core.cpp"
 
 LINE_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
-# The E0 register-lint law, shared (E1 pools MAY use {P}/{B} placeholders,
+# The register-lint law, shared (pools MAY use {P}/{B} placeholders,
 # which the core's LineIsValid admits).
 BANNED_TOKENS = ("|cff", "gearscore", "http", "www", "|")
 MECHANIC_WORDS = ("level", "quest", "dungeon", "raid", "buff", "gear",
                   "cooldown", "xp", "aggro")
-# E1 pools keep the authored house style: ALL-CAPS EMPHASIS is legal
+# pools keep the authored house style: ALL-CAPS EMPHASIS is legal
 # (pre-existing lines use it - hold THIS one, a WEEK); the ban is on
 # web/chat acronyms as lowercase words.
 CHAT_ACRONYMS = ("lol", "brb", "omg", "wtf", "lmao", "afk", "idk", "btw",
                  "gg", "thx", "pls", "u", "ur")
 DIGIT_RE = re.compile(r"\d")
 
-# The E1 target vector (the corpus law this battery enforces).
+# The target vector (the corpus law this battery enforces).
 TARGETS = {
     "kGreetStranger": 83,
     "kGreetAcq": 81,
@@ -153,7 +153,7 @@ def test_no_verbatim_collision_with_the_e0_banks():
 
 
 def test_the_seeded_pool_family_is_untouched_where_e0_promised():
-    # E1 grows pools but must not renumber them: POOL_CHEER is appended
+    # grows pools but must not renumber them: POOL_CHEER is appended
     # AFTER POOL_SECURITY_REFUSE, before POOL_COUNT
     text = CORE.read_text(encoding="utf-8")
     enum_block = text.split("enum PoolId")[1].split("};")[0]
@@ -206,7 +206,7 @@ def test_greeting_seasoning_is_additive_with_race_in_the_lane():
     greet = re.search(r"std::string PlayerbotLlmPersona::GreetingLine\(.*?\n\}", text, re.S).group(0)
     # the lock-scope restructure seasons through named draws
     # (drawn / redrawn) - still exactly TWO season points: the draw and
-    # the C7 redraw-past-persisted
+    # the redraw-past-persisted
     assert greet.count("SeasonGreeting(bot, player, ") == 2, \
         "both the draw and the C7 redraw season the line"
     # and the state lock must NOT be held across a season call
@@ -254,7 +254,7 @@ def test_the_floor_bank_hits_its_target_and_the_authoring_rule():
 
 
 def test_the_kill_pool_change_re_pinned_the_golden_in_the_same_commit():
-    # the FNV golden rides any kill-pool change (E1 touched kKill) - this
+    # the FNV golden rides any kill-pool change (touched kKill) - this
     # asserts the harness side still exists so the golden in
     # test_llm_banter.py is the only fingerprint authority
     harness = BANTER_TEST.read_text(encoding="utf-8")

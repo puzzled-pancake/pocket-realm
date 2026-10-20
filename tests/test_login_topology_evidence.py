@@ -22,8 +22,8 @@ WIN32_AUTO_LOGIN = (
 
 ProbeError = tuple[str, str]  # (file, what)
 
-# R3-1: the realmlist notes the committed FlavorLoginProbe can print. The
-# R2-3 fix made the rewrite UNCONDITIONAL (always writeText + always the
+# the realmlist notes the committed FlavorLoginProbe can print. The
+# fix made the rewrite UNCONDITIONAL (always writeText + always the
 # same note), so exactly one marker is emittable today; the set-form keeps
 # the leg readable if a future note variant lands WITH its own test pin.
 EMITTABLE_REALMLIST_NOTES = {"rewritten to loopback"}
@@ -110,9 +110,9 @@ def test_every_login_topology_capture_is_a_possible_probe_output():
             errors.append((md.name, "pinnedTitle drifted from the signature"))
         # (c2) R3-1: the realmlist note must be a marker the COMMITTED probe
         # can emit — FlavorLoginProbe's unconditional rewrite prints exactly
-        # '(rewritten to loopback)' (R2-3); a note outside the emittable set
-        # proves the capture predates the build the md claims (the round-6
-        # finding: '(already loopback)' was the pre-R2-3 substring-check
+        # '(rewritten to loopback)'; a note outside the emittable set
+        # proves the capture predates the build the md claims (the
+        # finding: '(already loopback)' was the pre- substring-check
         # build's marker, not this one's).
         realmlist_field = re.search(r'realmlist="[^"]*\(([^)]+)\)"', raw)
         if realmlist_field is None:

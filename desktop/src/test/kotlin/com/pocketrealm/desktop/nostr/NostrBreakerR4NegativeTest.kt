@@ -26,7 +26,7 @@ import org.junit.Test
  *  - the frozen-schema TYPE pins must hold for every field org.json
  *    stringifies: a non-string `motd` renders as machine JSON in the
  *    browser row (the R2B-5 class, `name` leg only);
- *  - the join admission shape (W6-N3) must refuse EVERY non-object join
+ * the join admission shape must refuse EVERY non-object join
  *    spelling (a string join is not a descriptor — refused, never
  *    stringified into the browser row);
  *  - the timeframe TAG must agree with the content stage and be unique
@@ -107,7 +107,7 @@ class NostrBreakerR4NegativeTest {
         }
     }
 
-    /** NEGATIVE (W6-N3 posture): a STRING join ("join": "iroh:…") is not
+    /** NEGATIVE (posture) a STRING join ("join": "iroh:…") is not
      * a descriptor — the admission shape refuses every non-object join,
      * never stringifying it into the browser row. */
     @Test

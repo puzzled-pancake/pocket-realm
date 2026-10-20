@@ -80,7 +80,7 @@ class BreakerR3Round3NegativeTest {
         val t16 = beltDrainMillis(16 * 1024)
         val t128 = beltDrainMillis(128 * 1024)
         println("BELT drain: 16KiB=${t16}ms 128KiB=${t128}ms ratio=${t128 / t16.coerceAtLeast(1)}")
-        // R4-3-1 remedy threshold: the bulk-drain fix makes the BELT scan
+        // remedy threshold: the bulk-drain fix makes the BELT scan
         // O(N) — 128 KiB of hostile junk drains in well under the 100 ms
         // bound (the quadratic drain measured ~577 ms at this size).
         assertTrue(t128 < 100, "128KiB BELT drain must stay under 100ms, got ${t128}ms")

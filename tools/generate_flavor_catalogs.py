@@ -715,9 +715,9 @@ def generate_settings(flavor: str, cfg: dict[str, object]) -> str:
         parts.append(f'provenance = WowSettingProvenance.{r["provenance"]}')
         if r["fixed"]:
             # R5-3-1 (review round 3): the emitted object declares the
-            # FIXED_REASON_* consts (the D44(2) repair shape the committed
+            # FIXED_REASON_* consts (the repair shape the committed
             # catalogs carry); the rows must reference THOSE consts - the
-            # pre-D44 raw identifier forms resolve to nothing and a
+            # old raw identifier forms resolve to nothing and a
             # regenerated catalog stops compiling.
             parts.append(f'fixedReason = FIXED_REASON_{str(r["fixed"])}')
         # wrap: first 2 on one line, rest individually

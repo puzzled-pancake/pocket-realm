@@ -32,7 +32,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // W6-N2 iroh spike (DEBUG-only, opt-in): the hook lives in the debug
+        // iroh spike (DEBUG-only, opt-in) the hook lives in the debug
         // source set (com.pocketrealm.spike.IrohSpike) — release builds never
         // compile it, so this resolves to a no-op there (ClassNotFound inside
         // runCatching). Driven by: am start --ez iroh_spike true

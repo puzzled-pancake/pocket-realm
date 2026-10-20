@@ -84,7 +84,7 @@ class DesktopBotResourceSamplerTest {
         // Read the expected side BEFORE the sampler and allow disk-scale
         // drift: usable space is a LIVE value, and concurrent writers on the
         // same drive (a parallel gradle lane, say) move it between this read
-        // and the sampler's own — round-2 saw 3 MiB drift mid-suite. A
+        // and the sampler's own — saw 3 MiB drift mid-suite. A
         // WRONG root errs by whole GiB, so 256 MiB still fails those.
         val expected = root.usableSpace / (1024L * 1024L)
         val metrics = DesktopBotResourceSampler(root).read(performance(), status())

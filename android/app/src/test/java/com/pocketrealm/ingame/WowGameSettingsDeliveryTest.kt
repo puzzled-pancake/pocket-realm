@@ -11,7 +11,7 @@ import org.junit.After
 import org.junit.Before
 
 class WowVanillaSettingsCatalogTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; machinery
+    /** flip fixture: the sole-qualified degrade is retired; machinery
      * tests pin the VANILLA lane (holder select) so resolvers see one lane. */
     @Before
     fun pinTheVanillaLaneForTheFlip() {
@@ -145,7 +145,7 @@ class WowGameSettingsConfigTest {
 }
 
 class GameSettingsDeliveryPlannerTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; the planner
+    /** flip fixture: the sole-qualified degrade is retired; the planner
      * resolves the ACTIVE flavor's catalog through the holder — pin the
      * VANILLA lane so the resolvers see one lane. */
     @Before
@@ -195,7 +195,7 @@ class GameSettingsDeliveryPlannerTest {
 
     @Test
     fun `a tbc-catalog cvar queued on the tbc lane plans its write - R1-2`() {
-        // R1-2: the planner resolves the ACTIVE flavor's catalog. The seam
+        // the planner resolves the ACTIVE flavor's catalog. The seam
         // below pins the tbc lane; the queued tbc-catalog id must plan its
         // Config.wtf write (the vanilla-hardcoded byId returned null and
         // blocked it forever).
@@ -358,7 +358,7 @@ class GameSettingsDeliveryPlannerTest {
 }
 
 class ManagedConfigPolicyTest {
-    /** W4 flip fixture: the sole-qualified degrade is retired; the planner
+    /** flip fixture: the sole-qualified degrade is retired; the planner
      * resolves the ACTIVE flavor's catalog through the holder — pin the
      * VANILLA lane so the resolvers see one lane. */
     @Before

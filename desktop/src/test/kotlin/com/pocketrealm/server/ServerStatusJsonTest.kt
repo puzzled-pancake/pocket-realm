@@ -90,7 +90,7 @@ class ServerStatusJsonTest {
         assertEquals(512, json.getString("detail").length)
     }
 
-    /** W4 flip (R3-4): a tbc/wotlk boot must never report the vanilla lane's
+ /** Flip: a tbc/wotlk boot must never report the vanilla lane's
      * build id — the status telemetry carries the ACTIVE lane's own id and
      * core commit, exactly what DesktopRuntimeBackend.worldTelemetry()
      * threads from BuildConfig.nativeRuntimeBuildIdFor(lane). */

@@ -12,7 +12,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * R2r3-1 (desktop-twin round 3, serious): the desktop
+ * (desktop-twin serious): the desktop
  * DataPreparationStore.publish stamped the data-manifest flavor from the
  * LIVE ActiveFlavor machine while the desktop verifiedSourceFlavor helper
  * existed with ZERO call sites — the D48/R2-4 mid-prep-switch quarantine
@@ -20,7 +20,7 @@ import java.io.File
  * own comment claimed the opposite of what the code did. A Home switch
  * during the hours-long prep published the generation + the per-flavor
  * active pointer under the switched lane while the bytes were the source
- * flavor's — the exact cross-flavor data flow D48 recorded as fixed.
+ * flavor's — the exact cross-flavor data flow recorded as fixed.
  *
  * The quarantine tests drive the SAME helper publish now stamps through
  * (the android agree/refuse/unresolvable/bare-root matrix), plus the

@@ -167,11 +167,10 @@ def test_replay_bound_is_recorded_and_configurable(tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------------------
 # Review round 2:
-# R3-2 (serious): the sqlite-tools archives are EXECUTED (sqlite3.exe
 # replays the production seed SQL), so the download path must enforce the
 # repo's hash-pin discipline BEFORE any extract or execute — the banner
 # check alone is not provenance.
-# R2-4 (medium): the lockfile leg is only ever skipped EXPLICITLY — an
+# the lockfile leg is only ever skipped EXPLICITLY — an
 # unknown reported ABI refuses loud, and the no-aapt arm marks the summary
 # (and the banner) lockfile-leg-SKIPPED instead of claiming a bare pass.
 # ---------------------------------------------------------------------------
@@ -292,7 +291,7 @@ def test_missing_statics_marks_the_lockfile_leg_skipped(
     assert "lockfile leg SKIPPED" in source
 
 
-# ------------------------------------------------- store trust (R3-r3-1)
+# ------------------------------------------------- store trust
 
 def _honest_store(tmp_path: Path, version: str) -> tuple[Path, Path, Path]:
     """A store shaped like the live one: extracted exe + OK marker + the

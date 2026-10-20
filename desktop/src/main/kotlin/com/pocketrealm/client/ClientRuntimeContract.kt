@@ -2,7 +2,7 @@ package com.pocketrealm.client
 
 /**
  * The DESKTOP TWIN of the android `client/ClientRuntime.kt` contract
- * object (R6-w3-1, code-red round 6): the android file carries
+ * object (-w3-1, ): the android file carries
  * Android-only surface and is deliberately NOT in the desktop
  * shared-sources manifest, so the JVM lane carries this same-package
  * twin with the pieces the desktop UI consumes. Keep the copied

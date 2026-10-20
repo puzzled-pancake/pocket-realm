@@ -11,7 +11,7 @@ private const val GB = 1_000_000_000.0
 /** The import confirmation dialog (extracted from ClientScreen so the
  * screen's composition complexity stays under the detekt threshold; the
  * copy branches on archive-vs-folder and names the ACTIVE lane's client
- * version). W4 flip (R6-4): a null version — no flavor picked yet — renders
+ * Version). flip : a null version — no flavor picked yet — renders
  * the first-pick copy in BOTH branches; the interpolated form only runs
  * when a lane exists. */
 @Composable
@@ -61,7 +61,7 @@ internal fun importConfirmDialog(
 }
 
 
-/** The first-pick confirm copy (the W4 flip's render-time null path): the
+/** The first-pick confirm copy (the flip's render-time null path) the
  * same archive/folder shape, naming the lane pick instead of a version. */
 @Composable
 private fun confirmWithFirstPickCopy(

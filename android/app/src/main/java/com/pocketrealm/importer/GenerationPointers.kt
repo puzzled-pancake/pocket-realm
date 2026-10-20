@@ -5,7 +5,7 @@ import org.json.JSONObject
 import java.io.File
 
 /**
- * G3-5 shared plumbing for the durable generation pointers
+ * shared plumbing for the durable generation pointers
  * (`ClientGenerationStore` managed-client generations and
  * `DataPreparationStore` o11 data generations).
  *

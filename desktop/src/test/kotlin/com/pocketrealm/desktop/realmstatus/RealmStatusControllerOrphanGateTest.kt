@@ -19,7 +19,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The §5.3 orphan-gate pins at the APPLY level: the fresh sweep that
+ * The orphan-gate pins at the APPLY level: the fresh sweep that
  * runs before every binding transition gates THAT transition — an orphan
  * that appears AFTER boot (so the machine read a then-clear gate input)
  * must refuse on the FIRST toggle, not one sweep late. This pins the
@@ -28,12 +28,12 @@ import org.junit.rules.TemporaryFolder
  * 18080 over a live record-less orphan and exposing the FRIENDS page
  * through its quick-tunnel URL.
  *
- * The after-boot timing rides the §5.3 process-table seam (the test
+ * The after-boot timing rides the process-table seam (the test
  * override of the production PowerShell probe): the fake table is empty
  * at boot, then gains a record-less cloudflared with the exact
  * page-tunnel tail before the toggle.
  *
- * The acknowledge pin: the §5.3 ack is remembered PER-PID for the app
+ * The acknowledge pin: the ack is remembered PER-PID for the app
  * lifetime — the accepts-the-exposure case (the host leaves the
  * record-less orphan live on purpose) must not loop ack → toggle → sweep
  * re-detects → refusal. After an explicit ack the SAME pid never re-trips
@@ -44,7 +44,7 @@ class RealmStatusControllerOrphanGateTest {
     @get:Rule
     val folder = TemporaryFolder()
 
-    /** The fake §5.3 process table: a mutable backing list so the test
+    /** The fake process table: a mutable backing list so the test
      * can make a record-less orphan APPEAR after boot. */
     private class FakeTable : TunnelOrphanSweep.ProcessTable {
         var entries: List<TunnelOrphanSweep.ProcessEntry> = emptyList()

@@ -14,7 +14,7 @@ import org.junit.After
 import org.junit.Before
 
 class InGameSettingsContractTest {
-    /** W4 flip fixture: the WTF layout routes resolve the ACTIVE
+    /** flip fixture: the WTF layout routes resolve the ACTIVE
      * flavor — pin the VANILLA lane (holder select). */
     @Before
     fun pinTheVanillaLaneForTheFlip() {

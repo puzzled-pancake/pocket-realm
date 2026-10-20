@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
 /**
- * W6-N2 iroh spike — DEBUG-ONLY in-app load+echo checkpoint.
+ * iroh spike — DEBUG-ONLY in-app load+echo checkpoint.
  *
  * Owner ruling 2026-10-15 (escalation answer): option (b), E:-resident
  * emulator substitute; verdict phrasing is "load+echo proven on

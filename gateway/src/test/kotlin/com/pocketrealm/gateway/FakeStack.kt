@@ -7,8 +7,8 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 
 /**
- * W6-N4: the fake loopback realm stack, extracted VERBATIM from
- * GatewaySubprocessE2E (the N3 harness) so every reconnect proof and the
+ * the fake loopback realm stack, extracted VERBATIM from
+ * GatewaySubprocessE2E (the harness) so every reconnect proof and the
  * docker-isolated leg drive the byte-identical servers:
  *
  *  - [FakeRealmServer]: the realmd lane — the raw logon challenge/proof
@@ -136,7 +136,7 @@ class FakeEchoServer(port: Int) : AutoCloseable {
     }
 }
 
-/** The wire shapes, pinned in one place (the fixture is the N3 E2E's
+/** The wire shapes, pinned in one place (the fixture is the E2E's
  * wotlk SPECIFYBUILD entry, byte-for-byte). */
 object FakeStackProtocol {
 

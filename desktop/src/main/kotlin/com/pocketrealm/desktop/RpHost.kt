@@ -26,7 +26,7 @@ import kotlin.system.exitProcess
  *      | memory {player} | reset {player} | online | save | detail
  *      | autologin {user,pass} | stop
  *
- * The account op chains the F1-10 expansion write after a fresh create
+ * The account op chains the expansion write after a fresh create
  * (the active flavor's level rides the "addon" result field; vanilla is 0).
  *
  * The chat/memory/reset ops are the same native console verbs the

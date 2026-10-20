@@ -9,17 +9,17 @@ import org.junit.Test
 /**
  * LVF-bots-llm-012/-013 pin: the staged LLM generation wall. ONE staged
  * `AiPlayerbot.LLMGenerationTimeout` bounds both chatter legs (the ambient
- * murmur call AND the interactive whisper) per lane. The round-2 live run
+ * murmur call AND the interactive whisper) per lane. The live run
  * measured the old 60 s tier default cutting both lanes' legs at exactly the
  * wall — gen end class=empty durMs=60013 / durMs=60058, deliver packets=0,
  * zero replies even with 5-minute drains. Two measured walls came out of
  * that round:
- *  - external endpoint (LVF-bots-llm-013): completions needed ~100-120 s
+ * - external endpoint (LVF-bots-llm-013): completions needed ~100-120 s
  *    cold (~3.2 tok/s prompt eval on the ~334-386-token whisper prompts);
  *    the staged 240 s budget PROVED the full pass arc (gen end class=ok,
  *    durMs=58885 warm, reply + memory delta + delivery packets) —
  *    [LlmModelRegistry.MEASURED_GENERATION_TIMEOUT_SEC].
- *  - embedded sidecar (LVF-bots-llm-012): the closeout re-execution
+ * - embedded sidecar (LVF-bots-llm-012): the closeout re-execution
  *    measured the cold trained whisper at ~967 tokens and this host's
  *    loaded CPU prompt-eval at 3.12 tok/s — ~310 s of eval alone (cancelled
  *    at progress 0.96, n_tokens=931, t=298.55 s; the earlier round's
@@ -56,7 +56,7 @@ class LlmGenerationTimeoutWallTest {
     fun bothLaneConfBlocksStageTheMeasuredWall() {
         // The findings' starvation surface, verbatim: one staged conf per
         // realm bounds both legs, so each block must carry ITS lane's
-        // measured wall (the external endpoint mirrors the round-2 repro:
+        // measured wall (the external endpoint mirrors the repro:
         // standalone llama-server on loopback 8090). Delimiter-anchored
         // asserts so a same-prefix regression (24, 2400, 30) cannot pass.
         val embedded = LlmRuntimePolicy.confBlock(llmEnabled = true)!!

@@ -324,7 +324,7 @@ class DataPreparationStore(
         val manifestFile = File(final, "data-manifest.json")
         if (!final.isDirectory || !manifestFile.isFile) return null
         val manifest = JSONObject(manifestFile.readText())
-        // GAP-3: recovery resolves the same ACTIVE lane publication did —
+        // recovery resolves the same ACTIVE lane publication did —
         // the envelope identity gate and the re-activation follow the
         // selection, never a `.single()` crash at the second qualification.
         val flavor = ActiveFlavor.resolve(SERVER_DATA_PREPARATION_LANE)
@@ -340,7 +340,7 @@ class DataPreparationStore(
             "data generation was built for the ${manifest.optString("cmangosFamily")} server family, " +
                 "but the qualified lane is ${flavor.serverFamily}"
         }
-        // G3-2: the flavor key is an additive alias of the fields above —
+        // the flavor key is an additive alias of the fields above —
         // absent on pre-flavor manifests, refused on disagreement.
         check(manifest.optString("flavor", flavor.flavorId) == flavor.flavorId) {
             "data generation was built for the \"${manifest.optString("flavor")}\" flavor, " +
@@ -503,7 +503,7 @@ class DataPreparationStore(
         private const val MIN_DBC = 100
         private const val MIN_MAP_TILES = 100
 
-        /** GAP-3: the [ActiveFlavor] lane suffix naming the data-prep gate. */
+        /** the [ActiveFlavor] lane suffix naming the data-prep gate. */
         /**
          * Pure data-manifest composition (the [publish] writer body) so the
          * durable format is golden-fixture-testable on the JVM (G3-2). The

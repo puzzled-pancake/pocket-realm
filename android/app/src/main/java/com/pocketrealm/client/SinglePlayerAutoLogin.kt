@@ -64,8 +64,8 @@ internal object Build5875LoginTopology : LoginTopologyMatcher {
  * [Build5875LoginTopology].
  *
  * Provenance: the shared X11/Winlator transport contract below is the one
- * VERIFIED against the production build-5875 lane. W3.5 (2026-10-11,
- * re-captured 2026-10-12 at code-red round 6 with the current probe build)
+ * VERIFIED against the production build-5875 lane. (2026-10-11,
+ * Re-captured 2026-10-12 at with the current probe build)
  * promoted the 8606 twin's client-side facts from UNVERIFIED to
  * live-verified on the Windows desktop lane: the genuine 8606 client
  * (exe SHA-256 `8f8d7f4c…`, the S5.1 pin) presented its login frame as ONE
@@ -87,8 +87,8 @@ internal object Build8606LoginTopology : LoginTopologyMatcher {
 /**
  * Build-12340 (wotlk) login topology — the build-keyed twin of
  * [Build5875LoginTopology], same provenance contract as
- * [Build8606LoginTopology]. W3.5 (2026-10-11, re-captured 2026-10-12 at
- * code-red round 6 with the current probe build) live-verified the
+ * [Build8606LoginTopology]. (2026-10-11, re-captured 2026-10-12 at
+ * with the current probe build) live-verified the
  * client-side facts on the Windows desktop lane: the genuine 12340 client
  * (exe SHA-256 `aa63a575…`, the S5.1 pin) matched the pinned
  * GxWindowClassOpenGl/D3d/D3d9Ex signature with the exact

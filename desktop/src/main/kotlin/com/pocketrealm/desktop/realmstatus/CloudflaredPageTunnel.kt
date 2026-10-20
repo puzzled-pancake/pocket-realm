@@ -8,23 +8,23 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Realm-status browser (design realm-status-browser.md §5): the PAGE's own
+ * Realm-status browser (design realm-status-browser.md) the PAGE's own
  * cloudflared quick-tunnel child. The two-tunnel contract in one place:
  *
  *  - the game TCP lane (3724/8085) NEVER touches quick tunnels; this child
  *    is spawned for the disposable HTTP page ONLY, with the invocation
  *    `cloudflared tunnel --url http://127.0.0.1:18080`;
- *  - OS-level child ownership (§5.2): on Windows the child joins a Job
+ * OS-level child ownership: on Windows the child joins a Job
  *    Object with KILL_ON_JOB_CLOSE held by this process, so a parent kill
  *    or power loss cannot strand it;
- *  - the child is recorded durably at spawn (§5.3's own-records kill
+ * - the child is recorded durably at spawn (§5.3's own-records kill
  *    rules) and the record is removed on its own observed exit;
  *  - the public URL is parsed from the child's stdout and SHAPE-GATED
- *    (§5.5) before it ever reaches the payload or the copy button;
+ * before it ever reaches the payload or the copy button;
  *  - a child exit flips `public.tunnelState` to `down` with `url = null`,
  *    then retries in a BOUNDED loop (3 re-spawns with backoff) before the
- *    terminal `down` with the honest retry affordance (§5.4);
- *  - discovery (§5.7): the settings path first, then PATH lookup; a
+ * terminal `down` with the honest retry affordance;
+ * discovery: the settings path first, then PATH lookup; a
  *    missing/non-executable binary refuses nothing — it lands in PUBLIC
  *    with `tunnelState = "binary-missing"`, `url = null`, and the failure
  *    copy names the EXACT command the app tried.
@@ -42,13 +42,13 @@ class CloudflaredPageTunnel(
 ) {
     private val _state = MutableStateFlow(TunnelStateReport(TunnelState.DOWN, null, null))
 
-    /** One tunnel-state report: the §5.4 payload expression plus the
+    /** One tunnel-state report: the payload expression plus the
      * discovery failure's exact-command copy when present. */
     data class TunnelStateReport(
         val state: TunnelState,
         /** The shape-gated public URL — non-null ONLY while live. */
         val url: String?,
-        /** The §5.7 failure copy naming the exact command tried. */
+        /** The failure copy naming the exact command tried. */
         val failureCopy: String?,
     )
 
@@ -116,7 +116,7 @@ class CloudflaredPageTunnel(
                 SpawnOutcome.BINARY_MISSING -> return // terminal, honest copy set
                 SpawnOutcome.SPAWNED -> {
                     // Block until the child dies (or stop() destroys it):
-                    // the exit IS the §5.4 flip, and a mid-session death
+                    // the exit IS the flip, and a mid-session death
                     // falls through into the same bounded retry budget.
                     val child = process
                     if (child != null) runCatching { child.waitFor() }
@@ -139,9 +139,9 @@ class CloudflaredPageTunnel(
 
     private enum class SpawnOutcome { SPAWNED, BINARY_MISSING, SPAWN_FAILED }
 
-    /** Resolves the binary (§5.7): the settings path, else PATH. Returns
+    /** Resolves the binary: the settings path, else PATH. Returns
      * null with the failure copy set when nothing executable resolves. */
-    @Suppress("ReturnCount") // the two-lane discovery + two failure exits are the §5.7 posture
+    @Suppress("ReturnCount") // the two-lane discovery + two failure exits are the posture
     private fun resolveBinary(): Pair<String, String>? {
         val configured = configuredPath().trim()
         if (configured.isNotEmpty()) {
@@ -191,7 +191,7 @@ class CloudflaredPageTunnel(
         }
         process = child
         liveChildPid = child.pid()
-        // §5.2: the OS-level ownership. The job is created per spawn and
+        // the OS-level ownership. The job is created per spawn and
         // held until stop() (or process death closes it — which kills the
         // child; that IS the contract).
         val job = runCatching { Win32JobObject.createKillOnCloseJob() }.getOrNull()
@@ -205,7 +205,7 @@ class CloudflaredPageTunnel(
                     "kill-on-close ownership until the next spawn")
             }
         }
-        // §5.3: the durable spawn record (pid + full command line +
+        // the durable spawn record (pid + full command line +
         // start-time + spawn wall-clock) — the own-records kill rules'
         // input. The recorded command line is the REALIZED one (exactly
         // what ProcessBuilder handed the OS for this child), so the
@@ -233,7 +233,7 @@ class CloudflaredPageTunnel(
                     logLine("page tunnel live: $match")
                 }
             }
-            // The child exited: never a stale URL (§5.4) — the retry loop
+            // The child exited: never a stale URL — the retry loop
             // (or stop()) owns the state from here.
             records.remove(child.pid())
             if (liveChildPid == child.pid()) liveChildPid = null
@@ -257,7 +257,7 @@ class CloudflaredPageTunnel(
          * probe bound (RealmStatusController.PS_TIMEOUT_SECONDS). */
         internal const val PROCESS_WAIT_SECONDS = 10L
 
-        /** The §5.7 PATH probe, BOUNDED: waitFor-first + destroyForcibly
+        /** The PATH probe, BOUNDED: waitFor-first + destroyForcibly
          * on timeout (the controller's powerShellCloudflaredProcesses
          * pattern) — a `cloudflared --version` that never exits is
          * not-on-PATH, never a wedged worker thread. */
@@ -289,7 +289,7 @@ class CloudflaredPageTunnel(
             return reaped
         }
 
-        /** The trycloudflare stdout shape (§5.5) — parse-gated before any
+        /** The trycloudflare stdout shape — parse-gated before any
          * payload or copy-button use. */
         private val URL_PARSER = Regex("(https://[a-z0-9-]+\\.trycloudflare\\.com)")
     }

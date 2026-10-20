@@ -228,14 +228,14 @@ def test_mangos_floor_reports_honest_behind(flavor: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# R2-2 (review round 2, medium): the per-flavor seed-transcript retirement
+# the per-flavor seed-transcript retirement
 # was a contract dead-end — the only writer of `transcript_digests`
 # (tools/seed_sqlite_from_manifest.py) was hard-wired to the vanilla
 # manifest/baseline, so the win-lockfile placeholder's own retire mechanism
 # (W2/W5 re-keying from sqlite-seed-baseline-<flavor>.json) had no
 # implementing tool, and build_o09's per-flavor transcript staging refused
 # with a remedy that could not work. The lane is now flavor-resolved end to
-# end (decision D59): lane_paths(), the manifest seeder's per-flavor merge
+# end: lane_paths, the manifest seeder's per-flavor merge
 # write, and package_seed_transcripts passing the flavor's OWN ledger.
 # ---------------------------------------------------------------------------
 

@@ -1,4 +1,4 @@
-// W6-N2 iroh spike — desktop echo harness (GATE, not a demo).
+// iroh spike — desktop echo harness (GATE, not a demo).
 //
 // Dependency pin: computer.iroh:iroh 1.1.0 — the NEWEST iroh Kotlin artifact
 // actually published to Maven Central (metadata verified 2026-10-15:

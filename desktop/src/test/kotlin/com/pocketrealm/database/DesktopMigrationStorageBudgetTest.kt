@@ -5,9 +5,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * R4-r2-3 (code-red round 2): the migration storage gate is a SNAPSHOT
+ * The migration storage gate is a SNAPSHOT
  * budget, not a datadir-size guess — applyPinnedMigrations takes a full
- * pre-migration datadir snapshot (measured ~1.76 GiB on the W4 tbc/wotlk
+ * pre-migration datadir snapshot (measured ~1.76 GiB on the tbc/wotlk
  * lanes) while the live datadir keeps its bytes. The static floor must
  * therefore sit ABOVE the measured snapshot cost in BOTH engines; this pin
  * fails the moment either constant is lowered back under the measured cost
@@ -51,8 +51,8 @@ class DesktopMigrationStorageBudgetTest {
 
     @Test
     fun theFlavorStorageBlocksStayAboveTheMigrationBudget() {
-        // the schemas/flavor.json measured blocks (12 GiB tbc / 24 GiB wotlk
-        // extracted, raised by R4-3) are the per-lane totals the storage UI
+        // the schemas/flavor.json measured blocks — 12 GiB tbc / 24 GiB wotlk
+        // extracted — are the per-lane totals the storage UI
         // quotes; the migration budget must stay a fraction of the smallest
         // qualified lane's block, not approach it.
         val flavor = org.json.JSONObject(
