@@ -84,29 +84,37 @@ LATER_PLACES = [
 
 # Races/classes/senses that only exist post-1.12 as such.
 LATER_SENSES = [
-    "draenei", "pandaren", "worgen",  # worgen sense-checked below
+    # draenei, pandaren, and goblin REMOVED —
+    # all three are vanilla-legitimate vocabulary (the Broken draenei of
+    # Outland, the pandaren tavern legends, the Steamwheedle goblins) and
+    # D50/R5-4-1 already pruned them from the runtime lists because "bots
+    # deflected on real content". The old CONTEXT_ALLOW table that claimed
+    # to soften them was dead code (referenced nowhere); the removal is the
+    # implementation of its contract. worgen/death knight keep their
+    # sense-checked branches below.
+    "worgen",  # worgen sense-checked below
     "playable", "hero class", "death knight",  # death knight checked below
     "flying mount", "portal is open", "portals are open",
-    "gilneas opened", "gilneas is open", "gilneas has opened",
-    "demon hunter", "monk class", "goblin",
+    "demon hunter", "monk class",
     # wiki-retrofit tells: the lead rewritten from the LATER-era state
     # ("now known as Remains of Darnassus", "former Warchief", the
     # post-Cataclysm "High King" title)
     "now known as", "high king", "former warchief",
     # retrospective-arc tells (the page narrates from past expansions)
     "pandaria", "garrosh", "burning of teldrassil", "sons of lothar",
+    # The BfA-proper-noun and later-system tells that
+    # survived the section scrub inside card bodies (the shipped corpus
+    # carried them in 21 cards; scrubbed in place + fenced here).
+    # "inscription" is NOT here: it collides with vanilla ordinary words
+    # ("runic inscriptions") — it is checked below with its profession
+    # co-sense, the death-knight precedent.
+    "fourth war", "azerite", "sky golem", "garrison stables",
+    "draenor herb", "island expedition", "pet battle", "dracthyr",
+    "inscription",
     # late-franchise content and framing that survived the section scrub
     "xal'atath", "khaz algar", "radiant song", "vanessa",
     "council of three hammers", "warcraft franchise", "anniversary",
 ]
-
-# Context-allow words whose lines survive UNLESS a later sense co-occurs.
-CONTEXT_ALLOW = {
-    "dalaran", "death knight", "death knights", "northrend", "outland",
-    "blood elf", "blood elves", "worgen", "lich king", "naxxramas",
-    "kel'thuzad", "greymane", "gilneas", "wrath", "legion", "monk",
-    "goblin", "goblins", "demon",
-}
 
 
 def era_lint_tables():
@@ -177,7 +185,7 @@ def line_is_post_era(line):
     for sense in LATER_SENSES:
         if sense not in low:
             continue
-        if sense in ("worgen", "gilneas opened", "gilneas is open"):
+        if sense == "worgen":
             # worgen ARE vanilla Silverpine; the line dies only with a
             # later-work co-marker
             continue
@@ -191,6 +199,16 @@ def line_is_post_era(line):
                 "thane", "death knight pony", "second war", "third war",
                 "warcraft iii", "warcraft 3", "frozen throne"))
             if vanilla:
+                continue
+            return True
+        if sense == "inscription":
+            # The WotLK profession is the post-era
+            # sense; vanilla "runic inscriptions" is ordinary vocabulary.
+            # The line dies only with a profession-scaffold co-marker.
+            profession = any(v in low for v in (
+                "alchemy", "trainer", "profession", "herbalism",
+                "scribes", "glyphs", "learning", "craft"))
+            if not profession:
                 continue
             return True
         return True

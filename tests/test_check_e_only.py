@@ -368,6 +368,89 @@ def test_env_indirection_producer_is_a_finding(tmp_path):
     ), findings
 
 
+def test_env_indirection_user_profile_spellings_are_findings(tmp_path):
+    """W7-R2-1: the OS-user-profile root builders the old regex missed —
+    System.getenv("USERPROFILE"), HOMEDRIVE+HOMEPATH, pathlib Path.home(),
+    and os.path.expanduser("~") — each builds the same C: root the
+    LOCALAPPDATA spelling does, so each must yield E-ENV-INDIRECTION on a
+    tracked production file (the gate's leg-2 fail-open hole)."""
+    import subprocess
+
+    cases = {
+        "desktop/src/main/kotlin/x/ProdUserProfile.kt":
+            'val root = File(System.getenv("USERPROFILE"), "X")',
+        "desktop/src/main/kotlin/x/ProdHomeDrive.kt":
+            'val root = File(System.getenv("HOMEDRIVE") + System.getenv("HOMEPATH"), "X")',
+        "tools/prod_path_home.py":
+            "root = Path.home() / 'X'",
+        "tools/prod_expanduser.py":
+            "root = os.path.expanduser('~') / 'X'",
+        # Case dimension: Windows resolves env-var
+        # names case-insensitively, so these spellings build the same
+        # C: roots at runtime
+        "desktop/src/main/kotlin/x/ProdLower.kt":
+            'val root = File(System.getenv("userprofile"), "X")',
+        "tools/prod_lower_py.py":
+            "root = os.environ.get('userprofile') / 'X'",
+        "tools/prod_mixed.py":
+            "root = os.environ.get('LocalAppData') / 'X'",
+        "desktop/src/main/kotlin/x/ProdHomemedrive.kt":
+            'val root = File(System.getenv("Homedrive"), "X")',
+        # Missing-variable dimension: bare HOME and
+        # SystemDrive in their access forms (a bare-word HOME would
+        # false-positive on keyboard-key tables and child-env setters)
+        "tools/prod_home_env.py":
+            'root = Path(os.environ["HOME"]) / "X"',
+        "desktop/src/main/kotlin/x/ProdHome.kt":
+            'val root = File(System.getenv("HOME"), "X")',
+        "native/prod_home.cpp":
+            'const char* base = std::getenv("HOME");',
+        "tools/e_sysdrive.py":
+            'root = os.environ.get("SystemDrive") / "X"',
+    }
+    root = _git_repo(tmp_path)
+    for rel, line in cases.items():
+        producer = root / rel
+        producer.parent.mkdir(parents=True, exist_ok=True)
+        producer.write_text(line + chr(10), encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    findings, _scanned = check_e_only.literal_findings(root)
+    for rel in cases:
+        assert any(
+            f["code"] == "E-ENV-INDIRECTION" and f["path"] == rel
+            for f in findings
+        ), (rel, [f for f in findings if "E-ENV-INDIRECTION" in str(f)])
+
+
+def test_env_indirection_producer_after_string_markers_is_found(tmp_path):
+    """W7 code-red round 2 (R2-2): the comment cut must ignore markers
+    INSIDE string literals — a '#' in a format string or a '//' in a URL
+    before a same-line producer must not hide it (the blind-false-negative
+    class the old first-marker truncation created)."""
+    import subprocess
+
+    cases = {
+        "tools/prod_hash_string.py":
+            "p = format(\"#\") + os.path.expanduser(\"~x\")",
+        "tools/prod_url.py":
+            "u = \"https://host//p\" ; root = os.path.expanduser(\"~x\")",
+        "desktop/src/main/kotlin/x/ProdUrl.kt":
+            'val u = "https://host//p" ; val root = Path.home() / "X"',
+    }
+    root = _git_repo(tmp_path)
+    for rel, line in cases.items():
+        producer = root / rel
+        producer.parent.mkdir(parents=True, exist_ok=True)
+        producer.write_text(line + chr(10), encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    findings, _scanned = check_e_only.literal_findings(root)
+    for rel in cases:
+        assert any(
+            f["code"] == "E-ENV-INDIRECTION" and f["path"] == rel
+            for f in findings
+        ), (rel, [f for f in findings if "E-ENV-INDIRECTION" in str(f)])
+
+
 def test_indirection_allowlist_files_pass(tmp_path):
     import subprocess
 

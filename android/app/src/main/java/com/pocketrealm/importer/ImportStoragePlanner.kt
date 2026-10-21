@@ -13,6 +13,10 @@ class ImportStoragePlanner(
     // flavor block's storage.max_total_bytes is the import-total cap,
     // routed through ImportLimits.maxTotalBytes' default (ImportModel.kt).
     private val extractedEstimate: Long = flavorExtractedEstimate(),
+    // The prepared-server-data OUTPUT the
+    // flow writes after the import - the flavor's measured figure
+    // (storage.prepared_estimate_bytes); see the desktop twin.
+    private val preparedEstimate: Long = flavorPreparedEstimate(),
     // wineEstimate and minimumReserve are platform caps, not flavor data.
     private val wineEstimate: Long = 1L * ImportLimits.GIB,
     private val minimumReserve: Long = 2L * ImportLimits.GIB,
@@ -34,7 +38,7 @@ class ImportStoragePlanner(
         val allocatable = context.getSystemService(StorageManager::class.java)
             .getAllocatableBytes(StorageManager.UUID_DEFAULT)
         return calculate(sourceBytes, stagedArchiveBytes, scratchArchiveBytes, extractedEstimate,
-            database, wineEstimate, snapshot, minimumReserve, allocatable)
+            preparedEstimate, database, wineEstimate, snapshot, minimumReserve, allocatable)
     }
 
     private fun directoryBytes(root: java.io.File): Long {
@@ -45,20 +49,27 @@ class ImportStoragePlanner(
     companion object {
         internal fun calculate(
             source: Long, stagedArchive: Long, scratchArchive: Long, extracted: Long,
-            database: Long, wine: Long, snapshot: Long, minimumReserve: Long, allocatable: Long,
+            prepared: Long = 0L, database: Long, wine: Long, snapshot: Long,
+            minimumReserve: Long, allocatable: Long,
         ): StoragePlan {
             require(
                 listOf(
-                    source, stagedArchive, scratchArchive, extracted, database, wine,
-                    snapshot, minimumReserve, allocatable,
+                    source, stagedArchive, scratchArchive, extracted, prepared, database,
+                    wine, snapshot, minimumReserve, allocatable,
                 ).all { it >= 0 },
             )
             val subtotal = Math.addExact(
-                Math.addExact(Math.addExact(Math.addExact(source, stagedArchive), scratchArchive), extracted),
-                Math.addExact(Math.addExact(database, wine), snapshot),
+                Math.addExact(
+                    Math.addExact(Math.addExact(source, stagedArchive), scratchArchive),
+                    extracted,
+                ),
+                Math.addExact(
+                    Math.addExact(Math.addExact(prepared, database), wine),
+                    snapshot,
+                ),
             )
             val margin = maxOf(minimumReserve, ceil(subtotal * 0.20).toLong())
-            return StoragePlan(source, extracted, database, wine, snapshot, margin,
+            return StoragePlan(source, extracted, prepared, database, wine, snapshot, margin,
                 Math.addExact(subtotal, margin), allocatable)
         }
     }
@@ -78,4 +89,9 @@ private fun flavorExtractedEstimate(): Long {
     return requireNotNull(flavor.extractedEstimateBytes) {
         "${flavor.flavorId} is qualified without a measured storage budget"
     }
+}
+
+private fun flavorPreparedEstimate(): Long {
+    val flavor = ActiveFlavor.resolve("storage budgets resolve the qualified lane")
+    return flavor.preparedEstimateBytes ?: 0L
 }

@@ -2416,6 +2416,8 @@ Verifications recorded by the hunters that produced **no** register entry (so th
 
 - Flavor registry compiled byte-identical via the shared manifest; multi-flavor TBC/WotLK is
   `qualified=false` on Android and fails loud vanilla-only in the desktop seam tool — parity holds.
+  (State as of the 2026-09-30 hunt — SUPERSEDED since: the W4 flip qualified all three lanes,
+  decision D86, and the version sites moved to 0.110.0 at W7.)
 - `ChatterPowerMonitor`: desktop stages the same rung constants pinned to NORMAL (plugged-in
   substitution); vanilla-tweaks lockfile pins identical cross-platform
   (`fbbe31add71b23602d981d70f1a58520fc349b47`, 1.6.0); world-DLL sha256 matches BuildConfig + win

@@ -40,6 +40,24 @@ def test_no_nul_debris_anywhere():
         "nul debris recreated (an MSYS `> nul` redirection): delete it and "
         "stop redirecting to the reserved name: " + repr(offenders)
     )
+    # W7 code-red R7-1/R6-1/R1-1: git cannot enumerate a ROOT-level
+    # reserved-name file (the `nul` that failed the finalize leak sweep was
+    # invisible to git status AND to the loop above), so probe the DOS
+    # reserved names directly through the extended-length path — the same
+    # trick leak_sweep uses — making the pytest tripwire independent of
+    # git enumeration.
+    import os as _os
+    dos_reserved = ("nul", "con", "prn", "aux", "com1", "com2", "com3",
+                    "com4", "lpt1", "lpt2", "lpt3")
+    prefix = "\\\\?\\" + str(ROOT) + "\\"
+    reserved_hits = [
+        name for name in dos_reserved
+        if _os.path.isfile(prefix + name)
+    ]
+    assert not reserved_hits, (
+        "reserved-name root debris present (invisible to git status; "
+        "delete with MSYS `rm <name>`): " + repr(reserved_hits)
+    )
 
 
 def test_wave_exit_gitignore_claims_match_reality():
@@ -577,7 +595,7 @@ def test_toolchain_tmpdir_helper_resolves_and_creates(monkeypatch, tmp_path):
     assert str(common.TOOLCHAIN_TMPDIR).lower().startswith("e:")
     assert "temp" not in str(common.TOOLCHAIN_TMPDIR).lower()
 # ---------------------------------------------------------------------------
-# R2-2 (android-ui-tests review round 2): the installed-add-on detail copy
+# The installed-add-on detail copy
 # claimed "Vanilla interface metadata" while the validator it fronts accepts
 # the ACTIVE flavor's interfaces — wrong-copy at the qualification flip (the
 # D50(4) class, copy flavor). The ui/ tree must derive the flavor word from
@@ -593,6 +611,18 @@ def test_no_hardcoded_vanilla_interface_copy_in_ui():
     assert not offenders, (
         "hard-coded 'Vanilla interface' copy in the ui/ tree (the detail "
         "screen must derive the flavor word from the active ClientFlavor): "
+        + repr(offenders)
+    )
+    # The addons/ package joins the fence —
+    # a user-facing install label naming Vanilla renders on every lane,
+    # while the validator checks the ACTIVE flavor's interfaces.
+    for path in (ROOT / "android/app/src/main/java/com/pocketrealm/addons").rglob("*.kt"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if "Vanilla interface" in text or "Checking Vanilla compatibility" in text:
+            offenders.append(path.relative_to(ROOT).as_posix())
+    assert not offenders, (
+        "hard-coded Vanilla copy in the addons/ package (labels must be "
+        "flavor-neutral or derive from the active ClientFlavor): "
         + repr(offenders)
     )
 
@@ -1020,7 +1050,9 @@ def test_counts_artifact_generated_prose_preserves_historical_tuples():
     # began ((2) + the android twin).
     for script in ("n3-regen-counts.py", "n5-regen-android-counts.py",
                    "n3-regen-desktop-counts.py",
-                   "n5-regen-desktop-counts.py"):
+                   "n5-regen-desktop-counts.py",
+                   "../w7/regen-desktop-counts.py",
+                   "../w7/regen-android-counts.py"):
         # a writer that exits non-zero (the
         # fail-closed drift guard, a red canonical tree) must fail the pin
         # — a silent non-zero exit would make the byte-stability check
@@ -1269,25 +1301,41 @@ def _probe_drift_refusal_impl():
     backup = artifact.with_suffix(f".json.r3probe-backup-{os.getpid()}")
     shutil.copy2(artifact, backup)
     try:
-        doctored = json.loads(artifact.read_text(encoding="utf-8"))
-        true_tests = doctored["tests"]
-        doctored["tests"] = true_tests + 100
-        doctored["log"] = marker_free_log.name
-        artifact.write_text(json.dumps(doctored, indent=1) + "\n", encoding="utf-8")
-        before = artifact.read_bytes()
-        run = subprocess.run(
-            [sys.executable, "out/completion/w6/n5-regen-desktop-counts.py"],
-            capture_output=True, text=True, cwd=ROOT, timeout=120,
-        )
-        assert run.returncode != 0, (
-            "the writer WROTE despite the artifact/tree drift with no "
-            "native marker in the cited log (the provenance-falsification "
-            "path is open)"
-        )
-        assert "REFUSED" in run.stdout + run.stderr, run.stdout[-400:]
-        assert artifact.read_bytes() == before, (
-            "the refused run still modified the artifact"
-        )
+        # W7 writer chain: the guard re-binds when a native marker in
+        # EITHER the artifact's citation or the terminal writer's own
+        # cited log documents the LIVE tree's tuple — a doctored ARTIFACT
+        # beside a documented live tree is therefore a legitimate re-bind
+        # (the writer repairs the artifact to the marker's numbers), not
+        # the falsification case. The falsification case is a drifted
+        # LIVE TREE whose numbers no archived marker documents: remove
+        # one XML (the live tuple drops by that file's tests) and require
+        # the writer to refuse without writing.
+        import glob as _glob
+        xmls = sorted(_glob.glob(
+            str(ROOT / "desktop/build/test-results/test/TEST-*.xml")))
+        assert xmls, "no canonical desktop XML tree to probe"
+        victim = Path(xmls[0])
+        victim_backup = artifact.with_suffix(f".xml.r3probe-victim-{os.getpid()}")
+        shutil.copy2(victim, victim_backup)
+        try:
+            victim.unlink()
+            before = artifact.read_bytes()
+            run = subprocess.run(
+                [sys.executable, "out/completion/w7/regen-desktop-counts.py"],
+                capture_output=True, text=True, cwd=ROOT, timeout=120,
+            )
+            assert run.returncode != 0, (
+                "the terminal writer WROTE despite the live-tree drift with "
+                "no native marker for the drifted tuple (the provenance-"
+                "falsification path is open)"
+            )
+            assert "REFUSED" in run.stdout + run.stderr, run.stdout[-400:]
+            assert artifact.read_bytes() == before, (
+                "the refused run still modified the artifact"
+            )
+        finally:
+            shutil.copy2(victim_backup, victim)
+            victim_backup.unlink()
     finally:
         shutil.copy2(backup, artifact)
         backup.unlink()
@@ -1313,6 +1361,10 @@ def test_counts_writers_are_idempotent_on_a_converged_tree():
          "desktop-test-counts.json"),
         ("out/completion/w6/n5-regen-desktop-counts.py",
          "desktop-test-counts.json"),
+        ("out/completion/w7/regen-desktop-counts.py",
+         "desktop-test-counts.json"),
+        ("out/completion/w7/regen-android-counts.py",
+         "android-unit-counts.json"),
     ):
         artifact = ROOT / "out/completion/w0" / artifact_name
         before = hashlib.sha256(artifact.read_bytes()).hexdigest()
@@ -1374,3 +1426,45 @@ def test_all_first_party_python_modules_parse():
         "stopped enforcing): " + "; ".join(broken)
     )
 
+
+
+def test_registry_files_never_call_qualified_lanes_unqualified():
+    """W7 code-red round 3 (R3-2): the flavor-registry files must never
+    call a lane 'unqualified' in their contract comments — the stale
+    'declared lane, unqualified' KDoc survived the W4 flip and read as
+    the opposite of the live registry state (all three qualified, D86)."""
+    for rel in (
+        "android/app/src/main/java/com/pocketrealm/client/TimeframeStage.kt",
+        "android/app/src/main/java/com/pocketrealm/client/ClientFlavor.kt",
+    ):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "unqualified" not in text, (
+            f"{rel} carries an 'unqualified' claim — the registry state is "
+            "all-three-qualified (W4 flip, D86); stale gate prose invites "
+            "re-gating qualified lanes")
+
+
+def test_wiki_pages_keep_player_voice_and_clean_structure():
+    """W7 code-red round 5 (R6-5-1/R6-5-2): (a) no blockquote may split a
+    list item from its continuation (the Getting-Started first-run bullet
+    rendered broken when the flavors blockquote was inserted mid-item);
+    (b) the player-facing wiki pages carry no wave-review idioms — the
+    audience is 'players, testers, family members' (docs/wiki/README.md)."""
+    gs = (ROOT / "docs/wiki/Getting-Started.md").read_text(encoding="utf-8")
+    assert not re.search(r"that you are\s*\n\s*>", gs), (
+        "Getting-Started: a blockquote splits the client-folder bullet from "
+        "its continuation")
+    assert gs.count("that you are entitled to use") == 1, (
+        "Getting-Started: the client-folder bullet lost its continuation")
+    banned = (
+        "honest to the registry",
+        "staged ahead of that landing",
+        "Per-platform runtime honesty",
+        "unselectable-until-qualified",
+    )
+    for page in (ROOT / "docs/wiki").glob("*.md"):
+        text = page.read_text(encoding="utf-8", errors="replace")
+        for phrase in banned:
+            assert phrase not in text, (
+                f"{page.name} carries the wave-review idiom {phrase!r} — "
+                "the wiki is written for players, not reviewers")

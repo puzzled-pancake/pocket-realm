@@ -454,3 +454,109 @@ def test_lore_card_builder_era_lint_consumes_the_manifest_single_source(
         encoding="utf-8")
     assert '("shattrath", "draenei", "pandaren", "acherus")' not in source
     assert "lint_terms, lint_phrases = era_lint_tables()" in source
+
+
+def test_shipped_lore_corpus_carries_no_post_112_tells():
+    """W7 code-red round 4 (R5r4-1): the INVERSE corpus-discipline pin.
+    The era lint's false-ban direction is swept elsewhere; this sweeps the
+    corpus itself against a fixed post-1.12 tell set — the shipped vanilla
+    lore cards carried BfA/WoD/MoP/Dragonflight content (Azerite shredders,
+    Garrison Stables, the Pet Battle System, dracthyr, the Fourth War, the
+    Inscription profession) that survived both the build-time wiki scrub
+    and every runtime era list, and was injected into bot chat as [RESULT]
+    ground truth on the qualified vanilla lane. Zero whole-word hits, with
+    a justified-escape map (the KEPT_GUARDS_JUSTIFIED pattern) for any
+    legitimate vanilla collision a future corpus rebuild reintroduces —
+    an escape WITHOUT its justification fails the pin."""
+    import json as _json
+    import re as _re
+
+    tells = {
+        "inscription": "the WotLK profession sense (vanilla 'runic "
+                       "inscriptions' is ordinary vocabulary — any escape "
+                       "must quote the ordinary-word sentence)",
+        "sky golem": "the MoP engineer-crafted mount",
+        "garrison stables": "the WoD garrison building",
+        "draenor herb": "the WoD gathering node",
+        "azerite": "the BfA substance",
+        "fourth war": "the BfA war (capitalized proper noun; vanilla-era "
+                      "text calls the current conflict nothing of the sort)",
+        "island expedition": "the BfA feature",
+        "pet battle": "the MoP system",
+        "dracthyr": "the Dragonflight race",
+    }
+    JUSTIFIED_ESCAPES: dict[str, str] = {}
+
+    cards = []
+    for line in ASSET.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            cards.append(_json.loads(line))
+
+    offenders = {}
+    for card in cards:
+        blob = _json.dumps(card)
+        for tell in tells:
+            if _re.search(rf"\b{tell}\b", blob, _re.IGNORECASE):
+                offenders.setdefault(tell, []).append(card.get("title", "?"))
+
+    escaped = sorted(set(offenders) & set(JUSTIFIED_ESCAPES))
+    unescaped = sorted(set(offenders) - set(JUSTIFIED_ESCAPES))
+    assert not unescaped, (
+        f"post-1.12 tell(s) {unescaped} present in the shipped vanilla lore "
+        f"corpus (offending cards: "
+        f"{ {t: offenders[t] for t in unescaped} }) — re-scrub the cards "
+        "(sentence-level) and extend the build_lore_cards.py scrub tables")
+    for tell in escaped:
+        assert JUSTIFIED_ESCAPES[tell].strip(), (
+            f"the justified escape for {tell!r} carries no justification")
+
+
+def test_lore_asset_serialization_matches_the_generator():
+    """W7 code-red round 6 (R6-2): the shipped lore asset must be
+    byte-reproducible by its tracked producer — re-serializing every
+    parsed line with build_lore_cards.py's exact form (ensure_ascii=True,
+    compact separators, LF joins) must reproduce the file byte-for-byte.
+    The round-4 scrub rewrote the asset with default json.dumps spacing,
+    diverging 585 lines from the generator."""
+    import json as _json
+
+    raw = ASSET.read_text(encoding="utf-8")
+    cards = [_json.loads(l) for l in raw.splitlines() if l.strip()]
+    reproduced = "".join(
+        _json.dumps(c, ensure_ascii=True, separators=(",", ":")) + "\n"
+        for c in cards
+    )
+    assert reproduced == raw, (
+        "the shipped lore asset's serialization does not match the "
+        "generator's (ensure_ascii=True, separators=(',', ':')) — a corpus "
+        "rebuild would reformat every line; re-serialize with the "
+        "generator's form")
+
+
+def test_lore_scrub_tables_goblin_is_never_a_false_ban():
+    """W7 code-red round 6 (R6-1): the build-time wiki scrub must not kill
+    vanilla-legitimate vocabulary — goblins (Steamwheedle, Booty Bay,
+    Everlook) are core 1.12 content, and D50/R5-4-1 already established
+    the never-ban precedent for draenei/pandaren on the runtime lists.
+    A negative control proves the post-era detector still fires."""
+    import importlib.util as _iutil
+    import os as _os
+    import sys as _sys
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+
+    # the module raises SystemExit at import when LLM_LAB_LORE_CORPUS is
+    # unset (the harvested-wiki check); point it at a scratch dir — the
+    # table functions under test never read the corpus
+    _os.environ.setdefault("LLM_LAB_LORE_CORPUS", _tempfile.mkdtemp())
+    lab = ROOT / "tools" / "llm_lab"
+    if str(lab) not in _sys.path:
+        _sys.path.insert(0, str(lab))
+    import build_lore_cards  # noqa: E402
+
+    assert build_lore_cards.line_is_post_era(
+        "The goblins of the Steamwheedle Cartel run Booty Bay and Gadgetzan."
+    ) is False, "goblin vocabulary must survive the scrub"
+    assert build_lore_cards.line_is_post_era(
+        "Goblins of the Kezan cartel opened Gilneas after the Cataclysm."
+    ) is True, "the post-era control must still be detected"

@@ -107,7 +107,7 @@ Most players should keep the defaults. Changing several timing values at once ca
 
 ## Client tweaks
 
-Optional quality-of-life patches are applied on the next client launch. **Vanilla, all off** disables them. **Common tweaks** selects the normal project preset.
+Optional quality-of-life patches are applied on the next client launch. **Vanilla, all off** disables them. **Common tweaks** selects the normal project preset. The tweak set is validated against the vanilla 1.12.1 client only: on the TBC and WotLK lanes the card says the tweaks are not available for that flavor and the toggles stay off.
 
 If the exact client file layout is not qualified for a patch, Pocket Realm leaves that launch on the pristine Vanilla behaviour instead of forcing an unsafe change.
 

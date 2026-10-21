@@ -420,7 +420,14 @@ def test_canonical_tuples_in_both_exit_records_equal_their_artifacts():
     android_artifact = json.loads(
         (ROOT / "out/completion/w0/android-unit-counts.json").read_text(encoding="utf-8"))
     android_full = (int(android_artifact["tests"]), int(android_artifact["classes"]))
-    text = EXIT.read_text(encoding="utf-8")
+    # W7 repoint (the W6B wave-local convention, applied to the third
+    # live-state pin of this family): the pin compares record tuples
+    # against the LIVE counts artifact, so the record it scans must be
+    # the CURRENT wave's exit record — a frozen earlier wave's record
+    # quotes its own era's tuple by design. The N4 record's historical
+    # 1839/231 (its own era truth) stays in place; the historical-value
+    # pins (the digest, the D98 archive inventory) keep reading it.
+    text = (ROOT / "out/completion/w7/WAVE-EXIT.md").read_text(encoding="utf-8")
     # (a) the guarded phrase must not exist at all — the record quotes
     # the tuple in the verification row's own phrasing instead
     assert "canonical tree intact" not in text, (
@@ -527,10 +534,11 @@ def test_production_diff_sentence_names_every_changed_main_file():
     # W6B repoint: the production-diff pin is wave-local - it checks the
     # CURRENT wave's changed main files against the CURRENT wave's exit
     # record (a frozen earlier wave's record can never name a later
-    # wave's files).
-    exit_record = ROOT / "out/completion/w6b/WAVE-EXIT.md"
+    # wave's files). W7 repoint (same convention): base 6006afd (the W6B
+    # exit commit), record out/completion/w7/WAVE-EXIT.md.
+    exit_record = ROOT / "out/completion/w7/WAVE-EXIT.md"
     diff = subprocess.run(
-        ["git", "diff", "--name-only", "5a22314704973624a16b8c3655a6b4c0504d186c", "--",
+        ["git", "diff", "--name-only", "6006afd18f1d93129fb17c811586014696de3dd8", "--",
          "desktop/src/main/", "gateway/src/main/", "android/app/src/main/"],
         capture_output=True, text=True, cwd=ROOT,
     )

@@ -133,7 +133,10 @@ def promote_to_qualified(flavor: dict) -> None:
         flavor[group][key] = HEX40
     flavor["bots"]["status"] = "pinned"
     flavor["bots"]["commit"] = VANILLA_BOTS_PIN
-    flavor["storage"] = {"extracted_estimate_bytes": 1, "max_total_bytes": 2}
+    flavor["storage"] = {
+        "extracted_estimate_bytes": 1, "max_total_bytes": 2,
+        "prepared_estimate_bytes": 1,
+    }
     flavor["mpq_set"]["required"] = ["base.mpq"]
 
 
@@ -862,3 +865,279 @@ def test_storage_extracted_estimate_covers_the_measured_client_tree():
         assert f"{storage['extracted_estimate_bytes'] // (1024**3)}L * 1024L * 1024L * 1024L" in kotlin, (
             f"{fid}: the Kotlin extractedEstimateBytes must mirror the "
             "manifest's GiB value")
+
+
+def test_swapped_required_mpq_set_across_flavors_errors(tmp_path):
+    """W7-R2-2: a doctored manifest swapping one flavor's required MPQ
+    list for another's must refuse — the base MPQ set is client identity
+    the same way the exe hash is."""
+    manifest = load_manifest()
+    wotlk_list = list(flavor_by_id(manifest, "wotlk")["mpq_set"]["required"])
+    flavor_by_id(manifest, "tbc")["mpq_set"]["required"] = wotlk_list
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "duplicate required MPQ set across flavors" in error
+        and "tbc" in error
+        and "wotlk" in error
+        for error in errors
+    ), errors
+
+
+def test_manifest_required_mpq_sets_match_the_kotlin_registry():
+    """W7-R2-2 parity: flavor.json flavors[i].mpq_set.required must equal
+    the ClientFlavors registry's requiredMpqs per flavor — the runtime
+    import gate resolves the Kotlin set (ManagedClientStore), so a
+    two-file drift here would wave a wrong-flavor client through with no
+    detector. The same drift class sources.json refuses for commits."""
+    import re
+
+    kotlin = (ROOT / "android/app/src/main/java/com/pocketrealm/client/"
+              "ClientFlavor.kt").read_text(encoding="utf-8")
+    # each registry object names its clientId, then its requiredMpqs setOf
+    registry: dict[str, set[str]] = {}
+    for m in re.finditer(
+        r'clientId = "([^"]+)"', kotlin
+    ):
+        tail = kotlin[m.end():]
+        rm = re.search(r"requiredMpqs = setOf\((.*?)\)", tail, re.S)
+        assert rm, f"no requiredMpqs setOf after clientId {m.group(1)!r}"
+        names = set(re.findall(r'"([^"]+)"', rm.group(1)))
+        assert names, f"empty requiredMpqs for {m.group(1)!r}"
+        registry[m.group(1)] = names
+    assert registry, "the ClientFlavors registry parse found no flavors"
+
+    manifest = load_manifest()
+    for flavor in manifest["flavors"]:
+        cid = flavor["client_id"]
+        assert cid in registry, (
+            f"flavor.json carries client_id {cid!r} with no Kotlin registry "
+            "object — the parity test cannot bind it")
+        required = set(flavor["mpq_set"]["required"])
+        assert required == registry[cid], (
+            f"{cid}: flavor.json mpq_set.required != the Kotlin registry "
+            f"requiredMpqs (manifest-only: {sorted(required - registry[cid])}, "
+            f"registry-only: {sorted(registry[cid] - required)})")
+
+
+def test_qualified_foreign_supported_client_build_errors(tmp_path):
+    """W7 code-red round 3 (R3-1): the registration-completeness rule
+    applies to QUALIFIED flavors — a doctored qualified flavor naming a
+    FOREIGN registered build (another lane's) must refuse; [] stays legal
+    with its note."""
+    manifest = load_manifest()
+    flavor_by_id(manifest, "tbc")["supported_client_builds"] = [8606, 12340]
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "qualified supported_client_builds must be exactly" in error
+        and "12340" in error
+        for error in errors
+    ), errors
+    # foreign-only list refuses the same way
+    manifest = load_manifest()
+    flavor_by_id(manifest, "tbc")["supported_client_builds"] = [12340]
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "qualified supported_client_builds must be exactly" in error
+        for error in errors
+    ), errors
+    # listing exactly the flavor's own build stays legal
+    manifest = load_manifest()
+    flavor_by_id(manifest, "tbc")["supported_client_builds"] = [8606]
+    flavor_by_id(manifest, "tbc")["supported_client_builds_note"] = "hash-qualified"
+    errors = validate_manifest(manifest, tmp_path)
+    assert not any("supported_client_builds" in e for e in errors), errors
+
+
+def test_manifest_identity_fields_match_the_kotlin_registry():
+    """W7 code-red round 3 (R3-3): the manifest<->registry parity extends
+    to every identity-bearing ClientFlavor field — addonInterfaces,
+    realmdAcceptedBuilds, databases, versionResource, and the exe
+    sha256/md5/size — so a two-file drift in ANY of them (the class the
+    mpq parity test was built for) has a detector."""
+    import re
+
+    kotlin = (ROOT / "android/app/src/main/java/com/pocketrealm/client/"
+              "ClientFlavor.kt").read_text(encoding="utf-8")
+
+    def block_after(anchor: str) -> str:
+        i = kotlin.find(anchor)
+        assert i >= 0, f"ClientFlavor.kt lost {anchor!r}"
+        return kotlin[i:]
+
+    manifest = load_manifest()
+    for flavor in manifest["flavors"]:
+        cid = flavor["client_id"]
+        block = block_after(f'clientId = "{cid}"')
+        # addonInterfaces: the manifest carries NO mirror field (the
+        # registry is the owning table), so the parity pin is the era
+        # constants themselves — the port-plan master-table values
+        m = re.search(r"addonInterfaces = setOf\((.*?)\)", block, re.S)
+        assert m, f"{cid}: no addonInterfaces in registry"
+        reg_ifaces = sorted(int(x) for x in re.findall(r"\d+", m.group(1)))
+        era_floor = {"vanilla": 11200, "tbc": 20400, "wotlk": 30300}[flavor["id"]]
+        assert reg_ifaces == [era_floor], (
+            f"{cid}: registry addonInterfaces {reg_ifaces} drifted from the "
+            f"era constant {era_floor}")
+        # realmdAcceptedBuilds
+        m = re.search(r'realmdAcceptedBuilds = "([^"]+)"', block)
+        assert m, f"{cid}: no realmdAcceptedBuilds in registry"
+        assert flavor["realmd"]["accepted_builds"] == m.group(1), (
+            f"{cid}: realmd accepted_builds drift "
+            f"{flavor['realmd']['accepted_builds']!r} vs registry {m.group(1)!r}")
+        # databases
+        m = re.search(
+            r"databases = ClientFlavor\.DatabaseNames\((.*?)\)", block, re.S)
+        assert m, f"{cid}: no databases in registry"
+        reg_dbs = dict(re.findall(r"(\w+) = \"([^\"]+)\"", m.group(1)))
+        assert flavor["databases"] == reg_dbs, (
+            f"{cid}: databases drift {flavor['databases']} vs registry {reg_dbs}")
+        # versionResource
+        m = re.search(r'versionResource = "([^"]+)"', block)
+        assert m, f"{cid}: no versionResource in registry"
+        assert flavor["version_resource"] == m.group(1), (
+            f"{cid}: version_resource drift")
+        # exe identities
+        m = re.search(r'knownExeSha256 = "([^"]+)"', block)
+        assert m, f"{cid}: no knownExeSha256 in registry"
+        assert flavor["wine"]["known_exe_sha256"] == m.group(1), (
+            f"{cid}: wine.known_exe_sha256 drift")
+        cb = flavor.get("client_binary") or {}
+        m = re.search(r'knownExeMd5 = "([^"]+)"', block)
+        if cb.get("known_exe_md5") is not None:
+            assert m, f"{cid}: manifest has known_exe_md5 but registry does not"
+            assert cb["known_exe_md5"] == m.group(1), f"{cid}: exe md5 drift"
+        m = re.search(r"knownExeSizeBytes = (\d+)L", block)
+        if cb.get("known_exe_size_bytes") is not None:
+            assert m, f"{cid}: manifest has known_exe_size_bytes but registry does not"
+            assert cb["known_exe_size_bytes"] == int(m.group(1)), (
+                f"{cid}: exe size drift")
+
+
+def test_wine_prefix_segment_win32_normalization_collisions_refused(tmp_path):
+    """W7 code-red round 4 (R4-R2-1): prefix segments differing from
+    another flavor's only by a trailing dot/space collapse to the SAME
+    directory on Win32 — the slug rule refuses every such spelling."""
+    for doctored in ("wow8606.", "wow8606 ", "Wow8606", "wow 8606"):
+        manifest = load_manifest()
+        flavor_by_id(manifest, "tbc")["wine"]["prefix_segment"] = doctored
+        errors = validate_manifest(manifest, tmp_path)
+        assert any(
+            "must be a lowercase slug" in error
+            for error in errors
+        ), (doctored, errors)
+
+
+def test_manifest_wine_prefix_segment_matches_the_kotlin_registry():
+    """W7 code-red round 4 (R4-R2-1): the winePrefixSegment parity leg —
+    the manifest's wine.prefix_segment must equal the registry's
+    winePrefixSegment per client id (the two-file drift class)."""
+    import re
+
+    kotlin = (ROOT / "android/app/src/main/java/com/pocketrealm/client/"
+              "ClientFlavor.kt").read_text(encoding="utf-8")
+    manifest = load_manifest()
+    for flavor in manifest["flavors"]:
+        cid = flavor["client_id"]
+        i = kotlin.find(f'clientId = "{cid}"')
+        assert i >= 0, f"{cid}: no registry object"
+        m = re.search(r'winePrefixSegment = "([^"]+)"', kotlin[i:])
+        assert m, f"{cid}: no winePrefixSegment in registry"
+        assert flavor["wine"]["prefix_segment"] == m.group(1), (
+            f"{cid}: wine.prefix_segment drift "
+            f"{flavor['wine']['prefix_segment']!r} vs registry {m.group(1)!r}")
+
+
+def test_manifest_prepared_estimate_matches_the_kotlin_registry():
+    """W7 code-red round 4 (R4-2): the prepared_estimate_bytes parity leg —
+    the planner's prepared row resolves the registry value, so a two-file
+    drift would silently change the import preflight's arithmetic."""
+    import re
+
+    kotlin = (ROOT / "android/app/src/main/java/com/pocketrealm/client/"
+              "ClientFlavor.kt").read_text(encoding="utf-8")
+    manifest = load_manifest()
+    for flavor in manifest["flavors"]:
+        cid = flavor["client_id"]
+        i = kotlin.find(f'clientId = "{cid}"')
+        assert i >= 0, f"{cid}: no registry object"
+        m = re.search(r"preparedEstimateBytes = (\d+)L", kotlin[i:])
+        assert m, f"{cid}: no preparedEstimateBytes in registry"
+        assert flavor["storage"]["prepared_estimate_bytes"] == int(m.group(1)), (
+            f"{cid}: storage.prepared_estimate_bytes drift")
+
+
+def test_mutual_identity_exchanges_refuse_regardless_of_order(tmp_path):
+    """W7 code-red round 5 (W7-R5-R2-1): the identity gates' coverage,
+    stated exactly. SHARING (a list/hash copied so two flavors carry the
+    same identity) is refused by check_flavor regardless of registration
+    order — the pairwise pass closes the insertion-order dodge the
+    owner-maps had. A two-party MUTUAL EXCHANGE of distinct values is
+    equality-invisible by definition (each value still appears once), so
+    it is owned by the manifest<->registry parity pins, which anchor every
+    field to its client id — asserted here at that layer."""
+    # sharing: a THIRD flavor copying another's mpq list (the order-dodge
+    # shape the owner-maps missed)
+    manifest = load_manifest()
+    wotlk_list = list(flavor_by_id(manifest, "wotlk")["mpq_set"]["required"])
+    flavor_by_id(manifest, "vanilla")["mpq_set"]["required"] = wotlk_list
+    errors = validate_manifest(manifest, tmp_path)
+    assert any(
+        "duplicate mpq_set.required across flavors" in e and "wotlk" in e
+        for e in errors
+    ), errors
+
+    # mutual known_exe_sha256 swap: an equality gate CANNOT see it (two
+    # distinct values exchange — each still appears once), so this drift
+    # is owned by the manifest<->registry parity layer, which anchors each
+    # hash to its client id. Assert THAT detector fires on the swap.
+    import re as _re
+
+    manifest = load_manifest()
+    tbc_sha = flavor_by_id(manifest, "tbc")["wine"]["known_exe_sha256"]
+    wotlk_sha = flavor_by_id(manifest, "wotlk")["wine"]["known_exe_sha256"]
+    flavor_by_id(manifest, "tbc")["wine"]["known_exe_sha256"] = wotlk_sha
+    flavor_by_id(manifest, "wotlk")["wine"]["known_exe_sha256"] = tbc_sha
+    kotlin = (ROOT / "android/app/src/main/java/com/pocketrealm/client/"
+              "ClientFlavor.kt").read_text(encoding="utf-8")
+    registry_drift = []
+    for flavor in manifest["flavors"]:
+        cid = flavor["client_id"]
+        i = kotlin.find(f'clientId = "{cid}"')
+        m = _re.search(r'knownExeSha256 = "([^"]+)"', kotlin[i:])
+        assert m, f"{cid}: no registry sha"
+        if flavor["wine"]["known_exe_sha256"] != m.group(1):
+            registry_drift.append(cid)
+    assert sorted(registry_drift) == ["wow-2.4.3-8606", "wow-3.3.5a-12340"], (
+        "the mutual exe-sha exchange must drift BOTH flavors against the "
+        f"registry (the parity layer's detector): {registry_drift}")
+
+    # mutual databases swap: equality-invisible like the sha exchange —
+    # owned by the manifest<->registry parity layer (asserted at that layer).
+    import re as _re
+
+    manifest = load_manifest()
+    tbc_dbs = dict(flavor_by_id(manifest, "tbc")["databases"])
+    wotlk_dbs = dict(flavor_by_id(manifest, "wotlk")["databases"])
+    flavor_by_id(manifest, "tbc")["databases"] = wotlk_dbs
+    flavor_by_id(manifest, "wotlk")["databases"] = tbc_dbs
+    kotlin = (ROOT / "android/app/src/main/java/com/pocketrealm/client/"
+              "ClientFlavor.kt").read_text(encoding="utf-8")
+    registry_drift = []
+    for flavor in manifest["flavors"]:
+        cid = flavor["client_id"]
+        i = kotlin.find(f'clientId = "{cid}"')
+        m = _re.search(
+            r"databases = ClientFlavor\.DatabaseNames\((.*?)\)", kotlin[i:], _re.S)
+        assert m, f"{cid}: no registry databases"
+        reg = dict(_re.findall(r"(\w+) = \"([^\"]+)\"", m.group(1)))
+        if flavor["databases"] != reg:
+            registry_drift.append(cid)
+    assert sorted(registry_drift) == ["wow-2.4.3-8606", "wow-3.3.5a-12340"], (
+        "the mutual databases exchange must drift BOTH flavors against the "
+        f"registry (the parity layer's detector): {registry_drift}")
+
+    # the one-way control stays refused (the owner-map's original shape)
+    manifest = load_manifest()
+    flavor_by_id(manifest, "tbc")["mpq_set"]["required"] = wotlk_list
+    errors = validate_manifest(manifest, tmp_path)
+    assert any("duplicate mpq_set.required across flavors" in e for e in errors), errors

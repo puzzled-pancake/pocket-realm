@@ -81,7 +81,7 @@ class ImportStoragePlannerTest {
 
     @Test fun twoGiBFloorAndInsufficientStorageFailClosed() {
         val gib = ImportLimits.GIB
-        val plan = ImportStoragePlanner.calculate(gib, 0, 0, 0, 0, 0, 0, 2 * gib, 2 * gib)
+        val plan = ImportStoragePlanner.calculate(gib, 0, 0, 0, 0, 0, 0, 0, 2 * gib, 2 * gib)
         assertEquals(3 * gib, plan.requiredBytes)
         assertFalse(plan.canProceed)
     }
@@ -112,5 +112,27 @@ class ImportStoragePlannerTest {
         val subtotal = plan.requiredBytes - plan.workingMarginBytes
         assertEquals(5 * gib + 5 * gib + 5 * gib + 4 * gib + gib, subtotal)
         assertFalse("16 GiB free must not satisfy a 20 GiB need", plan.canProceed)
-    }
+    }            @Test
+        fun preparedRowRefusesTheExactFitLane() {
+            // The prepared-server-data OUTPUT the
+            // flow writes after the import is its own budget row — an
+            // allocatable == the db-less need lane must refuse once the
+            // prepared bytes are charged.
+            val gib = ImportLimits.GIB
+            // positional order: source, staged, scratch, extracted,
+            // prepared, database, wine, snapshot, minimumReserve, allocatable
+            val need = ImportStoragePlanner.calculate(
+                5 * gib, 0, 0, 4 * gib, 0, 0, gib, 0, 2 * gib, 15 * gib,
+            ).requiredBytes
+            assertEquals(12 * gib, need)
+            val exactFit = ImportStoragePlanner.calculate(
+                5 * gib, 0, 0, 4 * gib, 0, 0, gib, 0, 2 * gib, need,
+            )
+            assertTrue(exactFit.canProceed)
+            val charged = ImportStoragePlanner.calculate(
+                5 * gib, 0, 0, 4 * gib, gib, 0, gib, 0, 2 * gib, need,
+            )
+            assertFalse("the prepared row must push an exact-fit lane over", charged.canProceed)
+        }
+
 }

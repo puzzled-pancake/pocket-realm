@@ -48,6 +48,7 @@ data class ClientFlavor(
     val requiredMpqs: Set<String>,
     /** Storage planner budgets in bytes (null until measured for this flavor). */
     val extractedEstimateBytes: Long?,
+    val preparedEstimateBytes: Long? = null,
     val maxTotalBytes: Long?,
     /** Bot population policy values for this flavor's playerbots build. */
     val botMaxLevel: Int,
@@ -176,7 +177,8 @@ object ClientFlavors {
             "base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq",
             "model.mpq", "sound.mpq", "speech.mpq", "terrain.mpq", "texture.mpq", "wmo.mpq",
         ),
-        extractedEstimateBytes = 4L * 1024L * 1024L * 1024L,
+        extractedEstimateBytes = 6L * 1024L * 1024L * 1024L,
+        preparedEstimateBytes = 2336608036L,
         maxTotalBytes = 20L * 1024L * 1024L * 1024L,
         botMaxLevel = 60,
         botRandomMaps = listOf(0, 1),
@@ -225,6 +227,7 @@ object ClientFlavors {
             "enus/patch-enus.mpq", "enus/patch-enus-2.mpq",
         ),
         extractedEstimateBytes = 12L * 1024L * 1024L * 1024L,
+        preparedEstimateBytes = 3217410914L,
         maxTotalBytes = 24L * 1024L * 1024L * 1024L,
         botMaxLevel = 70,
         botRandomMaps = listOf(0, 1, 530),
@@ -275,6 +278,7 @@ object ClientFlavors {
             "enus/patch-enus.mpq", "enus/patch-enus-2.mpq", "enus/patch-enus-3.mpq",
         ),
         extractedEstimateBytes = 24L * 1024L * 1024L * 1024L,
+        preparedEstimateBytes = 3309122582L,
         maxTotalBytes = 40L * 1024L * 1024L * 1024L,
         botMaxLevel = 80,
         botRandomMaps = listOf(0, 1, 530, 571),

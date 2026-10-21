@@ -85,7 +85,7 @@ class DesktopImportStoragePlannerTest {
     @Test
     fun twoGiBFloorAndInsufficientStorageFailClosed() {
         val gib = ImportLimits.GIB
-        val plan = ImportStoragePlanner.calculate(gib, 0, 0, 0, 0, 0, 0, 2 * gib, 2 * gib)
+        val plan = ImportStoragePlanner.calculate(gib, 0, 0, 0, 0, 0, 0, 0, 2 * gib, 2 * gib)
         assertEquals(3 * gib, plan.requiredBytes)
         assertFalse(plan.canProceed)
     }
@@ -172,5 +172,59 @@ class DesktopImportStoragePlannerTest {
             "the snapshot floor reflects the REAL snapshot store",
             plan.minimumSnapshotBytes >= 8192L,
         )
+    }
+
+    @Test
+    fun preparedOutputRowCountsTowardTheNeed() {
+        // The prepared-server-data OUTPUT the flow writes after the import
+        // is its own budget row — a lane whose allocatable exactly covers
+        // the db-less need must refuse once the prepared bytes are charged
+        // (the under-budget the vanilla leg carried until the measured row
+        // landed).
+        val gib = ImportLimits.GIB
+        val dbLessNeed = ImportStoragePlanner.calculate(
+            source = 5 * gib, stagedArchive = 0, scratchArchive = 0, extracted = 4 * gib,
+            database = 0, wine = gib, snapshot = 0, minimumReserve = 2 * gib,
+            allocatable = 15 * gib,
+        )
+        assertEquals(12 * gib, dbLessNeed.requiredBytes)
+        assertTrue(dbLessNeed.canProceed)
+        assertEquals(0L, dbLessNeed.preparedDataBytes)
+
+        val preparedBytes = 2_174_803_968L // the measured vanilla row, MiB-aligned
+        val withPrepared = ImportStoragePlanner.calculate(
+            source = 5 * gib, stagedArchive = 0, scratchArchive = 0, extracted = 4 * gib,
+            prepared = preparedBytes, database = 0, wine = gib, snapshot = 0,
+            minimumReserve = 2 * gib, allocatable = 15 * gib,
+        )
+        assertEquals(preparedBytes, withPrepared.preparedDataBytes)
+        val dbLessSubtotal = dbLessNeed.requiredBytes - dbLessNeed.workingMarginBytes
+        val withSubtotal = withPrepared.requiredBytes - withPrepared.workingMarginBytes
+        assertEquals(dbLessSubtotal + preparedBytes, withSubtotal)
+        assertTrue(withPrepared.canProceed)
+    }
+
+    @Test
+    fun preparedRowRefusesTheExactFitLane() {
+        // The negative: allocatable == the db-less need EXACTLY — the old
+        // arithmetic proceeded, the prepared row refuses it.
+        val gib = ImportLimits.GIB
+        val need = ImportStoragePlanner.calculate(
+            source = 5 * gib, stagedArchive = 0, scratchArchive = 0, extracted = 4 * gib,
+            database = 0, wine = gib, snapshot = 0, minimumReserve = 2 * gib,
+            allocatable = 15 * gib,
+        ).requiredBytes
+        val exactFit = ImportStoragePlanner.calculate(
+            source = 5 * gib, stagedArchive = 0, scratchArchive = 0, extracted = 4 * gib,
+            prepared = 0, database = 0, wine = gib, snapshot = 0,
+            minimumReserve = 2 * gib, allocatable = need,
+        )
+        assertTrue(exactFit.canProceed)
+        val charged = ImportStoragePlanner.calculate(
+            source = 5 * gib, stagedArchive = 0, scratchArchive = 0, extracted = 4 * gib,
+            prepared = gib, database = 0, wine = gib, snapshot = 0,
+            minimumReserve = 2 * gib, allocatable = need,
+        )
+        assertFalse("the prepared row must push an exact-fit lane over", charged.canProceed)
     }
 }

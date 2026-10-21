@@ -103,10 +103,10 @@ object TimeframeStages {
     /** Vanilla 1.1 → 1.12.1, the ask's twelve shipped stages. */
     val VANILLA: List<TimeframeStage> = stages("vanilla", VANILLA_PATCHES)
 
-    /** TBC 2.0.1 → 2.4.3 (declared lane, unqualified — ClientFlavors.TBC). */
+    /** TBC 2.0.1 → 2.4.3 (qualified lane since the W4 flip — ClientFlavors.TBC). */
     val TBC: List<TimeframeStage> = stages("tbc", TBC_PATCHES)
 
-    /** WotLK 3.0.2 → 3.3.5a (declared lane, unqualified — ClientFlavors.WOTLK). */
+    /** WotLK 3.0.2 → 3.3.5a (qualified lane since the W4 flip — ClientFlavors.WOTLK). */
     val WOTLK: List<TimeframeStage> = stages("wotlk", WOTLK_PATCHES)
 
     val ALL: List<TimeframeStage> = VANILLA + TBC + WOTLK
@@ -128,6 +128,20 @@ object TimeframeStages {
     /** The ordered stages of one flavor; unknown flavor ids yield an empty list. */
     fun stagesFor(flavorId: String): List<TimeframeStage> =
         ALL.filter { it.flavorId == flavorId }
+
+    /** The Settings copy for a selected non-final stage whose overlay is
+     * NOT staged for its flavor in this build (the tbc/wotlk lanes): the
+     * choice is recorded, but a realm start at that stage is REFUSED, and
+     * the copy must say exactly that — never promise the world still
+     * runs (the W7 code-red R5-1 untruth). */
+    fun unstagedOverlayNotice(stage: TimeframeStage): String =
+        "${stage.title}: this stage's content data is not staged for this " +
+            "flavor in this build — a realm start at this stage is refused " +
+            "until the overlays ship. The choice is recorded for the realm; " +
+            "switch back to the current-release stage — the world starts at " +
+            "that stage only on lanes that boot this flavor (the desktop " +
+            "repo checkout today; Android and installed desktop images boot " +
+            "Vanilla only)."
 
     /** The flavor's DEFAULT stage: the final patch (design §1). */
     fun defaultStageId(flavorId: String): String =

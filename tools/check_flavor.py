@@ -401,7 +401,8 @@ def _check_flavor(flavor: dict, index: int, errors: list[str],
         storage = flavor.get("storage")
         if not isinstance(storage, dict) or not all(
             isinstance(storage.get(k), int) and storage[k] > 0
-            for k in ("extracted_estimate_bytes", "max_total_bytes")
+            for k in ("extracted_estimate_bytes", "max_total_bytes",
+                      "prepared_estimate_bytes")
         ):
             _err(errors, f"{where}.storage budgets must be positive integers for a qualified flavor")
         mpq = flavor.get("mpq_set") or {}
@@ -410,13 +411,44 @@ def _check_flavor(flavor: dict, index: int, errors: list[str],
             _err(errors, f"{where}.mpq_set.required must list the client's base MPQ set")
         wine = flavor.get("wine") or {}
         for key in ("prefix_segment",):
-            if not isinstance(wine.get(key), str) or not wine[key]:
+            value = wine.get(key)
+            if not isinstance(value, str) or not value:
                 _err(errors, f"{where}.wine.{key} must be set for a qualified flavor")
+            elif not SLUG_RE.match(value):
+                # The segment becomes a
+                # directory name — Win32 strips trailing dots/spaces, so
+                # 'wow8606.' or 'wow8606 ' collapses onto another flavor's
+                # prefix while this gate's lower() key calls them distinct.
+                # The slug rule refuses every spelling that can normalize.
+                _err(
+                    errors,
+                    f"{where}.wine.{key} must be a lowercase slug "
+                    f"(lowercase letters, digits, dashes; no dots, spaces, "
+                    f"or uppercase — Win32 directory normalization would "
+                    f"collapse spellings onto another flavor's prefix), "
+                    f"got {value!r}",
+                )
         if flavor.get("supported_client_builds") == [] and not flavor.get("supported_client_builds_note"):
             _err(
                 errors,
                 f"{where}: empty supported_client_builds needs a note explaining the qualification state",
             )
+        # The registration-completeness rule
+        # applies to QUALIFIED flavors too — the list is the build registry
+        # of record (D6), so a doctored qualified flavor naming a FOREIGN
+        # registered build (another lane's) must refuse exactly as the
+        # unqualified branch does; [] stays legal with its note (the
+        # qualified flag, not this list, gates import).
+        if flavor.get("qualified") is True:
+            scb = flavor.get("supported_client_builds")
+            if isinstance(scb, list) and scb and build_is_int and scb != [build]:
+                _err(
+                    errors,
+                    f"{where}: qualified supported_client_builds must be exactly "
+                    f"[{build}] (the registered client's own build) or [] with a "
+                    f"note, got {scb!r} — a foreign or padded build list on a "
+                    "qualified flavor is a doctored registry",
+                )
     else:
         # S5.1 identity registration (lanes item 13): an unqualified flavor may
         # record the census-measured genuine-client identity, but only as a
@@ -481,7 +513,7 @@ def _load_sources(sources_path: Path) -> tuple[list[dict] | None, str | None]:
     if not isinstance(sources, list):
         return None, f"sources manifest has no sources array: {sources_path}"
     entries = [source for source in sources if isinstance(source, dict)]
-    # Review round 2 (R2-2): the flavor->sources binding resolves by ID —
+    # The flavor->sources binding resolves by ID —
     # a second entry sharing cmangos-core-tbc's id but carrying the vanilla
     # upstream_url + commit would win the URL-first match and the commit
     # comparison would PASS on the doctored pin (the coordinated two-file
@@ -653,6 +685,9 @@ def validate(manifest_path: Path, sources_path: Path | None = None) -> list[str]
     exe_md5_owners: dict[str, str] = {}
     exe_sha256_owners: dict[str, str] = {}
     exe_size_owners: dict[int, str] = {}
+    # W7-R2-2: the base MPQ set is as identity-bearing as the exe hash —
+    # two flavors sharing one required list means one of them was doctored.
+    mpq_required_owners: dict[tuple, str] = {}
     # register EVERY flavor's build before any per-flavor
     # check runs — the foreign-build rejection must see all
     # registered builds regardless of manifest ordering.
@@ -781,6 +816,90 @@ def validate(manifest_path: Path, sources_path: Path | None = None) -> list[str]
                     )
                 else:
                     exe_sha256_owners[sha] = owner
+        # W7-R2-2: the required MPQ set is client identity the same way the
+        # exe hash is — a doctored manifest that swaps one flavor's list for
+        # another's (or pastes a copy) must refuse, not qualify a lane whose
+        # import gate would then wave through another flavor's client tree.
+        mpq_required = (flavor.get("mpq_set") or {}).get("required")
+        if isinstance(mpq_required, list) and mpq_required:
+            mpq_key = tuple(sorted(str(name).strip().lower() for name in mpq_required))
+            if mpq_key in mpq_required_owners:
+                _err(
+                    errors,
+                    f"duplicate required MPQ set across flavors: "
+                    f"mpq_set.required ({len(mpq_required)} entries) is pinned by "
+                    f"both {mpq_required_owners[mpq_key]!r} and {owner!r} — two "
+                    "flavors must never share a base MPQ identity (a swap or "
+                    "copy-paste of another flavor's list is a doctored manifest)",
+                )
+            else:
+                mpq_required_owners[mpq_key] = owner
+
+    # The owner maps above fire only when
+    # a key is SEEN TWICE — multi-flavor SHARING patterns that dodge the
+    # insertion order (A copies B while B copies C; a copy between flavors
+    # the map sorted past) slip through. The pairwise pass compares every
+    # identity field across every flavor pair, so ANY sharing refuses
+    # regardless of registration order. (A two-party MUTUAL EXCHANGE of
+    # distinct values is equality-invisible by definition — each value
+    # still appears exactly once — and is owned by the manifest<->registry
+    # parity pins, which anchor every field to its client id.)
+    identity_vectors: list[tuple[str, dict[str, object]]] = []
+    for flavor in flavors:
+        if not isinstance(flavor, dict):
+            continue
+        fid = flavor.get("id") if isinstance(flavor.get("id"), str) else f"<index-{flavors.index(flavor)}>"
+        wine = flavor.get("wine") if isinstance(flavor.get("wine"), dict) else {}
+        binary = flavor.get("client_binary") if isinstance(flavor.get("client_binary"), dict) else {}
+        mpq = flavor.get("mpq_set") if isinstance(flavor.get("mpq_set"), dict) else {}
+        mpq_required = mpq.get("required")
+        identity_vectors.append((fid, {
+            "build": flavor.get("build"),
+            "version_resource": flavor.get("version_resource"),
+            "prefix_segment": (
+                str(wine.get("prefix_segment")).strip().lower()
+                if isinstance(wine.get("prefix_segment"), str) else None
+            ),
+            "databases": tuple(
+                (key, (flavor.get("databases") or {}).get(key))
+                for key in DATABASE_KEYS
+            ) if isinstance(flavor.get("databases"), dict) else None,
+            "mpq_required": tuple(sorted(
+                str(name).strip().lower() for name in mpq_required
+            )) if isinstance(mpq_required, list) and mpq_required else None,
+            "exe_sha256": wine.get("known_exe_sha256")
+            if isinstance(wine.get("known_exe_sha256"), str) else None,
+            "exe_md5": binary.get("known_exe_md5")
+            if isinstance(binary.get("known_exe_md5"), str) else None,
+            "exe_size": binary.get("known_exe_size_bytes")
+            if isinstance(binary.get("known_exe_size_bytes"), int)
+            and not isinstance(binary.get("known_exe_size_bytes"), bool) else None,
+        }))
+    field_labels = {
+        "build": "build",
+        "version_resource": "version_resource",
+        "prefix_segment": "wine.prefix_segment",
+        "databases": "databases",
+        "mpq_required": "mpq_set.required",
+        "exe_sha256": "wine.known_exe_sha256",
+        "exe_md5": "client_binary.known_exe_md5",
+        "exe_size": "client_binary.known_exe_size_bytes",
+    }
+    for i in range(len(identity_vectors)):
+        for j in range(i + 1, len(identity_vectors)):
+            fid_a, vec_a = identity_vectors[i]
+            fid_b, vec_b = identity_vectors[j]
+            for field, label in field_labels.items():
+                va, vb = vec_a.get(field), vec_b.get(field)
+                if va is None or vb is None or va != vb:
+                    continue
+                _err(
+                    errors,
+                    f"duplicate {label} across flavors: the identity is shared "
+                    f"by both {fid_a!r} and {fid_b!r} (an exchange, rotation, "
+                    "or copy between flavors is a doctored manifest — two "
+                    "flavors must never share an identity field)",
+                )
 
     if qualified_count == 0:
         _err(errors, "at least one flavor must be qualified (the app must ship a lane)")

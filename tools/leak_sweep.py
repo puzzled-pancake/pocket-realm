@@ -962,12 +962,6 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "retires": "W3 retires: per-flavor era curation regenerates per-flavor catalogs",
     },
     {
-        "path": "android/app/src/main/java/com/pocketrealm/database/TimeframeOverlayPlan.kt",
-        "literals": ("classicmangos",),
-        "reason": "timeframe overlay plan names the vanilla world DB the overlay SQL applies to",
-        "retires": "W3 retires: per-flavor overlay plans route DB names through the registry",
-    },
-    {
         "path": "android/app/src/main/java/com/pocketrealm/database/TimeframeOverlayApplier.kt",
         "literals": ("classicmangos",),
         "reason": "timeframe overlay applier writes to the vanilla world DB the overlays target",
@@ -1259,7 +1253,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
 
     # ------------------------------------------------------------------
-    # R2UI-3 (android-ui-tests review round 2): the §4.6 lane tokens
+    # The §4.6 lane tokens
     # (realmbuilds-adjacent builds 6005/6141, the per-flavor addon
     # interface numbers 11200/20400/30300, the expansion MPQ names) joined
     # the banned set; these owning surfaces legitimately carry them.
@@ -1954,7 +1948,7 @@ _PRIVACY_IPV4_RE = re.compile(
     r"(?<![\w.])(?:\d{1,}\.){3}\d{1,}(?:\.(?![0-9.])|(?![\w.]))"
 )
 # The DOTLESS integer spelling (2130706433 = 127.0.0.1). R2-N5-r4-1 (code-
-# red round 4, serious; superseding round 3's octal model, which was never
+# serious; superseding the earlier octal model, which was never
 # executed against the JVM): the pinned JDKs' single-chunk parser is PLAIN
 # DECIMAL with leading zeros ignored and an unsigned-32-bit value bound —
 # measured ("0123456789" -> 7.91.205.21; "0400000000" -> 23.215.132.0 =
@@ -2006,7 +2000,7 @@ def _privacy_dotless_int_is_address(digits: str) -> bool:
 _PRIVACY_HEX_SPAN_RE = re.compile(r"(?<![\w.])[0-9a-fA-FxX.]+(?![\w.])")
 # Dotless-hex address ("0x7f000001"): an 0x-prefixed run of >=8 hex digits
 # (a 4-byte address minimum — "0xFF" byte masks stay legal code). The
-# trailing-dot alternative matches (R5-N5-r2-1). R2-2 (round 5): Kotlin's
+# trailing-dot alternative matches. Note: Kotlin's
 # integer L/u suffixes are syntax, not part of the address — accepted
 # before the boundary ("0x7F000001L" is the integer 127.0.0.1).
 _PRIVACY_DOTLESS_HEX_RE = re.compile(
@@ -2290,7 +2284,7 @@ def _privacy_surface_findings(
                 continue
         # the carve-out file IS judged — its ONE documented constant
         # DECLARATION line is the only place an address may appear
-        # (R3-1, round 2: keyed to the declaration SHAPE, not substring
+        # (keyed to the declaration SHAPE, not substring
         # membership — a line that merely REFERENCES the constant cannot
         # smuggle a fresh literal under the exemption).
         exempt_marker = rel in PRIVACY_PAYLOAD_IP_EXEMPT

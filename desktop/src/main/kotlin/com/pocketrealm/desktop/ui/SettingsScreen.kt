@@ -535,11 +535,19 @@ private fun TimeframeCard(model: DesktopAppModel, storedStage: String, realmRunn
                 // closes" claim is only true once the stage's availability
                 // data is measured. Until the measured per-stage sets land,
                 // no build gates anything — asserting closure would promise
-                // a restriction the shipped data does not enforce.
+                // a restriction the shipped data does not enforce. A stage
+                // with no staged overlay for its flavor refuses the world
+                // start outright, so its copy must say that instead.
+                val overlayStaged =
+                    com.pocketrealm.client.GeneratedTimeframeOverlayCatalog
+                        .overlaySql(selected.id) != null
                 val measured = com.pocketrealm.client.TimeframeStages
                     .eventGating(selected).measured
                 Text(
-                    if (measured) {
+                    if (!overlayStaged) {
+                        com.pocketrealm.client.TimeframeStages
+                            .unstagedOverlayNotice(selected)
+                    } else if (measured) {
                         "${selected.title}: later content closes; items, levels, and spells your " +
                             "characters already have stay. Want the world's characters back at an " +
                             "earlier point too? Restore a realm-data archive taken before that stage."
@@ -591,7 +599,7 @@ private fun realmRunningPhase(phase: com.pocketrealm.supervisor.RuntimePhase): B
  */
 @Composable
 private fun ClientTweaksCard(model: DesktopAppModel, tweaks: ClientTweaksConfig) {
-    // R6-w3-1 (code-red round 6): the vanilla tweak set is validated against
+    // The vanilla tweak set is validated against
     // the 1.12.1 client only — a non-vanilla lane (reachable since the
     // qualification flip) must render the honest "not available" copy and
     // NEVER expose the vanilla-client patch-consent toggles (the desktop
@@ -1286,7 +1294,7 @@ private fun InstallConfirmRow(
         OutlinedButton(onClick = {
             onArmed(false)
             scope.launch {
-                // R4-1 (desktop-twin round 1, serious): the apply folds ANY
+                // The apply folds ANY
                 // escape into the honest Failed outcome — the same guard
                 // posture the download click above carries — so an IO
                 // failure mid-swap can never kill the coroutine (the app)

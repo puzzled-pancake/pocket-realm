@@ -89,7 +89,7 @@ Sound is selected before launch. Turning it on does not alter realm data, and tu
 
 ## Optional client tweaks
 
-Pocket Realm includes the open-source vanilla-tweaks 1.6.0 patcher for optional quality-of-life changes. Available choices cover widescreen field of view, background sound, sound channel count, view distances, quick loot behaviour, nameplate distance, large-address support, and a camera skip fix.
+Pocket Realm includes the open-source vanilla-tweaks 1.6.0 patcher for optional quality-of-life changes. Available choices cover widescreen field of view, background sound, sound channel count, view distances, quick loot behaviour, nameplate distance, large-address support, and a camera skip fix. The patcher is a Vanilla-lane feature: the tweak set is validated against the 1.12.1 client only, and on the TBC and WotLK lanes the tweaks card says so and offers nothing.
 
 The patcher never edits the player's source folder. It works on the managed client and publishes a separate patched executable. Before using the result, Pocket Realm requires the complete recognised client hash and independently checks every expected changed byte. An unrecognised executable stays on the pristine behaviour.
 

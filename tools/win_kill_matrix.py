@@ -49,6 +49,11 @@ import sys
 import time
 from pathlib import Path
 
+try:
+    from tools import common
+except ImportError:
+    import common
+
 ROOT = Path(__file__).resolve().parents[1]
 DESKTOP = ROOT / "desktop"
 GRADLEW = DESKTOP / "gradlew.bat"
@@ -167,8 +172,10 @@ class Victim:
 def journal_state() -> dict | None:
     """Printed for visibility only - see the module docstring: these legs
     never write the supervisor journal (the victims drive the backend
-    directly)."""
-    journal = (Path.home() / "AppData/Local/PocketRealm/realm/runtime-supervisor/journal.json")
+    directly). The product root resolves through common.product_data_root()
+    (POCKET_REALM_DATA_ROOT override first) so a relocated install reads
+    the same tree the app reads."""
+    journal = common.product_data_root() / "realm/runtime-supervisor/journal.json"
     if not journal.is_file():
         return None
     try:
@@ -185,8 +192,9 @@ def journal_state() -> dict | None:
 def live_wal_sidecars() -> list[str]:
     """Sidecars that would be replayed by the next SQLite open - the
     backend's liveness semantics: a name whose file cannot be opened
-    (delete-pending) is not a live sidecar."""
-    datadir = Path.home() / "AppData/Local/PocketRealm/database/sqlite-datadir"
+    (delete-pending) is not a live sidecar. Same product-root resolver
+    contract as journal_state()."""
+    datadir = common.product_data_root() / "database/sqlite-datadir"
     if not datadir.is_dir():
         return []
     live: list[str] = []

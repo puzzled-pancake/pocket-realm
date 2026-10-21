@@ -16,7 +16,7 @@ data class InstalledAddon(
 enum class AddonStage(val label: String) {
     RESOLVING("Checking repository"),
     DOWNLOADING("Downloading"),
-    VALIDATING("Checking Vanilla compatibility"),
+    VALIDATING("Checking add-on compatibility"),
     INSTALLING("Installing"),
     REMOVING("Removing"),
 }

@@ -682,9 +682,24 @@ def literal_findings(root: Path) -> tuple[list[dict[str, object]], int]:
 
 
 # The env-indirection producers: OS user-profile locations
-# a project root can be built from instead of E:.
+# a project root can be built from instead of E:. W7-R2-1 closed the
+# fail-open spellings: the Windows env aliases (USERPROFILE,
+# HOMEDRIVE/HOMEPATH) and the library homes (Path.home(),
+# os.path.expanduser) build the same C: roots LOCALAPPDATA does, so they
+# all fence identically. Two more dimensions are fenced as well:
+# the env-var NAMES match case-insensitively (Windows resolves
+# System.getenv/os.environ case-insensitively, so "userprofile"/
+# "LocalAppData" spellings build C: roots too), and the bare HOME and
+# SystemDrive variables fence in their ACCESS forms (getenv/environ) —
+# bare-word HOME would false-positive on keyboard-key tables and the
+# child-env HOME setters that redirect home to the E: prefix; accessing
+# the OS's own HOME/SystemDrive is the producer class that matters.
 _ENV_INDIRECTION_RE = re.compile(
-    r"LOCALAPPDATA|APPDATA|user\.home|getUserProfile"
+    r"(?i:LOCALAPPDATA|APPDATA|USERPROFILE|HOMEDRIVE|HOMEPATH)"
+    r"|user\.home|getUserProfile|Path\.home|expanduser"
+    r"|(?i:getenv\(\s*['\"](?:HOME|SystemDrive)['\"])"
+    r"|(?i:environ(?:\.get)?\(\s*['\"](?:HOME|SystemDrive)['\"])"
+    r"|(?i:environ\[\s*['\"](?:HOME|SystemDrive)['\"])"
 )
 
 
@@ -709,12 +724,39 @@ def _code_half(line: str) -> str:
     at the ``*`` hid the exact producer this gate exists for. Fail-closed
     consequence: a ``LOCALAPPDATA`` mention inside a mid-line block
     comment AFTER code on the same line now flags (a reviewable false
-    positive beats a blind gate)."""
+    positive beats a blind gate).
+
+    W7 code-red round 2 (R2-2): the comment cut (``//``, ``#``, ``/*``)
+    fires only OUTSIDE string literals — a ``#`` inside a format string
+    or a ``//`` inside a URL used to truncate the line and hide a later
+    producer on the same line (a blind false negative). A simple
+    quote-state walk (with backslash escapes) locates the first marker
+    that is not inside a string; the pointer-declarator rule is unchanged
+    (a string cannot open at line start after whitespace alone)."""
     cut = len(line)
-    for marker in ("//", "#", "/*"):
-        idx = line.find(marker)
-        if idx != -1 and idx < cut:
-            cut = idx
+    i = 0
+    n = len(line)
+    in_string = False
+    quote = ""
+    while i < n:
+        ch = line[i]
+        if in_string:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                in_string = False
+        else:
+            if ch in ('"', "'", "`"):
+                in_string = True
+                quote = ch
+            elif ch == "#":
+                cut = i
+                break
+            elif line.startswith("//", i) or line.startswith("/*", i):
+                cut = i
+                break
+        i += 1
     for idx, ch in enumerate(line):
         if ch == "*" and not line[:idx].strip():
             if idx < cut:
@@ -745,6 +787,13 @@ ENV_INDIRECTION_ALLOWLIST: frozenset[str] = frozenset({
     # location (an OS-provided location Windows itself writes); the
     # product-root override does not govern it.
     "desktop/src/main/kotlin/com/pocketrealm/desktop/DesktopCrashEvidence.kt",
+    # W7-R2-1: the MSYS2 host-build subprocess HOME passthrough
+    # (USERPROFILE -> HOME) — the host toolchain's own shell environment,
+    # not a project data root; where the BUILDS cache is governed by the
+    # E:-pinned toolchain/cargo/ccache homes, and any MSYS shell's own
+    # dotfiles are the D56-disclosed OS-tool class. Retires when the MSYS2
+    # subprocess home is relocated under E:.
+    "scripts/build_native.py",
 })
 
 

@@ -532,9 +532,9 @@ CARD_DROPS_RECORDED = {
                             "text as the wotlk lane's recorded drop (the term "
                             "is vashj'ir, a Cata zone; R5-1 round 5)",
         # correct-era drops for the TBC lane.
-        "Herbalism": "correct era drop - the card cites Inscription, a "
-                     "profession that launches with WotLK and does not "
-                     "exist on this lane (the term is inscription; R6-1)",
+        # ("Herbalism" pruned at the W7 round-4 lore scrub: its Inscription
+        # sentence was the drop hit and was removed from the corpus — the
+        # card now loads clean on this lane.)
         "Hearthglen": "correct era drop - the card's current-state narration "
                       "names the Argent Crusade as its headquarters (formed "
                       "in WotLK; the term is argent crusade; R6-1)",
@@ -546,8 +546,9 @@ CARD_DROPS_RECORDED = {
         "Ashbringer": "correct era drop - the card narrates the WotLK "
                       "ending (Frostmourne shattered, the Lich King "
                       "defeated) as history, via the Argent Crusade (R6-1)",
-        "Jandice Barov": "correct era drop - Argent Crusade current-state "
-                         "narration (R6-1)",
+        # ("Jandice Barov" pruned at the W7 round-4 lore scrub: its drop
+        # hit rode the Fourth-War/Argent-Crusade sentence that was removed
+        # from the corpus - the card now loads clean on this lane.)
         "Tirion Fordring": "correct era drop - Argent Crusade current-state "
                            "narration (R6-1)",
         "Western Plaguelands": "correct era drop - Argent Crusade "

@@ -44,18 +44,8 @@
     <ID>LargeClass:DesktopAppModel.kt$DesktopAppModel : AutoCloseable</ID>
     <ID>LargeClass:DesktopMariaDbEngineTest.kt$DesktopMariaDbEngineTest</ID>
     <ID>LargeClass:DesktopRuntimeBackendTest.kt$DesktopRuntimeBackendTest</ID>
-    <!-- W6-N3 code-red round 1 (reviewed delta, D70): the lifecycle
-         suite grew by the three join-descriptor beat tests (R5-4) —
-         the harness is the proven WS one; splitting it would duplicate
-         the race-sensitive MockWebServer mechanics. Retire stage: the
-         next lifecycle-suite split (W7 truth pass). -->
-    <ID>LargeClass:NostrListingPublisherTest.kt$NostrListingPublisherTest</ID>
-    <!-- W6-N3 code-red round 1 (reviewed delta, D70): the gateway
-         process manager carries the join lifecycle (launch/watch/stop
-         + jar/JRE plumbing); the process boundary is why it is one
-         class. Retire stage: W7 truth pass review. -->
-    <ID>TooManyFunctions:IrohGatewayManager.kt$IrohGatewayManager</ID>
     <ID>LargeClass:DesktopServerRuntimeFilesTest.kt$DesktopServerRuntimeFilesTest</ID>
+    <ID>LargeClass:NostrListingPublisherTest.kt$NostrListingPublisherTest</ID>
     <ID>LongMethod:AddonsScreen.kt$@Composable private fun AddonDetail( addon: CatalogAddon, installed: InstalledAddon?, updateAvailable: Boolean, conflicts: List&lt;Pair&lt;CatalogAddon, AddonCompatibility&gt;&gt;, recommendationReason: String?, )</ID>
     <ID>LongMethod:AddonsScreen.kt$@Composable private fun AddonsHubScreen( repository: DesktopAddonRepository, catalog: AddonCatalog, onOpen: (AddonView) -&gt; Unit, )</ID>
     <ID>LongMethod:AuthGate.kt$VsrpClient$fun logon( host: String, port: Int, accountUpper: String, verifier: VsrpMath.Verifier, identity: LogonIdentity? = null, ): String</ID>
@@ -104,9 +94,8 @@
     <ID>LongParameterList:DesktopBotAdmissionTest.kt$DesktopBotAdmissionTest$( sampledAtMs: Long, worldP99Ms: Int = 0, freeMemoryMiB: Long = 8_000L, freeStorageMiB: Long = 64_000L, hardStallCount: Int = 0, hardStallTotal: Long = 0L, )</ID>
     <ID>LongParameterList:DesktopDatabasePreparation.kt$DesktopDatabasePreparation$( action: DatabaseStartPreparation.Action, current: DesktopSqliteSeals.Identity?, corpusCurrent: Boolean, closureCurrent: Boolean, sealProof: Boolean, sealedLedgerSurvives: Boolean, )</ID>
     <ID>LongParameterList:ImportJournal.kt$ImportJournal$( importId: String, stage: DataStage, processed: Int, total: Int, bytesWritten: Long, checkpoint: String?, verified: Boolean = false, )</ID>
-    <ID>LongParameterList:ImportStoragePlanner.kt$ImportStoragePlanner.Companion$( source: Long, stagedArchive: Long, scratchArchive: Long, extracted: Long, database: Long, wine: Long, snapshot: Long, minimumReserve: Long, allocatable: Long, )</ID>
+    <ID>LongParameterList:ImportStoragePlanner.kt$ImportStoragePlanner.Companion$( source: Long, stagedArchive: Long, scratchArchive: Long, extracted: Long, prepared: Long = 0L, database: Long, wine: Long, snapshot: Long, minimumReserve: Long, allocatable: Long, )</ID>
     <ID>LongParameterList:InGameSettingsScreen.kt$( editor: DesktopInGameSettingsEditor, scopes: List&lt;Pair&lt;String, String&gt;&gt;, selectedScope: Pair&lt;String, String&gt;?, onScopePicked: (Pair&lt;String, String&gt;) -&gt; Unit, liveBindings: Map&lt;String, String&gt;, search: String, onSearch: (String) -&gt; Unit, onAssign: (commandId: String, primary: String?, secondary: String?) -&gt; Unit, )</ID>
-    <ID>LongParameterList:InGameSettingsScreen.kt$( section: WowSettingSection, account: String?, accounts: List&lt;String&gt;, onAccountPicked: (String) -&gt; Unit, liveValue: (WowSettingDefinition) -&gt; String?, requirementsMet: (WowSettingDefinition) -&gt; Boolean, onEdit: (DesktopInGameSettingsEditor.Edit) -&gt; Unit, )</ID>
     <ID>LongParameterList:InputProfile.kt$ControllerAction$( val displayName: String, val keyCode: Int? = null, val pointer: ControlPointer? = null, val cameraLockToggle: Boolean = false, val targetPulse: Boolean = false, val useLootClick: Boolean = false, val nearbyUsePulse: Boolean = false, val autoRunPulse: Boolean = false, val wheelTicks: Int? = null, val radialMenuPulse: Boolean = false, val moveUiPulse: Boolean = false, )</ID>
     <ID>LongParameterList:ManagedClientImporter.kt$ManagedClientImporter$( copy: CopyContext, journal: ImportJournal, importId: String, entry: ImportSourceEntry, source: ImportSource, staging: File, )</ID>
     <ID>LongParameterList:ManagedClientImporter.kt$ManagedClientImporter$( copy: CopyContext, journal: ImportJournal, importId: String, source: ImportSource, inventory: SourceInventory, staging: File, afterVerified: (Int) -&gt; Unit, )</ID>
@@ -175,11 +164,6 @@
     <ID>MagicNumber:DesktopChatterPowerMonitor.kt$DesktopChatterPowerMonitor$0xff</ID>
     <ID>MagicNumber:DesktopChatterPowerMonitor.kt$DesktopChatterPowerMonitor$100</ID>
     <ID>MagicNumber:DesktopChatterPowerMonitor.kt$DesktopChatterPowerMonitor$1000L</ID>
-    <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner$0x1a</ID>
-    <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner$0x4d</ID>
-    <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner$0x50</ID>
-    <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner$0x51</ID>
-    <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner$4</ID>
     <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner.FileAccess$1024</ID>
     <ID>MagicNumber:DesktopClientScanner.kt$DesktopClientScanner.FileAccess$64</ID>
     <ID>MagicNumber:DesktopDataPreparation.kt$8</ID>
@@ -295,7 +279,6 @@
     <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog$fun</ID>
     <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog.Companion$"059" to "Special two-part install: the player plus about 1.2 GB of Vanilla voice data for less small-screen reading."</ID>
     <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog.Companion$"151" to "Optional Vanilla 1.12.1 Android Port UI with 6-inch handheld defaults; Pocket Realm supplies its matching 1-8 face/D-pad, target/use shoulder and LT/RT Winlator control map."</ID>
-    <ID>MaxLineLength:AddonsScreen.kt$"Add-on Lua runs inside WoW. Pocket Realm validates archive structure and Vanilla interface metadata, not the add-on's behaviour."</ID>
     <ID>MaxLineLength:AddonsScreen.kt$"Advanced option for a public add-on project not yet in the catalog. Use the repository's main URL, not a download link."</ID>
     <ID>MaxLineLength:AddonsScreen.kt$"Pocket Realm downloads from GitHub, records the exact commit and checksum, rejects oversized or unsafe archives, and requires "</ID>
     <ID>MaxLineLength:AddonsScreen.kt$"This add-on was installed from a repository outside the researched catalog. It remains visible here so it can always be removed."</ID>
@@ -450,6 +433,7 @@
     <ID>TooManyFunctions:HomeScreen.kt$com.pocketrealm.desktop.ui.HomeScreen.kt</ID>
     <ID>TooManyFunctions:ImportJournal.kt$ImportJournal : AutoCloseable</ID>
     <ID>TooManyFunctions:InputProfile.kt$InputProfile$Companion</ID>
+    <ID>TooManyFunctions:IrohGatewayManager.kt$IrohGatewayManager</ID>
     <ID>TooManyFunctions:ManagedClientImporter.kt$ManagedClientImporter : AutoCloseable</ID>
     <ID>TooManyFunctions:SettingsScreen.kt$com.pocketrealm.desktop.ui.SettingsScreen.kt</ID>
     <ID>TooManyFunctions:UpdateApply.kt$UpdateApply</ID>
@@ -459,7 +443,6 @@
     <ID>UnusedParameter:DesktopRealmlist.kt$DesktopRealmlist$roots: DesktopStorageRoots</ID>
     <ID>UnusedParameter:DurableFiles.kt$DurableFiles$directory: File</ID>
     <ID>UnusedParameter:InGameSettingsScreen.kt$definition: WowSettingDefinition</ID>
-    <ID>UnusedParameter:InGameSettingsScreen.kt$editor: DesktopInGameSettingsEditor</ID>
     <ID>UnusedParameter:InputProfile.kt$InputProfile.Companion$cameraLock: Boolean</ID>
     <ID>UnusedPrivateClass:DesktopDataPreparationStoreTest.kt$DesktopDataPreparationStoreTest$StubStore : DataPreparationStore</ID>
     <ID>UnusedPrivateMember:UpdateApplyTest.kt$UpdateApplyTest$private fun truncatedZip(): File</ID>

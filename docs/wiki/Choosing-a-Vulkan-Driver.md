@@ -77,6 +77,15 @@ Turnip drives Adreno GPUs. On any other GPU (Mali, PowerVR, Xclipse…) the
 imported-driver rows are disabled with that reason and the system Vortek
 bridge is the automatic choice.
 
+## Per-flavor renderer honesty
+
+The DXVK route is the only renderer validated for every flavor. The Gladio
+(OpenGL) and VirGL lanes were validated against the vanilla 1.12.1 client's
+GL usage only, so on the TBC and WotLK lanes those routes are refused with
+a clear message ("validated for the vanilla 1.12.1 client only — DXVK is
+the route") instead of being silently allowed to misrender. Vanilla keeps
+all three routes.
+
 ## Crash quarantine
 
 Imported drivers run inside the client process, so a bad build can kill the

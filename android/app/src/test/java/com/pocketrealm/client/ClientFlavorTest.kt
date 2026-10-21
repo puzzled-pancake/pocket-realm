@@ -182,9 +182,10 @@ class ClientFlavorTest {
 
     @Test
     fun vanillaStorageBudgetsArePinnedAndUnqualifiedFlavorsHaveNone() {
-        // schemas/flavor.json storage: extracted_estimate_bytes 4 GiB,
+        // schemas/flavor.json storage: extracted_estimate_bytes 6 GiB
+        // (raised to cover the measured 5.15 GiB client tree),
         // max_total_bytes 20 GiB for the shipped lane.
-        assertEquals(4L * 1024L * 1024L * 1024L, ClientFlavors.VANILLA.extractedEstimateBytes)
+        assertEquals(6L * 1024L * 1024L * 1024L, ClientFlavors.VANILLA.extractedEstimateBytes)
         assertEquals(20L * 1024L * 1024L * 1024L, ClientFlavors.VANILLA.maxTotalBytes)
         // Null until measured for the flavor (port plan S5).
  // Flip: the estimates cover the measured client trees (the

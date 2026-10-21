@@ -489,8 +489,12 @@ private fun InstalledAddonDetailScreen(
         Text(installed.repository, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text("Folders: ${installed.folders.joinToString()}")
         Text("Commit: ${installed.commitSha.take(12)}")
+        val detailFlavor = activeFlavorForAddons()
         Text(
-            "Add-on Lua runs inside WoW. Pocket Realm validates archive structure and Vanilla interface metadata, not the add-on's behaviour.",
+            "Add-on Lua runs inside WoW. Pocket Realm validates archive " +
+                "structure and ${detailFlavor.expansion} Interface " +
+                "${detailFlavor.addonInterfaces.min()} metadata, not the " +
+                "add-on's behaviour.",
             color = MaterialTheme.colorScheme.tertiary,
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {

@@ -133,10 +133,10 @@ def platform_logic() -> str:
     import os
     sdk = os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME")
     if not sdk:
-        guess = Path.home() / "AppData" / "Local" / "Android" / "Sdk"
-        if guess.is_dir():
-            return str(guess)
-        raise RuntimeError("set ANDROID_SDK_ROOT (no aapt for APK statics)")
+        raise RuntimeError(
+            "set ANDROID_SDK_ROOT (or ANDROID_HOME); the E-drive contract "
+            "keeps the SDK off the OS user profile and an unset value must "
+            "fail loud instead of guessing a C: location")
     return sdk
 
 

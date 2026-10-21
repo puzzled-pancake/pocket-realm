@@ -916,7 +916,7 @@ private fun CurrentSetupCard(
             }
             Text(
                 login + " · $sound" +
-                    if (settings.tweaks.hasAnyPatch()) " · Client tweaks on" else " · Vanilla client",
+                    if (settings.tweaks.hasAnyPatch()) " · Client tweaks on" else " · Unpatched client",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

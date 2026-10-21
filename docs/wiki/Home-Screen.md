@@ -25,35 +25,29 @@ The card also shows the selected bot profile and its starting and target populat
 
 ## Game flavor
 
-A **Game flavor** switcher card sits with the setup cards. Each chip selects
-the game version this lane plays. All registered flavors render as chips.
-Since the W4 qualification flip (decision D86) all three lanes are
-selectable: Vanilla 1.12.1, The Burning Crusade 2.4.3, and Wrath of the
-Lich King 3.3.5a. Until you pick, the surfaces show a "Pick a game flavor"
-first-pick state; the pick persists and drives imports, prepared world
-data, and bot populations on that lane.
-Switching the flavor re-targets imports, prepared world data, and bot
-populations on that lane.
-A flavor whose client is not qualified renders visible but unselectable.
-Until you pick, the unselectable-until-qualified chips stay honest to the
-registry: all three registered lanes are qualified since the W4 flip
-(decision D86), so every chip is selectable today.
-Per-platform runtime honesty (what actually boots today):
-On the desktop, the installed image stages the Vanilla lane's runtime;
-picking TBC or WotLK on an installed image refuses with a clear
-RUNTIME-LANE MISMATCH message until that lane's runtime is built and
-staged (the developer `-PrpFlavor=` harness routing loads the per-lane
-runtime for development boots). Each lane's MariaDB database family and
-migration ledger are prepared per lane, so a development lane switch
-applies its own databases on first boot.
-On Android, the app ships the Vanilla lane's runtime and migration ledger
-only: picking TBC or WotLK on a phone refuses at boot (and at the server
-database gate) with a RUNTIME-LANE MISMATCH / ANDROID-LANE-SCOPE message
-naming the remedy — re-pick Vanilla. Per-flavor Android runtime packaging
-is recorded as open follow-up work (decision D90 in `docs/DECISIONS-PORT.md`:
-the native per-flavor lanes and lockfiles exist, the shipped images do not
-route them yet); the TBC/WotLK chips remain selectable so their imports and
-prepared data can be staged ahead of that landing.
+A **Game flavor** switcher card sits with the setup cards. Each chip
+selects the game version this lane plays: Vanilla 1.12.1, The Burning
+Crusade 2.4.3, or Wrath of the Lich King 3.3.5a — all three flavors are
+qualified for play, so every chip is selectable. A flavor whose client is not qualified for play would render as a chip
+that is visible but unselectable.
+The pick persists and drives imports, prepared world data, and bot
+populations; switching the flavor re-targets all three on the next import
+or session.
+
+Which flavor actually boots depends on where you run the app. On a
+Windows desktop from the full project, all three flavors boot; a
+development harness (`-PrpFlavor=`) loads a per-lane runtime for
+development boots, and each lane keeps its own MariaDB database family
+and migration ledger, so a lane switch applies the right data on first
+boot. An installed desktop image stages the Vanilla lane's runtime only:
+picking TBC or WotLK there refuses with the RUNTIME-LANE MISMATCH
+message. On Android, the app ships the Vanilla lane's runtime and
+migration ledger only: picking TBC or WotLK on a phone refuses at boot
+(and at the server database gate) with a RUNTIME-LANE MISMATCH /
+ANDROID-LANE-SCOPE message naming the remedy — re-pick Vanilla. The
+extra flavors can still import and prepare their data on those devices,
+and the packaging work that will let them boot is tracked as decision
+D90 in `docs/DECISIONS-PORT.md`.
 
 ## Main buttons
 

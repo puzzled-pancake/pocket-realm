@@ -36,9 +36,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 AVD = "PocketDiff_x86_64"
-SDK = Path(os.environ.get("ANDROID_SDK_ROOT")
-           or os.environ.get("ANDROID_HOME")
-           or Path.home() / "AppData" / "Local" / "Android" / "Sdk")
+_sdk_env = os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME")
+if not _sdk_env:
+    raise RuntimeError(
+        "set ANDROID_SDK_ROOT (or ANDROID_HOME); the E-drive contract keeps "
+        "the SDK off the OS user profile and an unset value must fail loud "
+        "instead of guessing a C: location")
+SDK = Path(_sdk_env)
 ADB = SDK / "platform-tools" / "adb.exe"
 EMULATOR = SDK / "emulator" / "emulator.exe"
 INSTRUMENT = "com.pocketrealm.test/androidx.test.runner.AndroidJUnitRunner"

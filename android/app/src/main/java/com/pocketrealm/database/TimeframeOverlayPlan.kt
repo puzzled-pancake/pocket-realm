@@ -126,7 +126,7 @@ internal object TimeframeOverlayPlan {
             "(staged stages: " +
             GeneratedTimeframeOverlayCatalog.overlaySha256.keys.sorted() + ")"
 
-    /** The world DB of the qualified lane (classicmangos today). */
+    /** The world DB of the active qualified lane (per-flavor since the W4 flip). */
     fun worldDatabase(): String = qualifiedLane().databases.world
 
     // ------------------------------------------------------------------

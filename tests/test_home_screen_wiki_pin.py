@@ -52,11 +52,16 @@ def test_the_game_flavor_card_is_documented():
         "the wiki page lost the flavor-card phrase: 'visible but "
         "unselectable.'")
     normalized = " ".join(wiki.split())
+    # The round-5 rewrite put the page in player voice; the registry-
+    # state fact survives as "all three flavors are qualified for play,
+    # so every chip is selectable" — the pin follows the wording, and the
+    # qualified-count agreement with schemas/flavor.json below keeps the
+    # claim true.
     assert (
-        "all three registered lanes are qualified since the W4 flip "
-        "(decision D86), so every chip is selectable today." in normalized
-    ), ("the wiki page lost the registry-state sentence the W4 flip added "
-        "(all three lanes qualified, decision D86)")
+        "all three flavors are qualified for play, so every chip is "
+        "selectable." in normalized
+    ), ("the wiki page lost the all-qualified statement (the player-voice "
+        "form of the W4-flip registry-state sentence)")
     # the wiki's qualified-count claim must agree with the registry
     flavor = json.loads((ROOT / "schemas" / "flavor.json").read_text(encoding="utf-8"))
     qualified = [f["id"] for f in flavor["flavors"] if f.get("qualified")]

@@ -49,7 +49,10 @@ class AdbTarget:
 
 def resolve_adb(explicit: str | None = None) -> Path:
     if explicit:
-        candidate = Path(explicit).expanduser()
+        # no expanduser: an explicit path is taken verbatim so a "~"
+        # spelling fails with the not-found message instead of quietly
+        # building a user-profile root
+        candidate = Path(explicit)
         if candidate.is_file():
             return candidate.resolve()
         found = shutil.which(explicit)

@@ -1244,11 +1244,19 @@ fun SettingsScreen(
                 // closes" claim is only true once the stage's availability
                 // data is measured. Until the measured per-stage sets land,
                 // no build gates anything — asserting closure would promise
-                // a restriction the shipped data does not enforce.
+                // a restriction the shipped data does not enforce. A stage
+                // with no staged overlay for its flavor refuses the world
+                // start outright, so its copy must say that instead.
+                val overlayStaged =
+                    com.pocketrealm.client.GeneratedTimeframeOverlayCatalog
+                        .overlaySql(selected.id) != null
                 val measured = com.pocketrealm.client.TimeframeStages
                     .eventGating(selected).measured
                 Text(
-                    if (measured) {
+                    if (!overlayStaged) {
+                        com.pocketrealm.client.TimeframeStages
+                            .unstagedOverlayNotice(selected)
+                    } else if (measured) {
                         "${selected.title}: later content closes; items, levels, and spells your " +
                             "characters already have stay."
                     } else {

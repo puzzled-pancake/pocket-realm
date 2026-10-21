@@ -36,6 +36,15 @@ import kotlinx.coroutines.withTimeout
  * alias. Protocol is byte-identical to the desktop spike: ALPN
  * pocketrealm/spike-echo/1, 4-byte-BE-length framed 64 KiB echo.
  * Evidence: `adb logcat -s IROH_SPIKE` — lines LOAD/CONNECT/ECHO/RESULT.
+ *
+ * Physical-device drive (the W7 RP6 leg, same binary): the emulator's
+ * eth0/host-loopback defaults are wrong on a phone, so two optional extras
+ * override them —
+ *   --es iroh_bind_addr <wlan0-ip>:0      (default 10.0.2.15:0)
+ *   --es iroh_host_addr <pc-lan-ip>:<port> (default 10.0.2.2:<iroh_host_port>)
+ * The bind stays a single explicit address by design (one socket -> one
+ * path candidate set; the emulator leg measured multipath churn when the
+ * endpoint probed lo/dummy0 too). Both values are logged on BEGIN.
  */
 object IrohSpike {
     private const val TAG = "IROH_SPIKE"
@@ -53,8 +62,10 @@ object IrohSpike {
             Log.i(TAG, "RESULT FAIL reason=missing_host_args")
             return
         }
+        val bindAddr = intent.getStringExtra("iroh_bind_addr") ?: "10.0.2.15:0"
+        val hostAddr = intent.getStringExtra("iroh_host_addr") ?: "10.0.2.2:$hostPort"
         owner.lifecycleScope.launch(Dispatchers.IO) {
-            run(hostIdHex, hostPort)
+            run(hostIdHex, hostAddr, bindAddr)
         }
     }
 
@@ -63,8 +74,12 @@ object IrohSpike {
             ((Character.digit(s[i * 2], 16) shl 4) + Character.digit(s[i * 2 + 1], 16)).toByte()
         }
 
-    private suspend fun run(hostIdHex: String, hostPort: Int) {
-        Log.i(TAG, "BEGIN abi=${Build.SUPPORTED_ABIS.joinToString(",")} device=${Build.MODEL}")
+    private suspend fun run(hostIdHex: String, hostAddr: String, bindAddr: String) {
+        Log.i(
+            TAG,
+            "BEGIN abi=${Build.SUPPORTED_ABIS.joinToString(",")} device=${Build.MODEL} " +
+                "bind=$bindAddr host=$hostAddr",
+        )
         try {
             withTimeout(300_000) {
                 // ---- LOAD leg: the uniffi Kotlin path initializes the JNA
@@ -74,25 +89,26 @@ object IrohSpike {
                 Log.i(TAG, "LOAD OK libiroh_ffi loaded via uniffi/JNA; self_id=${id.fmtShort()}")
 
                 // ---- ECHO leg: direct transport to the host machine.
-                // bindAddr pinned to eth0: the emulator exposes several
+                // bindAddr pinned to one address: the emulator exposes several
                 // interfaces (lo/dummy0 + IPv6), and iroh's multipath probing
                 // across them churned the data plane on the first attempt
                 // (host accepted the echo stream and read immediate EOF).
-                // One socket -> one path candidate set.
+                // One socket -> one path candidate set. On a phone the run
+                // passes the wlan0 address via --es iroh_bind_addr.
                 val ep = Endpoint.bind(
                     EndpointOptions(
                         preset = presetMinimal(),
                         secretKey = key.toBytes(),
                         alpns = listOf(ALPN),
                         relayMode = RelayMode.disabled(),
-                        bindAddr = "10.0.2.15:0",
+                        bindAddr = bindAddr,
                         protocols = null,
                     ),
                 )
                 val t0 = android.os.SystemClock.elapsedRealtime()
                 val hostId = EndpointId.fromBytes(hexToBytes(hostIdHex))
                 val conn = ep.connect(
-                    EndpointAddr(hostId, null, listOf("10.0.2.2:$hostPort")),
+                    EndpointAddr(hostId, null, listOf(hostAddr)),
                     ALPN,
                 )
                 Log.i(

@@ -172,8 +172,8 @@ def test_verdict_canonical_tuples_equal_the_counts_artifacts():
     verdict = VERDICT.read_text(encoding="utf-8")
     flat = " ".join(verdict.split())
     for artifact_name, tests, classes in (
-        ("desktop-test-counts.json", 1678, 210),
-        ("android-unit-counts.json", 1839, 231),
+        ("desktop-test-counts.json", 1688, 211),
+        ("android-unit-counts.json", 1848, 232),
     ):
         artifact = json.loads((W0 / artifact_name).read_text(encoding="utf-8"))
         assert (artifact["tests"], artifact["classes"]) == (tests, classes), (
@@ -185,15 +185,19 @@ def test_verdict_canonical_tuples_equal_the_counts_artifacts():
     android = json.loads((W0 / "android-unit-counts.json").read_text(
         encoding="utf-8",
     ))
-    assert android["log"] == "n5-canonical-android.log"
-    assert "W6-N5 canonical re-measure" in android["generated"].split(" | ")[-1]
-    assert (W0 / "n5-canonical-android.log").is_file(), (
-        "the android artifact cites a log that is not archived under w0"
-    )
+    # W7 writer chain: the terminal android writer's citation governs
+    assert android["log"] == "w7-canonical-android.log"
+    assert "W7 canonical re-measure" in android["generated"].split(" | ")[-1]
+    assert (W0 / "w7-canonical-android.log").is_file()
+    assert (W0 / "n5-canonical-android.log").is_file()
     desktop = json.loads((W0 / "desktop-test-counts.json").read_text(
         encoding="utf-8",
     ))
-    assert desktop["log"] == "n5-canonical-desktop.log"
+    # W7 writer chain: the terminal writer's citation governs (the N5
+    # citation was superseded by out/completion/w7/regen-desktop-counts.py)
+    # W7 writer chain: the terminal desktop writer's citation governs
+    assert desktop["log"] == "desktop-suite-r7.log"
+    assert (W0 / "w7-canonical-desktop.log").is_file()
     assert (W0 / "n5-canonical-desktop.log").is_file()
 
 

@@ -36,4 +36,4 @@ The normal experience is offline. An optional experimental LAN mode can let anot
 
 ## Current documentation date
 
-These pages were last checked on 14 August 2026 using the current app installed on a Retroid Pocket 6.
+These pages were re-verified against the 0.110.0 tree on 2026-10-21 (the W7 docs truth pass); the on-device re-check is pending the RP6 session, decision D100.

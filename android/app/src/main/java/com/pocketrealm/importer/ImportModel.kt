@@ -99,6 +99,7 @@ data class SourceInventory(
 data class StoragePlan(
     val sourceBytes: Long,
     val extractedDataBytes: Long,
+    val preparedDataBytes: Long = 0L,
     val databaseBytes: Long,
     val winePrefixAndCacheBytes: Long,
     val minimumSnapshotBytes: Long,

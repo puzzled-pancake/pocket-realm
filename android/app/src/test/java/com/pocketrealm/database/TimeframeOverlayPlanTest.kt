@@ -11,6 +11,7 @@ import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.TimeframeStages
 import com.pocketrealm.client.TwoQualifiedFlavors
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -21,7 +22,7 @@ import org.junit.Before
 
 /**
  * Design-timeframe §2/§4.3: the SHARED stage-overlay decision surface
- * (TimeframeOverlayPlan) — the exact statements and policy both platforms'
+ * (TimeframeOverlayPlan) — the exact statements and policy that both platform
  * appliers execute. The catalog SQL is split by the seed scanner and every
  * statement must be a flag-set INSERT OR IGNORE; the default stage verdict,
  * the unstaged refusal, and the meta bookkeeping text are pinned here
@@ -44,6 +45,33 @@ class TimeframeOverlayPlanTest {
 
 
     @Test
+    fun nonVanillaNonFinalStagesRefuseUnstagedLoudly() {
+        // W7 code-red R5-1: this build stages vanilla overlays ONLY, so a
+        // stored non-final tbc/wotlk stage must refuse the statements plan
+        // loudly (both provider legs throw this refusal at world start) —
+        // today's behavior made explicit so the Settings copy and the
+        // humanized failure stay pinned to it.
+        for (stageId in listOf("tbc-2.0.1", "tbc-2.3", "wotlk-3.0.2", "wotlk-3.3")) {
+            val ex = assertThrows(IllegalStateException::class.java) {
+                TimeframeOverlayPlan.statementsFor(stageId)
+            }
+            assertTrue(
+                "refusal for $stageId lost its unstaged marker: " + ex.message,
+                ex.message!!.contains("no overlay staged for"),
+            )
+        }
+    }
+
+    @Test
+    fun vanillaNonFinalStagesRemainStaged() {
+        // the other half of the posture: vanilla's own non-final stages
+        // DO carry overlays, so the refusal is a flavor fact, never a
+        // broken catalog.
+        val statements = TimeframeOverlayPlan.statementsFor("vanilla-1.5")
+        assertTrue(statements.isNotEmpty())
+    }
+
+    @Test
     fun defaultStageIsTheQualifiedLanesFinalPatch() {
         val default = TimeframeStages.defaultStageId(
             TimeframeOverlayPlan.qualifiedLane().flavorId,
@@ -58,12 +86,12 @@ class TimeframeOverlayPlanTest {
 
     @Test
     fun theOverlayLaneResolvesThroughTheActiveFlavorMachine() {
-        // R2-1/R1-2 (android-core review round 1): the plan's lane used to
+        // The plan's lane used to
         // be `qualified().singleOrNull() ?: VANILLA` - a silent fallback
         // that diverged from the ACTIVE lane the conf stage resolves
         // through at a multi-qualified flip. The plan must never pick a
         // lane silently: ambiguous (no pick) fails loud...
-        // R1-arch-3/R3-2/R4-1 (review round 1): the pinned SURFACE
+        // The pinned SURFACE
         // (qualifiedLane) must be invoked INSIDE the try - install() only
         // swaps the qualified registry and cannot throw; the resolver the
         // plan is bound to is what refuses the ambiguous state.
@@ -108,7 +136,7 @@ class TimeframeOverlayPlanTest {
 
     @Test
     fun theWorldProcessLaneBindingThreadsThePersistedPick() {
-        // R1-arch-5/R2-2 (android-core review round 1): the :world process
+        // The :world process
         // never seeds the in-memory ActiveFlavor holder (the selection is
         // :ui-local), so a bare holder resolve refuses at a multi-qualified
         // flip even with a valid persisted pick. WorldRuntimeService

@@ -249,8 +249,8 @@ class ImportWorkerService : Service() {
             applicationContext,
             ImportLimits(minFiles = 3, minTotalBytes = 1, maxFiles = 128, maxTotalBytes = 64L shl 20),
             storagePlanner = ImportStoragePlanner(
-                applicationContext, extractedEstimate = 0, wineEstimate = 0,
-                minimumReserve = 16L shl 20,
+                applicationContext, extractedEstimate = 0, preparedEstimate = 0,
+                wineEstimate = 0, minimumReserve = 16L shl 20,
             ),
             prepareData = false,
         ) else ManagedClientImporter(

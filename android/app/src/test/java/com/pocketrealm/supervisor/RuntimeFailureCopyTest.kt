@@ -186,4 +186,41 @@ class RuntimeFailureCopyTest {
         assertFalse(human.contains("statement ("))
         assertFalse(human.contains("malformed"))
     }
+
+    @Test fun `unstaged overlay refusal on tbc maps to the default-stage remedy`() {
+        // The detail string is built by the
+        // PRODUCER (TimeframeOverlayPlan.unstagedRefusal), never hand-typed
+        // — the producer->consumer string contract is pinned by round trip,
+        // so a wording/format change in the producer breaks HERE instead of
+        // silently reverting the non-vanilla lanes to the wrong remedy.
+        val human = RuntimeFailureCopy.humanize(
+            "world start refused: timeframe overlay failed: " +
+                com.pocketrealm.database.TimeframeOverlayPlan.unstagedRefusal("tbc-2.0.1"),
+        )
+        assertTrue(human.contains("World timeframe"))
+        assertTrue(human.contains("current-release"))
+        assertFalse(human.contains("Re-prepare the game files"))
+        assertFalse(human.contains("no overlay staged for"))
+    }
+
+    @Test fun `unstaged overlay refusal on wotlk maps to the default-stage remedy`() {
+        val human = RuntimeFailureCopy.humanize(
+            "world start refused: timeframe overlay failed: " +
+                com.pocketrealm.database.TimeframeOverlayPlan.unstagedRefusal("wotlk-3.0.2"),
+        )
+        assertTrue(human.contains("World timeframe"))
+        assertFalse(human.contains("Re-prepare the game files"))
+    }
+
+    @Test fun `unstaged overlay refusal on vanilla keeps the re-prepare remedy`() {
+        // the vanilla remedy stays: a re-prepare DOES restage vanilla's
+        // overlays, so the original copy is the truthful one there.
+        // Round-tripped through the producer like the flavor cases.
+        val human = RuntimeFailureCopy.humanize(
+            "world start refused: timeframe overlay failed: " +
+                com.pocketrealm.database.TimeframeOverlayPlan.unstagedRefusal("vanilla-1.1"),
+        )
+        assertTrue(human.contains("Re-prepare the game files"))
+        assertFalse(human.contains("World timeframe"))
+    }
 }

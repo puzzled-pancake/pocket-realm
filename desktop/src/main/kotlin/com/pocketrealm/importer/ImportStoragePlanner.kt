@@ -24,6 +24,12 @@ class ImportStoragePlanner(
     // flavor block's storage.max_total_bytes is the import-total cap,
     // routed through ImportLimits.maxTotalBytes' default (ImportModel.kt).
     private val extractedEstimate: Long = flavorExtractedEstimate(),
+    // The prepared-server-data OUTPUT the
+    // flow writes after the import (the o11-server generation) — the
+    // flavor's measured figure (schemas/flavor.json
+    // storage.prepared_estimate_bytes); without this row a fresh-device
+    // import→prep under-budgeted by the full prepared size.
+    private val preparedEstimate: Long = flavorPreparedEstimate(),
     // wineEstimate and minimumReserve are platform caps, not flavor data.
     private val wineEstimate: Long = 1L * ImportLimits.GIB,
     private val minimumReserve: Long = 2L * ImportLimits.GIB,
@@ -43,7 +49,7 @@ class ImportStoragePlanner(
         scratchArchiveBytes: Long = 0L,
     ): StoragePlan {
         require(sourceBytes >= 0 && stagedArchiveBytes >= 0 && scratchArchiveBytes >= 0)
-        // R4-r2-1 (desktop-twin round 2): BOTH providers' live state counts —
+        // BOTH providers' live state counts —
         // the SHIPPED-DEFAULT MariaDB datadir (roots.mariadbDatadir, the
         // seeded world database) and the SQLite datadir — and the snapshot
         // floor measures the REAL snapshot store (roots.databaseSnapshots),
@@ -56,7 +62,7 @@ class ImportStoragePlanner(
         val allocatable = allocatableBytes()
         return calculate(
             sourceBytes, stagedArchiveBytes, scratchArchiveBytes, extractedEstimate,
-            database, wineEstimate, snapshot, minimumReserve, allocatable,
+            preparedEstimate, database, wineEstimate, snapshot, minimumReserve, allocatable,
         )
     }
 
@@ -71,6 +77,7 @@ class ImportStoragePlanner(
             stagedArchive: Long,
             scratchArchive: Long,
             extracted: Long,
+            prepared: Long = 0L,
             database: Long,
             wine: Long,
             snapshot: Long,
@@ -79,17 +86,23 @@ class ImportStoragePlanner(
         ): StoragePlan {
             require(
                 listOf(
-                    source, stagedArchive, scratchArchive, extracted, database, wine,
-                    snapshot, minimumReserve, allocatable,
+                    source, stagedArchive, scratchArchive, extracted, prepared, database,
+                    wine, snapshot, minimumReserve, allocatable,
                 ).all { it >= 0 },
             )
             val subtotal = Math.addExact(
-                Math.addExact(Math.addExact(Math.addExact(source, stagedArchive), scratchArchive), extracted),
-                Math.addExact(Math.addExact(database, wine), snapshot),
+                Math.addExact(
+                    Math.addExact(Math.addExact(source, stagedArchive), scratchArchive),
+                    extracted,
+                ),
+                Math.addExact(
+                    Math.addExact(Math.addExact(prepared, database), wine),
+                    snapshot,
+                ),
             )
             val margin = maxOf(minimumReserve, ceil(subtotal * 0.20).toLong())
             return StoragePlan(
-                source, extracted, database, wine, snapshot, margin,
+                source, extracted, prepared, database, wine, snapshot, margin,
                 Math.addExact(subtotal, margin), allocatable,
             )
         }
@@ -110,4 +123,9 @@ private fun flavorExtractedEstimate(): Long {
     return requireNotNull(flavor.extractedEstimateBytes) {
         "${flavor.flavorId} is qualified without a measured storage budget"
     }
+}
+
+private fun flavorPreparedEstimate(): Long {
+    val flavor = ActiveFlavor.resolve("storage budgets resolve the qualified lane")
+    return flavor.preparedEstimateBytes ?: 0L
 }

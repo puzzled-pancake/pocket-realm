@@ -11,8 +11,14 @@ Winlator-derived X server and pinned graphics stacks (DXVK / Turnip / VirGL /
 Gladio). One app: import your client, press play, and a local world with
 computer-controlled companions comes up and shuts down safely.
 
-**Status: alpha (0.103.0-alpha).** Screens and wording may change. See the
-[wiki](docs/wiki/README.md) for what works today.
+**Status: 0.110.0 — the multi-flavor milestone.** TBC 2.4.3 and WotLK
+3.3.5a are qualified flavors beside Vanilla 1.12.1: the desktop lane
+plays all three end to end from the repo checkout; installed desktop
+images and Android devices boot Vanilla-only today (installed images
+refuse a TBC/WotLK boot with RUNTIME-LANE MISMATCH — open packaging
+work; on Android the extra flavors already import and prepare) — see the
+[wiki](docs/wiki/README.md) for what works today and what is still
+coming).
 
 **Community:** join the [Discord server](https://discord.gg/zaWt96MrMY) for
 release announcements, troubleshooting help, and feature discussion.
@@ -180,7 +186,7 @@ installing the hook (or commit with `--no-verify`) until both are populated.
 
 ## Contributing
 
-Pocket Realm is a young alpha. The most useful contributions right now are
+Pocket Realm is a young project. The most useful contributions right now are
 real-world reports:
 
 - **Device compatibility.** Open an issue with your device model, chipset,

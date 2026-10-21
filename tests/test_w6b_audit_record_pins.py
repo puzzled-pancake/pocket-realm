@@ -6,8 +6,15 @@
   :app:detektBaseline regeneration (R3-1: no silent hand edits; any regen
   delta must be enumerated in the wave ledger).
 - Every schemas/ file that differs from the wave base commit is enumerated
-  in out/completion/w6b/WAVE-EXIT.md (R3-2: byte-frozen schemas edits must
-  be owning-recorded, never silent).
+  in the wave exit record (R3-2: byte-frozen schemas edits must be
+  owning-recorded, never silent).
+
+W7 repoint (the W6B-established convention): the live-state assertions in
+this file are wave-local by construction — a frozen earlier wave's record
+can never name a later wave's files. BASE/EXIT and the cited lane logs now
+point at the CURRENT wave (base 6006afd, out/completion/w7/WAVE-EXIT.md);
+the frozen-record assertions (D-W6B ids, rates pins, the W6B fence logs)
+keep their W6B targets, which remain on disk.
 """
 from __future__ import annotations
 
@@ -17,8 +24,8 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = "5a22314704973624a16b8c3655a6b4c0504d186c"
-EXIT = ROOT / "out/completion/w6b/WAVE-EXIT.md"
+BASE = "6006afd18f1d93129fb17c811586014696de3dd8"
+EXIT = ROOT / "out/completion/w7/WAVE-EXIT.md"
 BASELINE = ROOT / "android/app/detekt-baseline.xml"
 
 
@@ -35,7 +42,7 @@ def test_production_diff_sentence_is_bidirectional():
     assert i >= 0, "the exit record lost its production-diff section"
     j = exit_text.find("\n## ", i + 10)
     section = exit_text[i:j if j >= 0 else len(exit_text)]
-    named = set(re.findall(r"`([A-Za-z0-9._-]+\.kt)`", section))
+    named = set(re.findall(r"`([A-Za-z0-9._-]+\.(?:kt|jsonl))`", section))
 
     changed = _git("diff", "--name-only", BASE, "--",
                    "desktop/src/main/", "gateway/src/main/", "android/app/src/main/")
@@ -130,32 +137,34 @@ def test_wave_exit_cited_logs_and_totals_are_true():
     line; the working tree has zero AM/MM residue and the production-diff
     paths are staged."""
     text = EXIT.read_text(encoding="utf-8")
-    # cited logs exist and are non-empty
-    for log in ("out/completion/w6b/android-canonical-final.log",
-                "out/completion/w6b/gateway-lane.log",
-                "out/completion/w6b/spikes-desktop-echo.log",
-                "out/completion/w6b/desktop-suite-final.log",
+    # cited logs exist and are non-empty (the four lane logs are the W7
+    # captures; the fence logs are W6B-owned frozen evidence, still on disk)
+    for log in ("out/completion/w0/w7-canonical-android.log",
+                "out/completion/w7/gateway-lane.log",
+                "out/completion/w7/spikes-desktop-echo.log",
+                "out/completion/w7/desktop-suite-r8.log",
                 "out/completion/w6b/android-fence-negative.log",
                 "out/completion/w6b/android-fence-positive.log"):
         p = ROOT / log
         assert p.is_file() and p.stat().st_size > 0, f"{log} missing/empty"
     # gateway lane log carries its tasks and a terminal BUILD SUCCESSFUL
-    gw = (ROOT / "out/completion/w6b/gateway-lane.log").read_text(
+    gw = (ROOT / "out/completion/w7/gateway-lane.log").read_text(
         encoding="utf-8", errors="replace")
     assert "BUILD SUCCESSFUL" in gw and "compileKotlin" in gw.replace("-", ""), (
         "gateway-lane.log lost its task/BUILD lines")
     # canonical android log: the test tasks EXECUTED (no FROM-CACHE/UP-TO-DATE)
-    canon = (ROOT / "out/completion/w6b/android-canonical-final.log").read_text(
+    canon = (ROOT / "out/completion/w0/w7-canonical-android.log").read_text(
         encoding="utf-8", errors="replace")
     assert "> Task :app:testDebugUnitTest" in canon and "FROM-CACHE" not in canon, (
         "the canonical android log's :app:testDebugUnitTest is not an executed run")
-    assert "# ANDROID-CANONICAL-COUNTS tests=1839" in canon, (
-        "the canonical android log lost its native counts marker")
+    assert "# ANDROID-CANONICAL-COUNTS tests=1848" in canon, (
+        "the canonical android log lost its native counts marker "
+        "(W7 rounds 1-4 added 9 tests: 1839/231 -> 1848/232)")
     # the quoted canonical totals equal the tracked artifact (single truth)
     counts = json.loads(
         (ROOT / "out/completion/w0/android-unit-counts.json").read_text(encoding="utf-8"))
-    assert (counts["tests"], counts["classes"]) == (1839, 231), counts
-    assert "1839 tests / 231 classes" in text, (
+    assert (counts["tests"], counts["classes"]) == (1848, 232), counts
+    assert "1848 tests / 232 classes" in text, (
         "the exit record must quote the canonical android tuple the artifact holds")
     assert "1816 tests / 226 classes" not in text, (
         "the exit record still quotes the superseded app-module-only tuple")
@@ -225,6 +234,8 @@ def test_wave_exit_totals_match_live_diff_and_sweep_notes_present():
     assert "GeneratedBotConfKeyCatalog.kt" in text, (
         "the compliance bullet must enumerate the regenerated catalog")
     # sweep-quote records carry the refresh annotation alongside live counts
+    # (W7 refresh: 1638/2211 — the +1 scanned file is the W7 release-notes
+    # doc; +2 allowlisted matches; real findings empty)
     for rel in ("out/completion/w1/W1-SUMMARY.md",
                 "out/completion/w1/WAVE-EXIT.md",
                 "out/completion/w5/WAVE-EXIT.md",
@@ -232,7 +243,7 @@ def test_wave_exit_totals_match_live_diff_and_sweep_notes_present():
                 "out/completion/w6/N5-CAMPAIGN-VERDICT.md"):
         rec = (ROOT / rel).read_text(encoding="utf-8", errors="replace")
         assert "W6B finalize refresh" in rec, f"{rel} lost its W6B refresh note"
-        assert ("1633 files scanned" in rec or "1633 files /" in rec), \
+        assert ("1639 files scanned" in rec or "1639 files /" in rec), \
             f"{rel} lost the live count"
 
 
@@ -284,12 +295,13 @@ def test_rates_pin_has_owning_decision_entry():
 
 def test_cited_lane_logs_are_fresh():
     """R5-3/R6-3 (round 5): each cited lane log must be newer than every
-    tracked source file in that lane's tree (the stale-evidence class)."""
+    tracked source file in that lane's tree (the stale-evidence class).
+    W7 repoint: the lane logs are the W7 captures."""
     import os
     lanes = {
-        "out/completion/w6b/gateway-lane.log": "gateway/src",
-        "out/completion/w6b/spikes-desktop-echo.log": "spikes/iroh-n2/desktop-echo/src",
-        "out/completion/w6b/desktop-suite-final.log": "desktop/src",
+        "out/completion/w7/gateway-lane.log": "gateway/src",
+        "out/completion/w7/spikes-desktop-echo.log": "spikes/iroh-n2/desktop-echo/src",
+        "out/completion/w7/desktop-suite-r8.log": "desktop/src",
     }
     for log_rel, tree in lanes.items():
         log = ROOT / log_rel
@@ -308,9 +320,10 @@ def test_cited_lane_logs_are_fresh():
 
 def test_cited_lane_logs_show_executed_tasks():
     """R5-r6-4/R4-r6-2 (round 6): the cited gateway and spikes lane logs must
-    show at least one EXECUTED task (not an all-UP-TO-DATE capture)."""
+    show at least one EXECUTED task (not an all-UP-TO-DATE capture).
+    W7 repoint: the w7 captures."""
     import re as _re
-    gw = (ROOT / "out/completion/w6b/gateway-lane.log").read_text(
+    gw = (ROOT / "out/completion/w7/gateway-lane.log").read_text(
         encoding="utf-8", errors="replace")
     executed = _re.search(r"actionable tasks: .*[1-9][0-9]* executed", gw)
     bare_task = _re.search(r"> Task :\w+\s*$", gw, _re.M)
@@ -322,11 +335,12 @@ def test_cited_lane_logs_show_executed_tasks():
 
 def test_assemble_debug_log_is_fresh():
     """R1-3 (round 6): the assembleDebug evidence log must postdate the
-    android/app tree it packages."""
+    android/app tree it packages. W7 repoint: the post-round-1 clean
+    rebuild is the final packaging capture."""
     import os
-    log = ROOT / "out/completion/w6b/assembleDebug4.log"
+    log = ROOT / "out/completion/w7/assembleDebug-r11.log"
     assert log.is_file() and log.stat().st_size > 0, (
-        "out/completion/w6b/assembleDebug4.log missing/empty")
+        "out/completion/w7/assembleDebug-r11.log missing/empty")
     log_mtime = log.stat().st_mtime
     stale = []
     for dp, dn, fn in os.walk(ROOT / "android/app/src"):
@@ -336,6 +350,6 @@ def test_assemble_debug_log_is_fresh():
             if os.path.getmtime(fp) > log_mtime:
                 stale.append(fp)
     assert not stale, (
-        f"assembleDebug4.log predates later-edited android/app/src files: "
-        f"{stale[:5]} — re-run :app:assembleDebug before finalize")
+        f"assembleDebug-r11.log predates later-edited android/app/src "
+        f"files: {stale[:5]} — re-run :app:assembleDebug before finalize")
 

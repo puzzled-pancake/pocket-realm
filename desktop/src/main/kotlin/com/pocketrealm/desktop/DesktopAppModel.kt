@@ -322,7 +322,17 @@ class DesktopAppModel(
      * test pins (the repository is a process singleton — not constructible
      * twice in one test JVM). */
     internal fun warmUpAddonRepository(
-        construct: () -> com.pocketrealm.addons.DesktopAddonRepository = { addons },
+        // The construct resolves the
+        // process-singleton companion directly, NOT the `addons` lazy
+        // delegate — the delegate's backing field is assigned in
+        // declaration order ~230 lines after the init block, so this IO
+        // coroutine could read it mid-construction and die with
+        // "Lazy.getValue ... <local1> is null" (the seed silently lost;
+        // measured in every W4/W7 e2e probe log). get(roots) is the
+        // idempotent singleton the lazy would create anyway.
+        construct: () -> com.pocketrealm.addons.DesktopAddonRepository = {
+            com.pocketrealm.addons.DesktopAddonRepository.get(roots)
+        },
     ) {
         runCatching(construct).onFailure {
             DesktopLog.w(TAG, "addon repository warm-up failed: ${it.message}")
@@ -817,9 +827,9 @@ class DesktopAppModel(
     // GAP-2 (was DESKPROD-2): [profileOverride] lets a caller freeze the
     // boot's bot profile instead of inheriting the settings resolution —
     // the restore proof passes [DESKTOP_PROFILE] (the bots-disabled
-    // profile) so the committed state is the snapshot the user picked,
-    // never X plus a freshly provisioned bot population. Ordinary starts
-    // pass null and keep the settings-resolved profile.
+    // profile), so the committed state is the snapshot the user picked -
+    // never a snapshot plus a freshly provisioned bot population.
+    // Ordinary starts pass null and keep the settings-resolved profile.
     @Suppress("ReturnCount")
     suspend fun startRealm(
         includeClient: Boolean,
@@ -1589,7 +1599,7 @@ class DesktopAppModel(
                 )
             }
         // The client launcher refuses honestly (exe missing, already
-        // running) BEFORE any side effect on the client directory.
+        // running, before any side effect on the client directory.
         return try {
             val launcher = com.pocketrealm.desktop.DesktopClientLauncher(
                 settingsFile = roots.settingsFile,

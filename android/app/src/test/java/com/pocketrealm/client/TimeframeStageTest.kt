@@ -345,4 +345,47 @@ class TimeframeStageTest {
             }
         }
     }
+    @Test
+    fun unstagedOverlayNoticeTellsTheStartRefusalTruth() {
+        // W7 code-red R5-1: a selected non-final stage with no staged
+        // overlay for its flavor REFUSES the world start, so the Settings
+        // copy must say that — never "the world still runs the current
+        // release's content".
+        val stage = TimeframeStages.byId("tbc", "tbc-2.0.1")!!
+        val notice = TimeframeStages.unstagedOverlayNotice(stage)
+        assertTrue(notice.contains("refused"))
+        assertTrue(notice.contains("current-release stage"))
+        assertFalse(notice.contains("world still runs"))
+        // The remedy must not promise an
+        // unconditional start — on Android and installed desktop images a
+        // non-vanilla realm start is refused at ANY stage (D90), so the
+        // promise is lane-qualified
+        assertFalse(notice.contains("start the world today"))
+        assertTrue(notice.contains("boot this flavor"))
+    }
+
+    @Test
+    fun everyNonFinalNonVanillaStageIsUnstagedAndEveryVanillaOneIsStaged() {
+        // the catalog posture the copy and the refusal both ride on: this
+        // build stages vanilla overlays ONLY — pinned here so a future
+        // tbc/wotlk overlay landing updates this test WITH the behavior.
+        for (flavor in listOf("tbc", "wotlk")) {
+            for (stage in TimeframeStages.stagesFor(flavor)) {
+                if (!stage.isFinal) {
+                    assertNull(
+                        "expected no staged overlay for ${stage.id}",
+                        GeneratedTimeframeOverlayCatalog.overlaySql(stage.id),
+                    )
+                }
+            }
+        }
+        for (stage in TimeframeStages.stagesFor("vanilla")) {
+            if (!stage.isFinal) {
+                assertTrue(
+                    "vanilla non-final stage ${stage.id} lost its overlay",
+                    GeneratedTimeframeOverlayCatalog.overlaySql(stage.id) != null,
+                )
+            }
+        }
+    }
 }

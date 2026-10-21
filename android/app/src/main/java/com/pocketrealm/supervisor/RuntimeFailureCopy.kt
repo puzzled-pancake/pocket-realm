@@ -76,10 +76,31 @@ object RuntimeFailureCopy {
         // shared overlay plan's refusal strings, humanized with a remedy.
         // The mechanics stay fail-loud — the raw engineer detail stays in
         // the journal and logs verbatim; the realm card just never renders it.
-        "timeframe overlay: no overlay staged for" in detail ->
-            "The realm's game data is missing the files that carry the selected " +
-                "content stage, so the start was refused. Re-prepare the game files " +
-                "(Settings → Game files) and start the realm again."
+        // On the non-vanilla lanes the unstaged
+        // refusal is the honest "this build stages no overlays for that
+        // flavor" state — re-preparing cannot fix it, so the remedy names
+        // the real one. The flavor decision routes through the registry
+        // (the stage id the PRODUCER embedded, resolved against
+        // ClientFlavors) — never a duplicated flavor-set regex, so the
+        // registry stays the single owner of the flavor set.
+        "timeframe overlay: no overlay staged for" in detail -> {
+            val stageId = Regex("no overlay staged for \"([^\"]+)\"")
+                .find(detail)?.groupValues?.get(1)
+            val stageFlavorId = stageId?.substringBefore("-")
+            val vanillaStage = stageFlavorId == null ||
+                stageFlavorId == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId
+            if (vanillaStage) {
+                "The realm's game data is missing the files that carry the selected " +
+                    "content stage, so the start was refused. Re-prepare the game files " +
+                    "(Settings → Game files) and start the realm again."
+            } else {
+                "This flavor's timeframe content data is not part of this " +
+                    "build yet, so the start at the selected stage was " +
+                    "refused. Set World timeframe back to the current-release " +
+                    "stage (Settings → World timeframe) and start the realm " +
+                    "again."
+            }
+        }
         "timeframe overlay" in detail ->
             "The realm's world database could not be brought to the selected " +
                 "content stage, so the start was refused — the database may be " +
