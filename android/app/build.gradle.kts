@@ -1510,8 +1510,8 @@ android {
         // other on-device emulators ship.
         targetSdk = (project.findProperty("pocketTargetSdk") as String?)?.toInt() ?: 27
         // Bump-on-release discipline (update manifests compare codes).
-        versionCode = 10
-        versionName = "0.111.0"
+        versionCode = 11
+        versionName = "0.112.0"
         // Two-APK distribution: the default build is the stable
         // MariaDB-provider APK; -PsqliteProvider builds the experimental
         // SQLite-provider APK with a visible versionName suffix so the two
@@ -1627,6 +1627,11 @@ android {
             // lockfile gate (and can alter loader behavior), so preserve every
             // staged .so exactly as hashed by the Wine/MariaDB/realm manifests.
             keepDebugSymbols += "**/*.so"
+            if (pocketAbi == "arm64-v8a") {
+                // The project stages the same 0.16.0 JNI with 16 KB alignment.
+                // Keep the AAR's Java bindings and prefer the project native.
+                pickFirsts += "lib/arm64-v8a/libsecp256k1-jni.so"
+            }
         }
     }
 
@@ -2112,6 +2117,15 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     }
 
     into(stagedLib)
+    if (pocketAbi == "arm64-v8a") {
+        val secp256k1 = File(repoRoot, "native/secp256k1/prebuilt/$pocketAbi/libsecp256k1-jni.so")
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(secp256k1.readBytes()).joinToString("") { "%02x".format(it) }
+        check(digest == "d09dd4999e9fe4d1c93ba8421138eb4e0c6eff1168f3bc0252d3afeab1e08512") {
+            "The arm64 secp256k1 JNI library differs from the pinned 16 KB build"
+        }
+        from(secp256k1)
+    }
     // iroh transport for the internet join (prebuilt from iroh-ffi v1.1.0,
     // pinned by native/iroh/lockfile.json). Optional: without the staged
     // file the join reports itself unavailable instead of failing the build;

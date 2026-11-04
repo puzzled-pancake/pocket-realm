@@ -1,4 +1,4 @@
 package com.pocketrealm.desktop
 
 /** The desktop package version (kept in lockstep with the Android app). */
-const val APP_VERSION: String = "0.111.0"
+const val APP_VERSION: String = "0.112.0"

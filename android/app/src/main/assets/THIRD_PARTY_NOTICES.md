@@ -66,11 +66,21 @@ to anyone who asks (GPL-2.0 section 3(b) written offer).
   `schemas/sources.json`. The image is Ubuntu-based and contains:
   - Box64 0.4.0 — MIT (Copyright ptitSeb).
   - Wine 10.10 — LGPL-2.1.
+  - ALSA userspace (`libasound.so.2`) — LGPL-2.1.
   - An Ubuntu userspace under its recorded per-package licenses
     (glibc LGPL, freetype GPL-2.0, and others; see
     `schemas/wine-runtime-lockfile.json` for the recorded set).
   The provider repository and commit are the corresponding-source reference
   for the image assembly.
+- The arm64 APK also includes the PRoot fallback and its loaders (GPL-2.0-or-later)
+  and talloc (LGPL-3.0-or-later). Their source pins are in `schemas/sources.json`.
+
+## Multiplayer discovery
+
+- ACINQ secp256k1-kmp 0.16.0 (Apache-2.0) uses Bitcoin Core secp256k1
+  (MIT). The arm64 JNI library is rebuilt with 16 KB alignment from the
+  sources pinned in `native/secp256k1/README.md`. License texts are bundled
+  under `assets/licenses/`.
 
 ## Graphics stack
 

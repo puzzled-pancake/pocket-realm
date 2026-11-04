@@ -265,8 +265,8 @@
     },
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libpocket_world_runtime.so",
-      "size": 32851232,
-      "sha256": "46cfc7a291953a7128fe4bdf559f24d8ba9beda61388084ea57b1499ba09e728",
+      "size": 32851304,
+      "sha256": "f1d42659075664e8265997342949ca7ae380009fa002e686b8bb95f17be155fb",
       "needed": [
         "libc.so",
         "libdl.so",

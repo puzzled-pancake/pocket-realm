@@ -22,7 +22,7 @@ plugins {
 }
 
 group = "com.pocketrealm"
-version = "0.111.0"
+version = "0.112.0"
 
 // W6-N4 code-red R4-r3-1: the -Ppocket.seat whole-build redirect is
 // applied HERE (build-script body — always executed, configuration-cache

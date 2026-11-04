@@ -26,7 +26,7 @@ package com.pocketrealm
  */
 object BuildConfig {
     const val NATIVE_RUNTIME_BUILD_ID: String =
-        "win-x86_64-mariadb-cmangos-ce83805d-playerbots-7e2cd2fb-47d430cee3d8"
+        "win-x86_64-mariadb-cmangos-ce83805d-playerbots-7e2cd2fb-8df688dceeb0"
 
  /** Flip: the tbc mariadb win lane (realm-runtime-lockfile-mariadb-win-tbc.json). */
     const val NATIVE_RUNTIME_BUILD_ID_TBC: String =

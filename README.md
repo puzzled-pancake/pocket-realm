@@ -73,7 +73,8 @@ Prebuilt APKs are published on the project's
 [Releases](https://github.com/puzzled-pancake/pocket-realm/releases) page.
 Download the newest APK and install it on your device. Release packages carry
 a `THIRD_PARTY_NOTICES.md` with the complete third-party license attribution.
-Building from source is fully supported as well; see below.
+See the [0.112.0 release notes](docs/RELEASE-NOTES-0.112.0.md) for the
+changes and upgrade instructions. Build instructions are below.
 
 ## First boot
 
@@ -125,11 +126,9 @@ What ships on Windows today:
 - Full realm bring-up in one process (seed → realmd on 3724 → world on
   8085), clean save/stop with WAL sealing, one world lifetime per process
   (an in-process restart is honestly refused; restart the app instead).
-- The ported app screens: Home (realm control, local account, game-folder
-  picker), Bots (population profiles, custom presets, admission tuning,
-  per-preset AI speech), LLM (external OpenAI-compatible endpoint + cloud
-  conversation lane; experimental, off by default), Settings, Diagnostics
-  (support bundles).
+- Home for realm control and local accounts, Multiplayer for hosting and
+  joining games, and Settings for bot presets, world options, and support
+  bundles.
 - Data preparation from your installed client via
   `python tools/win_prepare_data.py` (dbc/maps/vmaps/mmaps), the packaged
   app image via `gradlew packageApp` (jpackage; app-local VC runtime,

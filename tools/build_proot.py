@@ -54,7 +54,7 @@ PROOT_SRC = PROVIDERS / "proot-termux-a89b3732"
 TALLOC_SRC = PROVIDERS / "talloc-2.4.2"
 
 SDK = common.resolve_android_sdk()
-NDK = SDK / "ndk-link"
+NDK = common.resolve_android_ndk(SDK)
 TOOLCHAIN = NDK / "toolchains" / "llvm" / "prebuilt" / common.HOST_TAG
 BIN = TOOLCHAIN / "bin"
 SYSROOT = TOOLCHAIN / "sysroot"

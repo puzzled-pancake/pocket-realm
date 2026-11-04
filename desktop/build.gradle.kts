@@ -29,7 +29,7 @@ plugins {
 }
 
 group = "com.pocketrealm"
-version = "0.111.0"
+version = "0.112.0"
 
 val sharedManifestFile = file("shared-sources.json")
 val sharedManifest: Map<*, *> =

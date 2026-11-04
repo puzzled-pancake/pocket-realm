@@ -399,6 +399,7 @@ ROOT_FORBIDDEN_SUFFIXES = (".png", ".jpg", ".jpeg", ".exe")
 MAX_BLOB_BYTES = 1024 * 1024
 BLOB_ALLOWLIST_PREFIXES = (
     "docs/",
+    "native/secp256k1/prebuilt/arm64-v8a/libsecp256k1-jni.so",
     "native/xserver-winlator/",
     "runtime/xserver-winlator/",
     "tests/avd/",
