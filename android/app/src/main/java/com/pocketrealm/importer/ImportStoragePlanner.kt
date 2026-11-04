@@ -3,6 +3,7 @@ package com.pocketrealm.importer
 import android.content.Context
 import android.os.storage.StorageManager
 import com.pocketrealm.client.ActiveFlavor
+import com.pocketrealm.storage.ContentVolume
 import com.pocketrealm.storage.StorageRoots
 import kotlin.math.ceil
 
@@ -37,8 +38,11 @@ class ImportStoragePlanner(
         val snapshot = maxOf(directoryBytes(roots.databaseSnapshots), database)
         val allocatable = context.getSystemService(StorageManager::class.java)
             .getAllocatableBytes(StorageManager.UUID_DEFAULT)
+        val onRemovable = roots.contentVolume == ContentVolume.REMOVABLE
+        val contentAllocatable = if (onRemovable) roots.content.usableSpace else 0L
         return calculate(sourceBytes, stagedArchiveBytes, scratchArchiveBytes, extractedEstimate,
-            preparedEstimate, database, wineEstimate, snapshot, minimumReserve, allocatable)
+            preparedEstimate, database, wineEstimate, snapshot, minimumReserve, allocatable,
+            onRemovable, contentAllocatable)
     }
 
     private fun directoryBytes(root: java.io.File): Long {
@@ -51,13 +55,36 @@ class ImportStoragePlanner(
             source: Long, stagedArchive: Long, scratchArchive: Long, extracted: Long,
             prepared: Long = 0L, database: Long, wine: Long, snapshot: Long,
             minimumReserve: Long, allocatable: Long,
+            contentOnRemovable: Boolean = false, contentAllocatable: Long = 0L,
         ): StoragePlan {
             require(
                 listOf(
                     source, stagedArchive, scratchArchive, extracted, prepared, database,
-                    wine, snapshot, minimumReserve, allocatable,
+                    wine, snapshot, minimumReserve, allocatable, contentAllocatable,
                 ).all { it >= 0 },
             )
+            if (contentOnRemovable) {
+                val contentSubtotal = Math.addExact(
+                    Math.addExact(
+                        Math.addExact(Math.addExact(source, stagedArchive), scratchArchive),
+                        extracted,
+                    ),
+                    prepared,
+                )
+                val internalSubtotal = Math.addExact(
+                    Math.addExact(database, wine),
+                    snapshot,
+                )
+                val contentMargin = ceil(contentSubtotal * 0.20).toLong()
+                val internalMargin = maxOf(minimumReserve, ceil(internalSubtotal * 0.20).toLong())
+                return StoragePlan(
+                    source, extracted, prepared, database, wine, snapshot, internalMargin,
+                    Math.addExact(internalSubtotal, internalMargin), allocatable,
+                    contentOnRemovable = true,
+                    contentVolumeRequiredBytes = Math.addExact(contentSubtotal, contentMargin),
+                    contentVolumeAllocatableBytes = contentAllocatable,
+                )
+            }
             val subtotal = Math.addExact(
                 Math.addExact(
                     Math.addExact(Math.addExact(source, stagedArchive), scratchArchive),

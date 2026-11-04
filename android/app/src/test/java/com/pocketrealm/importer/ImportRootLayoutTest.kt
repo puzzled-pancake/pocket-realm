@@ -8,7 +8,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * Census lanes item 17: the per-flavor [RootLayout] rows and the
+ * Census: the per-flavor [RootLayout] rows and the
  * union-classification wiring. The rows are derived from the measured staged
  * clients (census; remeasured for this pin):
  *

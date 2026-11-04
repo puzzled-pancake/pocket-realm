@@ -41,8 +41,36 @@ class StorageRoots(context: Context) {
     /** Dirty-generation marker + metadata for abrupt-stop recovery. */
     val recoveryState: File = File(realmData, "recovery.json")
 
-    /** Immutable imported content generations (client build, extracted maps/DBC). */
-    val content: File = File(appContext.filesDir, "content").apply { mkdirs() }
+    /**
+     * Imported client generations, staged archives, and prepared server data
+     * ("content"). With [ContentVolume.REMOVABLE] these live in the app's
+     * private directory on the SD card; the realm database, runtime prefixes,
+     * and journal stay on internal UFS regardless.
+     */
+    val contentVolume: ContentVolume = resolveContentVolume()
+    val content: File = contentDir(contentVolume).apply { mkdirs() }
+
+    /** Canonical root for client generations + staged imports ([ManagedClientImporter]). */
+    val client: File = clientDir(contentVolume).apply { mkdirs() }
+
+    /** True when the user asked for the SD card but none was mounted. */
+    val removableUnavailable: Boolean =
+        contentVolume == ContentVolume.INTERNAL && ContentVolumeSetting.read(appContext) == ContentVolume.REMOVABLE
+
+    private fun resolveContentVolume(): ContentVolume =
+        if (ContentVolumeSetting.read(appContext) == ContentVolume.REMOVABLE &&
+            ContentVolumeSetting.removableDir(appContext) != null
+        ) ContentVolume.REMOVABLE else ContentVolume.INTERNAL
+
+    private fun contentDir(volume: ContentVolume): File = when (volume) {
+        ContentVolume.INTERNAL -> File(appContext.filesDir, "content")
+        ContentVolume.REMOVABLE -> File(ContentVolumeSetting.removableDir(appContext), "content")
+    }
+
+    private fun clientDir(volume: ContentVolume): File = when (volume) {
+        ContentVolume.INTERNAL -> File(appContext.noBackupFilesDir, "client")
+        ContentVolume.REMOVABLE -> File(ContentVolumeSetting.removableDir(appContext), "client")
+    }
 
     /** Runtime generations: Wine prefixes, shader/dynarec caches, addon/visual overlays. */
     val runtime: File = File(appContext.filesDir, "runtime").apply { mkdirs() }
@@ -70,6 +98,7 @@ class StorageRoots(context: Context) {
             "database/snapshots" to databaseSnapshots,
             "realm/generations" to generations,
             "content" to content,
+            "client" to client,
             "runtime" to runtime,
             "scratch" to scratch,
             "exports" to exports,
@@ -80,13 +109,20 @@ class StorageRoots(context: Context) {
             },
             mutableRootIsInternal = realmData.startsWith(appContext.filesDir) &&
                 databaseRoot.startsWith(appContext.noBackupFilesDir),
+            contentVolume = contentVolume,
+            removableUnavailable = removableUnavailable,
         )
     }
 
     private fun usableBytes(dir: File): Long = dir.usableSpace
 
     data class RootStatus(val name: String, val path: String, val exists: Boolean, val usableBytes: Long)
-    data class Report(val roots: List<RootStatus>, val mutableRootIsInternal: Boolean) {
+    data class Report(
+        val roots: List<RootStatus>,
+        val mutableRootIsInternal: Boolean,
+        val contentVolume: ContentVolume,
+        val removableUnavailable: Boolean,
+    ) {
         val ok: Boolean get() = roots.all { it.exists } && mutableRootIsInternal
     }
 
@@ -97,5 +133,10 @@ class StorageRoots(context: Context) {
             instance ?: synchronized(this) {
                 instance ?: StorageRoots(context.applicationContext).also { instance = it }
             }
+
+        /** Drop the cached instance so the next [get] re-resolves the content volume. */
+        fun reset() {
+            synchronized(this) { instance = null }
+        }
     }
 }

@@ -18,7 +18,7 @@
  * 9.5.0 wrapper is NOT reused for that reason).
  */
 import groovy.json.JsonSlurper
-import java.security.MessageDigest
+import java.io.ByteArrayOutputStream
 
 plugins {
     kotlin("jvm") version "2.0.21"
@@ -29,7 +29,7 @@ plugins {
 }
 
 group = "com.pocketrealm"
-version = "0.110.0"
+version = "0.111.0"
 
 val sharedManifestFile = file("shared-sources.json")
 val sharedManifest: Map<*, *> =
@@ -77,9 +77,9 @@ fun nativeRuntimePathEnv(): Map<String, String> = mapOf(
  * `native/.build-win-x86_64-<flavor>-mariadb/pocket-runtime-build` (the
  * tools/build_win_realm_runtime.py --flavor <f> --database-backend mariadb
  * output, lane lockfiles
- * schemas/realm-runtime-lockfile-mariadb-win-<flavor>.json). The rpHost
- * harness task routes via -PrpFlavor=<tbc|wotlk>; every default (no flag)
- * stays byte-identical to the vanilla lane.
+ * schemas/realm-runtime-lockfile-mariadb-win-<flavor>.json). The
+ * flavorE2eProbe task routes via its flavor property; every default (no
+ * flag) stays byte-identical to the vanilla lane.
  */
 val flavorRuntimeDirs: Map<String, String> = mapOf(
     "tbc" to "../native/.build-win-x86_64-tbc-mariadb/pocket-runtime-build",
@@ -491,19 +491,6 @@ tasks.register<JavaExec>("launchClient") {
     }
 }
 
-// Gate: the world-chat injection bridge surface (honest
-// failures without a client; the conversational half is interactive).
-tasks.register<JavaExec>("whisperGate") {
-    group = "bring-up"
-    description = "Boot the world and prove the chat-injection bridge contract."
-    classpath = sourceSets.named("main").get().runtimeClasspath
-    mainClass.set("com.pocketrealm.desktop.WhisperGateKt")
-    jvmArgs("-Djava.library.path=$nativeLibraryPath")
-    environment(nativeRuntimePathEnv())
-}
-
-// W4.1: the per-flavor desktop end-to-end qualification probe (see
-// FlavorE2eProbe.kt). -DflavorId + -DclientDir (or -Darchive / -DskipImport).
 tasks.register<JavaExec>("flavorE2eProbe") {
     group = "bring-up"
     description = "Per-flavor desktop end-to-end: import -> prep -> boot READY -> auto-login -> Save & Exit."
@@ -520,40 +507,6 @@ tasks.register<JavaExec>("flavorE2eProbe") {
                 jvmArgs("-D${key}=${project.property(key)}")
             }
         }
-}
-
-// Harness lane: the stdio JSON-line RP host (see RpHost.kt). One JSON op
-// per stdin line -> one JSON response per stdout line; EOF drains with a
-// save. -PrpClient=1 also launches WoW.exe (needs -PclientDir=...);
-// -PrpAccount/-PrpPassword auto-type the login after the client is up.
-tasks.register<JavaExec>("rpHost") {
-    group = "bring-up"
-    description = "Boot the stack and serve the world console ops over stdio JSON lines."
-    classpath = sourceSets.named("main").get().runtimeClasspath
-    mainClass.set("com.pocketrealm.desktop.RpHostKt")
-    // flip: -PrpFlavor=<tbc|wotlk> loads that lane's MariaDB win runtime
-    // (the per-flavor build root); the default stays the vanilla lane.
-    val rpFlavor = if (project.hasProperty("rpFlavor")) {
-        project.property("rpFlavor")?.toString()
-    } else null
-    jvmArgs("-Djava.library.path=${flavorNativeLibraryPath(rpFlavor)}")
-    environment(flavorRuntimePathEnv(rpFlavor))
-    standardInput = System.`in`
-    if (project.hasProperty("clientDir")) {
-        jvmArgs("-DclientDir=${project.property("clientDir")}")
-    }
-    if (project.hasProperty("rpClient")) {
-        jvmArgs("-DrpClient=${project.property("rpClient")}")
-    }
-    if (project.hasProperty("rpAccount")) {
-        jvmArgs("-DrpAccount=${project.property("rpAccount")}")
-    }
-    if (project.hasProperty("rpPassword")) {
-        jvmArgs("-DrpPassword=${project.property("rpPassword")}")
-    }
-    if (project.hasProperty("rpBots")) {
-        jvmArgs("-DrpBots=${project.property("rpBots")}")
-    }
 }
 
 // Packaging: jpackage app image carrying the native lanes
@@ -620,14 +573,6 @@ tasks.register("packageApp") {
         val jarFile = appJar.get().outputs.files.singleFile
         val seeds = listOf("classicrealmd", "classiccharacters", "classiclogs", "classicmangos")
             .map { stagingRoot.resolve("assets/seed/$it.sqlz") }
-        // LLM-lane assets the conf resolves from the app dir at runtime
-        // (ServerRuntimeFiles.resolveBundledAsset searches java.library.path
-        // first — the jpackage $APPDIR): the Mozilla CA bundle for the
-        // native HTTPS client's TLS verification and the lore card index.
-        val llmAssets = listOf(
-            "llm/cacert.pem",
-            "lore/lore_cards_v112.jsonl",
-        ).map { rootProject.projectDir.resolve("../android/app/src/main/assets/$it").normalize() }
         // DESK-10/54/83: the addon bundle (researched catalog + the
         // project-owned android-port add-on tree) stages under addons/ in the
         // image so DesktopAddonAssets resolves it from the jpackage $APPDIR
@@ -649,7 +594,7 @@ tasks.register("packageApp") {
             seamDir.resolve("pocket_sqlite.dll"),
             laneStagingRoot.resolve("BUILD_PROVENANCE.json"),
             providerLockfile,
-        ) + seeds + llmAssets + vcRuntime
+        ) + seeds + vcRuntime
         val missing = allInputs.filter { !it.isFile }
         if (missing.isNotEmpty() || !addonBundle.isDirectory || !providerRoot.isDirectory) {
             val listing = (missing + listOf(addonBundle, providerRoot).filterNot { it.isDirectory })
@@ -662,49 +607,22 @@ tasks.register("packageApp") {
         imageInput.mkdirs()
         allInputs.forEach { it.copyTo(imageInput.resolve(it.name), overwrite = true) }
         addonBundle.copyRecursively(imageInput.resolve("addons"), overwrite = true)
-        // DESK-28 embedded-LLM lane payload, an OPTIONAL group: the Windows
-        // llama-server sidecar binary + its GGUF dir, built into the native
-        // llm staging tree by tools/build_win_llama_server.py (the pinned
-        // schemas/sources.json llama-cpp-6d05498 source). The binary is
-        // resolved at runtime from the app dir (java.library.path = $APPDIR,
-        // DesktopLlmModelManager's packaged lane). Unlike the required
-        // DLLs/seeds an absent payload must NOT block the image: the
-        // on-device lane degrades to the manager's honest
-        // ERR_NO_SIDECAR_BINARY refusal instead.
-        val llamaStaging = rootProject.projectDir.resolve("../native/.build-win-x86_64/llama-staging")
-        val llamaServerBinary = llamaStaging.resolve("llama-server.exe")
-        val llamaGgufDir = llamaStaging.resolve("gguf")
-        if (llamaServerBinary.isFile) {
-            // R3-2 (native-server round 1): a PRESENT sidecar rides the
-            // image only when it byte-matches the lane lockfile the build
-            // tool wrote (native/llm/lockfile-win-x86_64.json) — the pin
-            // existed but nothing enforced it, so a stale or foreign
-            // llama-server.exe shipped silently. Same discipline the
-            // vanilla-tweaks patcher and the arm64 vendored-llama libs
-            // already enforce at packaging. ABSENT stays optional (the
-            // honest ERR_NO_SIDECAR_BINARY degrade below).
-            val llamaLock = rootProject.projectDir.resolve("../native/llm/lockfile-win-x86_64.json")
-            check(llamaLock.isFile) {
-                "Missing llama-server lockfile $llamaLock — " +
-                    "build the sidecar: python tools/build_win_llama_server.py"
-            }
-            val llamaArtifact = (JsonSlurper().parse(llamaLock) as Map<*, *>)["artifact"] as Map<*, *>
-            check(
-                (llamaArtifact["bytes"] as Number).toLong() == llamaServerBinary.length() &&
-                    llamaArtifact["sha256"] == sha256Hex(llamaServerBinary),
-            ) {
-                "llama-server.exe differs from its pinned size/SHA-256 " +
-                    "($llamaLock) — rebuild it: python tools/build_win_llama_server.py"
-            }
-            llamaServerBinary.copyTo(imageInput.resolve(llamaServerBinary.name), overwrite = true)
-            if (llamaGgufDir.isDirectory) {
-                llamaGgufDir.copyRecursively(imageInput.resolve("gguf"), overwrite = true)
-            }
-        } else {
+        // Phase 5 (HANDOFF-online-play): discover the internet-play gateway
+        // inputs NOW (the gateway fat jar from gateway/'s own Gradle build —
+        // run `gateway/gradlew fatJar` first — and the toolchain JDK 21 for
+        // a jlink runtime). Staging happens AFTER jpackage: jpackage
+        // recursively sweeps every .jar under --input onto the launcher
+        // cfg's app.classpath (the fence below pins exactly one entry), so
+        // the gateway ships beside the mariadb provider as a post-package
+        // copy. A missing jar/JDK skips the lane honestly.
+        val gatewayJarFile = rootProject.projectDir.resolve("../gateway/build/libs")
+            .listFiles { file -> file.name.startsWith("gateway-") && file.name.endsWith("-all.jar") }
+            ?.maxByOrNull { it.lastModified() }
+        val jlinkJdk = File("E:/pocket_realm_toolchain/jdk/jdk-21.0.12.1+1")
+        if (gatewayJarFile == null || !jlinkJdk.resolve("bin/jlink.exe").isFile) {
             logger.lifecycle(
-                "packageApp: embedded-LLM lane payload absent " +
-                    "(${llamaServerBinary.absolutePath}) — the on-device LLM lane stays off " +
-                    "in this image (build it: python tools/build_win_llama_server.py)",
+                "packageApp gateway lane SKIPPED (missing " +
+                    (gatewayJarFile?.absolutePath ?: "gateway-*-all.jar") + " or the toolchain JDK 21 jlink)",
             )
         }
         val outDir = layout.buildDirectory.dir("package").get().asFile
@@ -774,6 +692,49 @@ tasks.register("packageApp") {
                     "sweep picked up jars that must never be on the app classpath",
             )
         }
+        // The gateway lane's post-package copy (see the discovery note above):
+        // gateway/gateway-all.jar + gateway/runtime/ (jlink Java 21) under
+        // the app dir — exactly where IrohGatewayManager.launch resolves
+        // them install-relative, with the dev-checkout paths as fallback.
+        if (gatewayJarFile != null && jlinkJdk.resolve("bin/jlink.exe").isFile) {
+            val gatewayDir = appDir.resolve("gateway")
+            gatewayDir.deleteRecursively()
+            gatewayDir.mkdirs()
+            gatewayJarFile.copyTo(gatewayDir.resolve("gateway-all.jar"), overwrite = true)
+            val runtimeOut = layout.buildDirectory.dir("package/gateway-runtime").get().asFile
+            runtimeOut.deleteRecursively()
+            exec {
+                commandLine(
+                    "${jlinkJdk.absolutePath}/bin/jlink.exe",
+                    "--add-modules", "java.base,java.logging,jdk.unsupported",
+                    "--strip-debug", "--no-header-files", "--no-man-pages",
+                    "--compress", "zip-6",
+                    "--output", runtimeOut.absolutePath,
+                )
+            }
+            runtimeOut.copyRecursively(gatewayDir.resolve("runtime"), overwrite = true)
+            // Smoke: the bundled runtime must run the bundled gateway — a
+            // no-args launch exits BAD-ARGS with the loud usage line (the
+            // jlink module set missing something the gateway needs fails
+            // HERE, not in a user's first internet join).
+            val smokeErr = ByteArrayOutputStream()
+            exec {
+                commandLine(
+                    gatewayDir.resolve("runtime/bin/java.exe").absolutePath,
+                    "-jar", gatewayDir.resolve("gateway-all.jar").absolutePath,
+                )
+                isIgnoreExitValue = true
+                errorOutput = smokeErr
+            }
+            val smokeText = smokeErr.toString("UTF-8")
+            if (!smokeText.contains("gateway error: GATEWAY-BAD-ARGS")) {
+                throw GradleException(
+                    "the bundled gateway runtime did not boot (expected the " +
+                        "'gateway error: GATEWAY-BAD-ARGS' usage line; stderr was: $smokeText)",
+                )
+            }
+            logger.lifecycle("bundled gateway smoke: gateway error: GATEWAY-BAD-ARGS")
+        }
         // Boot the finished image once before shipping: the packaged-image
         // smoke lane (Main.kt, -Dpocketrealm.nativeSmoke=1) loads every
         // shipped DLL through the launcher's own cfg/java.library.path and
@@ -795,23 +756,6 @@ tasks.register("packageApp") {
         }
         logger.lifecycle("app image: $image")
     }
-}
-
-
-/** Lowercase hex SHA-256 of [file] (the lockfile verification helper —
- * its llama-server sidecar gate; the same discipline the app module's
- * packaging applies to vanilla-tweaks and the vendored llama libs). */
-fun sha256Hex(file: File): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    file.inputStream().use { input ->
-        val buffer = ByteArray(64 * 1024)
-        while (true) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            digest.update(buffer, 0, count)
-        }
-    }
-    return digest.digest().joinToString("") { "%02x".format(it) }
 }
 
 /**
@@ -1026,3 +970,4 @@ tasks.register("desktopCanonicalCounts") {
         )
     }
 }
+

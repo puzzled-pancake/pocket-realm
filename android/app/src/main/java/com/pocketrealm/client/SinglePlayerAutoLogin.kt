@@ -31,7 +31,7 @@ class SinglePlayerAutoLoginCredentials internal constructor(
 
 /**
  * Structural login-window topology contract for one client build's
- * Wine/Winlator lane (P11, lanes item 19 — the per-build seam behind
+ * Wine/Winlator lane (P11, — the per-build seam behind
  * [Build5875LoginTopology]).
  */
 internal interface LoginTopologyMatcher {

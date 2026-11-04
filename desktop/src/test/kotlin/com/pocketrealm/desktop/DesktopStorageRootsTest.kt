@@ -10,7 +10,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The desktop storage-root taxonomy (DESK-129/131): the scratch/exports
+ * The desktop storage-root taxonomy: the scratch/exports
  * and database run/snapshots splits exist, ensureDirectories creates
  * them, scratch is purged on clean start (Windows never clears caches
  * under pressure — the app owns it), and verify():Report mirrors the
@@ -29,20 +29,17 @@ class DesktopStorageRootsTest {
             File(roots.database, DatabaseSqliteControlPlane.SQLITE_DATADIR_NAME),
             roots.sqliteDatadir,
         )
-        // DESK-131: the database root splits into run + snapshots (the
+        // the database root splits into run + snapshots (the
         // snapshot-store lane's roots) alongside the datadir.
         assertEquals(File(roots.database, "run"), roots.databaseRun)
         assertEquals(File(roots.database, "snapshots"), roots.databaseSnapshots)
-        // DESK-5/47/78: the MariaDB engine lane's datadir is a SIBLING of
+        // the MariaDB engine lane's datadir is a SIBLING of
         // the sqlite datadir (the Android dual-datadir layout).
         assertEquals(File(roots.database, "mariadb-datadir"), roots.mariadbDatadir)
-        // DESK-129/131: scratch is the transient staging root under the
+        // scratch is the transient staging root under the
         // runtime root (the app-owned cache analog); exports is the ONLY
         // user-facing output root.
         assertEquals(File(roots.runtime, "scratch"), roots.scratch)
-        // DESK-28's letter: the embedded-LLM staging root is
-        // %LOCALAPPDATA%/PocketRealm/runtime/llm (models under llm/models).
-        assertEquals(File(roots.runtime, "llm"), roots.llm)
         assertEquals(File(roots.root, "exports"), roots.exports)
     }
 
@@ -54,7 +51,7 @@ class DesktopStorageRootsTest {
             roots.root, roots.realm, roots.database, roots.content, roots.runtime,
             roots.settings, roots.supervisorJournalDir, roots.logs,
             roots.scratch, roots.exports, roots.databaseRun, roots.databaseSnapshots,
-            roots.mariadbDatadir, roots.llm,
+            roots.mariadbDatadir,
         ).forEach { dir -> assertTrue("missing root: $dir", dir.isDirectory) }
         // Scratch staging leftovers from a previous session never
         // outlive a clean start.
@@ -106,7 +103,7 @@ class DesktopStorageRootsTest {
         assertTrue(report.roots.filter { it.name != "database/snapshots" }.all { it.exists })
     }
 
-    // ---- D50 (round-4, owner ruling): the additive data-root override ----
+    // the additive data-root override ----
 
     @Test
     fun `the POCKET_REALM_DATA_ROOT override relocates the default root`() {
@@ -140,7 +137,7 @@ class DesktopStorageRootsTest {
             DesktopStorageRoots.hermeticEnvLeg = null
         }
     }
-    // ---- R2-1 (desktop-twin round 2): the override arm fails loud ------
+    // R2-1: the override arm fails loud ------
 
     @Test
     fun `an override pointing at a regular file fails loud naming the override`() {

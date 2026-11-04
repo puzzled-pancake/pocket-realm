@@ -46,11 +46,7 @@ import java.util.concurrent.TimeUnit
  *   world-kill | world-stop
  *   world-chat <char> <channel> [target] <text>   (relay-minimum: channel
  *       is say|party|whisper|yell; target = receiving bot name, whisper
- *       only; text rides arg4 - see tools/rp_harness)
- *   reset-state [player]     (relay-minimum: clears bot_player_facts +
- *       bot_player_relationship for one player or all)
- *   llm-memory-state <player> (relay-minimum: per-bot relationship rows +
- *       per-(bot,prefix) fact counts; empty player = world summary)
+ *       only; text rides arg4)
  *   stack-up-bot <profileId>   (supervisor DB-RECOVERY gate when the
  *       journal is dirty + engine clean-marker verify/heal when it is
  *       not, then db init+migrations+start → health gate → realm → world;
@@ -183,11 +179,6 @@ class WorldConsoleRelay {
             // only), arg4 = the chat text
             "world-chat" -> passthrough(op) {
                 worldApi().worldChat(arg1, arg2, arg3, arg4) }
-            // arg1 = player name ("" = every player)
-            "reset-state" -> passthrough(op) { worldApi().resetState(arg1) }
-            // arg1 = player name ("" = world summary with
-            // online bot names)
-            "llm-memory-state" -> passthrough(op) { worldApi().llmMemoryState(arg1) }
             "world-pause" -> passthrough(op) { worldApi().setWorldPaused(arg1.toIntOrNull() ?: 0) }
             "world-kill" -> {
                 val killed = runCatching { worldApi().killForTest() }
@@ -196,7 +187,7 @@ class WorldConsoleRelay {
                               .put("note", "killForTest never returns cleanly: ${it.message}") })
                 // Both world exits retire the :world process (killForTest kills
                 // immediately; the clean stop arms the 250 ms retireCleanProcess
-                // fuse) - drop the stale proxy so the next world op rebinds to
+                // retireCleanProcess fuse) — drop the stale proxy so the next world op rebinds to
                 // the fresh process.
                 world?.close(); world = null
                 killed
@@ -213,7 +204,7 @@ class WorldConsoleRelay {
                 // against the CURRENT lane lockfile (schemas/realm-runtime-
                 // lockfile*.json) before driving any op, so a stale relay is
                 // refused at attach instead of failing mid-run on missing JNI
-                // ops (world-chat/reset-state/llm-memory-state). Same values
+                // ops (world-chat). Same values
                 // ride realm-status/world-status via ServerStatusJson.
                 .put("runtimeBuildId", BuildConfig.NATIVE_RUNTIME_BUILD_ID)
                 .put("nativeCmangosCommit", BuildConfig.NATIVE_CMANGOS_COMMIT)
@@ -274,8 +265,8 @@ class WorldConsoleRelay {
     // Binder call runs on a worker thread and the caller joins it for the
     // stage's window. A call that outlives the window is abandoned on its
     // worker (a wedged transit cannot be interrupted; the recorded row -09
-    // composite sat silent past the host's 900s window on exactly such a
-    // call) and null is returned so the caller answers the typed stage
+    // composite sat silent past the host's 900s window on exactly
+    // such a call) and null is returned so the caller answers the typed stage
     // timeout. A finished worker's failure is rethrown on the caller -
     // join() provides the happens-before.
     internal fun <T> boundedCall(component: String, windowMs: Long, call: () -> T): T? {

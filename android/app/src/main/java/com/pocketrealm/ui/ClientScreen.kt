@@ -74,7 +74,7 @@ private val ARCHIVE_MIME_TYPES = arrayOf(
     "*/*",
 )
 
-/** R2-1 (native-server round 1): the screen's client-identity copy
+/** the screen's client-identity copy
  * resolves the ACTIVE lane's version from the flavor registry — the
  * TunnelInvite.clientRequirementLine precedent. A hard-coded
  * "WoW 1.12.1 client" line on a TBC/WotLK lane was factually wrong copy
@@ -127,9 +127,9 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
             pending = pending,
             clientVersion = clientVersion,
             onDismiss = { ui.pendingImport = null },
-            onConfirm = {
+            onConfirm = { joinOnly ->
                 ui.pendingImport = null
-                ui.startImport(context, pending)
+                ui.startImport(context, pending, joinOnly)
             },
         )
     }
@@ -160,16 +160,16 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     ) {
         Text("Game setup", style = MaterialTheme.typography.headlineSmall)
         if (clientVersion == null) {
- // Flip: no pick yet under several qualified flavors — the
-            // first-pick copy instead of a "null" version interpolation
-            // (the import operation keeps the machine's loud refusal).
+            // No game version picked yet — show the first-pick hint
+            // instead of a "null" version interpolation (the import
+            // operation itself still refuses).
             Text(
-                "Pick a game flavor on Home first — the import lane follows that flavor.",
+                "Pick a game version on Home first — the import follows it.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            Text("Import the WoW $clientVersion client and generate the server's world data")
+            Text("Import the WoW $clientVersion game files to play")
         }
         OutlinedButton(onClick = { archivePicker.launch(ARCHIVE_MIME_TYPES) }) {
             Text("Import from archive (.zip / .7z / .rar)")
@@ -178,6 +178,16 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
             progress = ui.importProgress,
             notice = ui.importNotice ?: ui.importBusyNotice,
             dataPreparationEnabled = ui.dataPreparationEnabled,
+            needsServerData = ui.importComplete && !ui.serverDataReady && ui.dataPreparationEnabled &&
+                ui.importProgress.activeStage?.state != "RUNNING",
+            onBuildServerData = {
+                runCatching { ImportWorkerService.buildServerData(context) }
+                    .onFailure { ui.postImportNotice("Couldn't start: ${it.message}") }
+                    .onSuccess {
+                        ui.beginNewPollEpoch()
+                        ui.postImportNotice("Building server data. This can take 30 minutes or more.")
+                    }
+            },
             canResume = ui.persistedTree != null && !ui.importComplete,
             onSelect = { folderPicker.launch(null) },
             onResume = {
@@ -209,6 +219,7 @@ internal class ImportUiState(context: android.content.Context) {
     var importBusyNotice by mutableStateOf<String?>(null)
     var importComplete by mutableStateOf(false)
     var dataPreparationEnabled by mutableStateOf(true)
+    var serverDataReady by mutableStateOf(true)
     var persistedTree by mutableStateOf(
         context.contentResolver.persistedUriPermissions
             .firstOrNull { it.isReadPermission }?.uri)
@@ -281,7 +292,7 @@ internal class ImportUiState(context: android.content.Context) {
         return false
     }
 
-    fun startImport(context: android.content.Context, pick: PendingImportPick) {
+    fun startImport(context: android.content.Context, pick: PendingImportPick, joinOnly: Boolean = false) {
         // Process death between pick and confirm discards the dialog (plain
         // remember, not saveable) and usually the SAF grant with it; a stale
         // grant that somehow survives surfaces here as the runCatching
@@ -298,6 +309,7 @@ internal class ImportUiState(context: android.content.Context) {
             }
             context.contentResolver.takePersistableUriPermission(pick.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             persistedTree = pick.uri
+            ImportWorkerService.setJoinOnly(context, joinOnly)
             if (pick.isArchive) {
                 ImportWorkerService.startArchive(context, pick.uri, pick.expectedBytes)
                 beginNewPollEpoch()
@@ -315,6 +327,7 @@ internal class ImportUiState(context: android.content.Context) {
         importProgress = ImportProgressPresentation.fromJson(value)
         importComplete = importProgress.phase == "COMPLETE"
         dataPreparationEnabled = value.optBoolean("dataPreparationEnabled", true)
+        serverDataReady = value.optBoolean("serverDataReady", true)
         if (importPhaseBusy(importProgress.phase)) {
             observedActiveRun = true
             // Keep a fresh notice on screen long enough to read; without
@@ -391,6 +404,8 @@ private fun ImportProgressCard(
     progress: ImportProgressPresentation,
     notice: String?,
     dataPreparationEnabled: Boolean,
+    needsServerData: Boolean,
+    onBuildServerData: () -> Unit,
     canResume: Boolean,
     onSelect: () -> Unit,
     onResume: () -> Unit,
@@ -407,6 +422,8 @@ private fun ImportProgressCard(
                         progress = progress,
                         notice = notice,
                         dataPreparationEnabled = dataPreparationEnabled,
+                        needsServerData = needsServerData,
+                        onBuildServerData = onBuildServerData,
                         canResume = canResume,
                         onSelect = onSelect,
                         onResume = onResume,
@@ -423,6 +440,8 @@ private fun ImportProgressCard(
                         progress = progress,
                         notice = notice,
                         dataPreparationEnabled = dataPreparationEnabled,
+                        needsServerData = needsServerData,
+                        onBuildServerData = onBuildServerData,
                         canResume = canResume,
                         onSelect = onSelect,
                         onResume = onResume,
@@ -440,6 +459,8 @@ private fun ImportPrimaryPane(
     progress: ImportProgressPresentation,
     notice: String?,
     dataPreparationEnabled: Boolean,
+    needsServerData: Boolean,
+    onBuildServerData: () -> Unit,
     canResume: Boolean,
     onSelect: () -> Unit,
     onResume: () -> Unit,
@@ -509,6 +530,17 @@ private fun ImportPrimaryPane(
             )
         }
 
+        if (needsServerData) {
+            Text(
+                "Ready to join other people's games. To play solo or host, build your own world " +
+                    "(30 minutes or more; keep the device plugged in).",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("client-import-join-only-ready"),
+            )
+            Button(onClick = onBuildServerData, modifier = Modifier.testTag("client-build-server-data")) {
+                Text("Build server data")
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onSelect, modifier = Modifier.testTag("client-import-select")) {
                 Text(if (progress.phase == "COMPLETE") "Import again" else "Choose client folder")

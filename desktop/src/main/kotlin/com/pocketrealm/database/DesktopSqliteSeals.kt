@@ -161,7 +161,7 @@ internal object DesktopSqliteSeals {
     }.getOrNull()
 
     /**
-     * The tamper cross-check (DESK-79): the migration marker's BYTES must
+     * The tamper cross-check: the migration marker's BYTES must
      * hash to the digest recorded in the generation marker, and the
      * marker must prove current against the record's own identity. A
      * hand-edited or stale ledger can never pass both.

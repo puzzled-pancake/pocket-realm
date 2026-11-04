@@ -3,7 +3,7 @@ package com.pocketrealm.supervisor
 import org.json.JSONObject
 
 /**
- * Pure parsers for the roster relay ops' JSON (design-remote-accounts §11/§8
+ * Pure parsers for the roster relay ops' JSON (design-remote-accounts /
  * — account_list + account_characters, the world_runtime.cpp character_
  * persistence JSON pattern). Extracted from the backend verbs so the shapes
  * are unit-testable without the native DLLs: a test feeds the exact JSON the
@@ -13,10 +13,10 @@ import org.json.JSONObject
 // refused op) — the honest-refusal shape the backend surfaces verbatim.
 @Suppress("ReturnCount")
 object FriendRosterJson {
-    /** One account row: identity + moderation surfaces (§7/§12). The
-     * last-logon ADDRESS is deliberately absent (plan §1 rule 7: peer
+    /** One account row: identity + moderation surfaces. The
+     * last-logon ADDRESS is deliberately absent (plan rule 7: peer
      * addresses are never displayed — the payload dropped it, R3-1/R5-4);
-     * [bot] is the payload's explicit bot label (R5-5), so bot rows are
+     * [bot] is the payload's explicit bot label, so bot rows are
      * surfaced honestly instead of padding the friends roster. */
     data class AccountRow(
         val id: Long,

@@ -74,4 +74,4 @@ The app should not need a clean desktop-style shutdown to know what the last ses
 - [Local server, world, and bots](Local-Server-World-and-Bots.md) explains CMaNGOS, MariaDB, Classic-DB, Playerbots, accounts, and world saving.
 - [Data, storage, and privacy](Data-Storage-and-Privacy.md) explains generations, private folders, backups, restores, credentials, and exports.
 - [Accounts, security, and network boundaries](Accounts-Security-and-Networking.md) explains local accounts, automatic login, service controls, add-on checks, and LAN limits.
-- [Build and packaging](Build-and-Packaging.md) explains how Kotlin, C++, Rust, Python, Gradle, and pinned packages become one APK.
+- [Build and packaging](Build-and-Packaging.md) explains how Kotlin, C++, Rust, Python, Gradle, and version-locked packages become one APK.

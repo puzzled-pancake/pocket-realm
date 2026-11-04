@@ -22,7 +22,7 @@ The starting classic world database used by the CMaNGOS world server.
 
 ## Build 5875
 
-The original World of Warcraft client build for the selected flavor — Vanilla 1.12.1, TBC 2.4.3, or WotLK 3.3.5a (the qualified set in schemas/flavor.json).
+The original World of Warcraft client build for the selected game version — Vanilla 1.12.1, TBC 2.4.3, or WotLK 3.3.5a (the supported set in schemas/flavor.json).
 
 ## Client
 

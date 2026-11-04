@@ -21,7 +21,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * Design-timeframe §2/§4.3: the SHARED stage-overlay decision surface
+ * Design-timeframe /: the SHARED stage-overlay decision surface
  * (TimeframeOverlayPlan) — the exact statements and policy that both platform
  * appliers execute. The catalog SQL is split by the seed scanner and every
  * statement must be a flag-set INSERT OR IGNORE; the default stage verdict,
@@ -46,7 +46,7 @@ class TimeframeOverlayPlanTest {
 
     @Test
     fun nonVanillaNonFinalStagesRefuseUnstagedLoudly() {
-        // W7 code-red R5-1: this build stages vanilla overlays ONLY, so a
+        // W7 R5-1: this build stages vanilla overlays ONLY, so a
         // stored non-final tbc/wotlk stage must refuse the statements plan
         // loudly (both provider legs throw this refusal at world start) —
         // today's behavior made explicit so the Settings copy and the

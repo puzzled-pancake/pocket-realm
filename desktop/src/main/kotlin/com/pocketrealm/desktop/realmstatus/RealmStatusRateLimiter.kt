@@ -57,7 +57,7 @@ class RealmStatusRateLimiter(
     private val buckets = ConcurrentHashMap<String, Bucket>()
     private val evictionLock = Any()
 
-    /** The public-mode key resolution for one request (§6.2). [peerIp] is
+    /** The public-mode key resolution for one request. [peerIp] is
      * the socket peer; [connectingIpHeader] the raw header value or null. */
     fun publicKey(peerIp: String, connectingIpHeader: String?): Key = when {
         connectingIpHeader == null && peerIp == HOST_LOOPBACK -> Key.Host
@@ -130,13 +130,13 @@ class RealmStatusRateLimiter(
         const val WINDOW_MS = 60_000L
 
         /** Bound on tracked buckets — forged-header floods cannot grow the
-         * map past this (§6.2's bounded map). */
+         * map past this (the bounded map). */
         const val MAX_BUCKETS = 4_096
 
         const val HOST_LOOPBACK = "127.0.0.1"
 
         /**
-         * The CF-Connecting-IP validator (§6.2): IPv4 global-unicast plus
+         * The CF-Connecting-IP validator : IPv4 global-unicast plus
          * CGNAT 100.64/10, or IPv6 global-unicast 2000::/3. Rejected
          * (impossible from the edge): loopback, RFC1918 private, IPv4/v6
          * link-local, multicast, unspecified.

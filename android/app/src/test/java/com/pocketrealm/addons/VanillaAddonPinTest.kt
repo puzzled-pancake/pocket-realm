@@ -8,7 +8,7 @@ import java.io.File
 
 /**
  * G3-6 wave-0 pins: the vanilla addon surface is frozen so the H4-3
- * per-flavor catalog rework (S7) can never re-key or re-validate what
+ * per-flavor catalog rework can never re-key or re-validate what
  * existing vanilla users have installed.
  *
  *  - `addons/catalog-v1.json` is byte-frozen: the committed golden sha here

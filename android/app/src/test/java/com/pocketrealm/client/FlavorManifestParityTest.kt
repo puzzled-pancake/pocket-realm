@@ -115,12 +115,9 @@ class FlavorManifestParityTest {
                 assertTrue(entry.getString("enforced_by").isNotEmpty())
             }
 
-            // R6-R1-1 (W4 code-red round 6): the four W3-era shared fields
+            // the four W3-era shared fields
             // join the parity gate — flavor.json and the registry can no
             // longer drift on them silently.
-            val llm = manifest.getJSONObject("llm")
-            assertEquals(flavor.loreCardsFile, llm.getString("lore_cards"))
-            assertEquals(flavor.promptIdentity, llm.getString("prompt_identity"))
             assertEquals(
                 flavor.graphicsRoutes,
                 wine.getJSONArray("graphics_routes")

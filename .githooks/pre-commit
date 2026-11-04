@@ -3,6 +3,8 @@
 #   git config core.hooksPath .githooks
 # Runs the repo hygiene gate, the pinned-sources verifier, and the Python
 # test suite (~4s). Gradle unit tests stay in CI / manual runs (too slow here).
+# The Python suite's dependencies install with:
+#   python -m pip install -r requirements-test.txt
 #
 # Note: tools/check_sources.py needs initialized submodules and the local
 # native/.providers cache. On a fresh clone without them, defer installing

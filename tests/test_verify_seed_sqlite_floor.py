@@ -166,7 +166,7 @@ def test_replay_bound_is_recorded_and_configurable(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Review round 2:
+# Review
 # replays the production seed SQL), so the download path must enforce the
 # repo's hash-pin discipline BEFORE any extract or execute — the banner
 # check alone is not provenance.

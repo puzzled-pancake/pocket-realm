@@ -20,7 +20,7 @@ import com.pocketrealm.desktop.DesktopAppModel
 import kotlinx.coroutines.launch
 
 /**
- * DESK-44/69/102: the in-app world-data preparation card — the progress
+ * the in-app world-data preparation card — the progress
  * surface the register names for every placement: DESK-44's "Settings/
  * Diagnostics progress card", DESK-69's Settings "Prepare world data" flow,
  * and DESK-102's "progress card on Home". One card, three placements:

@@ -40,7 +40,7 @@ def test_no_nul_debris_anywhere():
         "nul debris recreated (an MSYS `> nul` redirection): delete it and "
         "stop redirecting to the reserved name: " + repr(offenders)
     )
-    # W7 code-red R7-1/R6-1/R1-1: git cannot enumerate a ROOT-level
+    # W7 R7-1/R6-1/R1-1: git cannot enumerate a ROOT-level
     # reserved-name file (the `nul` that failed the finalize leak sweep was
     # invisible to git status AND to the loop above), so probe the DOS
     # reserved names directly through the extended-length path — the same
@@ -197,8 +197,12 @@ def test_android_counts_artifact_covers_every_module_its_command_names():
     assert path.is_file()
     counts = json.loads(path.read_text(encoding="utf-8"))
     command = counts.get("command", "")
-    assert ":pocketrealm-llm" in command, command
-    assert counts.get("modules") == [":app", ":pocketrealm-llm"], counts
+    # The :pocketrealm-llm module was retired from the build after W7 (the
+    # online-play task's re-measure dropped it from the canonical command);
+    # the artifact must name exactly the modules the command runs.
+    assert ":app:testDebugUnitTest" in command, command
+    assert ":pocketrealm-llm" not in command, command
+    assert counts.get("modules") == [":app"], counts
 
 
 def test_wave_exit_test_counts_match_the_archived_artifacts():
@@ -383,8 +387,8 @@ def test_joiner_refusal_copy_never_asserts_a_cause():
     answer byte-identically; a rate lock makes retry guidance harmful).
     Both UI surfaces route through the shared joinerRefusalCopy()."""
     for rel in (
-        "android/app/src/main/java/com/pocketrealm/ui/LanScreen.kt",
-        "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/HomeScreen.kt",
+        "android/app/src/main/java/com/pocketrealm/ui/online/DirectJoinAdvanced.kt",
+        "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/online/DirectJoinAdvanced.kt",
     ):
         text = (ROOT / rel).read_text(encoding="utf-8")
         assert "wrong/expired" not in text, f"{rel}: guessed refusal cause returned"
@@ -421,7 +425,6 @@ def test_tracked_tools_do_not_reference_untracked_resources():
     for tool in (
         "tools/build_o11_extractors.py",
         "tools/build_o09_realm_runtime.py",
-        "tools/build_win_llama_server.py",
         "tools/generate_timeframe_era.py",
     ):
         text = (ROOT / tool).read_text(encoding="utf-8")

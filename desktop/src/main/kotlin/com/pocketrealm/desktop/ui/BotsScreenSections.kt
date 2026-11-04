@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import com.pocketrealm.bots.BotActivityPreset
 import com.pocketrealm.bots.BotAdvancedSettings
 import com.pocketrealm.bots.BotCustomConfiguration
-import com.pocketrealm.bots.BotLlmSpeech
 import com.pocketrealm.bots.BotPlaystylePreset
 import com.pocketrealm.bots.BotPopulationPolicy
 import com.pocketrealm.bots.BotPresetStore
@@ -94,8 +93,8 @@ internal fun PresetRail(
             ).forEach { preset ->
                 PresetRow(
                     title = (if (preset.favorite) "* " else "") + preset.name,
-                    summary = preset.configuration.selectedTarget.toString() + " bots - revision " +
-                        preset.revision.revision + " - " + preset.configuration.activeBotPercent + "% active",
+                    summary = preset.configuration.selectedTarget.toString() + " bots · " +
+                        preset.configuration.activeBotPercent + "% active",
                     selected = selectedSavedId == preset.id,
                     applied = appliedSavedId == preset.id,
                     onClick = { onSelectSaved(preset.id) },
@@ -536,123 +535,11 @@ internal fun BehaviourTab(
         checked = configuration.loginWithPlayer,
         onChecked = { value -> edit { it.copy(loginWithPlayer = value) } },
     )
-}
-
-@Composable
-@Suppress("LongMethod", "CyclomaticComplexMethod", "MagicNumber")
-internal fun AiTab(
-    configuration: BotCustomConfiguration,
-    edit: ((BotCustomConfiguration) -> BotCustomConfiguration) -> Unit,
-) {
-    val speech = configuration.llmSpeech
-    Text(
-        "Per-preset overrides for the playerbot LLM. The engine, endpoint and global switches " +
-            "live in the LLM destination; values here are written into this preset's bot conf " +
-            "at the next realm start.",
-        style = MaterialTheme.typography.bodySmall,
-    )
     SwitchRow(
         label = "Bots speak on their own",
         checked = configuration.allowBotChat,
         onChecked = { value -> edit { it.copy(allowBotChat = value) } },
     )
-    Text("REPLY LENGTH", style = MaterialTheme.typography.labelMedium)
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        listOf(0, 48, 96, 150, 200, 300).forEach { tokens ->
-            FilterChip(
-                selected = speech.replyTokens == tokens,
-                onClick = {
-                    edit { it.copy(llmSpeech = it.llmSpeech.copy(replyTokens = tokens)) }
-                },
-                label = { Text(if (tokens == 0) "Model default" else tokens.toString()) },
-            )
-        }
-    }
-    Text("BOT-TO-BOT CHAT", style = MaterialTheme.typography.labelMedium)
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        listOf(-1 to "Model default", 0 to "Off", 5 to "Low", 10 to "Medium", 20 to "Chatty")
-            .forEach { (value, label) ->
-                FilterChip(
-                    selected = speech.botToBotChatChance == value,
-                    onClick = {
-                        edit { it.copy(llmSpeech = it.llmSpeech.copy(botToBotChatChance = value)) }
-                    },
-                    label = { Text(label) },
-                )
-            }
-    }
-    Text("MEMORY", style = MaterialTheme.typography.labelMedium)
-    Stepper(
-        label = "Memory facts cap (0 follows the model's tuned depth)",
-        value = speech.factsCap,
-        range = 0..BotLlmSpeech.MAX_FACTS_CAP,
-        step = 2,
-        onValue = { value ->
-            edit { it.copy(llmSpeech = it.llmSpeech.copy(factsCap = value)) }
-        },
-    )
-    Stepper(
-        label = "Memories carried into prompts",
-        value = speech.memoriesTail,
-        range = 0..BotLlmSpeech.MAX_MEMORIES_TAIL,
-        onValue = { value ->
-            edit { it.copy(llmSpeech = it.llmSpeech.copy(memoriesTail = value)) }
-        },
-    )
-    Text("ROLEPLAY SEASONING", style = MaterialTheme.typography.labelMedium)
-    BotLlmSpeech.PACK_DELTA_IDS.sorted().forEach { id ->
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(id, style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(120.dp))
-            listOf(null to "Default", true to "On", false to "Off").forEach { (value, label) ->
-                FilterChip(
-                    selected = if (value == null) id !in speech.packDeltas else speech.packDeltas[id] == value,
-                    onClick = {
-                        edit {
-                            it.copy(
-                                llmSpeech = it.llmSpeech.copy(
-                                    packDeltas = if (value == null) {
-                                        it.llmSpeech.packDeltas - id
-                                    } else {
-                                        it.llmSpeech.packDeltas + (id to value)
-                                    },
-                                ),
-                            )
-                        }
-                    },
-                    label = { Text(label) },
-                )
-            }
-        }
-    }
-    Text("ROLEPLAY DIALS", style = MaterialTheme.typography.labelMedium)
-    listOf(
-        "Initiative" to speech.initiative,
-        "Volatility" to speech.volatility,
-        "Reactivity" to speech.reactivity,
-        "Long-form" to speech.longForm,
-    ).forEach { (label, value) ->
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(120.dp))
-            listOf(-1, 0, 25, 50, 75, 100).forEach { dial ->
-                FilterChip(
-                    selected = value == dial,
-                    onClick = {
-                        edit { current ->
-                            current.copy(
-                                llmSpeech = when (label) {
-                                    "Initiative" -> current.llmSpeech.copy(initiative = dial)
-                                    "Volatility" -> current.llmSpeech.copy(volatility = dial)
-                                    "Reactivity" -> current.llmSpeech.copy(reactivity = dial)
-                                    else -> current.llmSpeech.copy(longForm = dial)
-                                },
-                            )
-                        }
-                    },
-                    label = { Text(if (dial == -1) "Default" else dial.toString()) },
-                )
-            }
-        }
-    }
 }
 
 @Composable

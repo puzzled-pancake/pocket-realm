@@ -29,7 +29,7 @@ SOURCE = ROOT / "native" / "cmangos"
 TARGET_ABI = "x86_64"
 FLAVOR_ID = "vanilla"
 # The active flavor's core pin (set by select_flavor); vanilla asserts it
-# equals the o09 driver constant so the two cannot drift again (decision).
+# equals the o09 driver constant so the two cannot drift again.
 FLAVOR_CORE_COMMIT = o09.CMANGOS_COMMIT
 BUILD = ROOT / "native" / ".build-o11-x86_64" / "extractors"
 PATCHED_SOURCE = ROOT / "native" / ".build-o11-x86_64" / "cmangos-patched"
@@ -37,7 +37,14 @@ STAGE = ROOT / "native" / ".build-o11-x86_64" / "extractor-staging" / "jniLibs" 
 PROVENANCE = STAGE.parents[1] / "BUILD_PROVENANCE.json"
 LOCKFILE = ROOT / "schemas" / "o11-extractor-lockfile.json"
 MAX_PAGE = 0x4000
-PATCHES = [ROOT / "native" / "patches" / "o11-cmangos-safe-mpq-listfile.patch"]
+# The shared extractor patches, applied to every flavor's tree: the safe
+# MPQ listfile read, and the MoveMapGen task queue blocking on its workers
+# instead of spinning a core for the whole navmesh build.
+SHARED_PATCHES = [
+    ROOT / "native" / "patches" / "o11-cmangos-safe-mpq-listfile.patch",
+    ROOT / "native" / "patches" / "o11-cmangos-mmap-taskqueue-wait.patch",
+]
+PATCHES = list(SHARED_PATCHES)
 # Flavor-conditional EXTRA source patches, applied after the shared mpq
 # listfile patch (select_flavor composes the full list into PATCHES). The
 # only entry today is the tbc ICU guard: the pinned cmangos-tbc tree gates
@@ -80,8 +87,7 @@ def select_flavor(flavor_id: str) -> None:
     FLAVOR_ID = flavor_id
     FLAVOR_CORE_COMMIT = pins["server_core"]
     SOURCE = ROOT / layout.core_submodule
-    PATCHES = [ROOT / "native" / "patches" / "o11-cmangos-safe-mpq-listfile.patch"] \
-        + FLAVOR_PATCHES.get(flavor_id, [])
+    PATCHES = SHARED_PATCHES + FLAVOR_PATCHES.get(flavor_id, [])
 
 
 def select_abi(abi: str) -> None:

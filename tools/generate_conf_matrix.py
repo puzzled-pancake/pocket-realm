@@ -265,10 +265,10 @@ KOTLIN_CATALOG_PIN = ROOT / "schemas/conf-matrix-kotlin-catalog-pin.json"
 # running core (never present in the upstream .conf.dist surfaces, so never
 # in the matrices — the staging validator treats it as known by construction).
 OVERLAY_KEY_FAMILY = "PocketRealm."
-# The BUILT bots lane's patched config readers: the LLM/era patch set is
+# The BUILT bots lane's patched config readers: the driver's patch set is
 # applied INTO each core's in-tree PlayerBots module (the tree the o09/winx
-# drivers build), and its PlayerbotAIConfig/... sources READ a large LLM*
-# key family the upstream .conf.dist surfaces never document. The matrices
+# drivers build), and its PlayerbotAIConfig/... sources READ keys the
+# upstream .conf.dist surfaces never document. The matrices
 # stay the DIST-documented surface (the provenance contract); the
 # catalog merges these CORE-READ keys so the staging validator knows the
 # keys the running core actually consumes.
@@ -299,30 +299,14 @@ def core_read_keys(flavor_id: str) -> dict[str, str]:
     return reads
 
 
-# The kBlocks array (PlayerbotAIConfig.cpp) - the core builds these keys
-# dynamically in a loop, so the quoted-literal Get*Default parser misses
-# them. The ids come verbatim from the native source.
-_KBLOCKS_IDS = [
-    "voice-lock", "rule-autonomy", "rule-anti-omniscient",
-    "rule-boldness", "rule-salience", "ban-list", "scene-close",
-    "initiative-opener", "mood-weather", "player-persona",
-]
-
-
-def dynamic_read_keys(flavor_id: str) -> dict[str, str]:
-    """Keys the built core constructs DYNAMICALLY: the kBlocks array builds
-    AiPlayerbot.LLMPromptBlock.<block-id> in a loop, invisible to the
-    quoted-literal Get*Default parser."""
-    layout = flavor_layout.resolve(flavor_id)
-    module = ROOT / layout.core_submodule / "src/modules/PlayerBots/playerbot"
-    source = module / "PlayerbotAIConfig.cpp"
-    if not source.is_file():
-        return {}
-    provenance = str(source.relative_to(ROOT)) + " (kBlocks dynamic-read)"
-    return {
-        f"AiPlayerbot.LLMPromptBlock.{block_id}": provenance
-        for block_id in _KBLOCKS_IDS
-    }
+# Keys the app stages as its own record and reads back, which no built
+# core reads: PocketRealm.TimeframeStage is the stage of record the
+# Android/desktop runtimes compare against the overlay state (its native
+# reader, the bot-LLM truth core, is retired - D105). Enumerated, never a
+# family accept, so a typo'd PocketRealm key still fails staging.
+APP_RECORD_KEYS = {
+    "PocketRealm.TimeframeStage": "app-side stage of record (no core reader)",
+}
 
 
 def _kotlin_chunk_name(flavor_id: str, index: int) -> str:
@@ -473,10 +457,9 @@ def catalog_records(flavor_ids: tuple[str, ...] = tuple(flavor_layout.FLAVOR_IDS
             key: source for key, source in core_read_keys(flavor_id).items()
             if key not in matrix_keys
         }
-        dynamic_keys = dynamic_read_keys(flavor_id)
-        for key, prov in dynamic_keys.items():
-            if key not in code_read and key not in record["keys"]:
-                code_read[key] = prov
+        for key, provenance in APP_RECORD_KEYS.items():
+            if key not in matrix_keys:
+                code_read.setdefault(key, provenance)
         records[flavor_id] = {
             "keys": record["keys"],
             "code_read_keys": dict(sorted(code_read.items())),

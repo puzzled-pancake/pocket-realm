@@ -34,7 +34,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * DESK-1/97: the client import lane. A picked folder is scanned first (the
+ * the client import lane. A picked folder is scanned first (the
  * identity gates, VAL copy — rejecting a selection never copies it), then
  * imported into a managed generation: staging → hash-verify → fsync →
  * immutable publication → atomic per-flavor active-pointer switch. The
@@ -61,7 +61,7 @@ fun ImportScreen(model: DesktopAppModel) {
                 val active = generation // local capture: smart casts below
                 when {
                     active == null -> Text(
-                        // R6-2 (W6-N5 code-red round 1): flavor-neutral — the
+                        // flavor-neutral — the
                         // import accepts any qualified flavor's client, so the
                         // copy never names one lane's build.
                         "No managed client generation is active. Import your " +
@@ -97,7 +97,7 @@ fun ImportScreen(model: DesktopAppModel) {
 }
 
 /**
- * DESK-3/66: the durable import view — the journal twin's latest row and
+ * the durable import view — the journal twin's latest row and
  * data stages rendered through the SHARED ImportProgressPresentation (the
  * same wording and fractions the Android import page shows). Polls while
  * visible; every read runs off the UI thread (the journal is SQLite).
@@ -165,8 +165,8 @@ private fun ImportLaneCard(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Import from folder", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Choose the extracted client folder itself (any qualified flavor) (the one that contains " +
-                    "WoW.exe and its Data directory) — not an installer or launcher folder.",
+                "Choose the extracted game folder itself — the one that contains " +
+                    "WoW.exe and its Data directory — not an installer or launcher folder.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

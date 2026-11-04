@@ -3,10 +3,15 @@
 -- or the usual bag keys. The header carries real bag slots (drag a bag onto
 -- one to equip it, drag a slot off to lift the bag) plus the all and key
 -- views. Sell junk sells gray quality items only, one per tick, re-verified
--- immediately before every sale, and never scans the keyring. Clean-room
--- Interface 11200 source.
+-- immediately before every sale, and never scans the keyring (a 1.12-only
+-- feature; item clicks everywhere ride the stock secure item buttons).
+-- Clean-room source, one tree for every supported client.
 AndroidPort.Bags = AndroidPort.Bags or {}
 local Bags = AndroidPort.Bags
+local AP = AndroidPort
+
+-- Lua 5.0 (Interface 11200) only has math.mod; the 5.1 clients ship fmod.
+local mod = math.mod or math.fmod
 
 Bags.ready = Bags.ready or false
 Bags.mode = Bags.mode or "all"
@@ -39,8 +44,8 @@ end
 local function MoneyText(copper)
     if type(copper) ~= "number" or copper < 0 then copper = 0 end
     local gold = math.floor(copper / 10000)
-    local silver = math.mod(math.floor(copper / 100), 100)
-    local rest = math.mod(copper, 100)
+    local silver = mod(math.floor(copper / 100), 100)
+    local rest = mod(copper, 100)
     if gold > 0 then return gold .. "g " .. silver .. "s " .. rest .. "c" end
     if silver > 0 then return silver .. "s " .. rest .. "c" end
     return rest .. "c"
@@ -64,13 +69,6 @@ local function BagEmptyTexture(bag)
     end
     return "Interface\\Paperdoll\\UI-PaperDoll-Slot-Bag"
 end
-
--- The container exists from file load so the frame mover's curated
--- registry adopts it on its first Initialize pass, exactly like the action
--- clusters. Errors here leave the frame hidden and the module not ready.
-pcall(function()
-    Bags:EnsureFrame()
-end)
 
 function Bags:EnsureFrame()
     local frame = getglobal("AndroidPortBagsFrame")
@@ -97,6 +95,13 @@ function Bags:EnsureFrame()
     frame:Hide()
     return frame
 end
+
+-- The container exists from file load so the frame mover's curated
+-- registry adopts it on its first Initialize pass, exactly like the action
+-- clusters. Errors here leave the frame hidden and the module not ready.
+pcall(function()
+    Bags:EnsureFrame()
+end)
 
 function Bags:ModeBags()
     if self.mode == "key" then return { KEYRING_ID } end
@@ -313,6 +318,12 @@ function Bags:BagSlotButton(bag, anchorName)
             icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -3, 3)
         end
         button:SetScript("OnClick", function()
+            -- Bag equipment is a no-op mid-combat on the 2.0+ clients
+            -- (inventory placement locks); a plain view toggle still runs.
+            if AP:InCombat() then
+                ToggleBag(this.bagIndex)
+                return
+            end
             -- Stock BagSlotButton_OnClick: PutItemInBag reports whether the
             -- cursor carried something; only a plain click toggles the view.
             local hadItem = PutItemInBag(this:GetID())
@@ -321,9 +332,11 @@ function Bags:BagSlotButton(bag, anchorName)
             end
         end)
         button:SetScript("OnDragStart", function()
+            if AP:InCombat() then return end
             PickupBagFromSlot(this:GetID())
         end)
         button:SetScript("OnReceiveDrag", function()
+            if AP:InCombat() then return end
             local hadItem = PutItemInBag(this:GetID())
             if not hadItem then
                 ToggleBag(this.bagIndex)
@@ -670,6 +683,13 @@ function Bags:SellJunk()
         self:FinishSell("junk selling cancelled")
         return
     end
+    -- UseContainerItem is add-on-blocked on the 2.0+ clients, so the
+    -- automated seller stays a 1.12 feature; item clicks keep working
+    -- everywhere through the stock secure item buttons.
+    if AP.SECURE then
+        AndroidPort:Print("Automatic junk selling is only available on the 1.12 client.")
+        return
+    end
     if not (MerchantFrame and MerchantFrame:IsVisible() and MerchantFrame.selectedTab ~= 2) then
         AndroidPort:Print("Sell Junk needs an open merchant.")
         return
@@ -687,6 +707,9 @@ function Bags:SellJunk()
 end
 
 function Bags:SellStep(now)
+    -- Same protection as the entry point: the sale call is the one thing
+    -- this module may never issue on a 2.0+ client.
+    if AP.SECURE then return end
     if now - self.lastStep < SELL_TICK then return end
     if not (MerchantFrame and MerchantFrame:IsVisible()) then
         self:FinishSell("junk selling stopped: merchant closed")

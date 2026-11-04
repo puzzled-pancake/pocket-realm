@@ -85,7 +85,7 @@ class AddonFlavorCatalogTest {
     }
 
     // ------------------------------------------------------------------
-    // R2-1 (android-ui-tests review round 1): research text that names a
+    // research text that names a
     // client line inside a NEGATION clause ("explicitly NOT for 2.4.3",
     // "broken since 3.3.5") must never read as SUPPORT — bare substring
     // matching listed such add-ons on the wrong-flavor lane.
@@ -124,7 +124,7 @@ class AddonFlavorCatalogTest {
 
     @Test
     fun negationPhrasingCorpusNeverReadsAsSupport() {
-        // R2UI-2/R2-1/R6-r2-2 (android-ui-tests review round 2): the round-1
+        // the round-1
         // 8-cue regex missed every phrasing below (each returned true — the
         // add-on listed on the wrong-flavor lane). The widened window/cue
         // model must refuse them ALL, including the canonical suffixed
@@ -155,7 +155,7 @@ class AddonFlavorCatalogTest {
 
     @Test
     fun outOfWindowAndExclusionNegationsNeverReadAsSupport() {
-        // R3-R2-1 (android-ui-tests review round 3): the round-2 window
+        // the round-2 window
         // (80 before / 40 after) accepted wrong-lane listings when the cue
         // sat beyond it, and the cue list lacked the exclusion family. The
         // whole-text scan + the exclusion cues close both bypasses.
@@ -200,7 +200,7 @@ class AddonFlavorCatalogTest {
 
     @Test
     fun aNegatedButOtherwiseValidGithubEntryIsRefusedOnBothTwins() {
-        // R2UI-1/R6-r2-1 (android-ui-tests review round 2): the negated
+        // the negated
         // fixture must be GITHUB-shaped and otherwise fully valid, so the
         // ONLY thing that can reject it is the negation guard — on BOTH
         // twins (the desktop parse lacks the guard == IAE masking shape).

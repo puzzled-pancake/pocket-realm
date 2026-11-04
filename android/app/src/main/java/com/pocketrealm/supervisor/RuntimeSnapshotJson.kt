@@ -11,7 +11,7 @@ object RuntimeSnapshotJson {
         .put("requestedProfile", value.requestedProfile)
         .put("runtimeMode", value.runtimeMode.name)
         .put("realmEndpoint", value.realmEndpoint.address)
-        // Design-tunnel §5: the live session's advertised address when
+        // Design-tunnel: the live session's advertised address when
         // tunnel mode is on (optional key; absent = plain advertisement).
         .also { encoded ->
             value.advertisedAddress?.let { encoded.put("advertisedAddress", it) }

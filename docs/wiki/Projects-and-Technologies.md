@@ -16,10 +16,10 @@ This page describes the projects used by the current code and the job each one p
 | [MariaDB Connector/C](https://github.com/MariaDB/mariadb-connector-c) | Lets the native CMaNGOS server components talk to MariaDB. |
 | [Box64](https://github.com/ptitSeb/box64) | Lets an ARM64 handheld run the x86-64 Linux parts of the Windows compatibility environment. The current ARM package identifies Box64 0.4.0. |
 | [Wine](https://www.winehq.org/) | Provides the Windows-compatible environment needed by the player-supplied Windows game client. The current ARM route identifies Wine 10.10. |
-| [DXVK](https://github.com/doitsujin/dxvk) | Converts the old Direct3D 9 graphics used by the game into Vulkan. The app includes pinned 2.4.1 and 1.10.3 choices. |
+| [DXVK](https://github.com/doitsujin/dxvk) | Converts the old Direct3D 9 graphics used by the game into Vulkan. The app includes version-locked 2.4.1 and 1.10.3 choices. |
 | [Winlator](https://github.com/brunodev85/winlator-app) display components | Provide the embedded X server, Android display view, shared-memory transport, sound bridge, and the Vortek Vulkan bridge used by the ARM client route. |
 | Android system Vulkan driver | Provides the normal route from Vulkan to the device GPU through the Vortek bridge. |
-| Mesa Turnip 26.1.0 | Provides an optional packaged Vulkan driver for the qualified Retroid Pocket 6 and Adreno 740 route. |
+| Mesa Turnip 26.1.0 | Provides an optional packaged Vulkan driver for the tested Retroid Pocket 6 and Adreno 740 route. |
 | [vanilla-tweaks](https://github.com/brndd/vanilla-tweaks) | Applies optional, carefully checked quality-of-life patches to the supported client. It is used only when the exact client executable is recognised. |
 | Android Jetpack and Compose | Build the visible Android interface, navigation, lifecycle handling, settings storage, and background services. |
 
@@ -49,7 +49,7 @@ flowchart LR
     Box64 --> Wine["Wine 10.10 environment"]
     Wine --> Game["Player-supplied Windows game client"]
     Game --> DXVK["DXVK 2.4.1 or 1.10.3"]
-    DXVK --> Driver["System Vulkan through Vortek, or qualified Turnip"]
+    DXVK --> Driver["System Vulkan through Vortek, or the packaged Turnip driver"]
     Driver --> GPU["Android device GPU"]
 ```
 
@@ -77,7 +77,7 @@ The final Android package also depends on tools that players do not see:
 - Kotlin builds the Android application and service coordination.
 - C and C++ build the native server, database bridge, client display, and data preparation tools.
 - Rust builds the client tweak tool.
-- Python scripts stage pinned runtime packages, generate manifests, verify hashes, and check native library requirements.
+- Python scripts stage version-locked runtime packages, generate manifests, verify hashes, and check native library requirements.
 - CMake and the Android NDK build native code for the supported processor types.
 - Git submodules pin the exact CMaNGOS, Classic-DB, and Playerbots source revisions used by this checkout.
 

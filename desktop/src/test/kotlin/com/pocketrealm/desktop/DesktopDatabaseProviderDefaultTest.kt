@@ -203,7 +203,7 @@ class DesktopDatabaseProviderDefaultTest {
                 "pocket_forbidden" in sql -> refused("scripted: account administration denied")
                 "required_z9999_not_real" in sql -> ok("0")
                 "information_schema.COLUMNS" in sql -> ok("1")
-                // W4 (D72 retirement): the per-lane provisioning verb.
+                // the per-lane provisioning verb.
                 "CREATE DATABASE IF NOT EXISTS" in sql -> ok()
                 "pocket_admin" in sql -> ok()
                 "migration_ledger" in sql -> ok()
@@ -281,8 +281,8 @@ class DesktopDatabaseProviderDefaultTest {
             val first = runBlocking { backend.preflight(spec()) }
             assertTrue("the first boot must bootstrap MariaDB: ${first.detail}", first.ok)
             assertTrue(
-                "must be the engine-lane bootstrap record: ${first.detail}",
-                "DB-BOOTSTRAP:" in first.detail && "mariadb provider lane" in first.detail,
+                "must be the engine bootstrap record: ${first.detail}",
+                "DB-BOOTSTRAP:" in first.detail && "initialized the MariaDB provider" in first.detail,
             )
             assertTrue(
                 "the engine's initialized generation must exist",

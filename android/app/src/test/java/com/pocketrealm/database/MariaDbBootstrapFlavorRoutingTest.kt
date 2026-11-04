@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * W1.2 (completion plan §4 W1 item 2): the MariaDB bootstrap's
+ * the MariaDB bootstrap's
  * CREATE DATABASE / GRANT database names are flavor-routed through the
  * registry ([MariaDbBootstrap] over each engine's resolved lane), never a
  * bare vanilla literal. These pins run on BOTH lanes (shared-sources.json
@@ -155,7 +155,7 @@ class MariaDbBootstrapFlavorRoutingTest {
         )
     }
     @Test fun initialAuthSqlItselfRefusesAnUnvalidatedNameAtTheInterpolationPoint() {
-        // R2-r4-1 (code-red round 4): DatabaseNames is publicly constructible,
+        // DatabaseNames is publicly constructible,
         // so the composition API cannot assume its input passed the resolver —
         // the shape guard must live at the interpolation point itself
         // red-first against the pre- composition, which interpolated
@@ -193,14 +193,14 @@ class MariaDbBootstrapFlavorRoutingTest {
     }
 
     @Test fun initialAuthSqlRefusesASecretThatEscapesTheIdentifierLiteral() {
-        // R2-r5-1 (code-red round 5): the credential literals interpolate
+        // the credential literals interpolate
         // into IDENTIFIED BY '…' — the composition must refuse anything that
         // could escape that literal (the generated secrets are hex-48, but
         // the composition API cannot assume its input passed a validated
         // store), red-first against the pre- composition which
         // interpolated verbatim.
         val names = MariaDbBootstrap.databaseNames(ClientFlavors.VANILLA)
-        // R3-r6-1/R2-r6-1 (code-red round 6): the escape class also refuses
+        // the escape class also refuses
         // the trailing BACKSLASH (MariaDB's default escape mode lets '
         // consume the closing quote) and the EMPTY credential (IDENTIFIED
         // BY ''); generated secrets are hex-48 so neither is legitimate

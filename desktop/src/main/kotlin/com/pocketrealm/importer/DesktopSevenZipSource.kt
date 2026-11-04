@@ -6,7 +6,7 @@ import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
 
 /**
- * DESK-97: the desktop 7z source over commons-compress 1.28's RANDOM-ACCESS
+ * the desktop 7z source over commons-compress 1.28's RANDOM-ACCESS
  * API. The SHARED [SevenZipArchiveSource] (an android-tree file, untouched
  * here) drives the single sequential pass — but its own inventory() has
  * already exhausted that pass before the copy loop opens the first entry, so
@@ -32,12 +32,12 @@ internal class DesktopSevenZipSource(
     override fun inventory(): SourceInventory {
         val entries = classified.entries.map { entry ->
             val stored = byName[entry.key]
-                ?: throw ImportRejected("VAL-13: staged archive no longer lists ${entry.relativePath}")
+                ?: throw ImportRejected("The archive changed during import — an entry is gone: ${entry.relativePath}")
             if (stored.isDirectory != entry.directory || stored.size != entry.size) {
-                throw ImportRejected("VAL-13: staged archive entry changed: ${entry.relativePath}")
+                throw ImportRejected("The archive changed during import: ${entry.relativePath}")
             }
             if (stored.isAntiItem) {
-                throw ImportRejected("VAL-07: anti-item entry is not importable: ${entry.relativePath}")
+                throw ImportRejected("This archive entry cannot be imported: ${entry.relativePath}")
             }
             entry
         }
@@ -47,12 +47,12 @@ internal class DesktopSevenZipSource(
     override fun open(entry: ImportSourceEntry): InputStream {
         require(!entry.directory)
         val stored = byName[entry.key]
-            ?: throw ImportRejected("VAL-07: source entry is unreadable: ${entry.relativePath}")
+            ?: throw ImportRejected("An archive entry could not be read: ${entry.relativePath}")
         return try {
             archive.getInputStream(stored)
         } catch (failure: UnsupportedOperationException) {
             throw ImportRejected(
-                "VAL-13: this 7z entry cannot be read in place (${failure.message}) — " +
+                "This 7z entry cannot be read in place (${failure.message}) — " +
                     "re-pack the client as .zip",
             )
         }

@@ -14,7 +14,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * Design-tunnel §4.4/§5/§6 at the app-model level: the stored tunnel
+ * Design-tunnel / / at the app-model level: the stored tunnel
  * advertised address flows into the launch spec (and past the launch gate
  * when the authorization is on), the shared v2 grammar refuses what it
  * must at the gate, the join side accepts the host's tunnel address, and

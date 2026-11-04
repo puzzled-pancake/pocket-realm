@@ -135,4 +135,56 @@ class ImportStoragePlannerTest {
             assertFalse("the prepared row must push an exact-fit lane over", charged.canProceed)
         }
 
+    @Test fun removableVolumeSplitsTheRowsAndGatesEachVolumeIndependently() {
+        val gib = ImportLimits.GIB
+        val plan = ImportStoragePlanner.calculate(
+            source = 5 * gib, stagedArchive = 6 * gib, scratchArchive = 0, extracted = 4 * gib,
+            prepared = gib, database = gib, wine = gib, snapshot = gib,
+            minimumReserve = 2 * gib, allocatable = 5 * gib,
+            contentOnRemovable = true, contentAllocatable = 20 * gib,
+        )
+        assertTrue(plan.contentOnRemovable)
+        // content rows on the card: source + staged + extracted + prepared
+        val contentSubtotal = plan.contentVolumeRequiredBytes - ceil(16 * gib * 0.20).toLong()
+        assertEquals(5 * gib + 6 * gib + 4 * gib + gib, contentSubtotal)
+        // internal rows: database + wine + snapshot at the 2 GiB reserve floor
+        assertEquals(3 * gib + 2 * gib, plan.requiredBytes)
+        assertTrue("small internal + roomy card must proceed", plan.canProceed)
+        // Card too small: the gate must fail even though internal fits.
+        val tightCard = ImportStoragePlanner.calculate(
+            source = 5 * gib, stagedArchive = 6 * gib, scratchArchive = 0, extracted = 4 * gib,
+            prepared = gib, database = gib, wine = gib, snapshot = gib,
+            minimumReserve = 2 * gib, allocatable = 5 * gib,
+            contentOnRemovable = true, contentAllocatable = 10 * gib,
+        )
+        assertFalse("a card too small for the content rows must refuse", tightCard.canProceed)
+        assertTrue(
+            "the refusal must name both volumes",
+            "sdcard(need=" in tightCard.preflightMessage() && "internal(need=" in tightCard.preflightMessage(),
+        )
+        // Internal too small: fails even with a roomy card.
+        val tightInternal = ImportStoragePlanner.calculate(
+            source = 5 * gib, stagedArchive = 6 * gib, scratchArchive = 0, extracted = 4 * gib,
+            prepared = gib, database = gib, wine = gib, snapshot = gib,
+            minimumReserve = 2 * gib, allocatable = gib,
+            contentOnRemovable = true, contentAllocatable = 20 * gib,
+        )
+        assertFalse("internal too small for db/wine/snapshot must refuse", tightInternal.canProceed)
+    }
+
+    @Test fun removableVolumeCarriesTheInstallerScratchRow() {
+        val gib = ImportLimits.GIB
+        val plan = ImportStoragePlanner.calculate(
+            source = 5 * gib, stagedArchive = 5 * gib, scratchArchive = 5 * gib, extracted = 4 * gib,
+            prepared = 0, database = 0, wine = gib, snapshot = 0,
+            minimumReserve = 2 * gib, allocatable = 8 * gib,
+            contentOnRemovable = true, contentAllocatable = 30 * gib,
+        )
+        // card: staged + scratch + source + extracted; internal: wine only at the floor
+        val contentSubtotal = plan.contentVolumeRequiredBytes - ceil(19 * gib * 0.20).toLong()
+        assertEquals(5 * gib + 5 * gib + 5 * gib + 4 * gib, contentSubtotal)
+        assertEquals(3 * gib, plan.requiredBytes)
+        assertTrue(plan.canProceed)
+    }
+
 }

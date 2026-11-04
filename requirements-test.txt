@@ -1,0 +1,4 @@
+# Python test-suite dependencies (python -m pip install -r requirements-test.txt).
+pytest>=9.1
+# Lua 5.1 runtime for tests/test_android_port_lua_harness.py.
+lupa==2.8

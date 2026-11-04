@@ -92,7 +92,7 @@ def asset_root(abi: str, flavor_id: str = "vanilla") -> Path:
     # staging check requires assets/database/migrations/manifest.json — it
     # also demands the per-flavor MariaDB runtime staging once these trees
     # exist). The in-APK database/migrations/{flavor}/ split
-    # (docs/FLAVOR-ARTIFACT-NAMING.md §2) rides the APK merge wiring that
+    # (docs/FLAVOR-ARTIFACT-NAMING.md) rides the APK merge wiring that
     # lands with the flavor product build; the per-flavor staging roots
     # already keep the bytes apart.
     build_root = f".build-{root_suffix}" + (
@@ -315,7 +315,7 @@ def _full_db_seed(flavor_id: str, block: dict) -> str:
             "schemas/flavor.json — the world Full_DB archive is a pinned "
             "input, never a glob"
         )
-    # R2-1 (review round 1, serious): the seed is joined onto the flavor's
+    # the seed is joined onto the flavor's
     # db repo root by every caller; a doctored seed that escapes the repo
     # ("../<other-flavor-db>/...", an absolute path) must refuse here, the
     # same seam rule seed_realm_db's plan enforces (the shared rule lives in
@@ -445,7 +445,11 @@ def select_inputs(flavor_id: str = FLAVOR_ID) -> list[Input]:
     # squashed histories carry no usable [ACID] selection.
     selected.append(Input("world", classic / rule.acid_file))
     selected.append(Input("world", classic / "utilities/cmangos_custom.sql"))
-    # Pocket Realm LLM memory schema. These files live in native/llm/sql/,
+    # Pocket Realm bot-LLM memory schema. The bot-LLM code that read these
+    # tables is retired (D104 native strip); the entries stay because the
+    # ledger is append-only - dropping them would renumber the tail, advance
+    # the SQLite seed corpus and force every provisioned datadir to
+    # re-seed. The tables are inert. These files live in native/llm/sql/,
     # which no glob above covers, and are appended ONLY here at the very tail:
     # a new mid-array discovery would renumber every later migration_id and
     # replay already-applied SQL on upgrade (append-only ledger invariant).

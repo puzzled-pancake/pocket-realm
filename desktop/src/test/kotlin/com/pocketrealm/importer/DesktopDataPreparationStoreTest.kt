@@ -20,7 +20,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * DESK-44/69/102: the desktop data-preparation twin's checkpoint contract,
+ * the desktop data-preparation twin's checkpoint contract,
  * pinned through a STUB-EXTRACTOR seam (the store's open runTool/requireTools
  * legs): the stage ORDER (DBC_MAPS → VMAP_EXTRACT → VMAP_ASSEMBLE → MMAPS →
  * MANIFEST journaled in row order), the per-map MoveMapGen lane, publication
@@ -172,9 +172,9 @@ class DesktopDataPreparationStoreTest {
             assertTrue(journal.dataStages(importId).all { it.state == DataStageState.VERIFIED })
             assertEquals(
                 "the tool invocation order mirrors the lane: ad → vmap_extractor → " +
-                    "vmap_assembler → MoveMapGen per map",
+                    "vmap_assembler → MoveMapGen per map → the transport navmeshes",
                 listOf("ad.exe", "vmap_extractor.exe", "vmap_assembler.exe") +
-                    (0 until MAP_IDS).map { "MoveMapGen:$it" },
+                    (0 until MAP_IDS).map { "MoveMapGen:$it" } + "MoveMapGen:${MAP_IDS - 1}",
                 calls,
             )
             assertEquals(importId, published.id)
@@ -244,7 +244,7 @@ class DesktopDataPreparationStoreTest {
             }
             assertEquals(
                 "the retry re-runs only the failed stage onward",
-                listOf("vmap_assembler.exe") + (0 until MAP_IDS).map { "MoveMapGen:$it" },
+                listOf("vmap_assembler.exe") + (0 until MAP_IDS).map { "MoveMapGen:$it" } + "MoveMapGen:${MAP_IDS - 1}",
                 resumeCalls,
             )
         } finally {
@@ -331,7 +331,7 @@ class DesktopDataPreparationStoreTest {
 
     @Test
     fun `publication floors mirror the python lane per flavor`() {
-        // R1-1/R6-3 (W2 code-red round 1): the Kotlin floors are the measured
+        // the Kotlin floors are the measured
         // mirror of tools/win_prepare_data.py's FLAVOR_MIN_COUNTS — the
         // desktop prep gate AND the shared boot envelope both consume
         // publicationMinimums, so a truncated tbc/wotlk generation the
@@ -360,7 +360,7 @@ class DesktopDataPreparationStoreTest {
         val envelope = File("../android/app/src/main/java/com/pocketrealm/server/PreparedDataStore.kt").readText()
         assertTrue("the boot envelope consumes the shared resolver",
             "publicationMinimums(flavor.flavorId)" in envelope)
-        // R4-r5-2 (W2 code-red round 5): an unregistered flavorId FAILS LOUD
+        // an unregistered flavorId FAILS LOUD
         // (the python dict raises KeyError) — never a silent vanilla-flat
         // default for a future registry-added flavor. requireNotNull's
         // IllegalArgumentException, mirroring the sibling
@@ -375,7 +375,7 @@ class DesktopDataPreparationStoreTest {
 
     @Test
     fun `mmtile and oracle contracts mirror the python lane mechanically`() {
-        // R1-r5-1 (W2 code-red round 5): the twin's mmtile contracts and the
+        // the twin's mmtile contracts and the
         // MoveMapGen failure oracle are PARSED out of tools/win_prepare_data.py
         // and held to the Kotlin patterns — the same read-and-hold mechanism
         // the floors pin uses. A python-side contract edit (a new alt-form
@@ -409,7 +409,7 @@ class DesktopDataPreparationStoreTest {
 
     @Test
     fun `twin tools resolution and provenance stamps follow the verified flavor`() {
-        // R1-2 (W2 code-red round 1): the extractor home mirrors
+        // the extractor home mirrors
         // WIN_BUILD_ROOTS per flavor (vanilla unsuffixed, tbc/wotlk suffixed)
         // and the provenance stamp is each flavor's OWN server_core commit —
         // vanilla's stays the four-way-pinned CMANGOS_COMMIT.
@@ -449,7 +449,7 @@ class DesktopDataPreparationStoreTest {
 
     @Test
     fun `mmtile refusal copy states the lane contract and the oracle catches FIALED`() {
-        // R6-2 + R5-1 (W2 code-red round 1): the refusal copy names the ACTIVE
+        // R6-2 + R5-1: the refusal copy names the ACTIVE
         // shape (wotlk's gate accepts the alt form), and the twin's failure
         // oracle matches the wotlk generator's misspelled alloc failures
         // (MapBuilder.cpp:950/:961) beside the plain "Failed" shapes.

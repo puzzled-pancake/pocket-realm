@@ -12,7 +12,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * The desktop launch-boundary addon legs (DESK-11/40/83/84): the projector
+ * The desktop launch-boundary addon legs: the projector
  * twin's projection / safe-mode no-op / conflict refusal / toc fail-closed
  * pins, plus the shared pre-0.6.0 [AndroidPortMigrator] running over a real
  * client WTF tree through [DesktopAddonRuntimeProjector.project].

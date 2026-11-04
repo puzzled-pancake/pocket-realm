@@ -7,7 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * W6-N4 code-red round 3, R2-N4-r3-1's proposed pin: the gateway's
+ * W6-N4 R2-N4-r3-1's proposed pin: the gateway's
  * protocol channel is UTF-8 while a piped JVM defaults to the platform
  * charset (Cp1252 here) — the app's manager decodes stdout as UTF-8, so
  * an em-dash in an error detail surfaced as U+FFFD in the user-facing

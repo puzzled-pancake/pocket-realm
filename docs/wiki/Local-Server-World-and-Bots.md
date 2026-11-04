@@ -42,7 +42,7 @@ The account is a local realm account only. It is not sent to Blizzard and it is 
 
 CMaNGOS Playerbots supplies computer-controlled characters. Pocket Realm does not simply turn on an unlimited upstream configuration. It creates named profiles with bounded population, login batches, background update timing, activity rules, and nearby behaviour.
 
-Current everyday choices include Quiet 25, Typical 50, Balanced 100, Populated 250, Crowded 400, and Busy 600. Launch day 700 is clearly marked experimental. The app also has internal qualification profiles that are not shown as ordinary player choices.
+Current everyday choices include Quiet 25, Typical 50, Balanced 100, Populated 250, Crowded 400, and Busy 600. Launch day 700 is clearly marked experimental. The app also has internal test profiles that are not shown as ordinary player choices.
 
 The fresh-install default is Alive Realm, 320 bots. Presets through Crowded 400 are comfortable on the development handheld (a Retroid Pocket 6), and players are encouraged to try different world sizes rather than stay on the smallest options.
 

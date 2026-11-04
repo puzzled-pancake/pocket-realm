@@ -364,18 +364,6 @@
    }
   },
   {
-   "id": "llama-cpp-6d05498",
-   "kind": "prebuilt-archive",
-   "upstream_url": "https://github.com/ggml-org/llama.cpp",
-   "commit": "6d05498314db1b57f81c271080018aa2d0b89be9",
-   "commit_date": "2026-08-19",
-   "artifact": "llama.cpp-6d05498314db1b57f81c271080018aa2d0b89be9.tar.gz",
-   "artifact_url": "https://github.com/ggml-org/llama.cpp/archive/6d05498314db1b57f81c271080018aa2d0b89be9.tar.gz",
-   "artifact_sha256": "cb34e407ee7a6dd7c2fe75530e60089647da74673a70097b0389506c1cf95167",
-   "role": "llama.cpp source for the DESKTOP embedded-LLM lane (DESK-9/28): the Windows llama-server sidecar (tools/server) is compiled from this exact pinned tree by tools/build_win_llama_server.py and staged into the jpackage image (packageApp) like the realm DLLs. SAME revision the Android lane vendors (native/llm/README.md @ 6d05498314db1b57f81c271080018aa2d0b89be9, 2026-08-19), so both platforms run one llama.cpp generation; the Windows build is CPU-only (no CUDA/Vulkan/HIP, GGML defaults) per the DESK-9 treatment. Fetched + sha-verified by tools/fetch_provider.py; staged by tools/stage_llama_cpp.py; the built exe's SHA-256 is pinned in native/llm/lockfile-win-x86_64.json.",
-   "license": "MIT (llama.cpp); see the upstream LICENSE in the staged tree"
-  },
-  {
    "id": "sqlite-tools-win32-3180000",
    "kind": "prebuilt-archive",
    "role": "Pinned sqlite 3.18 floor shell for the seed preflight (tools/verify_seed_sqlite_floor.py replays the production seed transcripts through it); the executable is hash-verified against artifact_sha256 before extraction and again by version banner (review round 2, R3-2).",

@@ -40,7 +40,7 @@ internal object WowFlavorCatalogs {
         }
 
     // ------------------------------------------------------------------
-    // R5-1 (W4 code-red round 5): the RENDER-side seam — the in-game
+    // the RENDER-side seam — the in-game
     // settings/bindings/controls screens resolve every catalog read
     // through these, never a per-lane object directly, so a tbc/wotlk
     // lane renders its OWN authored definitions instead of 98 vanilla

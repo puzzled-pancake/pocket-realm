@@ -11,7 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * DESK-136: the account entry contract is validate-and-explain, not input
+ * the account entry contract is validate-and-explain, not input
  * mangling — the field keeps what the user typed (the desktop field
  * callback is `it.take(16)` only), a value the realm rule rejects shows
  * the shared plain-copy reason at the field, and the create gate runs

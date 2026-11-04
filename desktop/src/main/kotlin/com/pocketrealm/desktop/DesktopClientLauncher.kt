@@ -42,7 +42,8 @@ internal class DesktopClientLauncher(
         // Refuse BEFORE projecting the realmlist: a refused launch must
         // have no side effects on the client directory.
         process?.let { if (it.isAlive) error("client already running (pid ${it.pid()})") }
-        ClientRealmEndpointProjection.project(File(dir, "realmlist.wtf"), endpoint)
+        // Every realmlist the client may read: WotLK reads Data/<locale>/.
+        ClientRealmEndpointProjection.projectAll(dir, endpoint)
         // The no-manifest 1.12 client trips Windows' installer-detection
         // heuristic and would come up ELEVATED: UIPI then eats every
         // synthetic input (the app's own auto-login included). RUNASINVOKER

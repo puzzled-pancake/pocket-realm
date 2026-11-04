@@ -61,12 +61,12 @@ internal fun readMarker(file: File): String? =
     file.takeIf(File::isFile)?.readText(Charsets.UTF_8)
 
 /**
- * The desktop prepare-for-start gate (DESK-19/53/79/98): drives the
+ * The desktop prepare-for-start gate: drives the
  * shared [DatabaseStartPreparation.next] machine over the SQLite
  * datadir's durable state. The seal proofs feeding it:
  *
  *  - revision record (generation marker): the seed identity + the
- * migration seal's digest, persisted at seed (DESK-98); a marker
+ * migration seal's digest, persisted at seed; a marker
  *    without it is a LEGACY datadir (seeded before the seals) — unless
  *    the migration-seal marker survives, in which case the generation
  *    record was lost over a sealed ledger and the datadir refuses as

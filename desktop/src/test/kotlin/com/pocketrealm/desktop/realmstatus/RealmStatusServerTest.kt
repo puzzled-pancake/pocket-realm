@@ -14,7 +14,7 @@ import org.junit.Test
 /**
  * The minimal server's wire mechanics over a live loopback listener:
  * the payload/content-type/security headers, the 405/404 negatives, the
- * §6.2 limiter's 429 + Retry-After, and the §4/§6.5 tombstone (a render
+ * limiter's 429 + Retry-After, and the tombstone (a render
  * straddling a flip to OFF closes with NO response body).
  */
 class RealmStatusServerTest {

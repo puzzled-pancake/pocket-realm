@@ -11,7 +11,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-109/111: the ONE save-exit drain behind both session-end entry
+ * the ONE save-exit drain behind both session-end entry
  * points — the window's onCloseRequest (requestAsync) and the JVM shutdown
  * hook that covers Windows logoff/shutdown/restart/taskkill
  * (runBlockingOnShutdown). The once-flag must hold in BOTH orders, and the

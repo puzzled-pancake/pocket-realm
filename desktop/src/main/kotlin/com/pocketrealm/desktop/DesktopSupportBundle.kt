@@ -22,7 +22,8 @@ import org.json.JSONObject
  * exactly like the Android twin.
  *
  * The shared redactor's key-pattern list predates `llmExternalApiKey`, so
- * the configured external API key is passed as an EXPLICIT canary — the
+ * an external API key left in a settings file by an older build is passed
+ * as an EXPLICIT canary — the
  * desktop is the only platform that bundles its settings file, and the
  * key must never survive into the exported zip. The database engine's
  * credentials ride the same explicit lane: the MariaDB lane writes them
@@ -31,11 +32,11 @@ import org.json.JSONObject
  * raw settings.json bytes (a corrupt/partial write yields a keyless parsed
  * snapshot while the raw member still ships the file).
  *
- * DESK-119: the manifest header names the producing build (appVersion,
+ * the manifest header names the producing build (appVersion,
  * qualified flavor id, NATIVE_RUNTIME_BUILD_ID) and the app-log member is
  * a bounded tail, not the whole append-only file.
- * DESK-110: the typed log ring rides along as logs.json.
- * DESK-107/112/126: client crash evidence — the client's own Errors/ crash
+ * the typed log ring rides along as logs.json.
+ * client crash evidence — the client's own Errors/ crash
  * texts, the last client exit record, WER LocalDumps minidumps (binary
  * copies; string redaction cannot apply to a memory image) and the
  * Application event log's WoW.exe faults (text, redacted like every
@@ -60,7 +61,7 @@ class DesktopSupportBundle(
         val out = File(roots.logs, "support-bundle-$stamp.zip")
         val temp = File(out.parentFile, ".${out.name}.${ProcessHandle.current().pid()}.tmp")
         val redactor = SecretRedactor(canaries)
-        // Design-lan §3.3: a stuck LAN session reports its own topology —
+        // Design-lan: a stuck LAN session reports its own topology —
         // the stored mode and the bound (or to-bind) address ride the
         // manifest header.
         val topology = DesktopSettingsStore(roots.settingsFile).load()
@@ -84,19 +85,19 @@ class DesktopSupportBundle(
                 val cap = if (name == APP_LOG_ENTRY_NAME) APP_LOG_TAIL_BYTES else MAX_TEXT_MEMBER_BYTES
                 putTextEntry(zip, manifest, name, redactor.redact(readBoundedText(file, cap)))
             }
-            // DESK-110: the typed ring (redacted — messages can quote conf
+            // the typed ring (redacted — messages can quote conf
             // paths), the snapshot that survives even when the file write
             // failed.
             putTextEntry(zip, manifest, LOG_RING_ENTRY_NAME, redactor.redact(DesktopLog.exportJson()))
-            // DESK-112/121: the last client exit record.
+            // the last client exit record.
             serverFiles.readClientExit()?.let { record ->
                 putTextEntry(zip, manifest, CLIENT_EXIT_ENTRY_NAME, redactor.redact(record.toString(2)))
             }
-            // DESK-126: the Application event log's WoW.exe faults.
+            // the Application event log's WoW.exe faults.
             crashEvidence.applicationErrorLog().takeIf { it.isNotEmpty() }?.let { log ->
                 putTextEntry(zip, manifest, EVENT_LOG_ENTRY_NAME, redactor.redact(log))
             }
-            // DESK-107: the client's own crash texts (newest first, capped).
+            // the client's own crash texts (newest first, capped).
             crashEvidence.clientCrashFiles(clientDir).forEach { file ->
                 putTextEntry(
                     zip, manifest,
@@ -104,7 +105,7 @@ class DesktopSupportBundle(
                     redactor.redact(readBoundedText(file, MAX_TEXT_MEMBER_BYTES)),
                 )
             }
-            // DESK-126: WER LocalDumps minidumps — METADATA ONLY (the raw
+            // WER LocalDumps minidumps — METADATA ONLY (the raw
             // memory images never ship; see [putDumpMetadataEntry]).
             putDumpMetadataEntry(zip, manifest, crashEvidence.werDumpFiles())
             zip.putNextEntry(ZipEntry("manifest.json"))
@@ -124,11 +125,9 @@ class DesktopSupportBundle(
      * The explicit canaries: secrets the shared redactor's pattern set can
      * never catch, gathered before any member is read.
      *
-     *  - The external LLM API key, from the parsed settings snapshot AND
-     *    re-extracted from the raw settings.json bytes: a corrupt/partially
-     *    written settings file makes [DesktopSettingsStore.load] return a
-     *    fresh (keyless) snapshot while the raw member still ships the
-     *    file's bytes — the key must be redacted in that file too.
+     *  - The retired bot-speech endpoint's API key, extracted from the raw
+     *    settings.json bytes: a file written by an older build keeps the
+     *    key until the next settings save rewrites it without the field.
      *  - The database engine's credentials (database/secrets.json): the
      *    MariaDB engine lane writes them into runtime/mangosd.conf and
      *    runtime/realmd.conf (`LoginDatabaseInfo = …`), and the conf
@@ -137,11 +136,10 @@ class DesktopSupportBundle(
      *    machine in the bundle.
      */
     private fun explicitCanaries(): List<String> = buildList {
-        add(DesktopSettingsStore(roots.settingsFile).load().llmExternalApiKey)
         runCatching { roots.settingsFile.readText() }.getOrNull()?.let { raw ->
             LLM_KEY_JSON_VALUE.findAll(raw).forEach { match -> add(match.groupValues[1]) }
         }
-        // R7-r2-1/R3-r2-1 (W6-N1 code-red round 2): the realm's Nostr
+        // the realm's Nostr
         // identity key is a BIP-340 signing secret the shared key list
         // predates — same explicit-canary lane as the external API key,
         // parsed AND raw-extracted (a corrupt write must not drop it).
@@ -150,7 +148,7 @@ class DesktopSupportBundle(
         runCatching { roots.settingsFile.readText() }.getOrNull()?.let { raw ->
             NOSTR_KEY_JSON_VALUE.findAll(raw).forEach { match -> add(match.groupValues[1]) }
         }
-        // R3-1/R6-3 (W6-N3 code-red round 1): the realm's iroh TRANSPORT
+        // the realm's iroh TRANSPORT
         // secret (the 32-byte endpoint identity the node id derives from)
         // rides the same lane — parsed AND raw-extracted, so a
         // corrupt/truncated settings.json cannot ship it verbatim either.
@@ -281,7 +279,7 @@ class DesktopSupportBundle(
          * images themselves never ship, see [putDumpMetadataEntry]). */
         const val WER_DUMP_INDEX_ENTRY_NAME = "crash/wer-dumps.json"
 
-        /** DESK-119: the app-log member is a bounded tail (last N KiB),
+        /** the app-log member is a bounded tail (last N KiB),
          * mirroring Android's bounded export. */
         const val APP_LOG_TAIL_BYTES = 256L * 1024L
 

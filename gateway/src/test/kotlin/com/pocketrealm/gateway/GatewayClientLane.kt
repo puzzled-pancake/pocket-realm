@@ -41,7 +41,7 @@ object GatewayClientLane {
         Socket("127.0.0.1", joinerRealmPort).use { client ->
             client.tcpNoDelay = true
             client.soTimeout = LANE_SO_TIMEOUT_MS
-            // The client leg of the REAL auth dance (code-red R5-1):
+            // The client leg of the REAL auth dance:
             // challenge request → raw challenge response, proof request
             // → raw proof response, and only then CMSG_REALM_LIST.
             val output = client.getOutputStream()

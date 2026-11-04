@@ -9,6 +9,10 @@
     {
       "path": "native/patches/o11-cmangos-safe-mpq-listfile.patch",
       "sha256": "f0103d0aa7426bbfd9237225657e25eb5c3446baefd98cbebb05a72ddefe27d0"
+    },
+    {
+      "path": "native/patches/o11-cmangos-mmap-taskqueue-wait.patch",
+      "sha256": "ecb89f966e077822c6f616f5379b4434ecb2fc5e73c5c62d8279568ab6f25fa4"
     }
   ],
   "artifacts": [
@@ -59,8 +63,8 @@
     },
     {
       "path": "native/.build-o11-arm64-v8a-wotlk/extractor-staging/jniLibs/arm64-v8a/libpocket_movemapgen.so",
-      "size": 1984280,
-      "sha256": "0d9dafe01bb333f7a24d0e2c421eeb30386959ae52c04f0b752216457affe5c3",
+      "size": 1984320,
+      "sha256": "42bcf192bd58858a85777d90dba28761481be5db86387a4d4ea6ce935026a48e",
       "needed": [
         "libc.so",
         "libdl.so",

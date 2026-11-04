@@ -32,12 +32,12 @@ import com.pocketrealm.desktop.DesktopAppModel
  * off to the Import route (the wave-2 import lane — the desktop's
  * pick/import client leg: choose folder → verify → publish), the
  * prepare-world-data step reports the seeded-datadir posture honestly
- * (DESK-49/92), and the SAF/Android wording has no desktop leg.
+ * , and the SAF/Android wording has no desktop leg.
  */
 
 internal data class TutorialStep(val title: String, val body: String)
 
-/** R6-3 (W4 code-red round 3): the requirement body is DERIVED from the
+/** the requirement body is DERIVED from the
  * registry's qualified set, never a hard-coded vanilla version — the
  * vanilla MPQ list must not be presented as the generic requirement (the
  * required base set differs per game version). Desktop twin of the
@@ -48,8 +48,8 @@ internal val DESKTOP_CLIENT_REQUIREMENT: String = run {
             val version = flavor.versionResource.substringBeforeLast(".")
             "${flavor.expansion} $version (build ${flavor.build})"
         }
-    "You need your own copy of the game client for one of the qualified " +
-        "expansions — $builds — that you are entitled to use: an " +
+    "You need your own copy of the game client for one of the supported " +
+        "game versions — $builds — that you are entitled to use: an " +
         "already-installed game folder — the folder that directly " +
         "contains WoW.exe and its complete Data folder with the base set " +
         "of .MPQ files (the exact set differs per game version). It must " +
@@ -69,7 +69,7 @@ internal val FIRST_RUN_TUTORIAL_STEPS: List<TutorialStep> = listOf(
             "bundles or downloads them.",
     ),
     TutorialStep(
-        title = "What you need: an extracted WoW for your flavor (Vanilla 1.12.1, TBC 2.4.3, or WotLK 3.3.5a) client",
+        title = "What you need: an extracted WoW client for your game version (Vanilla 1.12.1, TBC 2.4.3, or WotLK 3.3.5a)",
         body = DESKTOP_CLIENT_REQUIREMENT,
     ),
     TutorialStep(

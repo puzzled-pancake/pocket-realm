@@ -8,8 +8,6 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.pocketrealm.client.ClientDisplayProfile
 import com.pocketrealm.client.ClientDisplaySelection
 import com.pocketrealm.client.ClientFrameCap
-import com.pocketrealm.llm.ComputeMode
-import com.pocketrealm.llm.LlmModelRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -23,9 +21,9 @@ import org.junit.Test
  * field that falls out of the write-set — or a written encoding the reader
  * cannot restore — silently loses user data on the next unrelated settings
  * write. The write half is the exact internal entry `update()` calls after
- * the context-bound display normalization; the llm* pair is read back through
- * the production reader, and the journal keys are asserted to stay outside
- * the write-set (the mutateGameSettings counter contract).
+ * the context-bound display normalization, and the journal keys are
+ * asserted to stay outside the write-set (the mutateGameSettings counter
+ * contract).
  */
 class SettingsUpdateWriteSetTest {
 
@@ -35,121 +33,19 @@ class SettingsUpdateWriteSetTest {
     )
 
     @Test
-    fun llmSettingsRoundTripThroughTheWriteSetAndNormalize() {
-        val prefs = mutablePreferencesOf()
-        prefs.writeSnapshotWrites(
-            Settings.Snapshot(
-                llmEnabled = true,
-                llmComputeMode = ComputeMode.NPU,
-                llmCoresMask = 0L,
-                llmThreads = 64,
-                llmOffloadLayers = 10_000,
-                llmExternalMode = true,
-                llmExternalUrl = "  https://api.openai.com  ",
-                llmExternalApiKey = " sk-test ",
-                llmExternalModel = " gpt-4o-mini ",
-                llmBanter = false,
-                llmAmbience = true,
-                llmModelId = "gemma4-E2B-TUNED-q4_0",
-                llmAdvanced = true,
-                llmMaxNewTokens = 9_000,
-                llmGenerationTimeout = 7,
-                llmPromptPackJson = "  {\"custom\": true}  ",
-            ),
-            display,
-        )
-        // The production reader must restore exactly the normalized intent.
-        assertEquals(
-            LlmSnapshotFields(
-                enabled = true,
-                computeMode = ComputeMode.NPU,
-                coresMask = 0x38L,
-                threads = 8,
-                offloadLayers = 128,
-                externalMode = true,
-                // external strings persist VERBATIM (no trim in the write
-                // set - a trim would fight the text field mid-typing);
-                // normalization happens at conf-emission time
-                externalUrl = "  https://api.openai.com  ",
-                externalApiKey = " sk-test ",
-                externalModel = " gpt-4o-mini ",
-                banter = false,
-                ambience = true,
-                modelId = "gemma4-E2B-TUNED-q4_0",
-                advanced = true,
-                // override clamps: 9000 -> ceiling 600, 7 -> floor 15
-                maxNewTokens = 600,
-                generationTimeout = 15,
-                // pack JSON persists verbatim (mid-typing rule); resolution
-                // happens at read/stage time via LlmPromptPack.resolve
-                promptPackJson = "  {\"custom\": true}  ",
-            ),
-            prefs.readLlmSnapshotFields(),
-        )
-        // ...under the reviewed persisted names and raw encodings.
-        assertEquals(1, prefs[intPreferencesKey("llm_enabled")])
-        assertEquals("NPU", prefs[stringPreferencesKey("llm_compute_mode")])
-        assertEquals(0x38L, prefs[longPreferencesKey("llm_cores_mask")])
-        assertEquals(8, prefs[intPreferencesKey("llm_threads")])
-        assertEquals(128, prefs[intPreferencesKey("llm_offload_layers")])
-        assertEquals(1, prefs[intPreferencesKey("llm_external_mode")])
-        assertEquals("  https://api.openai.com  ", prefs[stringPreferencesKey("llm_external_url")])
-        assertEquals(" sk-test ", prefs[stringPreferencesKey("llm_external_api_key")])
-        assertEquals(" gpt-4o-mini ", prefs[stringPreferencesKey("llm_external_model")])
-        assertEquals(0, prefs[intPreferencesKey("llm_cloud_chatter")])
-        assertEquals(0, prefs[intPreferencesKey("llm_banter")])
-        assertEquals(1, prefs[intPreferencesKey("llm_ambience")])
-        assertEquals(
-            "gemma4-E2B-TUNED-q4_0",
-            prefs[stringPreferencesKey("llm_model_id")],
-        )
-    }
-
-    @Test
-    fun llmAdvancedOverrideEncodingsClampAndPersistUnderReviewedNames() {
-        val prefs = mutablePreferencesOf()
-        prefs.writeSnapshotWrites(
-            Settings.Snapshot(llmAdvanced = true, llmMaxNewTokens = 9_000, llmGenerationTimeout = 7),
-            display,
-        )
-        assertEquals(1, prefs[intPreferencesKey("llm_advanced")])
-        // 9000 clamps to the reply-length ceiling, 7 to the timeout floor
-        assertEquals(600, prefs[intPreferencesKey("llm_max_new_tokens")])
-        assertEquals(15, prefs[intPreferencesKey("llm_generation_timeout")])
-        // a zero override is the "follow the model profile" sentinel and persists as 0
-        val defaults = mutablePreferencesOf()
-        defaults.writeSnapshotWrites(Settings.Snapshot(llmAdvanced = true), display)
-        assertEquals(0, defaults[intPreferencesKey("llm_max_new_tokens")])
-        assertEquals(0, defaults[intPreferencesKey("llm_generation_timeout")])
-    }
-
-    @Test
-    fun defaultSnapshotPersistsTheReviewedLlmOffContract() {
-        val prefs = mutablePreferencesOf()
+    fun retiredBotLlmKeysAreScrubbedByEveryWrite() {
+        // The bot-LLM settings are retired: an upgraded install drops every
+        // stored llm_* key on the next settings write - the endpoint API
+        // key included - instead of carrying it forever.
+        val apiKey = stringPreferencesKey("llm_external_api_key")
+        val enabled = intPreferencesKey("llm_enabled")
+        val cores = longPreferencesKey("llm_cores_mask")
+        val prefs = mutablePreferencesOf(apiKey to "sk-old", enabled to 1, cores to 0x38L)
         prefs.writeSnapshotWrites(Settings.Snapshot(), display)
-        val llm = prefs.readLlmSnapshotFields()
-        assertFalse(llm.enabled)
-        assertEquals(ComputeMode.AUTO, llm.computeMode)
-        assertEquals(0x38L, llm.coresMask)
-        assertEquals(3, llm.threads)
-        assertEquals(99, llm.offloadLayers)
-        assertFalse(llm.externalMode)
-        assertEquals("", llm.externalUrl)
-        assertEquals("", llm.externalApiKey)
-        assertEquals("", llm.externalModel)
-        // banter is free authored content: default ON
-        assertTrue(llm.banter)
-        // ambience costs generation: default OFF (the silence doctrine)
-        assertFalse(llm.ambience)
-        assertEquals(LlmModelRegistry.DEFAULT_MODEL_ID, llm.modelId)
-        // advanced disclosure OFF; overrides follow the model/tier profiles
-        assertFalse(llm.advanced)
-        assertEquals(0, llm.maxNewTokens)
-        assertEquals(0, llm.generationTimeout)
-        // no custom pack: empty resolves to the default at stage time
-        assertEquals("", llm.promptPackJson)
-        assertEquals("", prefs[stringPreferencesKey("llm_prompt_pack")])
-        assertEquals(0, prefs[intPreferencesKey("llm_enabled")])
+        assertNull(prefs[apiKey])
+        assertNull(prefs[enabled])
+        assertNull(prefs[cores])
+        assertTrue(prefs.asMap().keys.none { it.name.startsWith("llm_") })
     }
 
     @Test
@@ -164,25 +60,6 @@ class SettingsUpdateWriteSetTest {
         val on = mutablePreferencesOf()
         on.writeSnapshotWrites(Settings.Snapshot(worldDebugLogs = true), display)
         assertEquals(1, on[intPreferencesKey("world_debug_logs")])
-    }
-
-    @Test
-    fun corruptPackJsonFailsOpenToDefaultAtResolveTime() {
-        // the write-set never validates pack JSON (mid-typing rule); the
-        // reader resolves: corrupt/empty input restores the default pack
-        val prefs = mutablePreferencesOf()
-        prefs.writeSnapshotWrites(
-            Settings.Snapshot(llmPromptPackJson = "{corrupt"),
-            display,
-        )
-        assertEquals("{corrupt", prefs[stringPreferencesKey("llm_prompt_pack")])
-        val resolved = com.pocketrealm.llm.LlmPromptPack.resolve(
-            prefs.readLlmSnapshotFields().promptPackJson,
-        )
-        assertEquals(
-            com.pocketrealm.llm.LlmPromptPack().blocks.map { it.id },
-            resolved.blocks.map { it.id },
-        )
     }
 
     @Test
@@ -203,7 +80,7 @@ class SettingsUpdateWriteSetTest {
             retiredFex to "legacy-fex",
             retiredNotice to 1,
         )
-        prefs.writeSnapshotWrites(Settings.Snapshot(llmEnabled = true), display)
+        prefs.writeSnapshotWrites(Settings.Snapshot(), display)
         // The queue journal lives outside update()'s write-set by contract:
         // no settings rewrite may regress the revision counter or the
         // direct-edit journal (see mutateGameSettings / its KDoc).
@@ -277,9 +154,63 @@ class SettingsUpdateWriteSetTest {
     }
 
     @Test
+    fun publicListingSwitchNameAndIdentitiesRoundTripAndEmptyIdentitiesLeaveNoKey() {
+        val nostrKey = stringPreferencesKey("nostr_private_key_hex")
+        val irohKey = stringPreferencesKey("iroh_gateway_secret_hex")
+        val secret = "0f".repeat(32)
+        val prefs = mutablePreferencesOf()
+        prefs.writeSnapshotWrites(
+            Settings.Snapshot(
+                onlineHosting = true,
+                gamePassword = "sesame",
+                publicRealmName = "Night Harbor",
+                nostrPrivateKeyHex = secret,
+                irohGatewaySecretHex = secret,
+            ),
+            display,
+        )
+        assertEquals(1, prefs[intPreferencesKey("online_hosting")])
+        assertEquals(1, prefs[intPreferencesKey("list_in_browser")])
+        assertEquals("sesame", prefs[stringPreferencesKey("game_password")])
+        assertEquals("Night Harbor", prefs[stringPreferencesKey("public_realm_name")])
+        assertEquals(secret, prefs[nostrKey])
+        assertEquals(secret, prefs[irohKey])
+        // The identities persist across every later write that carries them,
+        // and an unset identity removes the key instead of writing "" — the
+        // cleared password and the retired legacy switch key behave the same.
+        prefs.writeSnapshotWrites(Settings.Snapshot(), display)
+        assertNull(prefs[nostrKey])
+        assertNull(prefs[irohKey])
+        assertNull(prefs[stringPreferencesKey("game_password")])
+        assertEquals(0, prefs[intPreferencesKey("online_hosting")])
+    }
+
+    @Test
+    fun theOldPublishSwitchMigratesToOnlineHostingAndListing() {
+        // The old publish switch meant BOTH online hosting and listing;
+        // the new keys split the two, and the legacy key feeds the read.
+        assertTrue(migratedOnlineHosting(newKey = 1, legacyPublishKey = null))
+        assertTrue(migratedOnlineHosting(newKey = null, legacyPublishKey = 1))
+        assertTrue(migratedOnlineHosting(newKey = 0, legacyPublishKey = 1))
+        assertFalse(migratedOnlineHosting(newKey = 0, legacyPublishKey = 0))
+        assertFalse(migratedOnlineHosting(newKey = null, legacyPublishKey = null))
+    }
+
+    @Test
+    fun signupSwitchAndCapRoundTripWithTheCapBounded() {
+        val prefs = mutablePreferencesOf()
+        prefs.writeSnapshotWrites(Settings.Snapshot(signupOpen = true, signupCap = 25), display)
+        assertEquals(1, prefs[intPreferencesKey("signup_open")])
+        assertEquals(25, prefs[intPreferencesKey("signup_cap")])
+        prefs.writeSnapshotWrites(Settings.Snapshot(signupCap = 1_000_000), display)
+        assertEquals(0, prefs[intPreferencesKey("signup_open")])
+        assertEquals(SIGNUP_CAP_MAX, prefs[intPreferencesKey("signup_cap")])
+    }
+
+    @Test
     fun writeSetCoversExactlyTheReviewedPersistedKeys() {
         val prefs = mutablePreferencesOf()
-        prefs.writeSnapshotWrites(Settings.Snapshot(llmEnabled = true), display)
+        prefs.writeSnapshotWrites(Settings.Snapshot(), display)
         // bot_saved_preset_id is deliberately absent: the default snapshot has
         // no saved preset, and null removes the key rather than writing null.
         assertEquals(
@@ -312,12 +243,8 @@ class SettingsUpdateWriteSetTest {
                 "tunnel_advertised_address",
                 "timeframe_stage",
                 "selected_flavor_id",
-                "llm_enabled", "llm_compute_mode", "llm_cores_mask",
-                "llm_threads", "llm_offload_layers",
-                "llm_external_mode", "llm_external_url", "llm_external_api_key",
-                "llm_external_model", "llm_cloud_chatter", "llm_banter", "llm_ambience", "llm_model_id",
-                "llm_advanced", "llm_max_new_tokens", "llm_generation_timeout",
-                "llm_prompt_pack",
+                "online_hosting", "list_in_browser", "public_realm_name", "public_realm_description",
+                "signup_open", "signup_cap",
             ),
             prefs.asMap().keys.map { it.name }.toSet(),
         )

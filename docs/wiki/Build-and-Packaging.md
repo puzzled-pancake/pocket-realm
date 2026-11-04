@@ -10,7 +10,7 @@ The final app combines:
 - Java and native code from the embedded display system.
 - C and C++ for CMaNGOS, MariaDB integration, the display bridge, graphics bridge, and data preparation tools.
 - Rust for the optional client tweak patcher.
-- Prebuilt, pinned runtime files for Box64, Wine, DXVK, and the optional Vulkan driver.
+- Prebuilt, version-locked runtime files for Box64, Wine, DXVK, and the optional Vulkan driver.
 - SQL migrations assembled from CMaNGOS, Classic-DB, and Playerbots.
 - Python build tools that prepare and verify these pieces before Gradle packages them.
 
@@ -24,7 +24,7 @@ The final app combines:
 | `native/playerbots` | Pinned Playerbots source. |
 | `native/realm-runtime` | Pocket Realm wrappers that run login and world components as controlled native services. |
 | `native/xserver-winlator` | Vendored display, shared memory, input, audio, and Vortek graphics bridge code. |
-| `native/vanilla-tweaks` | The pinned Rust client tweak tool. |
+| `native/vanilla-tweaks` | The version-locked Rust client tweak tool. |
 | `native/packaging` and `native/pocket-runtime` | Native launch and packaging support used to fit desktop-era components into Android. |
 | `schemas` | Machine-readable source, package, migration, and runtime lock information. |
 | `tools` | Scripts that build, stage, verify, and package the native and runtime pieces. |
@@ -55,7 +55,7 @@ The staging tools can:
 
 CMake and the Android NDK compile the native Pocket Realm wrappers and the selected upstream code for Android. The login and world components are library-backed but keep separate Android process boundaries.
 
-MariaDB differs by processor lane. The main ARM64 route packages the Termux Android MariaDB 12.3.2 runtime. The x86-64 validation lane uses the separately staged MariaDB 11.5.2 glibc runtime.
+MariaDB differs by processor architecture. The main ARM64 route packages the Termux Android MariaDB 12.3.2 runtime. The x86-64 validation route uses the separately staged MariaDB 11.5.2 glibc runtime.
 
 ## Android assembly
 
@@ -85,7 +85,7 @@ The build process turns all allowed choices into closed catalogues inside the ap
 
 This keeps the everyday interface understandable and keeps the runtime supervisor responsible for known combinations.
 
-## Tests and physical qualification
+## Tests and hardware validation
 
 The repository includes local unit tests, Android instrumented tests, native tests, package checks, and scripts for testing specific runtime closures. Physical device testing is still important because graphics drivers, controller reports, thermal behaviour, Android process rules, and sound timing differ from desktop development machines.
 

@@ -51,7 +51,7 @@ data class DesktopBotAdmissionRecord(
 )
 
 /**
- * DESK-8/23/43/99: the desktop bot admission monitor — the Android world
+ * the desktop bot admission monitor — the Android world
  * service's startAdmissionMonitor/runAdmissionMonitor/stopAdmissionMonitor
  * loop (WorldRuntimeService.kt:498-673) running inside the desktop world
  * supervision. The shared [BotAdmissionController] observes
@@ -170,7 +170,7 @@ class DesktopBotAdmission(
     }
 
     /**
-     * DESK-116/123: apply [profile] to a RUNNING world — the RpHost-proven
+     * apply [profile] to a RUNNING world — the RpHost-proven
      * handshake in the Android startBotProfileAt shape: the previous
      * monitor retires (its generation dies, queued targets invalidated),
      * a fresh generation registers, the new profile's initial target is

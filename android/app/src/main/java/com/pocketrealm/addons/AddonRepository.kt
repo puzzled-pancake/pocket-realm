@@ -93,11 +93,9 @@ class AddonRepository private constructor(context: Context) {
         if (registry.isFile) return
         launchOperation(errorTitle = "Could not install the built-in Android Port") { token ->
             if (registry.isFile) return@launchOperation
-            // W3.7 (owner decision, completion-plan table #8): the AndroidPort
-            // built-in ships for the VANILLA lane only — the per-flavor
-            // catalogs exclude it, so a tbc/wotlk fresh install skips the
-            // seed deliberately (the honest exclusion copy renders on the
-            // add-ons screen via the catalog's flavorNote).
+            // The AndroidPort built-in ships for every flavor: the active
+            // flavor's own catalog carries row 151, so the seed resolves
+            // through it (a lane without the row still skips quietly).
             val addon = AddonCatalog.load(appContext).addon("151")
                 ?: return@launchOperation
             installBuiltInLocked(addon, token)
@@ -117,8 +115,8 @@ class AddonRepository private constructor(context: Context) {
                 ?: return@launchOperation
             val assetDigest = sha256AssetTree(AndroidPortPackage.ASSET_PATH, token)
             if (assetDigest.equals(current.archiveSha256, ignoreCase = true)) return@launchOperation
-            // W3.7: same per-flavor exclusion — a vanilla-era registry carried
-            // to a non-vanilla lane stops refreshing rather than crashing.
+            // Same per-flavor resolution as the seed: a lane whose catalog
+            // somehow lacks the row stops refreshing rather than crashing.
             val addon = AddonCatalog.load(appContext).addon("151")
                 ?: return@launchOperation
             installBuiltInLocked(addon, token)

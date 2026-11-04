@@ -3,7 +3,7 @@ package com.pocketrealm.database
 import com.pocketrealm.client.ClientFlavor
 
 /**
- * W1.2 (completion plan §4 W1 item 2): the MariaDB first-run bootstrap's
+ * the MariaDB first-run bootstrap's
  * per-flavor surface. The CREATE DATABASE / GRANT literals the two engine
  * twins (android DatabaseEngine, desktop DesktopMariaDbEngine) used to ship
  * as bare vanilla text now compose from the RESOLVED lane's
@@ -69,13 +69,13 @@ object MariaDbBootstrap {
      * outside secrets.json; both engines delete the transcript after the
      * verb that consumed it).
      *
-     * R2-r4-1 (code-red round 4): the shape guard lives HERE at the
+     * the shape guard lives HERE at the
      * interpolation point, not only in [databaseNames] — [names] is a bare
      * publicly-constructible data class that carries no proof it passed the
      * resolver, so the composition itself refuses any name that could break
      * out of an identifier before a single byte of SQL is built.
      *
-     * R2-r5-1 (code-red round 5): the same rule applies to the credential
+     * the same rule applies to the credential
      * literals — both twins generate hex secrets, but a corrupted or
      * hand-edited desktop secrets.json flows verbatim into root-context
      * SQL, so the composition refuses any secret that could escape the
@@ -83,7 +83,7 @@ object MariaDbBootstrap {
      * backtick, semicolon, leading or trailing whitespace) before a single
      * byte of SQL is built.
      *
-     * R3-r6-1/R2-r6-1 (code-red round 6): the escape class also refuses the
+     * the escape class also refuses the
      * BACKSLASH — under MariaDB/MySQL's default escape mode a trailing
      * backslash consumes the closing quote (' swallows it), and an EMPTY
      * credential composes IDENTIFIED BY '' — both accepted by the round-5
@@ -148,7 +148,7 @@ object MariaDbBootstrap {
     }
 
     /**
-     * W4 (D72 retirement, owner ruling 2026-10-12): the IDEMPOTENT per-lane
+     * the IDEMPOTENT per-lane
      * provisioning SQL the engines run before a lane's migration ledger
      * applies — the four CREATE DATABASE IF NOT EXISTS of [names] plus the
      * pocket_core grants scoped to exactly those databases. The first

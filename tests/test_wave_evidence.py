@@ -338,7 +338,7 @@ def test_w1_evidence_pack_era_state_claims_match_the_pinned_artifacts():
 
 # the canonical JUnit XML trees behind the
 # counts artifacts get clobbered by concurrent seats' focused Gradle runs
-# (observed live in round 3: android tree hollowed to 1-2 classes mid-round).
+# (observed live in android tree hollowed to 1-2 classes mid-round).
 # Whenever a tree EXISTS it must re-aggregate to exactly its artifact's
 # numbers — only a genuinely ABSENT tree (a deliberate clean) skips. A
 # partial tree is a failure, not a skip: the archived w0 logs keep the exit
@@ -852,28 +852,27 @@ _GETTING_STARTED = ROOT / "docs/wiki/Getting-Started.md"
 
 
 def test_wiki_runtime_lane_copy_points_at_the_recorded_followup():
-    """R6-r3-1 + R6-r4-2: NO wiki page may name W5 as the pending owner of
-    per-flavor runtime packaging — every page's runtime-lane copy points at
-    the recorded follow-up (D90)."""
+    """No wiki page may name a wave as the pending owner of per-version
+    runtime packaging — the runtime pages state the follow-up plainly as
+    open work (the player-facing wiki carries no internal record ids)."""
     wiki_dir = ROOT / "docs/wiki"
     if not wiki_dir.is_dir():
         return  # no wiki in this tree: nothing to hold
     offending = []
-    d90_pages = []
+    followup_pages = []
     for page in sorted(wiki_dir.glob("*.md")):
         text = page.read_text(encoding="utf-8", errors="replace")
         if "(W5)" in text or "land (W5)" in text or "future work (W5)" in text:
             offending.append(f"{page.name}: pending-W5 phrasing")
-        if "D90" in text:
-            d90_pages.append(page.name)
+        if "open follow-up work" in " ".join(text.split()):
+            followup_pages.append(page.name)
     assert not offending, (
-        "wiki pages name W5 as the pending owner of per-flavor runtime "
-        f"packaging: {offending} — point at the recorded follow-up (D90) "
-        "instead (the R4-r2-1 class, wiki edition)"
+        "wiki pages name W5 as the pending owner of per-version runtime "
+        f"packaging: {offending} — state the follow-up as open work instead"
     )
-    assert d90_pages, (
-        "no wiki page cites the recorded follow-up (D90) — at least the "
-        "runtime-lane pages must lead readers to the owning record"
+    assert followup_pages, (
+        "no wiki page records the per-version runtime packaging as open "
+        "follow-up work — at least the runtime pages must say it is open"
     )
 
 

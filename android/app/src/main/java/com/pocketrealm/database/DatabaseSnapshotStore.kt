@@ -15,7 +15,7 @@ internal class DatabaseSnapshotStore(
     private val snapshotsRoot: File,
     private val syncDirectory: (File) -> Unit = DatabaseDurability::syncDirectory,
     /**
-     * GAP-3 (owner census UIUX-3): the PERSISTED Home-switcher pick the
+     * the PERSISTED Home-switcher pick the
      * restore compatibility gate resolves the active lane from. This
      * :database process never sees the UI process's in-memory
      * [ActiveFlavor] selection, so the engine hands it the multi-process
@@ -132,7 +132,7 @@ internal class DatabaseSnapshotStore(
         .sortedByDescending { it.root.lastModified() }
 
     /**
-     * W4 (R4-r2-2): retention is PER FLAVOR — each qualified lane's
+     * retention is PER FLAVOR — each qualified lane's
      * snapshots are durable restore points for that lane's database
      * family, so the newest-[count] window applies within each flavor's
      * own set (grouped by the manifest's compatibility.flavor; snapshots
@@ -184,7 +184,7 @@ internal class DatabaseSnapshotStore(
     }
 
     /**
-     * G3-9: the flavor dimension rides INSIDE the free-form `compatibility`
+     * the flavor dimension rides INSIDE the free-form `compatibility`
      * object — never as a sixth top-level manifest key (that would fail every
      * snapshot the current release took through `validatePublished`'s strict
      * `manifest.length() == 5` check) and never by relaxing the per-file
@@ -197,7 +197,7 @@ internal class DatabaseSnapshotStore(
     private fun checkSnapshotFlavorMatchesLane(manifest: JSONObject) {
         val compatibility = manifest.getJSONObject("compatibility")
         val stored = compatibility.optString("flavor", "").ifBlank { null } ?: return
-        // GAP-3: the lane resolves through the flavor machine from the
+        // the lane resolves through the flavor machine from the
         // persisted pick — a second qualified flavor routes the gate to the
         // selected lane instead of `qualified().single()` throwing, and an
         // ambiguous no-pick multi-qualified state still refuses loud.
@@ -256,7 +256,7 @@ internal class DatabaseSnapshotStore(
         private val ID = Regex("[a-zA-Z0-9._-]{1,96}")
         private val SHA256 = Regex("[0-9a-f]{64}")
 
-        /** GAP-3: the [ActiveFlavor] lane suffix naming the restore
+        /** the [ActiveFlavor] lane suffix naming the restore
          * compatibility gate. */
         internal const val SNAPSHOT_COMPATIBILITY_LANE =
             "the database snapshot compatibility gate resolves the active lane"

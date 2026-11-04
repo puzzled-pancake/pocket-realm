@@ -172,7 +172,7 @@ class UserVulkanDriverRegistry(private val root: File) {
                 // driver under a fresh id with a clean crash streak.
                 current.firstOrNull { it.sha256 == sha256 && it.quarantined }?.let { existing ->
                     return@withRegistryMutationLock UserVulkanDriverImport.Rejected(
-                        "This library is byte-identical to \"${existing.label}\", " +
+                        "This library is the same file as \"${existing.label}\", " +
                             "which is quarantined: ${existing.quarantineReason}. " +
                             "Delete that driver from the list first if you want to " +
                             "re-import it.",

@@ -131,7 +131,7 @@ class DesktopAppModelTest {
     private val selectedBotProfile = "mobile-balanced-b100-v1"
 
     /**
-     * GAP-2: the proof's launch spec carries the forced bots-disabled
+     * the proof's launch spec carries the forced bots-disabled
      * profile, not the settings-resolved one. Deterministic without any
      * native lane: a PARTIALLY seeded datadir (one of four databases)
      * makes the supervisor's preflight refuse DB-NOT-SEEDED before any
@@ -187,7 +187,7 @@ class DesktopAppModelTest {
     }
 
     /**
-     * GAP-2: a committed restore's status copy names the DESK-25
+     * a committed restore's status copy names the DESK-25
      * consequence — the proof reached WORLD_READY, which spends this app
      * process's one world start, so the next start needs an app relaunch.
      * The proof is the injected seam here (the transaction discipline is
@@ -220,7 +220,7 @@ class DesktopAppModelTest {
     }
 
     /**
-     * The init-block addon repository warm-up (DESK-10/83) must not die
+     * The init-block addon repository warm-up must not die
      * silently: the fresh-install seed purpose failing with zero trace was
      * the defect — a failed construction now surfaces as the model's WARN
      * (the constructor thunk is the seam; the repository itself is a
@@ -247,7 +247,7 @@ class DesktopAppModelTest {
     private fun assumeSeamStaged() =
         requireNativeIfDemanded("sqlite seam", File("../native/.build-win-x86_64/sqlite-seam-build/pocket_sqlite.dll"))
 
-    /** D19: pin these roots to the EXPLICIT SQLITE dev/compat selection so
+    /** pin these roots to the EXPLICIT SQLITE dev/compat selection so
      * the SQLite datadir fixtures below stay on the lane they test,
      * independent of the MariaDB shipped default. */
     private fun selectSqliteProvider(roots: DesktopStorageRoots) {

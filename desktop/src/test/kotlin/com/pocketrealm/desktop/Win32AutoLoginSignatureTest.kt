@@ -9,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * DESK-138: the pinned build-5875 login-window signature — the matcher
+ * the pinned build-5875 login-window signature — the matcher
  * accepts exactly the qualified flavor's login frame (class + title) and
  * refuses the launcher splash / loading windows the old
  * first-visible-window pick typed into; the poll reports the honest
@@ -46,7 +46,7 @@ class Win32AutoLoginSignatureTest {
 
     @Test
     fun flavorsWithoutACapturedSignatureHaveNoneSoAutoLoginRefuses() {
-        // tbc/wotlk have CAPTURED signatures (P11 lanes item 19 — pinned
+        // tbc/wotlk have CAPTURED signatures (P11 — pinned
         // from the staged exes' own PE strings, out/flavor-capture): they
         // resolve, and their alternates accept the renderer-dependent
         // GxWindowClass* candidates the engine registers at device init.

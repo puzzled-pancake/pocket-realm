@@ -95,7 +95,7 @@ class PreparedDataStoreTest {
     }
 
     @Test fun wotlkLaneRefusesVanillaFlatCountsAndOpensAtItsOwnFloors() {
-        // R2-r2-3 (W2 code-red round 2): the flavor-routed counts gate is
+        // the flavor-routed counts gate is
         // pinned BEHAVIORALLY on its own lane — a wotlk-pointer generation
         // carrying the pre-wave vanilla-flat counts (100/100/1/1/1) is
         // refused with the missing-maps copy, and the identical fixture at

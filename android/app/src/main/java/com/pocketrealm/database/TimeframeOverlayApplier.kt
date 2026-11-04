@@ -5,7 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import java.io.File
 
 /**
- * Design-timeframe §2/§4.3: the ANDROID stage-overlay applier — the
+ * Design-timeframe /: the ANDROID stage-overlay applier — the
  * execution leg of the world-start overlay over the SHARED
  * [TimeframeOverlayPlan] (the desktop leg is `DesktopTimeframeOverlay`;
  * the decision surface cannot fork). Called by WorldRuntimeService's three

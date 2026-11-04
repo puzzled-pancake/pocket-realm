@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Design-tunnel §4.4.2/§5 on the ANDROID backend: the projection guards and
+ * Design-tunnel / on the ANDROID backend: the projection guards and
  * the bind resolution, pinned at the pure companion seams so the tunnel
  * suite runs JVM-side (the desktop twin is DesktopTunnelBackendTest, which
  * drives its own backend against the SQLite seam — the guards here are the

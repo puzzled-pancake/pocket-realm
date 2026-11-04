@@ -67,7 +67,7 @@ class RealmStatusControllerOrphanGateTest {
 
     /** A record-less orphan: the EXACT page-tunnel invocation tail (the
      * production spawn seam's realized line), started before this app
-     * instance — the §5.3 older-than-app leg — with no durable record. */
+     * instance — the older-than-app leg — with no durable record. */
     private fun orphanEntry(pid: Long): TunnelOrphanSweep.ProcessEntry =
         TunnelOrphanSweep.ProcessEntry(
             pid = pid,

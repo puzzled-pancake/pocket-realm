@@ -655,7 +655,7 @@ internal class WineRuntimeStore(private val context: Context) {
         allowUserVulkanDrivers: Boolean = false,
     ): Prepared {
         check(ClientFlavors.isManagedClientId(clientId)) {
-            // GAP-3 (owner census UIUX-3): the refusal names the ACTIVE lane's
+            // the refusal names the ACTIVE lane's
             // build, resolved through the flavor machine from the PERSISTED
             // Home-switcher pick — this :client process never sees the UI
             // process's in-memory ActiveFlavor selection, so the multi-process
@@ -1934,7 +1934,7 @@ internal class WineRuntimeStore(private val context: Context) {
         private const val TAG = "WineRuntimeStore"
         private const val ARM_RUNTIME_ROOT_NAME = "arm-translated/winlator-ca3d735"
 
-        /** R1-2: the [ActiveFlavor] lane suffix naming the game-settings
+        /** the [ActiveFlavor] lane suffix naming the game-settings
          * delivery's catalog resolution. */
         const val SETTINGS_DELIVERY_LANE =
             "the game-settings delivery resolves the persisted lane"
@@ -2238,9 +2238,7 @@ internal class WineRuntimeStore(private val context: Context) {
         val delivered = mutableListOf<GameSettingsDeliveryEntry>()
         val configText: String
         InGameSettingsEditLock.acquire(stableClientRoot()).use {
-            ClientRealmEndpointProjection.project(
-                File(workingDir, "realmlist.wtf"), realmEndpoint,
-            )
+            ClientRealmEndpointProjection.projectAll(workingDir, realmEndpoint)
             File(workingDir, "WTF").mkdirs()
             seedFirstLoginAccountDefaults(workingDir)
             val base = if (configFile.isFile) configFile.readText(Charsets.UTF_8) else null
@@ -2304,7 +2302,14 @@ internal class WineRuntimeStore(private val context: Context) {
                 delivered += plan.delivered.filter { entry -> entry.scope == scope }
             }
         }
-        val activeAddons = AddonRuntimeProjector(context).project(workingDir, inputSafeMode)
+        // The projected built-in add-on carries this client's interface
+        // line, resolved from the prepared client's identity.
+        val launchFlavor = checkNotNull(ClientFlavors.byClientId(p.clientId)) {
+            "Prepared client ${p.clientId} has no registered flavor"
+        }
+        // The chosen controller scheme picks the addon's on-screen layout.
+        val controlLayout = InputProfile.addonControlLayout(InputProfileStore(context).loadStoredOrDefault().scheme)
+        val activeAddons = AddonRuntimeProjector(context).project(workingDir, inputSafeMode, launchFlavor, controlLayout)
         val carriedForward = GameSettingsDeliveryPlanner.carryForward(
             previousDelivered,
             delivered.distinct(),
@@ -2334,7 +2339,7 @@ internal class WineRuntimeStore(private val context: Context) {
     private fun sha256Text(text: String): String =
         com.pocketrealm.fs.FileDigests.sha256(text)
 
-    private fun stableClientRoot(): File = File(context.noBackupFilesDir, "client")
+    private fun stableClientRoot(): File = com.pocketrealm.storage.StorageRoots.get(context).client
 
     private fun materializePeCaches(p: Prepared) {
         val extracted = File(context.cacheDir, "client-runtime-assets")
@@ -2495,7 +2500,7 @@ internal class WineRuntimeStore(private val context: Context) {
 
 
     /**
-     * R4-2 (android-core review round 2): the prep-child run discipline —
+     * the prep-child run discipline —
      * the merged stdout+stderr is DRAINED WHILE THE CHILD RUNS (a
      * dedicated reader thread), never after waitFor. The old
      * wait-then-drain order deadlocked any child whose output exceeded

@@ -6,12 +6,13 @@ import java.io.InputStream
 import java.security.MessageDigest
 
 /**
- * DESK-63/97: the desktop folder-lane [ImportSource] — SafTreeSource's twin
+ * the desktop folder-lane [ImportSource] — SafTreeSource's twin
  * over a plain `java.io.File` directory instead of a SAF document tree.
  * Read-only, bounded traversal with the same policy mapping: key = absolute
  * source path, relative paths normalized through [ImportPathPolicy], the
- * same VAL-06/07/08 rejections and the same fingerprint arithmetic, so a
- * folder import and an archive import produce identical inventories.
+ * same skip rules (non-client root entries, unusable names, case-only
+ * duplicates) and the same fingerprint arithmetic, so a folder import and
+ * an archive import produce identical inventories.
  */
 class FolderTreeSource(
     val sourceRoot: File,
@@ -19,12 +20,18 @@ class FolderTreeSource(
     private val paths: ImportPathPolicy = ImportPathPolicy(limits),
 ) : ImportSource {
 
+    /** Entries skipped by the last [inventory] and why (non-client root
+     * entries, unusable names, case-only duplicates, symlinks). */
+    var skipped: List<ImportExtractionPolicy.Excluded> = emptyList()
+        private set
+
     override fun inventory(): SourceInventory {
-        require(sourceRoot.isDirectory) { "VAL-01: selected source folder is not a directory" }
+        require(sourceRoot.isDirectory) { "The selected folder is not a directory" }
         val root = sourceRoot.canonicalFile
         val visitedDirectories = mutableSetOf<File>()
         val folded = mutableMapOf<String, String>()
         val entries = mutableListOf<ImportSourceEntry>()
+        val excluded = mutableListOf<ImportExtractionPolicy.Excluded>()
         val pending = ArrayDeque<Pair<File, String?>>()
         pending.add(root to null)
         var fileCount = 0
@@ -32,18 +39,26 @@ class FolderTreeSource(
 
         while (pending.isNotEmpty()) {
             val (directory, parentPath) = pending.removeFirst()
-            if (!visitedDirectories.add(directory)) throw ImportRejected("VAL-07: source directory cycle")
+            if (!visitedDirectories.add(directory)) continue // a cycle: walk each directory once
             val children = directory.listFiles()
                 ?.sortedBy { paths.caseFoldKey(it.name) }
-                ?: throw ImportRejected("VAL-01: selected source folder is unreadable")
+                ?: if (parentPath == null) {
+                    throw ImportRejected("The selected folder could not be read")
+                } else {
+                    excluded += ImportExtractionPolicy.Excluded(parentPath, "unreadable folder")
+                    continue
+                }
 
             for (child in children) {
-                val name = paths.providerChild(parentPath, child.name)
-                val key = paths.caseFoldKey(name)
-                val previous = folded.putIfAbsent(key, name)
-                if (previous != null) {
-                    throw ImportRejected("VAL-06: case-fold collision: '$previous' and '$name'")
+                val joined = if (parentPath.isNullOrEmpty()) child.name else "$parentPath/${child.name}"
+                val name = when (val checked = ImportNameCheck.check(paths, joined)) {
+                    is ImportNameCheck.Name.Usable -> checked.normalized
+                    is ImportNameCheck.Name.Skip -> {
+                        excluded += ImportExtractionPolicy.Excluded(joined, checked.reason)
+                        continue
+                    }
                 }
+                val key = paths.caseFoldKey(name)
                 val isSymlink = runCatching {
                     java.nio.file.Files.isSymbolicLink(child.toPath()) ||
                         java.nio.file.Files.readAttributes(
@@ -51,43 +66,54 @@ class FolderTreeSource(
                             java.nio.file.attribute.BasicFileAttributes::class.java,
                         ).isSymbolicLink
                 }.getOrDefault(false)
-                if (isSymlink) throw ImportRejected("VAL-07: symlink is not importable: $name")
+                val skipReason = when {
+                    parentPath == null && !RootLayout.admitsRoot(key, child.isDirectory) ->
+                        if (child.isDirectory) "non-client root directory" else "non-client root file"
+                    folded.containsKey(key) -> "duplicate of '${folded[key]}' differing only in case"
+                    isSymlink -> "symlink"
+                    else -> null
+                }
+                if (skipReason != null) {
+                    excluded += ImportExtractionPolicy.Excluded(name, skipReason)
+                    continue
+                }
+                folded[key] = name
                 if (child.isDirectory) {
                     entries += ImportSourceEntry(
                         key = child.absolutePath, relativePath = name, directory = true,
                         size = 0L, lastModified = child.lastModified(), attributes = "directory",
                     )
                     if (entries.size > limits.maxEntries) {
-                        throw ImportRejected("VAL-08: source entry count exceeds ${limits.maxEntries}")
+                        throw ImportRejected("Too many entries in the source")
                     }
                     pending.add(child to name)
                 } else {
                     val size = child.length()
-                    if (size < 0) throw ImportRejected("VAL-08: filesystem omitted size: $name")
                     if (size > limits.maxFileBytes) {
-                        throw ImportRejected("VAL-08: file exceeds ${limits.maxFileBytes} bytes: $name")
+                        throw ImportRejected("A file is too large to import: $name")
                     }
                     entries += ImportSourceEntry(
                         key = child.absolutePath, relativePath = name, directory = false,
                         size = size, lastModified = child.lastModified(), attributes = "file",
                     )
                     if (entries.size > limits.maxEntries) {
-                        throw ImportRejected("VAL-08: source entry count exceeds ${limits.maxEntries}")
+                        throw ImportRejected("Too many entries in the source")
                     }
                     fileCount++
                     if (fileCount > limits.maxFiles) {
-                        throw ImportRejected("VAL-08: file count exceeds ${limits.maxFiles}")
+                        throw ImportRejected("Too many files in the source")
                     }
                     totalBytes = Math.addExact(totalBytes, size)
                     if (totalBytes > limits.maxTotalBytes) {
-                        throw ImportRejected("VAL-08: source exceeds ${limits.maxTotalBytes} bytes")
+                        throw ImportRejected("The source is too large to import")
                     }
                 }
             }
         }
         if (fileCount !in limits.minFiles..limits.maxFiles || totalBytes !in limits.minTotalBytes..limits.maxTotalBytes) {
-            throw ImportRejected("VAL-08: implausible client size/count: files=$fileCount bytes=$totalBytes")
+            throw ImportRejected("The source does not look like a game client (files=$fileCount, bytes=$totalBytes)")
         }
+        skipped = excluded
         val ordered = entries.sortedWith(compareBy({ paths.caseFoldKey(it.relativePath) }, { it.relativePath }))
         return SourceInventory(ordered, fileCount, totalBytes, fingerprint(ordered))
     }
@@ -95,7 +121,7 @@ class FolderTreeSource(
     override fun open(entry: ImportSourceEntry): InputStream {
         require(!entry.directory)
         val file = File(entry.key)
-        if (!file.isFile) throw ImportRejected("VAL-07: source file is unreadable: ${entry.relativePath}")
+        if (!file.isFile) throw ImportRejected("A source file could not be read: ${entry.relativePath}")
         return FileInputStream(file)
     }
 

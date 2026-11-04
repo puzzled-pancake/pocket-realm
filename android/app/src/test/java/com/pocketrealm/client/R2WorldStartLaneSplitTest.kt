@@ -41,7 +41,7 @@ class R2WorldStartLaneSplitTest {
 
     @Test
     fun `the overlay leg resolves through the same persisted machine as the conf leg`() {
-        // R2-1/R4-2 fix (android-core review round 2): the overlay leg's
+        // R2-1/R4-2 fix: the overlay leg's
         // desired stage used to resolve through the bare holder machine and
         // REFUSE at a two-qualified flip while the conf leg succeeded. The
         // fixed call site resolves through the SAME persisted-selection

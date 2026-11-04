@@ -41,20 +41,14 @@ class DesktopStorageRoots(baseDir: File? = null) {
     /** Long-lived user settings. */
     val settings: File = File(root, "settings")
 
-    /** DESK-129/131: transient import/verification staging (the Android
+    /** transient import/verification staging (the Android
      * StorageRoots scratch root's policy — staging space, never durable
      * realm state; Windows has no OS cache-pressure clearing, so clean-up
      * is the app's own job). Lives under the runtime root (the app-owned
      * cache analog); [ensureDirectories] purges it on every clean start. */
     val scratch: File = File(runtime, "scratch")
 
-    /** The embedded-LLM staging root (DESK-28/48/80/103's
-     * %LOCALAPPDATA%/PocketRealm/runtime/llm): the resumable download
-     * twin stages the pinned GGUFs under llm/models here. Durable state
-     * (verified models survive restarts) — never purged. */
-    val llm: File = File(runtime, "llm")
-
-    /** DESK-129/131: the ONLY user-facing output root (realm archives,
+    /** the ONLY user-facing output root (realm archives,
      * support bundles) — never the live database. */
     val exports: File = File(root, "exports")
 
@@ -68,12 +62,12 @@ class DesktopStorageRoots(baseDir: File? = null) {
      * SQLITE_DATADIR_NAME under the database root). */
     val sqliteDatadir: File = File(database, DatabaseSqliteControlPlane.SQLITE_DATADIR_NAME)
 
-    /** DESK-5/47/78: the MariaDB provider's datadir — a SIBLING of the
+    /** the MariaDB provider's datadir — a SIBLING of the
      * sqlite datadir under the database root, mirroring the Android
      * dual-datadir layout (each provider's state stays distinct). */
     val mariadbDatadir: File = File(database, "mariadb-datadir")
 
-    /** DESK-6/18/37/100: stopped-state, hash-verified datadir snapshots —
+    /** stopped-state, hash-verified datadir snapshots —
      * the Android StorageRoots contract's databaseSnapshots layout
      * (`database/snapshots`) mirrored under the desktop database root. */
     val databaseSnapshots: File = File(database, "snapshots")
@@ -88,9 +82,9 @@ class DesktopStorageRoots(baseDir: File? = null) {
         // bootstrap lane seeds — its existence is not a seed proof.
         val failed = listOf(
             root, realm, database, sqliteDatadir, mariadbDatadir, content, runtime, settings,
-            supervisorJournalDir, logs, scratch, exports, databaseRun, databaseSnapshots, llm,
+            supervisorJournalDir, logs, scratch, exports, databaseRun, databaseSnapshots,
         ).filter { !it.mkdirs() && !it.isDirectory }
-        // R2-1 (desktop-twin round 2): a misconfigured D50 override (a
+        // a misconfigured D50 override (a
         // regular file, an un-creatable drive) previously booted into
         // scattered raw IO failures — mkdirs results were ignored and the
         // truthful verify().ok was consulted by nothing on the boot path.
@@ -136,7 +130,6 @@ class DesktopStorageRoots(baseDir: File? = null) {
             "content" to content,
             "runtime" to runtime,
             "runtime/scratch" to scratch,
-            "runtime/llm" to llm,
             "settings" to settings,
             "exports" to exports,
         )
@@ -158,7 +151,7 @@ class DesktopStorageRoots(baseDir: File? = null) {
 
     companion object {
         /**
-         * The desktop product's data root. D50 (round-4, owner ruling): the
+         * The desktop product's data root. D50 (round-4): the
          * E-drive rule is honored through the additive [ENV_DATA_ROOT]
          * override — set it and every root lands under that directory
          * (the ANDROID_SDK_ROOT pattern: env first, another host overrides
@@ -170,7 +163,7 @@ class DesktopStorageRoots(baseDir: File? = null) {
         const val ENV_DATA_ROOT = "POCKET_REALM_DATA_ROOT"
 
         /**
-         * W3: the hermetic env-leg seam for the default-arm tests — a JVM
+         * the hermetic env-leg seam for the default-arm tests — a JVM
          * cannot clear an env var, so a runner whose process carries the
          * D50 user-scope POCKET_REALM_DATA_ROOT (every shell started after
          * the W0 relocation) made the two LOCALAPPDATA-default assertions

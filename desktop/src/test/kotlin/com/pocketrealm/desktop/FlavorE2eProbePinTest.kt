@@ -11,7 +11,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * R1-3/R3-4/R6-3 + round-2 R3-1 (code-red round 2): the W4.1 probe's
+ * R1-3/R3-4/R6-3 + round-2 R3-1: the W4.1 probe's
  * folder-lane AND archive-lane hash pins resolve the flavor from
  * -DflavorId — production `importLane(flavor, model)` and
  * `pinnedClientDir(flavor)` both take the resolved registry entry, so
@@ -64,7 +64,7 @@ class FlavorE2eProbePinTest {
 
     @Test
     fun `the archive lane pins the archive's own WoW exe member`() {
-        // R3-W4-1 (W4 code-red round 3): the -DclientDir pin does not
+        // the -DclientDir pin does not
         // cover the archive payload — pinnedArchiveExe (the production
         // gate importLane runs on the archive lane) must refuse an
         // archive whose WoW.exe member hashes differently from the S5.1

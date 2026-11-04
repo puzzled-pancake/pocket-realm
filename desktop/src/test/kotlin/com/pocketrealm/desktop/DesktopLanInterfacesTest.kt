@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * D3 (design-lan §2.5): the desktop interface seam — the measured failure
+ * the desktop interface seam — the measured failure
  * shape (a Hyper-V virtual adapter whose `isVirtual` flag is false and
  * whose `eth` name sorts first) must never lead the candidate list, the
  * default-route owner must lead it, and the liveness verdict must refuse
@@ -18,7 +18,7 @@ class DesktopLanInterfacesTest {
     private fun candidate(displayName: String, name: String, address: String) =
         DesktopLanInterfaces.Candidate(displayName, name, RealmEndpoint.parseLan(address))
 
-    /** The measured machine shape from design-lan §0.1: eth14 = "Hyper-V
+    /** The measured machine shape from design-lan: eth14 = "Hyper-V
      * Virtual Ethernet Adapter" (172.21.208.1, isVirtual=false) sorts
      * before wlan2 (192.168.1.217) in the SHARED scan. */
     private val machineScan = listOf(
@@ -86,7 +86,7 @@ class DesktopLanInterfacesTest {
         )
         // The virtual adapter's address is LIVE on the machine but must not
         // pass the liveness re-check — it is exactly the address no guest
-        // can reach (design-lan §2.5).
+        // can reach (design-lan).
         assertFalse(
             lan.isCurrentPrivateInterface(RealmEndpoint.parseLan("172.21.208.1")),
         )

@@ -2,6 +2,7 @@ package com.pocketrealm.addons
 
 import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.ClientFlavors
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -38,10 +39,10 @@ class DesktopCatalogFlavorRoutingTest {
     @Test fun `per-flavor assets parse with their own identity and counts`() {
         val tbc = AddonCatalog.parse(readAsset("catalog-tbc.json"), "tbc")
         assertEquals("tbc", tbc.flavor)
-        assertEquals(7, tbc.addons.size)
+        assertEquals(JSONObject(readAsset("catalog-tbc.json")).getInt("expectedAddonCount"), tbc.addons.size)
         val wotlk = AddonCatalog.parse(readAsset("catalog-wotlk.json"), "wotlk")
         assertEquals("wotlk", wotlk.flavor)
-        assertEquals(8, wotlk.addons.size)
+        assertEquals(JSONObject(readAsset("catalog-wotlk.json")).getInt("expectedAddonCount"), wotlk.addons.size)
         // The researched 2xx rows the vanilla projection never surfaced.
         assertTrue(tbc.addons.any { it.matrixId == "201" })
         assertTrue(wotlk.addons.any { it.matrixId == "211" })
@@ -64,5 +65,23 @@ class DesktopCatalogFlavorRoutingTest {
             "the tbc browse set must surface the researched 2xx rows",
             tbc.addons.any { it.matrixId == "201" },
         )
+        // The desktop AndroidPort exclusion rides the load seam: the shared
+        // asset carries row 151 for the android lane, the desktop drops it
+        // on every non-vanilla lane (and never recommends it there).
+        assertTrue(
+            "the vanilla lane keeps the built-in row",
+            vanilla.addon("151") != null,
+        )
+        for (flavor in listOf("tbc", "wotlk")) {
+            val catalog = AddonCatalog.load(flavor)
+            assertTrue(
+                "$flavor: the desktop lane must exclude the AndroidPort built-in",
+                catalog.addon("151") == null,
+            )
+            assertTrue(
+                "$flavor: the desktop lane must not recommend the built-in",
+                "151" !in catalog.recommendedIds,
+            )
+        }
     }
 }

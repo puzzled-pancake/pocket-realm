@@ -78,6 +78,26 @@ internal object JoinGateway {
                         (e.cause?.let { " (cause ${it::class.simpleName}: ${it.message})" } ?: ""),
                 )
             }
+            // The hello lane: present this device's per-host token and
+            // stop loudly on an explicit refusal (a banned device). No
+            // answer (an older host) counts as welcome.
+            parsed.deviceToken?.let { token ->
+                // The proof binds THIS joiner's node id, so it is derived
+                // after the endpoint exists (a captured proof only works
+                // from this same device).
+                val proof = parsed.passKeyHex?.let { key ->
+                    val ownNodeHex = hexLower(endpoint.id().toBytes())
+                    com.pocketrealm.discovery.iroh.JoinPasscode.proof(
+                        key, parsed.nodeHex!!, ownNodeHex,
+                    )
+                }.orEmpty()
+                val hello = sayHello(conn, token, proof)
+                if (!hello.ok) {
+                    runCatching { conn.close() }
+                    runCatching { endpoint.close() }
+                    throw JoinRefusedExit(hello.detail)
+                }
+            }
             val nodeHex = hexLower(endpoint.id().toBytes())
             val relayUrl = endpoint.addr().relayUrl() ?: parsed.relayUrl
             GatewayMain.readyLine(
@@ -86,7 +106,7 @@ internal object JoinGateway {
                 relayUrl = relayUrl,
                 ports = listOf(GatewayContract.PORT_REALM, GatewayContract.PORT_WORLD),
             )
-            // 3) Serve the client: per TCP flow, one iroh bi-stream with
+            // Step 3. Serve the client: per TCP flow, one iroh bi-stream with
             //    the port-id header, then raw bytes (3724 filtered).
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             try {
@@ -102,12 +122,24 @@ internal object JoinGateway {
                         delay(KEEPALIVE_INTERVAL_MS)
                         val lost = runCatching {
                             kotlinx.coroutines.withTimeout(KEEPALIVE_PROBE_TIMEOUT_MS) {
-                                val bi = conn.openBi()
-                                bi.send().write(
-                                    PortMux.encodeHeader(GatewayContract.PORT_KEEPALIVE) +
-                                        byteArrayOf(0x42),
-                                )
-                                bi.recv().read(1u).isEmpty()
+                                // Finish, stop and release each probe stream
+                                // explicitly: QUIC caps open streams per
+                                // connection, and probes left for the GC
+                                // would exhaust it and fake a lost host.
+                                conn.openBi().use { bi ->
+                                    bi.send().use { send ->
+                                        send.write(
+                                            PortMux.encodeHeader(GatewayContract.PORT_KEEPALIVE) +
+                                                byteArrayOf(0x42),
+                                        )
+                                        send.finish()
+                                    }
+                                    bi.recv().use { recv ->
+                                        val echo = recv.read(1u)
+                                        runCatching { recv.stop(0uL) }
+                                        echo.isEmpty()
+                                    }
+                                }
                             }
                         }.getOrDefault(true)
                         if (lost) {
@@ -123,6 +155,7 @@ internal object JoinGateway {
                         }
                     }
                 }
+                if (parsed.signupChannel) SignupChannel.startJoinReader(conn, scope)
                 acceptLoop(listeners, endpoint, conn, flavor, scope)
                 parkOrTimeout(parsed.maxSeconds)
             } finally {
@@ -232,6 +265,35 @@ internal object JoinGateway {
         } finally {
             runCatching { client.close() }
         }
+    }
+
+    /** One hello line out (schema 2 carries the join password's
+     * proof), the host's one-line answer back. */
+    private suspend fun sayHello(
+        conn: computer.iroh.Connection,
+        deviceToken: String,
+        passwordProof: String = "",
+    ): com.pocketrealm.discovery.iroh.SignupProtocol.Reply {
+        val welcome = com.pocketrealm.discovery.iroh.JoinHello.WELCOME_REPLY
+        return runCatching {
+            withTimeout(com.pocketrealm.discovery.iroh.JoinHello.TIMEOUT_MS) {
+                conn.openBi().use { bi ->
+                    bi.send().use { send ->
+                        send.writeAll(
+                            PortMux.encodeHeader(GatewayContract.PORT_HELLO) +
+                                com.pocketrealm.discovery.iroh.JoinHello.encodeRequest(deviceToken, passwordProof)
+                                    .toByteArray(Charsets.UTF_8),
+                        )
+                        send.finish()
+                    }
+                    bi.recv().use { recv ->
+                        com.pocketrealm.discovery.iroh.SignupProtocol.readFrame {
+                            recv.read(com.pocketrealm.discovery.iroh.SignupProtocol.MAX_FRAME_BYTES.toUInt())
+                        }?.let(com.pocketrealm.discovery.iroh.SignupProtocol::decodeReply) ?: welcome
+                    }
+                }
+            }
+        }.getOrDefault(welcome)
     }
 
     internal const val JOIN_DIAL_TIMEOUT_MS: Long = 30_000L

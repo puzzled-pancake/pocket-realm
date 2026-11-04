@@ -21,7 +21,7 @@ internal object DesktopAddonAssets {
     private const val MAX_WALK_UP = 6
 
     /** The researched catalog JSON (`AddonCatalog`'s bundled input) — the
-     * ACTIVE flavor's per-flavor asset (R6-r2-5): catalog-tbc.json /
+     * ACTIVE flavor's per-flavor asset: catalog-tbc.json /
      * catalog-wotlk.json for the new lanes, the byte-frozen catalog-v1.json
      * for vanilla. */
     fun catalogJson(flavorId: String = "vanilla"): File? =

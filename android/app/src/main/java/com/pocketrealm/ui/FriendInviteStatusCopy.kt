@@ -4,7 +4,7 @@ import org.json.JSONObject
 
 /**
  * Pure presentation copy for the friend-access invite pane's refusal
- * states (R6-1, code-red round 1) — the same shape as LanPresenceModel:
+ * states — the same shape as LanPresenceModel:
  * no Compose, no service types, host-unit-testable.
  *
  * The refusal copy derives from the SERVICE'S STRUCTURED refusal (the

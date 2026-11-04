@@ -7,7 +7,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * R2-3/R3-1 (code-red round 1): the probe's loopback belt must cover EVERY
+ * the probe's loopback belt must cover EVERY
  * realmlist.wtf a client can consult (root + every Data/<locale>/ pack +
  * WTF) and must FAIL CLOSED when none exists — the old first-candidate
  * rewrite left a Truewow repack's Data/enUS realmlist pointing at its live

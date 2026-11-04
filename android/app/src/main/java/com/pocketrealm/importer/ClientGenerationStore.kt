@@ -1,5 +1,6 @@
 package com.pocketrealm.importer
 
+import com.pocketrealm.storage.StorageRoots
 import android.content.Context
 import android.system.Os
 import android.system.OsConstants
@@ -14,7 +15,7 @@ import java.io.FileOutputStream
 
 /** Immutable generation publication with an atomic active-pointer switch. */
 class ClientGenerationStore(context: Context) {
-    private val root = File(context.noBackupFilesDir, "client").apply { mkdirs() }
+    private val root = StorageRoots.get(context).client
     private val generations = File(root, "generations").apply { mkdirs() }
 
     fun staging(importId: String): File = safeGeneration(".staging-$importId")
@@ -47,11 +48,11 @@ class ClientGenerationStore(context: Context) {
     }
 
     /**
-     * The active generation id for [flavor]'s pointer namespace (G3-5). The
+     * The active generation id for [flavor]'s pointer namespace. The
      * read adopts a legacy un-namespaced pointer first, so an updated build
      * resolves the pre-flavor active generation on its first boot.
      *
-     * GAP-3 (owner census UIUX-3): the default resolves the ACTIVE lane
+     * the default resolves the ACTIVE lane
      * through the [ActiveFlavor] machine — the switcher's selection drives
      * the pointer namespace when several flavors qualify, replacing the
      * former `qualified().single()` default that threw the moment a second
@@ -138,7 +139,7 @@ class ClientGenerationStore(context: Context) {
     }
 
     /**
-     * Flavor-scoped activation (G3-5): the pointer switch and the prune run
+     * Flavor-scoped activation: the pointer switch and the prune run
      * inside [flavor]'s namespace. The keep-set never contains another
      * flavor's generation, so activating a TBC/WotLK client can never delete
      * the vanilla managed client (or vice versa); the pointer body carries
@@ -202,6 +203,10 @@ class ClientGenerationStore(context: Context) {
 
     private fun writeManagedConfiguration(staging: File) {
         atomicWrite(File(staging, "realmlist.wtf"), managedRealmlistWtfBytes())
+        // The locale realmlists too (WotLK reads Data/<locale>/realmlist.wtf):
+        // an imported client never keeps a foreign server address.
+        com.pocketrealm.client.ClientRealmEndpointProjection.localeRealmlists(staging)
+            .forEach { atomicWrite(it, managedRealmlistWtfBytes()) }
         atomicWrite(File(staging, "WTF/Config.wtf"), managedConfigWtfBytes())
     }
 
@@ -294,7 +299,7 @@ class ClientGenerationStore(context: Context) {
 
         /**
          * Pure client-manifest composition (the [publish] writer body) so the
-         * durable format is golden-fixture-testable on the JVM (G3-2): the
+         * durable format is golden-fixture-testable on the JVM: the
          * fixture test pins these exact bytes as the current-release manifest,
          * and every later manifest change (S5 stamps `flavor` into it) must
          * rotate that fixture deliberately, never silently.

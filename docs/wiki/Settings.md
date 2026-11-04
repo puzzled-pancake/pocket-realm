@@ -4,6 +4,18 @@ Settings holds choices that do not belong on the everyday Home screen. Many of t
 
 Settings opens from the top-bar gear or from the navigation menu — the side rail on wide screens, the bottom bar on narrow ones (such as split-screen).
 
+The Settings screen is a short list of categories; each opens its own page, and the back arrow returns to the list:
+
+| Category | What it holds |
+| --- | --- |
+| **Graphics & display** | ARM client runtime (Vulkan driver and DXVK version), display profile, frame-rate limit, interface scale. |
+| **Game client** | In-game settings, sound, auto-login, client tweaks, nearby use/open, input safe mode, advanced timing. |
+| **World & bots** | The shortcut to the Bots editor and the world timeframe. |
+| **Storage & realm data** | Client storage, realm backup and import. |
+| **App & support** | App updates, setup shortcuts, world debug logs. |
+
+Rarely used options sit behind a switch on their card (for example the **Vulkan driver & DXVK options** switch on the ARM client runtime card); nothing was removed, only folded away.
+
 ## ARM client runtime
 
 On an ARM device such as the Retroid Pocket 6, Pocket Realm runs the Windows game client through Box64 and Wine. DXVK translates the game's Direct3D graphics into Vulkan for Android.
@@ -36,11 +48,17 @@ While a scale is set, the app re-applies it on every launch and it overrides the
 
 Notes for large scales: stock windows (character, talents) can extend past the screen edge near the limit, the all-in-one bag window can grow taller than the screen at 720p, and custom Move-UI layouts saved at a smaller scale can end up off-screen — recover with `/ap resetui` or the Move-UI resize controls.
 
-## LAN play
+## Multiplayer
 
-**Allow LAN players** is off by default. When enabled, the realm can listen on the active private network address so another local device can join.
+LAN and internet play live in the **LAN** destination on the navigation menu, not in Settings. Its tabs are **Host**, **Join**, **Browse realms**, and **Transfer**.
 
-LAN mode is experimental. Database and administrative control channels remain private or disabled. The app does not use public discovery or automatically change router settings.
+**Allow LAN players** (Host tab) is off by default. When enabled, the realm can listen on the active private network address so another local device can join. Hosting over a VPN overlay (Tailscale or ZeroTier) sits behind its own switch on the same tab.
+
+**Browse realms** lists public realms. A realm that publishes an internet join address shows a **Join** button: the app connects to it through the realm's relay and launches the game client against it — no realm of your own runs while you play there. Listings never carry an IP address. Browsing asks public Nostr relays for listings, so those relays see your device's internet address; a join is dialed through the realm's relay, but the transport may move onto a direct path, which shows your address to the host. Log in with an account the host created for you: automatic login stays off, and your saved account is never sent to another realm.
+
+**Transfer** moves a single character to another realm (export a character file, import it on the other realm) and moves the whole realm to another device (backup and import).
+
+LAN mode is experimental. Database and administrative control channels remain private or disabled. The app does not automatically change router settings.
 
 ## Bots
 
@@ -61,31 +79,7 @@ Population presets control how many computer-controlled residents can enter the 
 
 The app starts with a smaller group and moves towards the selected target in stages. This avoids making the handheld process every resident at once.
 
-The editor's tabs are Basics, Population, Behaviour, and AI. Deeper tuning (startup pacing, teleport limits, the account pool, adaptive load-shedding floors, login lifecycle, rerandomize cadence) sits behind each tab's **Advanced tuning** switch — every knob stays reachable, none is removed. The **AI** tab holds per-preset speech overrides for the bot LLM: whether bots may start conversations, reply length, bot-to-bot chat frequency, memory depth, per-block prompt-pack deltas (on/off for each seasoning rule; Default follows the global pack in Settings → AI bot LLM → Advanced), and the RP dials — Initiative, Volatility, Reactivity, and Long-form — each 0-100 with Default following the global 50. Values left at their defaults follow the selected model's tuned profile; the engine, model, and global switches live in Settings → AI bot LLM. Safety floors and load shedding stay active.
-
-## AI bot chat (experimental)
-
-Bot speech through a language model is an **experimental** feature. The Settings card is titled **AI bot chat (experimental)** and stays collapsed until you turn on its **Experimental AI bot chat** switch — off by default, and turning it off also silences bot chat again. With the gate on, the card carries the master switch ("Let bots talk with an AI") and links to a dedicated **AI bot LLM** destination on the navigation menu.
-
-The destination is split into two tiers. The **simple tier** — speech switch, source, authored banter, world chatter, and the model picker — is always visible and is all most players need. Everything else (accelerator details, generation limits, connection fields) sits behind an **Advanced engine settings** switch at the bottom; the defaults behind it are measured for the device class and only change when touched.
-
-When enabled, bots speak through a language model. The **Source** choice picks where that model lives:
-
-- **On-device** — an embedded language model runs in its own isolated process on the handset. The screen offers:
-    - **Model staging** (simple tier) — the screen shows whether the model file is present and can download it (resumable) when it is not. The **Bot brain model** picker offers a small 0.8B model to try first, an untuned 2B fallback, and a tuned 2B model as the default full experience.
-    - **Compute mode** (advanced) — Auto uses the device neural processor (Hexagon NPU) when it is detected and healthy, and falls back to the CPU otherwise. CPU only and NPU are also available as explicit choices.
-    - **Decode cores and threads** (advanced) — which processor cores carry the bot speech while the game is running. The listed profiles are measured presets; mids are the everyday choice, the low-draw and min-power options trade speed for battery.
-    - **NPU offload layers** (advanced) — how much of the model the neural processor holds. Larger models need partial offload; the offload choices note the 2.9 GB ceiling, and the Model card shows the staged file's size.
-    - **Reply length and generation timeout** (advanced) — caps for each bot reply and how long to wait for it. The defaults follow the selected model's tuned profile.
-- **External server** — the realm talks to any OpenAI-compatible chat endpoint instead of running a model on the device. Enter the endpoint URL (a bare origin gets the standard `/v1/chat/completions` path appended), the model name, and optionally an API key (sent as a Bearer header and kept on this device). This works with hosted APIs, a home server running llama.cpp or LM Studio, or ollama. Nothing is downloaded and the on-device runtime stays off; an unusable endpoint means no speech conf is written at all.
-
-With on-device mode, the runtime starts automatically just before the realm starts, so its memory is reserved before the game claims its own. If the neural processor fails to load the model twice in a row, the runtime keeps working on the CPU and the screen explains how to reset the block.
-
-**Authored banter** is on by default and costs nothing: bots occasionally contribute free flavor lines — a rare quip after the party defeats a monster, a greeting that warms with the relationship when a friend says hi after a long absence, an idle remark on long trips — minutes apart, never in combat, and never more than one every quarter hour per bot. Turn it off to keep bots strictly reply-only.
-
-**World chatter (beta)** is off by default and lets bots talk among themselves: party companions banter while you quest, townsfolk murmur nearby, and rare news reaches General chat. Every line is grounded in something that really happened, stories retire after being told a few times, and the cadence slows as a courtesy when the battery is nearly empty (15% or below, off the charger). Charging lifts the slowdown. The switch applies at the next realm start.
-
-Most players can leave this feature off. On-device mode costs storage, memory, and battery while it runs; external mode needs a reachable endpoint whenever the realm is up.
+The editor's tabs are Basics, Population, and Behaviour. Deeper tuning (startup pacing, teleport limits, the account pool, adaptive load-shedding floors, login lifecycle, rerandomize cadence) sits behind each tab's **Advanced tuning** switch — every knob stays reachable, none is removed. **Bots speak on their own** (Behaviour tab) lets bots post their stock chat lines without being asked. Safety floors and load shedding stay active.
 
 ## Input safe mode
 
@@ -101,15 +95,15 @@ The stored account can be cleared from Settings or Home without deleting realm c
 
 ## Advanced timing
 
-Timing controls cover low-level delays used by the game bridge, generated keyboard input, pointer actions, startup, and shutdown. They exist for device qualification and difficult compatibility problems.
+Timing controls cover low-level delays used by the game bridge, generated keyboard input, pointer actions, startup, and shutdown. They exist for device testing and difficult compatibility problems.
 
 Most players should keep the defaults. Changing several timing values at once can make a problem harder to identify.
 
 ## Client tweaks
 
-Optional quality-of-life patches are applied on the next client launch. **Vanilla, all off** disables them. **Common tweaks** selects the normal project preset. The tweak set is validated against the vanilla 1.12.1 client only: on the TBC and WotLK lanes the card says the tweaks are not available for that flavor and the toggles stay off.
+Optional quality-of-life patches are applied on the next client launch. **Vanilla, all off** disables them. **Common tweaks** selects the normal project preset. The tweak set is validated against the vanilla 1.12.1 client only: on TBC and WotLK the card says the tweaks are not available for that game version and the toggles stay off.
 
-If the exact client file layout is not qualified for a patch, Pocket Realm leaves that launch on the pristine Vanilla behaviour instead of forcing an unsafe change.
+If the exact client file layout does not support a patch, Pocket Realm leaves that launch on the original Vanilla behaviour instead of forcing an unsafe change.
 
 ## Sound
 
@@ -120,6 +114,6 @@ Game audio is supported through the Android audio bridge on the ARM64 route. The
 The final Settings card keeps the maintenance screens together.
 
 - **Game files and import** manages the private client copy and server-data preparation.
-- **Show first-run setup guide** replays the tutorial that opens on a fresh install, including the rules for selecting an already-extracted client folder for the selected flavor (any of the three qualified builds).
+- **Show first-run setup guide** replays the tutorial that opens on a fresh install, including the rules for selecting an already-extracted client folder for the selected game version (any of the three supported builds).
 - **Device capability report** shows hardware and process details used during device testing.
 - **Diagnostics and logs** provides backups, restore, storage checks, support bundles, and recent logs.

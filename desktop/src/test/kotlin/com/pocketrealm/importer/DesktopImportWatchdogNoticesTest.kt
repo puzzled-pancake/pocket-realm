@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * DESK-3/66: the shared watchdog-wording contract, pinned on the desktop now
+ * the shared watchdog-wording contract, pinned on the desktop now
  * that the file compiles in the shared set (the reason tokens are inlined
  * literals — the android sampler's `const val`s — so both platforms word a
  * killed import identically).

@@ -160,7 +160,7 @@ class DesktopAppModelLanLaunchTest {
         }
     }
 
-    /** D1: the LAN_JOIN preflight runs NO server legs — a join on an
+    /** the LAN_JOIN preflight runs NO server legs — a join on an
      * unseeded machine is decided ENTIRELY by the client leg. The pass
      * shape ("join: client and private LAN endpoint verified") needs a
      * real identity-passing client (the resolver is identity-gated, the
@@ -242,7 +242,7 @@ class DesktopAppModelLanLaunchTest {
         }
     }
 
-    /** D1: with the stored toggle OFF, the defensive backend twin refuses
+    /** with the stored toggle OFF, the defensive backend twin refuses
      * the host before the interface leg (the model gate's twin). */
     @Test
     fun theBackendsLivenessLegReProvesTheStoredAuthorization() {
@@ -272,7 +272,7 @@ class DesktopAppModelLanLaunchTest {
         }
     }
 
-    /** D1, mode-aware (design-tunnel §10, the Android preflight's twin): a
+    /** D1, mode-aware (design-tunnel, the Android preflight's twin): a
      * tunnel-advertised start proves the TUNNEL adapter, never the saved
      * LAN address — the tunnel lane hosts even when the stored LAN address
      * is inactive (hotel Wi-Fi, DHCP change, hotspot); a loopback
@@ -554,6 +554,56 @@ class DesktopAppModelLanLaunchTest {
                     "launch refused" in op.detail && "IPv4" in op.detail,
                 )
             }
+        }
+    }
+
+    /** The online host (the Host-online path): the game binds loopback —
+     * the internet gateway forwards to it — unless LAN players are on and
+     * a private interface exists. */
+    @Test
+    fun hostOnlineBindsLoopbackWithoutLanPlayers() {
+        val roots = DesktopStorageRoots(folder.newFolder("roots-host-online-loopback"))
+        writeSettings(roots, Settings.Snapshot())
+        DesktopAppModel(roots).use { model ->
+            val spec = model.onlineHostLaunchSpec(
+                includeClient = false,
+                lanPlayers = false,
+                availableLan = listOf(com.pocketrealm.supervisor.RealmEndpoint.parseLan("192.168.1.50")),
+            )
+            assertEquals(RuntimeMode.LAN_HOST, spec.mode)
+            assertEquals("127.0.0.1", spec.endpoint.address)
+            assertFalse("a loopback bind exposes nothing on the LAN", spec.allowLanPlayers)
+        }
+    }
+
+    @Test
+    fun hostOnlineBindsTheLanAddressWhenLanPlayersAreOnAndAnInterfaceExists() {
+        val roots = DesktopStorageRoots(folder.newFolder("roots-host-online-lan"))
+        writeSettings(roots, Settings.Snapshot())
+        DesktopAppModel(roots).use { model ->
+            val spec = model.onlineHostLaunchSpec(
+                includeClient = false,
+                lanPlayers = true,
+                availableLan = listOf(com.pocketrealm.supervisor.RealmEndpoint.parseLan("192.168.1.50")),
+            )
+            assertEquals(RuntimeMode.LAN_HOST, spec.mode)
+            assertEquals("192.168.1.50", spec.endpoint.address)
+            assertTrue(spec.allowLanPlayers)
+        }
+    }
+
+    @Test
+    fun hostOnlineFallsBackToLoopbackWhenLanPlayersAreOnButNoInterfaceExists() {
+        val roots = DesktopStorageRoots(folder.newFolder("roots-host-online-no-if"))
+        writeSettings(roots, Settings.Snapshot())
+        DesktopAppModel(roots).use { model ->
+            val spec = model.onlineHostLaunchSpec(
+                includeClient = false,
+                lanPlayers = true,
+                availableLan = emptyList(),
+            )
+            assertEquals("127.0.0.1", spec.endpoint.address)
+            assertFalse(spec.allowLanPlayers)
         }
     }
 }

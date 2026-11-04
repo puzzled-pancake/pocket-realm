@@ -199,7 +199,7 @@ class DesktopRuntimeBackendTest {
         selectSqliteProvider(roots)
     }
 
-    /** D19: the SQLite lane is the EXPLICIT dev/compat opt-in — the shipped
+    /** the SQLite lane is the EXPLICIT dev/compat opt-in — the shipped
      * default is MariaDB. Every test that exercises the SQLite datadir's
      * admission gates (this class's fixture materializations) pins the
      * selection explicitly so the lane under test never depends on the
@@ -330,7 +330,7 @@ class DesktopRuntimeBackendTest {
                 "pocket_forbidden" in sql -> refused("scripted: account administration denied")
                 "required_z9999_not_real" in sql -> ok("0")
                 "information_schema.COLUMNS" in sql -> ok("1")
-                // W4 (D72 retirement): the per-lane provisioning verb.
+                // the per-lane provisioning verb.
                 "CREATE DATABASE IF NOT EXISTS" in sql -> ok()
                 "pocket_admin" in sql -> ok()
                 "migration_ledger" in sql -> ok()
@@ -366,7 +366,7 @@ class DesktopRuntimeBackendTest {
 
     @Test
     fun mariadbObservationReportsTheDaemonPid() {
-        // GAP-5: the MARIADB lane's DATABASE observation pid is the ENGINE'S
+        // the MARIADB lane's DATABASE observation pid is the ENGINE'S
         // tracked mariadbd pid, never this JVM's ambient pid — and NULL
         // whenever the daemon is not RUNNING (the SQLite lane's honest null,
         // now the MariaDB lane's too).
@@ -414,7 +414,7 @@ class DesktopRuntimeBackendTest {
 
     @Test
     fun mariadbProviderSelectionRoutesTheDatabaseComponentToTheEngineLane() {
-        // DESK-47/106: the Settings provider selection is CONSUMABLE —
+        // the Settings provider selection is CONSUMABLE —
         // selecting MARIADB routes the DATABASE verbs to the engine lane,
         // never through the SQLite datadir gate. The unstaged state is
         // INJECTED (an engine whose provider override resolves nothing) so
@@ -643,7 +643,7 @@ class DesktopRuntimeBackendTest {
 
     @Test
     fun sqliteProviderSelectionKeepsTheDevCompatLane() {
-        // D19: SQLite is the EXPLICIT dev/compat selection (no longer the
+        // SQLite is the EXPLICIT dev/compat selection (no longer the
         // shipped default): the selection never touches the engine lane, and
         // a seeded SQLite datadir admits exactly as before.
         val roots = DesktopStorageRoots(folder.newFolder("sqlite-selected"))
@@ -700,7 +700,7 @@ class DesktopRuntimeBackendTest {
 
     @Test
     fun freshBackendStartsWithAnUnspentWorldLifetime() {
-        // DESK-25: the spent-world flag mirrors the native m_ever_ready pin;
+        // the spent-world flag mirrors the native m_ever_ready pin;
         // a fresh backend has run no world, so nothing is spent yet. (The
         // READY->spent transition itself rides the world DLL lane — it is
         // set in startWorld right after the READY wait succeeds.)
@@ -757,10 +757,7 @@ class DesktopRuntimeBackendTest {
         // DISABLED bot conf and a zero BotTarget over the same prepared
         // data — no population provisioning input in the candidate.
         stageActiveServerGeneration(roots)
-        val files = com.pocketrealm.server.ServerRuntimeFiles(
-            roots,
-            llmModelManager = DesktopLlmModelManager(roots),
-        )
+        val files = com.pocketrealm.server.ServerRuntimeFiles(roots)
         val conf = files.worldConfig(botProfile = backend.launchBotProfile(proofSpec)).readText()
         val run = File(File(roots.runtime, "server"), "run")
         val disabledConf = File(run, "aiplayerbot-disabled.conf")
@@ -842,7 +839,7 @@ class DesktopRuntimeBackendTest {
     }
 
     /**
-     * GAP-3 (owner census UIUX-3, the createNamedBackup compatibility leg):
+     *
      * with two qualified flavors the backup's compatibility stamp names the
      * ACTIVE lane through the flavor machine — the former
      * `qualified().single()` threw inside the transition lock and refused
@@ -904,7 +901,7 @@ class DesktopRuntimeBackendTest {
 
     @Test
     fun preflightRefusesAStaleCorpusWithTheDistinctCode() {
-        // DESK-53/98: a datadir sealed by an older corpus refuses with
+        // a datadir sealed by an older corpus refuses with
         // DB-MIGRATION-PENDING — never the generic DB-NOT-SEEDED. The
         // datadir stamps the FIXTURE identity so the override differs in
         // exactly one identity field (the corpus).
@@ -997,7 +994,7 @@ class DesktopRuntimeBackendTest {
 
     @Test
     fun preflightRefusesAMissingGenerationMarkerWithTheDirtyGenerationCode() {
-        // DESK-53: a renamed-away generation marker over a surviving
+        // a renamed-away generation marker over a surviving
         // migration seal is a tampered/dirty generation — it refuses with
         // DB-DIRTY-GENERATION, never the DB-MIGRATION-PENDING legacy copy
         // (that copy is the genuinely pre-seal datadir's, which carries no
@@ -1019,7 +1016,7 @@ class DesktopRuntimeBackendTest {
 
     @Test
     fun preflightBootstrapsAnUnseededDatadirFromThePackagedTranscripts() {
-        // DESK-108: the flat packaged layout (transcripts + provenance in
+        // the flat packaged layout (transcripts + provenance in
         // one dir) seeds the empty datadir through the FULL seeder
         // discipline, and the bootstrapped datadir then starts clean.
         requireNativeIfDemanded("sqlite seam", seamDll)
@@ -1197,7 +1194,7 @@ class DesktopRuntimeBackendTest {
         try {
             val result = runBlocking { backend.recoverDatabase() }
             assertTrue("recovery must succeed: ${result.detail}", result.ok)
-            // The :430 stub's real replacement (DESK-79/98): the
+            // The:430 stub's real replacement: the
             // revision re-proof is stated and the clean-stop seal is
             // freshly stamped, never "arrives with the engine twin".
             assertTrue(
@@ -1235,7 +1232,7 @@ class DesktopRuntimeBackendTest {
 
     @Test
     fun recoverDatabaseRefusesATamperedLedgerBeforeTheIntegrityGate() {
-        // DESK-79: the re-proof precedes the integrity gate — a tampered
+        // the re-proof precedes the integrity gate — a tampered
         // migration ledger refuses as itself (an empty-file datadir
         // would fail the integrity gate with a different error, so
         // reaching the refusal at all proves the ordering).
@@ -1324,7 +1321,7 @@ class DesktopRuntimeBackendTest {
         pickVanilla(roots)
         selectSqliteProvider(roots)
         roots.sqliteDatadir.mkdirs()
-        // DESK-93: the projected database resolves through the flavor
+        // the projected database resolves through the flavor
         // registry (the same source the conf's LoginDatabaseInfo uses).
         val realmd = DatabaseSqliteControlPlane.databaseFile(
             roots.sqliteDatadir,
@@ -1576,7 +1573,7 @@ class DesktopRuntimeBackendTest {
         
         pickVanilla(roots)
         materializeDatadir(roots)
-        // D1 (design-lan §2.4): the start-time interface re-check runs before
+        // the start-time interface re-check runs before
         // the native; the test's purpose is the conf emission + the honest
         // native failure, so the stub interface keeps the gate open.
         val backend = DesktopRuntimeBackend(
@@ -1689,7 +1686,7 @@ class DesktopRuntimeBackendTest {
             )
             assertEquals(ComponentLifecycle.READY, sample.state)
             assertTrue("online count must be sampled: $sample", sample.onlinePlayers >= 0)
-            // DESK-25: a world that reached READY spent this process's one
+            // a world that reached READY spent this process's one
             // world lifetime — the native refuses every later start with
             // the WRONG_STATE in-process-restart error, and the flag the
             // app model's relaunch action keys off must say so.
@@ -1839,7 +1836,7 @@ class DesktopRuntimeBackendTest {
     // ---------------- DESK-50/51/139 launch boundary ----------------
 
     /**
-     * DESK-51: the launch MERGES the realmlist (the `set realmlist` line
+     * the launch MERGES the realmlist (the `set realmlist` line
      * moves, every other directive survives) over a backup taken into the
      * runtime root, and the teardown restores the user's original bytes and
      * retires the backup.
@@ -1905,7 +1902,7 @@ class DesktopRuntimeBackendTest {
     }
 
     /**
-     * DESK-50 (+ the DESK-139 audio leg per the hunt-r6-lens4 cross-reference):
+     *
      * every launch merges the ManagedConfigPolicy overlay over the user's
      * WTF/Config.wtf — the EULA/TOS/intro gates die (auto-login can never
      * type into them), the client comes up windowed, and an audio-OFF
@@ -1949,7 +1946,7 @@ class DesktopRuntimeBackendTest {
             assertEquals("the desktop subset is windowed", "1", values["gxWindow"])
             // The DESK-139 audio leg: OFF enforces the master-sound CVar.
             assertEquals("0", values["MasterSoundEffects"])
-            // DESK-139: the per-process mute applied to the spawned pid.
+            // the per-process mute applied to the spawned pid.
             val deadline = System.currentTimeMillis() + AUDIO_MUTE_WAIT_MS
             var applied = false
             while (System.currentTimeMillis() < deadline && !applied) {
@@ -2019,14 +2016,12 @@ class DesktopRuntimeBackendTest {
             )
             assertFalse(runBlocking { backend.characterPersistence(owner, "VALIDUSER", "Charname") }.ok)
             assertFalse(runBlocking { backend.worldChat(owner, "Charname", "say", "", "hello") }.ok)
-            assertFalse(runBlocking { backend.resetState(owner, "Player") }.ok)
-            assertFalse(runBlocking { backend.llmMemoryState(owner, "Player") }.ok)
         } finally {
             backend.close()
         }
     }
 
-    /** DESK-77: the Android op's validation order — the identity tokens
+    /** the Android op's validation order — the identity tokens
      * validate BEFORE any world contact, so a malformed request is a throw,
      * never a native round-trip. */
     @Test
@@ -2046,7 +2041,7 @@ class DesktopRuntimeBackendTest {
         }
     }
 
-    /** DESK-116/118/124: the launch-time profile resolution reaches the
+    /** the launch-time profile resolution reaches the
      * shared advanced branch through the persisted settings — the launcher
      * override resolves an adv-style profile instead of the plain built-in,
      * and switching the override off restores the built-in. Pure JVM

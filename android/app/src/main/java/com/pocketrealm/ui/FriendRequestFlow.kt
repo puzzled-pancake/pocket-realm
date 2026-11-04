@@ -3,7 +3,7 @@ package com.pocketrealm.ui
 import com.pocketrealm.server.FriendAccessClient
 
 /**
- * The join-side friend-access flow (design-remote-accounts §3/§5): submit
+ * The join-side friend-access flow (design-remote-accounts): submit
  * the invite-token request, then poll the read-only decision poll until the
  * host approves (the ONE response carrying the accountId), refuses, or the
  * poll budget ends. Pure JVM and transport-injected so the UI-independent
@@ -52,7 +52,7 @@ sealed class FriendRequestOutcome {
     data object Refused : FriendRequestOutcome()
 
     /** The host was never reachable — a blocked port must never present as
-     * "waiting for the host to click Approve" (§6 exposure invariant). */
+     * "waiting for the host to click Approve" ( exposure invariant). */
     data class Unreachable(val reason: String) : FriendRequestOutcome()
 }
 
@@ -77,7 +77,7 @@ suspend fun requestFriendAccess(
     username: String,
     password: String,
     onApproved: suspend (Long) -> Unit,
-    /** Live wait-status updates (design-remote-accounts §6: a dropped host
+    /** Live wait-status updates (design-remote-accounts: a dropped host
      * must never present as "waiting for the host to click Approve" — the
      * first mid-wait unreachable surfaces here while polling continues,
      * the desktop wait loop's exact shape). */

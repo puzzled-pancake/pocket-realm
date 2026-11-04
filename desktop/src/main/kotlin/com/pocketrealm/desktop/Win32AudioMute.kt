@@ -11,7 +11,7 @@ import com.sun.jna.ptr.IntByReference
 import com.sun.jna.ptr.PointerByReference
 
 /**
- * DESK-139: the per-process game-audio mute seam — production walks the
+ * the per-process game-audio mute seam — production walks the
  * Windows Core Audio session list (see [Win32AudioMute]); tests fake it.
  * Public so the desktop backend's constructor can expose it.
  */
@@ -21,7 +21,7 @@ fun interface AudioSessionMuter {
 }
 
 /**
- * DESK-139: the per-process game-audio mute twin. The Wine/ALSA mechanism is
+ * the per-process game-audio mute twin. The Wine/ALSA mechanism is
  * android-specific; the user-visible capability — mute/unmute the game from
  * the app — is portable through the Windows Core Audio session API, reached
  * with the same JNA technique the app already uses for SendInput and the

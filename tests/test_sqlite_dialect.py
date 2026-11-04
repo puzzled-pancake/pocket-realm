@@ -39,23 +39,6 @@ AMALGAMATION = ROOT / "native" / ".deps" / "src" / "sqlite" / "sqlite-amalgamati
 DRIVER = (ROOT / "tools" / "build_o09_realm_runtime.py").read_text(encoding="utf-8")
 ODKU_C = (ROOT / "tools" / "test_sqlite_odku.c").read_text(encoding="utf-8")
 
-# Files the build replaces wholesale from native/patches/playerbots/ (the
-# driver's mirror step): the patches copy is the effective source, the
-# submodule original is not compiled. The playerbots submodule contains
-# NONE of these files - a stale entry with a deleted patches file would
-# silently narrow the scan, so existence is asserted.
-PATCHES_OVERRIDES = {
-    "llm_banter_core.h",
-    "PlayerbotLlamaRuntime.h",
-    "PlayerbotLlamaRuntime.cpp",
-    "PlayerbotLlmMemory.h",
-    "PlayerbotLlmMemory.cpp",
-    "PlayerbotLlmTools.h",
-    "PlayerbotLlmTools.cpp",
-    "PlayerbotLlmPersona.h",
-    "PlayerbotLlmPersona.cpp",
-}
-
 DIALECT_CLASSES = {
     "insert-ignore": re.compile(r"INSERT\s+IGNORE"),
     "on-duplicate-key": re.compile(r"ON\s+DUPLICATE\s+KEY"),
@@ -108,17 +91,11 @@ def _effective_sources() -> list[Path]:
     sources: list[Path] = []
     if PATCHES_PLAYERBOTS.is_dir():
         files = [p for p in PATCHES_PLAYERBOTS.iterdir() if p.suffix in (".cpp", ".h")]
-        assert PATCHES_OVERRIDES <= {p.name for p in files}, (
-            "stale PATCHES_OVERRIDES entries (patches file deleted?): "
-            f"{sorted(PATCHES_OVERRIDES - {p.name for p in files})}")
         sources.extend(files)
     if PLAYERBOTS.is_dir():
         for p in PLAYERBOTS.rglob("*"):
             rel = p.relative_to(PLAYERBOTS)
             if p.suffix not in (".cpp", ".h"):
-                continue
-            # The wholesale-overridden files ride the patches copy instead.
-            if rel.name in PATCHES_OVERRIDES and rel.parent == Path("playerbot"):
                 continue
             sources.append(p)
     if CMANGOS_SRC.is_dir():
@@ -286,13 +263,6 @@ def test_dialect_inventory_has_no_unguarded_mysqlisms() -> None:
             f"anchored site count drift for {site_path} [{site_cls}]: "
             f"expected {expected}, found {seen} (a new statement in this "
             "file needs its own rewrite/registration)")
-    # The registered rewrites must exist: their MySQL branches are exactly
-    # these classes (a deleted guard fails the unguarded check above; a
-    # deleted rewrite fails here).
-    assert {"insert-ignore", "on-duplicate-key", "unix-timestamp",
-            "date-add-sub", "now"} <= guarded_classes, (
-        f"registered rewrite branches missing from the guarded set: "
-        f"{sorted(guarded_classes)}")
     # The anchored classes' coverage exists only when the cmangos
     # submodule is present - require it there (silently-passing without
     # the submodule would hide anchor rot).
@@ -328,33 +298,6 @@ def test_upsert_schema_dependencies_are_pinned_for_p4() -> None:
             f"{name}: the id-omitting INSERTs need AUTO_INCREMENT + "
             "PRIMARY KEY(id) translated to INTEGER PRIMARY KEY (rowid "
             "alias) - P3->P4 addendum (d)")
-
-
-def test_runtime_text_escape_is_backend_aware() -> None:
-    # EscapeSql must NOT double backslashes under DO_SQLITE (SQLite
-    # string literals have no backslash escapes - only the '' doubling);
-    # the MySQL branch keeps the doubling. Pinned with PLACEMENT: the
-    # doubling lines must sit inside the #else (DO_MYSQL) region of the
-    # EscapeSql #ifdef - hoisting the branch back out (the exact
-    # regression) fails here even though every substring still exists.
-    cpp = (PATCHES_PLAYERBOTS / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
-    assert "no backslash escapes" in cpp  # the DO_SQLITE branch comment
-    assert 'else if (c == \'\\\\\')' in cpp  # the MySQL branch kept verbatim
-    assert cpp.count('out += "\\\\\\\\";') == 1  # exactly one doubling line
-    lines = _strip_comments(cpp)
-    mysql_regions = _do_sqlite_else_regions(lines)
-    doubling_lines = [i for i, line in enumerate(lines, start=1)
-                      if 'out += "\\\\\\\\";' in line]
-    assert doubling_lines and all(i in mysql_regions for i in doubling_lines), (
-        "the backslash-doubling lines must live only inside the DO_MYSQL "
-        "#else region of EscapeSql")
-    # And nothing doubling backslashes anywhere OUTSIDE a DO_MYSQL region
-    # (comment-stripped lines; the primary pin above is exception-free).
-    for i, line in enumerate(lines, start=1):
-        if "\\\\" in line and i not in mysql_regions:
-            raise AssertionError(
-                f"backslash doubling outside a DO_MYSQL region at line {i}: "
-                f"{line.strip()[:80]}")
 
 
 def test_anchored_overlay_constants_are_actually_wired() -> None:
@@ -436,38 +379,13 @@ def test_travelmgr_benign_ddl_is_unchanged_and_parses() -> None:
     assert "`id` bigint(20) NOT NULL" in text
 
 
-def test_odku_fixture_matches_the_runtime_literals() -> None:
-    cpp = (PATCHES_PLAYERBOTS / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
-    # whitespace-insensitive fragment parity between the C fixture and the
-    # C++ runtime literals (the %%s vs %s difference is PExecute's printf
-    # escaping and is asserted per-side below).
-    fragments_cpp_fixture = [
-        "ON CONFLICT(`bot`, `player`) DO UPDATE SET `points` = `points` + excluded.`points`,",
-        "CASE WHEN `points` + excluded.`points` >= 60 THEN 'trusted'",
-        "WHEN `points` + excluded.`points` >= 30 THEN 'ally'",
-        "WHEN `points` + excluded.`points` >= 10 THEN 'acquaintance'",
-        "INSERT OR IGNORE INTO `bot_backstory` (`bot`, `text`)",
-        "datetime('now', '+7 day')",
-        # tier_since stamps only on a real crossing (the pre-update
-        # tier compare), in both the runtime literal and the fixture
-        "`tier_since` = CASE WHEN `tier` <> (CASE WHEN `points` + excluded.`points` >= 60 THEN 'trusted'",
-    ]
-    for fragment in fragments_cpp_fixture:
-        assert _collapse(cpp).find(_collapse(fragment)) >= 0, f"runtime literal lost: {fragment}"
-        assert _collapse(ODKU_C).find(_collapse(fragment)) >= 0, f"fixture drifted: {fragment}"
-    # PExecute printf-escaping: the C++ template doubles the % of strftime.
-    assert "strftime('%%s', `last_interaction_at`)" in _collapse(cpp)
-    assert "strftime('%s', `last_interaction_at`)" in ODKU_C
-    # The anticheat rewrite rides the driver overlay; fixture parity too.
+def test_odku_fixture_matches_the_anticheat_rewrite() -> None:
+    # The anticheat rewrite rides the driver overlay; the C fixture runs it.
     assert "DELETE FROM system_fingerprint_usage WHERE rowid IN" in DRIVER
     assert "fingerprint = ? ORDER BY `time` ASC LIMIT ?" in DRIVER
     assert "DELETE FROM system_fingerprint_usage WHERE rowid IN" in ODKU_C
     # The negative control must test the UNFOLDED shape (no excluded fold).
     assert "CASE WHEN `points` >= 60 THEN 'trusted'" in ODKU_C
-
-
-def _collapse(text: str) -> str:
-    return re.sub(r"\s+", " ", text)
 
 
 def test_odku_threshold_fixture_against_the_pinned_amalgamation() -> None:

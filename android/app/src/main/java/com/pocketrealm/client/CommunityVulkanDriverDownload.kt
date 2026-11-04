@@ -37,7 +37,7 @@ object CommunityVulkanDriverDownload {
     ): Outcome {
         // Defense in depth: the manifest projection already pins HTTPS URLs.
         if (!driver.url.startsWith("https://")) {
-            return Outcome.Failed("The pinned community driver URL is not HTTPS.")
+            return Outcome.Failed("The community driver URL is not HTTPS.")
         }
         return downloadPinned(driver.url, driver.size, driver.sha256, destination, onProgress)
     }
@@ -139,13 +139,13 @@ object CommunityVulkanDriverDownload {
         }
         val declared = it.header("Content-Length")?.toLongOrNull()
             ?: return Hop.Terminal(
-                failed(destination, "The download did not report its size; refusing an unpinned download."),
+                failed(destination, "The download did not report its size; refusing it."),
             )
         if (declared != expectedSize) {
             return Hop.Terminal(
                 failed(
                     destination,
-                    "The download claims $declared bytes but the pinned driver is " +
+                    "The download claims $declared bytes but the release file is " +
                         "$expectedSize bytes.",
                 ),
             )
@@ -162,8 +162,8 @@ object CommunityVulkanDriverDownload {
                     return Hop.Terminal(
                         failed(
                             destination,
-                            "The download streamed more bytes than the pinned driver " +
-                                "size ($total > $expectedSize).",
+                            "The download streamed more bytes than expected " +
+                                "($total > $expectedSize).",
                         ),
                     )
                 }
@@ -175,8 +175,8 @@ object CommunityVulkanDriverDownload {
             return Hop.Terminal(
                 failed(
                     destination,
-                    "The downloaded file is ${destination.length()} bytes; the pinned " +
-                        "driver is $expectedSize bytes.",
+                    "The downloaded file is ${destination.length()} bytes; the release " +
+                        "file is $expectedSize bytes.",
                 ),
             )
         }
@@ -201,8 +201,8 @@ object CommunityVulkanDriverDownload {
     }
 
     const val DIGEST_MISMATCH =
-        "The downloaded file does not match its pinned SHA-256 — the source file " +
-            "changed after review; the download was discarded."
+        "The downloaded file does not match its expected SHA-256 — the source file " +
+            "changed; the download was discarded."
 
     private const val MAX_REDIRECTS = 3
     private const val CONNECT_TIMEOUT_SECONDS = 15L

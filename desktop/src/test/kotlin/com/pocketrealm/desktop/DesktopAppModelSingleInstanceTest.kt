@@ -9,7 +9,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-113: the single-owner runtime domain. The app model acquires an
+ * the single-owner runtime domain. The app model acquires an
  * exclusive FileChannel lock on <roots.realm>/app-instance.lock BEFORE any
  * supervisor/backend exists; a second instance refuses with the holder pid
  * named, and the lock releases on close (the crash case releases at process

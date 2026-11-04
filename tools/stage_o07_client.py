@@ -280,7 +280,7 @@ def scan_source(root: Path, profile: FlavorProfile) -> tuple[list[SourceFile], d
             if stream.read(4) != b"MPQ\x1a":
                 relative = file.relative_to(data_dir).as_posix()
                 raise ImportFailure(f"VAL-04: invalid MPQ header: Data/{relative}")
-    # Locale stays infer-not-gate (port plan S5 item 6): the enUS shape is
+    # Locale stays infer-not-gate : the enUS shape is
     # recorded as a warning, never a rejection.
     warnings.append(profile.locale_warning)
 

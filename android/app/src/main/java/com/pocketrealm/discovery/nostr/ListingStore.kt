@@ -14,7 +14,7 @@ import org.json.JSONObject
  *    (catches relay-side tampering) plus our own BIP-340 signature check
  *    against the embedded pubkey. A relay's word is worth nothing here.
  *  - THE INBOUND SIDE ENFORCES THE SAME CONTRACT THE PUBLISH SIDE DOES
- *    (code-red R1-3/R3-4/R4-6/R5-4/R7-2): a validly-signed foreign listing
+ * a validly-signed foreign listing
  *    must still resolve its flavor/build pair against the owning
  *    ClientFlavors registry, keep its free text inside the frozen-schema
  *    length bounds, pass the privacy fence (IPs/hostnames/URLs — IPv4,
@@ -36,7 +36,7 @@ import org.json.JSONObject
  *    top of the browse order with a "published just now" age). A listing
  *    is live only while created_at is within 10 minutes. `expiration` is
  *    a hint and is never consulted.
- *  - ADMISSION IS BOUNDED (code-red R2-4/R5-6): non-fresh entries are
+ * ADMISSION IS BOUNDED: non-fresh entries are
  *    evicted on every accept, and the retained set is capped — a hostile
  *    relay flooding distinct-pubkey listings cannot pin memory.
  */
@@ -91,7 +91,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
             onFailure = { failure ->
                 AcceptResult.Refused(
                     (failure as? IllegalArgumentException)?.message
-                        ?: "VAL-NOSTR-EVENT: unparseable",
+                        ?: "unparseable",
                 )
             },
         )
@@ -138,7 +138,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         // the hostile publisher actually signed (tags included).
         if (event.serializedForId().length > RealmListingContent.MAX_SERIALIZED_CHARS) {
             return AcceptResult.Refused(
-                "VAL-NOSTR-CONTENT: listing exceeds the per-entry serialized " +
+                "listing exceeds the per-entry serialized " +
                     "budget of " + RealmListingContent.MAX_SERIALIZED_CHARS + " characters",
             )
         }
@@ -154,7 +154,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
     }
 
     /** The tag-contract ladder: the flavor-tag uniqueness/agreement rule
-     * (R6-3-7/R1-3), the R4-1 per-entry tag bound, and the R4 breaker
+     * , the R4-1 per-entry tag bound, and the R4 breaker
      * timeframe-tag and d-tag legs. */
     // The tag-contract ladder IS the admission contract: one exit per
     // refusal (the fence idiom).
@@ -162,41 +162,41 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
     private fun tagLadderRefusal(event: NostrEvent, content: RealmListingContent): String? {
         val flavorTags = event.tags.filter { it.size >= 2 && it[0] == "flavor" }
         if (flavorTags.size > 1) {
-            return "VAL-NOSTR-CONTENT: " + flavorTags.size +
+            return "" + flavorTags.size +
                 " flavor tags - a listing carries exactly one"
         }
         val tagFlavor = flavorTags.firstOrNull()?.getOrNull(1)
         if (tagFlavor != null && tagFlavor != content.flavor) {
-            return "VAL-NOSTR-CONTENT: flavor tag '" + tagFlavor + "' does not " +
+            return "flavor tag '" + tagFlavor + "' does not " +
                 "match the content flavor '" + content.flavor + "'"
         }
         // the TAG array is bounded — a validly-signed listing with
         // hundreds of thousands of tags cannot pin memory per entry.
         if (event.tags.size > RealmListingContent.MAX_LISTING_TAGS) {
-            return "VAL-NOSTR-CONTENT: " + event.tags.size + " tags exceed the " +
+            return "" + event.tags.size + " tags exceed the " +
                 RealmListingContent.MAX_LISTING_TAGS + "-tag admission bound"
         }
         // each tag VALUE is bounded — a 200 KB value rides the
         // count-only bound into the retained Entry.
         event.tags.forEach { tag ->
             if (tag.size >= 2 && tag.drop(1).any { it.length > RealmListingContent.MAX_TAG_VALUE_LENGTH }) {
-                return "VAL-NOSTR-CONTENT: tag value exceeds " +
+                return "tag value exceeds " +
                     RealmListingContent.MAX_TAG_VALUE_LENGTH + " characters"
             }
         }
         val timeframeTags = event.tags.filter { it.size >= 2 && it[0] == "timeframe" }
         if (timeframeTags.size > 1) {
-            return "VAL-NOSTR-CONTENT: " + timeframeTags.size +
+            return "" + timeframeTags.size +
                 " timeframe tags - a listing carries exactly one"
         }
         val tagStage = timeframeTags.firstOrNull()?.getOrNull(1)
         if (tagStage != null && tagStage != content.timeframeStage) {
-            return "VAL-NOSTR-CONTENT: timeframe tag '" + tagStage +
+            return "timeframe tag '" + tagStage +
                 "' does not match the content stage '" + content.timeframeStage + "'"
         }
         val dTags = event.tags.filter { it.size >= 2 && it[0] == "d" }
         if (dTags.size > 1) {
-            return "VAL-NOSTR-CONTENT: " + dTags.size +
+            return "" + dTags.size +
                 " d tags - replaceability is defined by exactly one"
         }
         return null
@@ -207,7 +207,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         if (isFresh(event.createdAtSeconds)) {
             null
         } else {
-            "VAL-NOSTR-EVENT: listing created_at is outside the " +
+            "listing created_at is outside the " +
                 RealmListingContract.FRESHNESS_MINUTES + "-minute freshness window"
         }
     /**
@@ -233,7 +233,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
      * passes the contract + id + signature checks. */
     private fun refuseReasonFor(event: NostrEvent): String? {
         val verified = RealmListingEvent.verifyListing(event)
-        return if (verified.ok) null else verified.reason ?: "VAL-NOSTR-EVENT: refused"
+        return if (verified.ok) null else verified.reason ?: "refused"
     }
 
     /** The duplicate fast path's SAFETY precondition: the id
@@ -318,7 +318,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
     }.getOrElse { failure ->
         ContentParse.Refused(
             (failure as? IllegalArgumentException)?.message
-                ?: "VAL-NOSTR-EVENT: listing content does not match the frozen schema",
+                ?: "listing content does not match the frozen schema",
         )
     }
 
@@ -328,12 +328,13 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
     private fun parseContentChecked(content: String): ContentParse {
         val obj = JSONObject(content)
         val players = obj.getJSONObject("players")
-        val allowedKeys = setOf(
-            "name", "motd", "flavor", "build", "timeframe", "rates", "players", "join", "statusPageUrl",
-        )
-        if (obj.keys().asSequence().toSet() != allowedKeys) {
+        val keys = obj.keys().asSequence().toSet()
+        // The frozen base set is REQUIRED; the two owner-authorized
+        // additions are OPTIONAL (an older publisher omits them) — any
+        // other key is still a hostile extension.
+        if (!keys.containsAll(BASE_CONTENT_KEYS) || !(keys - BASE_CONTENT_KEYS).all { it in OPTIONAL_CONTENT_KEYS }) {
             return ContentParse.Refused(
-                "VAL-NOSTR-EVENT: listing content does not match the frozen schema (key set)",
+                "listing content does not match the frozen schema (key set)",
             )
         }
         val statusPageUrl = obj.optString("statusPageUrl", "").takeIf { it.isNotEmpty() }
@@ -359,10 +360,17 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
             // rates — a non-object rates member is refused, never silently
             // dropped to null (mirrors the name/motd string pins above).
             ?: obj.opt("rates")?.takeIf { it !== JSONObject.NULL && it !is JSONObject }
-                ?.let { "VAL-NOSTR-CONTENT: listing rates must be an object" }
+                ?.let { "listing rates must be an object" }
             ?: ratesRefusal(ratesObj)
             ?: textTypeRefusal(obj)
             ?: stageRefusal(obj.getString("flavor"), obj.optString("timeframe", ""))
+            ?: uptimeRefusal(obj.opt("uptimeSeconds"))
+            ?: obj.opt("signupOpen")?.takeIf { it !is Boolean }
+                ?.let { "listing signupOpen must be a boolean" }
+            ?: maxPlayersRefusal(obj.opt("maxPlayers"))
+            ?: appVersionRefusal(obj.opt("appVersion"))
+            ?: obj.opt("locked")?.takeIf { it !is Boolean }
+                ?.let { "listing locked must be a boolean" }
         if (refusal != null) return ContentParse.Refused(refusal)
         return ContentParse.Ok(
             RealmListingContent(
@@ -382,8 +390,43 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
                 bots = players.getInt("bots"),
                 join = join,
                 statusPageUrl = statusPageUrl,
+                uptimeSeconds = (obj.opt("uptimeSeconds") as? Number)?.toLong(),
+                signupOpen = obj.opt("signupOpen") == true,
+                maxPlayers = (obj.opt("maxPlayers") as? Int),
+                appVersion = obj.opt("appVersion") as? String,
+                locked = obj.opt("locked") == true,
             ),
         )
+    }
+
+    /** Max players: absent or null, else a whole number in 1..ceiling. */
+    private fun maxPlayersRefusal(value: Any?): String? = when {
+        value == null || value === JSONObject.NULL -> null
+        value !is Int -> "listing maxPlayers must be a whole number"
+        !RealmListingContent.isValidMaxPlayers(value) ->
+            "listing maxPlayers is outside 1.." + RealmListingContent.PLAYERS_COUNT_CEILING
+        else -> null
+    }
+
+    /** App version: absent or null, else the "v1.2.3" shape only. */
+    private fun appVersionRefusal(value: Any?): String? = when {
+        value == null || value === JSONObject.NULL -> null
+        value !is String || !RealmListingContent.APP_VERSION_SHAPE.matches(value) ->
+            "listing appVersion must look like v1.2.3"
+        else -> null
+    }
+
+    /** Uptime: absent or null (not known), else a whole number of seconds
+     * within 0..[RealmListingContent.UPTIME_SECONDS_CEILING] — a string,
+     * fraction or boolean is a TYPE refusal, never coerced. */
+    private fun uptimeRefusal(value: Any?): String? = when {
+        value == null || value === JSONObject.NULL -> null
+        value !is Int && value !is Long ->
+            "listing uptimeSeconds must be a whole number"
+        value.toLong() !in 0L..RealmListingContent.UPTIME_SECONDS_CEILING ->
+            "listing uptimeSeconds is outside 0.." +
+                RealmListingContent.UPTIME_SECONDS_CEILING
+        else -> null
     }
 
     /** The inbound bounds mirror the outbound fence exactly —
@@ -400,20 +443,20 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         // breaker: optString stringifies non-strings — the frozen-schema
         // TYPE pin needs the explicit checks (the name leg generalized).
         obj.get("name") !is String ->
-            "VAL-NOSTR-CONTENT: listing name must be a string"
+            "listing name must be a string"
         obj.opt("motd") !is String ->
-            "VAL-NOSTR-CONTENT: listing motd must be a string"
+            "listing motd must be a string"
         obj.getString("name").length > RealmListingContent.NAME_MAX_LENGTH ->
-            "VAL-NOSTR-CONTENT: listing name exceeds " +
+            "listing name exceeds " +
                 RealmListingContent.NAME_MAX_LENGTH + " characters"
         obj.optString("motd", "").length > RealmListingContent.MOTD_MAX_LENGTH ->
-            "VAL-NOSTR-CONTENT: listing motd exceeds " +
+            "listing motd exceeds " +
                 RealmListingContent.MOTD_MAX_LENGTH + " characters"
         obj.getString("name").length > RealmListingContent.NAME_MAX_LENGTH ->
-            "VAL-NOSTR-CONTENT: listing name exceeds " +
+            "listing name exceeds " +
                 RealmListingContent.NAME_MAX_LENGTH + " characters"
         obj.optString("motd", "").length > RealmListingContent.MOTD_MAX_LENGTH ->
-            "VAL-NOSTR-CONTENT: listing motd exceeds " +
+            "listing motd exceeds " +
                 RealmListingContent.MOTD_MAX_LENGTH + " characters"
         else -> null
     }
@@ -423,13 +466,13 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         PrivacyGuard.refuseIfBanned(obj.optString("motd", ""), "motd")
         null
     }.getOrElse { failure ->
-        failure.message?.takeIf { it.startsWith("VAL-") }
-            ?: "VAL-NOSTR-CONTENT: banned content"
+        failure.message?.takeIf { it.startsWith("listing ") }
+            ?: "banned content"
     }
 
     private fun urlRefusal(statusPageUrl: String?): String? =
         if (statusPageUrl != null && !RealmListingContent.isShapeValidPublicUrl(statusPageUrl)) {
-            "VAL-NOSTR-CONTENT: statusPageUrl must be the realm-status showcase " +
+            "statusPageUrl must be the realm-status showcase " +
                 "tunnel URL (https://<label>.trycloudflare.com)"
         } else {
             null
@@ -443,9 +486,9 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         val bots = players.getInt("bots")
         return when {
             humans < 0 || bots < 0 ->
-                "VAL-NOSTR-CONTENT: players counts must not be negative"
+                "players counts must not be negative"
             humans > RealmListingContent.PLAYERS_COUNT_CEILING || bots > RealmListingContent.PLAYERS_COUNT_CEILING ->
-                "VAL-NOSTR-CONTENT: players counts exceed the plausible ceiling " +
+                "players counts exceed the plausible ceiling " +
                     "($RealmListingContent.PLAYERS_COUNT_CEILING)"
             else -> null
         }
@@ -456,14 +499,14 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
     private fun textTypeRefusal(obj: JSONObject): String? =
         listOfNotNull(
             if (obj.get("name") !is String) {
-                "VAL-NOSTR-CONTENT: listing name must be a string"
+                "listing name must be a string"
             } else {
                 null
             },
             run {
                 val timeframe = obj.optString("timeframe", "")
                 if (timeframe.length > RealmListingContent.TIMEFRAME_MAX_LENGTH) {
-                    "VAL-NOSTR-CONTENT: listing timeframe exceeds " +
+                    "listing timeframe exceeds " +
                         RealmListingContent.TIMEFRAME_MAX_LENGTH + " characters"
                 } else {
                     null
@@ -481,15 +524,15 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         val registryBuild = runCatching { RealmListingContent.buildForFlavor(flavor) }.getOrNull()
         return when {
             registryBuild == null ->
-                "VAL-NOSTR-CONTENT: unknown flavor '$flavor' — not a shipped lane"
+                "unknown flavor '$flavor' — not a shipped lane"
             registryBuild != build ->
-                "VAL-NOSTR-CONTENT: build $build does not match flavor '$flavor' " +
+                "build $build does not match flavor '$flavor' " +
                     "(the shipped lane's build is $registryBuild)"
             else -> null
         }
     }
 
-    /** R5-r3-1: the timeframe stage must be a REGISTERED stage of the
+    /** the timeframe stage must be a REGISTERED stage of the
      * claimed flavor (TimeframeStages — the same registry the publisher's
      * status payload resolves through); a cross-era or nonexistent stage
      * id is refused like any other anachronism. */
@@ -497,7 +540,7 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         // breaker: an EMPTY stage renders the dangling row detail
         // "flavor (build N) · " — not a frozen-schema stage.
         if (timeframe.isEmpty()) {
-            return "VAL-NOSTR-CONTENT: timeframe stage must not be empty"
+            return "timeframe stage must not be empty"
         }
         val registered = runCatching {
             com.pocketrealm.client.TimeframeStages.byId(flavor, timeframe)
@@ -505,19 +548,19 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
         return if (registered != null) {
             null
         } else {
-            "VAL-NOSTR-CONTENT: timeframe " + timeframe +
+            "timeframe " + timeframe +
                 " is not a registered stage of flavor " + flavor
         }
     }
 
-    /** R5-4: rates must be finite JSON numbers — optDouble's NaN sentinel
+    /** rates must be finite JSON numbers — optDouble's NaN sentinel
      * does not catch Infinity. */
     private fun ratesRefusal(ratesObj: JSONObject?): String? =
         ratesObj?.let { rates ->
             listOf("xpKill", "xpQuest", "xpHonor")
                 .map { field -> field to rates.optDouble(field) }
                 .firstOrNull { (_, v) -> !v.isNaN() && v.isInfinite() }
-                ?.let { (field, _) -> "VAL-NOSTR-CONTENT: rates.$field must be a finite number" }
+                ?.let { (field, _) -> "rates.$field must be a finite number" }
         }.let { it ?: run { null } }
 
     companion object {
@@ -532,5 +575,14 @@ class ListingStore(private val nowMs: () -> Long = { System.currentTimeMillis() 
          * a flood of distinct-pubkey listings evicts the oldest entries
          * instead of pinning memory. */
         const val MAX_ENTRIES: Int = 256
+
+        /** The frozen schema's required content keys. */
+        internal val BASE_CONTENT_KEYS: Set<String> = setOf(
+            "name", "motd", "flavor", "build", "timeframe", "rates", "players", "join", "statusPageUrl",
+        )
+
+        /** The owner-authorized additions, admitted when present. */
+        internal val OPTIONAL_CONTENT_KEYS: Set<String> =
+            setOf("uptimeSeconds", "signupOpen", "maxPlayers", "appVersion", "locked")
     }
 }

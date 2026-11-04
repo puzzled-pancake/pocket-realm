@@ -42,7 +42,7 @@ class FirstRunTutorialTest {
 
     @Test
     fun aTbcOnlyImportRegistersAsImportedAndHidesTheTutorialOnceSealed() {
-        // R3-r2-1 (android-ui-tests review round 2): the probe enumerates
+        // the probe enumerates
         // EVERY registered flavor's canonical pointer (active-tbc.json /
         // active-wotlk.json live beside active-vanilla.json) — a tbc-only
         // or wotlk-only import registers, the tutorial hides, and the
@@ -65,7 +65,7 @@ class FirstRunTutorialTest {
                 "pointer (GenerationPointers.activePointerName over " +
                 "ClientFlavors.ALL), never a hard-coded vanilla pair",
             "ClientFlavors.ALL.any" in source &&
-                "GenerationPointers.activePointerName(flavor.flavorId)" in source,
+                "GenerationPointers.activePointerName(version.flavorId)" in source,
         )
     }
 
@@ -90,51 +90,23 @@ class FirstRunTutorialTest {
     }
 
     @Test
-    fun tutorialHasFiveOrderedUsableSteps() {
-        assertEquals(5, FIRST_RUN_TUTORIAL_STEPS.size)
+    fun tutorialHasFourOrderedUsableSteps() {
+        assertEquals(4, FIRST_RUN_TUTORIAL_STEPS.size)
         assertEquals("Welcome to Pocket Realm", FIRST_RUN_TUTORIAL_STEPS[0].title)
         // the requirement copy is flavor-neutral — the flip made
         // tbc/wotlk qualified, so the tutorial no longer names the vanilla
         // client version as if it were the only lane.
         assertEquals(
-            "What you need: an extracted WoW client for your flavor",
+            "What you need: an extracted WoW client for your game version",
             FIRST_RUN_TUTORIAL_STEPS[1].title,
         )
         assertEquals("How the selection works", FIRST_RUN_TUTORIAL_STEPS[2].title)
         assertEquals("What happens next", FIRST_RUN_TUTORIAL_STEPS[3].title)
-        // the optional talking-bots step points at the LLM submenu +
-        // the small "try first" model download (a 30-second step)
-        assertEquals("Optional: make the people talk back", FIRST_RUN_TUTORIAL_STEPS[4].title)
+        assertEquals(4, FIRST_RUN_TUTORIAL_STEPS.size)
         FIRST_RUN_TUTORIAL_STEPS.forEach { step ->
             assertTrue(step.title.isNotBlank())
             assertTrue(step.body.isNotBlank())
         }
-    }
-
-    @Test
-    fun llmStepPointsAtTheSubmenuAndTryFirstModel() {
-        val step = FIRST_RUN_TUTORIAL_STEPS[4]
-        val text = step.body.lowercase()
-        // the submenu's actual entry name in Settings (card "AI bot LLM",
-        // button "Configure AI bot LLM →")
-        assertTrue("ai bot llm" in text)
-        assertTrue("try first" in text)
-        // honest about the distribution state: the small tuned model is
-        // hand-staged, and the copy must not promise an in-app download
-        // of it (that would dead-end the user)
-        assertTrue("staged from a pc" in text)
-        assertTrue("in-app download" in text)
-        // optional, honest about skipping
-        assertTrue("optional" in step.title.lowercase())
-        assertTrue("skip it" in text)
-        // Accuracy guard: the realm and game are always local; bot
-        // chat is on-device by default and can be pointed at a cloud
-        // provider, so the copy must not claim everything is local.
-        assertTrue("offline" in text)
-        assertTrue("on this device" in text)
-        assertTrue("by default" in text)
-        assertTrue("cloud provider" in text)
-        assertFalse("everything runs on this device" in text)
     }
 
     @Test
@@ -153,7 +125,7 @@ class FirstRunTutorialTest {
         assertTrue("unpacked on device" in text)
         // …while Windows installers you must run yourself stay refused.
         assertTrue("must not be a windows installer" in text)
-        // R6-3 (W4 code-red round 3): the body is derived from the
+        // the body is derived from the
         // registry's qualified set — every qualified flavor's version and
         // build must be named, and the vanilla MPQ list must not be
         // presented as the generic requirement (the required set differs

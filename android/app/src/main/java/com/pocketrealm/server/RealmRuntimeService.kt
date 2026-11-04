@@ -38,7 +38,7 @@ class RealmRuntimeService : Service() {
                 RealmNative.statusNative(), RealmNative.detailNative(), activeBindAddress)) }
         override fun start() = startAt(RealmEndpoint.LOOPBACK_ADDRESS)
         override fun startAt(bindAddress: String) = guarded { synchronized(transitionLock) {
-            // Design-tunnel §4.4.2: the ONE raw conf value beside the typed
+            // Design-tunnel: the ONE raw conf value beside the typed
             // grammar is the wildcard — a tunnel-advertised start binds
             // 0.0.0.0 so the advertised tunnel address is actually
             // reachable. Anything else stays the strict endpoint grammar.

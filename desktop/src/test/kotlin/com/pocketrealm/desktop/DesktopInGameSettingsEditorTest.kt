@@ -27,7 +27,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * DESK-12/22/41/59/85/96: the desktop in-game settings editor — direct WTF
+ * the desktop in-game settings editor — direct WTF
  * edits while the client is stopped, queue-while-running with the drain on
  * a clean stop, over the shared codecs and the shared, pinned stock
  * catalogs. The lock file is exercised for contract parity (on the desktop

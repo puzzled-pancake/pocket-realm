@@ -83,7 +83,7 @@ fun interface ClientProcessScanner {
 }
 
 /**
- * The client tree-kill seam (DESK-121): the Android contract drains the
+ * The client tree-kill seam: the Android contract drains the
  * WHOLE client process tree before teardown completes; on Windows the tree
  * sweep is `taskkill /PID <pid> /T /F`. Returns null on a confirmed
  * dispatch, else a human detail — the stop path's direct destroy
@@ -132,7 +132,7 @@ fun interface ClientTreeKiller {
  *    lifecycle records, CONTROL_TIMEOUT_MS stop);
  *  - CLIENT (WoW.exe via ProcessBuilder): observed across the OS process
  *    table (self-spawned or ownerless — DESK-114), its foreground verbs
- *    drive the client window via JNA and never fake success (DESK-71).
+ * drive the client window via JNA and never fake success.
  *
  * Single-transition semantics mirror the services' transitionLock.
  */
@@ -142,19 +142,19 @@ fun interface ClientTreeKiller {
 class DesktopRuntimeBackend(
     private val roots: DesktopStorageRoots = DesktopStorageRoots(),
     private val clientDir: File? = null,
-    /** The client-process scan seam (DESK-114): production scans
+    /** The client-process scan seam: production scans
      * ProcessHandle.allProcesses(); tests inject a fake probe. */
     private val clientProcessScanner: ClientProcessScanner = ClientProcessScanner.SYSTEM,
-    /** The client tree-kill seam (DESK-121): production runs
+    /** The client tree-kill seam: production runs
      * taskkill /PID <pid> /T /F; tests record the pid instead. */
     private val treeKiller: ClientTreeKiller = ClientTreeKiller.SYSTEM,
-    /** DESK-139: the audio-session mute seam. Production walks the Windows
+    /** the audio-session mute seam. Production walks the Windows
      * Core Audio session list via JNA; tests record the verdict instead. */
     private val audioMuter: AudioSessionMuter = Win32AudioMute.SYSTEM,
     /** The DESK-108 seed source override (tests inject a synthetic
      * packaged layout); null resolves the packaged/dev source lazily. */
     private val seedSourceOverride: DesktopSeedLocator.SeedSource? = null,
-    /** D3 (design-lan §2.5): the desktop LAN interface seam — the app model
+    /** the desktop LAN interface seam — the app model
      * shares one instance between this backend's liveness re-checks, the
      * Settings quick-picks, and the D2 monitor, so all three filter the
      * SAME candidate list. */
@@ -170,7 +170,7 @@ class DesktopRuntimeBackend(
         seedSourceOverride ?: DesktopSeedLocator.locate()
     }
 
-    /** The prepare-for-start gate (DESK-19/53/79/98) over this backend's
+    /** The prepare-for-start gate over this backend's
      * datadir; the provider lambda keeps the lazy source lazy. */
     private val preparation = DesktopDatabasePreparation(roots.sqliteDatadir) { seedSource }
 
@@ -191,7 +191,7 @@ class DesktopRuntimeBackend(
     /** The MariaDB engine lane's service, created on FIRST MARIADB use
      * only (the engine's constructor resolves the provider staging; a
      * SQLite-only session must never pay for it). Closed in [close]. */
-    // R1-r2-1 (desktop-twin round 2): the lane the RUNNING world booted on —
+    // the lane the RUNNING world booted on —
     // pinned by startWorld from the persisted selection and consumed by the
     // provisioning seams, so a Home switch after start can never re-lane the
     // expansion write onto another flavor's world database (the D63 R2-2m
@@ -209,7 +209,7 @@ class DesktopRuntimeBackend(
     val bootLane: ClientFlavor?
         get() = _bootLane.value
 
-    /** R3-1 (round 3): the snapshot bootLane was pinned FROM — the realm
+    /** the snapshot bootLane was pinned FROM — the realm
      * and world conf writers consume the same one, so a persisted write
      * landing between the two component starts cannot straddle the boot. */
     @Volatile
@@ -238,7 +238,7 @@ class DesktopRuntimeBackend(
     @Volatile
     internal var mariaDbEngineOverride: DesktopMariaDbEngine? = null
 
-    /** R1-r3-5: the harness gates' provider routing — the shipped-default
+    /** the harness gates' provider routing — the shipped-default
      * MariaDB lane routes verifier seeding through the engine; the sqlite
      * datadir leg stays the dev opt-in lane's. */
     internal fun isMariadbLane(): Boolean =
@@ -247,7 +247,7 @@ class DesktopRuntimeBackend(
     internal fun mariadbVerifierSeeding(): DesktopDatabaseService = mariaDbLane()
 
     /**
-     * W4 (D72 retirement): pins the boot lane from the persisted settings
+     * pins the boot lane from the persisted settings
      * BEFORE any engine op — the same read-and-pin start() performs at the
      * top of every component leg, exposed for the headless harness lane
      * (RpHost) whose pre-start migration apply must resolve the LANE's
@@ -255,7 +255,7 @@ class DesktopRuntimeBackend(
      * pin (this is idempotent).
      */
     /**
-     * R1-2 (code-red round 1): the WORLD-START runtime-lane identity gate.
+     * the WORLD-START runtime-lane identity gate.
      * The shipped image loads the VANILLA lane's pocket_*.dll; a non-vanilla
      * boot is refused loud naming both lanes UNLESS that lane's own runtime
      * is actually present (the dev `-PrpFlavor` lane root), in which case
@@ -267,7 +267,7 @@ class DesktopRuntimeBackend(
     internal fun requireRuntimeLaneMatches(bootLane: ClientFlavor) {
         if (bootLane.flavorId == "vanilla") return
         val lane = bootLane.flavorId
-        // R3-W4-2 (code-red round 3): the lane ROOT loads TWO DLLs at boot
+        // the lane ROOT loads TWO DLLs at boot
         // (Main.kt: pocket_realmd_runtime then pocket_world_runtime) and
         // the lane lockfile pins BOTH — the gate verifies BOTH rows, so a
         // partial/stale rebuild that replaced only the realmd DLL is
@@ -316,7 +316,7 @@ class DesktopRuntimeBackend(
         )
     }
 
-    /** R3-3: the staged lane runtime must be the lane lockfile's pinned
+    /** the staged lane runtime must be the lane lockfile's pinned
      * bytes (size + sha256), not merely a file at the lane path. */
     private fun requireLaneRuntimePinned(
         lane: String,
@@ -379,18 +379,18 @@ class DesktopRuntimeBackend(
      * READY and owner-echoed; every unprovable state is FAILED with the
      * engine's honest detail — never a fake READY). The pid is the ENGINE'S
      * daemon (mariadbd, from the engine's tracked handle), never this JVM's
-     * ambient pid (GAP-5). */
+     * ambient pid. */
     private fun observeMariaDb(): ComponentObservation {
         val status = mariaDbLane().status()
         val running = status.optString("state") == "RUNNING"
-        // GAP-5: the daemon pid the engine tracked at startDaemon; NULL
+        // the daemon pid the engine tracked at startDaemon; NULL
         // whenever the daemon is not RUNNING — never a plausible stand-in.
         val daemonPid = status.optLong("daemonPid").takeIf { running && it > 0 }?.toInt()
         val owner = ownership.getValue(RuntimeComponent.DATABASE).current()
         val ready = running && status.optBoolean("providerReady") && owner != null
         val detail = when {
-            !status.optBoolean("providerReady") -> "DB-LINK: pinned MariaDB provider is not " +
-                "staged; stage the distribution or select the SQLITE provider"
+            !status.optBoolean("providerReady") -> "DB-LINK: the MariaDB provider is not " +
+                "staged; stage it or select the SQLITE provider"
             // The durable-seal drift honest line (the diagnostics surface
             // for compatibilityMismatch): a populated datadir whose seals
             // the staged closure can no longer prove — PROVIDER_IDENTITY,
@@ -445,7 +445,7 @@ class DesktopRuntimeBackend(
         if (!status.optBoolean("providerReady")) {
             return RuntimeActionResult(
                 ok = false,
-                detail = "DB-LINK: pinned MariaDB provider is not staged; stage the " +
+                detail = "DB-LINK: the MariaDB provider is not staged; stage the " +
                     "distribution (tools/build_win_realm_runtime.py --database-backend " +
                     "mariadb) or select the SQLITE provider",
             )
@@ -473,8 +473,8 @@ class DesktopRuntimeBackend(
             com.pocketrealm.supervisor.DatabaseStartPreparation.Action.APPLY_PINNED_MIGRATIONS ->
                 RuntimeActionResult(
                     false,
-                    "$CODE_DB_MIGRATION_PENDING: the mariadb datadir's pinned migrations are " +
-                        "not current; apply them (applyPinnedMigrations) before start",
+                    "$CODE_DB_MIGRATION_PENDING: the MariaDB data directory's migrations are " +
+                        "not current; apply them before start",
                 )
             // The interrupted-restore recovery arm (the Android twin's
             // prepareDatabaseForStart loop leg, consumed at
@@ -492,8 +492,8 @@ class DesktopRuntimeBackend(
                 recoverPendingMariaDbRestore()
             else -> RuntimeActionResult(
                 false,
-                "DB-NOT-READY: mariadb datadir admission is ${action.name}; initialize or " +
-                    "recover the provider lane before start",
+                "DB-NOT-READY: the MariaDB data directory is ${action.name}; initialize or " +
+                    "recover the database before start",
             )
         }
     }
@@ -699,7 +699,7 @@ class DesktopRuntimeBackend(
                 }
                 return RuntimeActionResult(
                     ok = true,
-                    detail = "$CODE_DB_BOOTSTRAP: initialized the mariadb provider lane from " +
+                    detail = "$CODE_DB_BOOTSTRAP: initialized the MariaDB provider from " +
                         "the staged closure (generation " +
                         initialized.optString("generationUuid").take(8) +
                         ", migrations applied=${migrations.optInt("applied")}/" +
@@ -746,11 +746,11 @@ class DesktopRuntimeBackend(
     private var drainingClient = false
     private val clientExitLock = Any()
 
-    /** DESK-51: the user's realmlist backup slot for the running client
+    /** the user's realmlist backup slot for the running client
      * session; restored (and retired) on the client teardown paths. */
     private val realmlistSession = DesktopRealmlist.Session()
 
-    /** DESK-51: the client directory this session projected the realmlist
+    /** the client directory this session projected the realmlist
      * into (the restore target), captured at launch. */
     @Volatile
     private var launchedClientDir: File? = null
@@ -791,7 +791,7 @@ class DesktopRuntimeBackend(
     }
 
     /**
-     * DESK-8/23/43/99: the bot admission monitor riding the world's
+     * the bot admission monitor riding the world's
      * lifetime — the shared BotAdmissionController fed by the JVM sampler
      * (DesktopBotResourceSampler) through the admission-generation
      * handshake. Every WorldNative touch sits behind a seam, and
@@ -903,12 +903,12 @@ class DesktopRuntimeBackend(
      *    of the shared DatabaseStartPreparation machine);
      *  - a partially seeded datadir refuses with the honest
      *    delete-and-reseed copy (the seeder never seeds over partials);
-     *  - a seeded datadir must PROVE its migration seal (DESK-53): a
+     * a seeded datadir must PROVE its migration seal: a
      *    stale, tampered, or pre-seal (legacy) datadir refuses with a
      *    distinct code — DB-MIGRATION-PENDING / DB-PROVIDER-MISMATCH /
      *    DB-DIRTY-GENERATION — never the generic DB-NOT-SEEDED.
      *
-     * D1 (design-lan §2.4) adds the mode-keyed legs around the datadir
+     * D1 (design-lan) adds the mode-keyed legs around the datadir
      * gate:
      *  - LAN_JOIN runs NO server legs at all: it returns after the client
      *    prerequisites, mirroring Android's early return
@@ -949,7 +949,7 @@ class DesktopRuntimeBackend(
             )
         }
 
-    /** R3-6-2 (W4 code-red round 6): the SQLite provider ships only the
+    /** the SQLite provider ships only the
      * VANILLA classic* datadir/seed transcripts — a tbc/wotlk boot lane on
      * the SQLite provider dies late with the non-actionable 'tbcrealmd is
      * not seeded' whose remedy can only produce vanilla again. Refuse LOUD
@@ -968,8 +968,8 @@ class DesktopRuntimeBackend(
         )
         check(sqliteBootLane.flavorId == ClientFlavors.VANILLA.flavorId) {
             "SQLITE-LANE-SCOPE: the SQLite provider ships the vanilla " +
-                "classic* datadir and seed transcripts only — the " +
-                "${sqliteBootLane.flavorId} lane cannot boot on SQLite. " +
+                "classic* datadir and seed transcripts only — " +
+                "${sqliteBootLane.flavorId} cannot boot on SQLite. " +
                 "Switch Settings → Database provider to MariaDB (the " +
                 "shipped default, which provisions the " +
                 "${sqliteBootLane.flavorId} family) or re-pick Vanilla on Home."
@@ -988,7 +988,7 @@ class DesktopRuntimeBackend(
         if (selectedDatabaseProvider() == Settings.DatabaseProvider.MARIADB) {
             return preflightMariaDb()
         }
-        // R3-6-2: the SQLite provider is vanilla-scoped — refuse a
+        // the SQLite provider is vanilla-scoped — refuse a
         // tbc/wotlk boot lane loud before the legacy gate.
         requireSqliteLaneMatchesProvider()
         val missing = DATABASES.filterNot { database ->
@@ -1021,10 +1021,10 @@ class DesktopRuntimeBackend(
      * future tunnel/relay hosting mode that reuses LAN_HOST with a
      * non-private bind cannot exist without changing the shared
      * RuntimeLaunchSpec constructor first — and must then supply its own
-     * predicate rather than inheriting this one (design-lan §2.4's
+     * predicate rather than inheriting this one (design-lan 's
      * mode/predicate table).
      *
-     * Mode-aware (design-tunnel §10, the shared [InterfaceWatch] table —
+     * Mode-aware (design-tunnel, the shared [InterfaceWatch] table —
      * the Android preflight's exact twin): a plain LAN start proves the
      * private LAN interface; a tunnel-advertised start proves the TUNNEL
      * adapter instead (the saved LAN address need not be an active
@@ -1035,6 +1035,9 @@ class DesktopRuntimeBackend(
      */
     internal fun lanHostLivenessRefusal(spec: RuntimeLaunchSpec): RuntimeActionResult? {
         if (spec.mode != RuntimeMode.LAN_HOST) return null
+        // The online host's loopback bind exposes nothing on the LAN — no
+        // stored authorization is owed and no interface needs proving.
+        if (spec.endpoint.isLoopback) return null
         val snapshot = DesktopSettingsStore(roots.settingsFile).load()
         if (!snapshot.allowLanPlayers) {
             return RuntimeActionResult(
@@ -1044,6 +1047,7 @@ class DesktopRuntimeBackend(
             )
         }
         when (val watch = com.pocketrealm.supervisor.InterfaceWatch.forSession(
+            spec.endpoint.address,
             spec.advertisedAddress?.value,
         )) {
             com.pocketrealm.supervisor.InterfaceWatch.None -> Unit
@@ -1143,7 +1147,7 @@ class DesktopRuntimeBackend(
     ): ComponentObservation = withContext(Dispatchers.IO) {
         val slot = ownership.getValue(component)
         slot.claim(owner)
-        // R3-1 (round 3): the WHOLE start transition resolves ONE lane —
+        // the WHOLE start transition resolves ONE lane —
         // pinned BEFORE any component leg (realmd.conf, the projection,
         // world.conf, the overlay and the provisioning writes all read
         // this pin), so a Home tap during the up-to-25s realm READY window
@@ -1153,7 +1157,7 @@ class DesktopRuntimeBackend(
             _bootLane.value = files.bootLaneFlavor(startSnapshot)
             bootLaneSnapshot = startSnapshot
         }
-        // R1-2 (code-red round 1): the boot lane must match the loaded
+        // the boot lane must match the loaded
         // native runtime BEFORE any server native starts — the shipped
         // image carries the VANILLA lane's pocket_*.dll, so a non-vanilla
         // boot without its own per-lane runtime present refuses loud naming
@@ -1168,7 +1172,7 @@ class DesktopRuntimeBackend(
                 } else {
                     database.start(slot.current())
                 }
-            // D1: the Android start-time re-checks (AndroidRuntimeBackend
+            // the Android start-time re-checks (AndroidRuntimeBackend
             // REALM/WORLD branches) mirrored on the desktop — the interface
             // is re-proved immediately before each server native starts.
             RuntimeComponent.REALM -> {
@@ -1184,7 +1188,7 @@ class DesktopRuntimeBackend(
     }
 
     /**
-     * Design-tunnel §4.4.2: the bind value the conf writers receive. Plain
+     * Design-tunnel: the bind value the conf writers receive. Plain
      * LOCAL/LAN keeps the typed endpoint; a tunnel-advertised start binds
      * the wildcard (0.0.0.0 — the raw conf value, never a RealmEndpoint)
      * because the advertised tunnel address is only reachable through the
@@ -1196,7 +1200,7 @@ class DesktopRuntimeBackend(
         if (spec.tunnelAdvertising) RealmEndpoint.WILDCARD_BIND else spec.endpoint.address
 
     /**
-     * D1's start-time leg, mode-aware (design-tunnel §10): plain LAN_HOST
+     * D1's start-time leg, mode-aware (design-tunnel): plain LAN_HOST
      * re-proves the private LAN interface exactly as design-lan specifies;
      * a tunnel-advertised start proves the TUNNEL adapter instead (the
      * advertised address must be live on one) and skips the interface check
@@ -1226,11 +1230,11 @@ class DesktopRuntimeBackend(
     ): RuntimeActionResult = projectRealmAdvertisement(databaseOwner, endpoint, endpoint.address)
 
     /**
-     * Design-tunnel §4.4.2/§5 (bind/advertise split): the desktop lane
+     * Design-tunnel / (bind/advertise split): the desktop lane
      * writes the ADVERTISED address into the one realmlist row — the value
      * friends' clients dial — which diverges from the bind endpoint in
      * tunnel mode. Guards, in order: the raw string must fit the realmlist
-     * column (varchar(32) upstream; §5's honest refusal instead of
+     * column (varchar(32) upstream; 's honest refusal instead of
      * truncation), and must parse as a typed [AdvertisedAddress] — canonical
      * numeric IPv4 (loopback/private/link-local/CGNAT in v1), which keeps
      * the interpolated UPDATE's injection guard trivially closed (the same
@@ -1258,9 +1262,9 @@ class DesktopRuntimeBackend(
             // realm offline for every build until the world's own start
             // UPDATE — this write owns the row from database start, before
             // realmd serves a logon. Resolved through the flavor registry
-            // like the projected database name below (DESK-93), never a
+            // like the projected database name below, never a
             // hard-coded build list.
-            // R3-1: the pinned boot lane, never the live machine a
+            // the pinned boot lane, never the live machine a
             // mid-window switch would flip.
             val builds = (bootLane ?: ServerRuntimeFiles.serverFlavor()).realmdAcceptedBuilds
             check(builds.length <= REALMBUILD_LIST_MAX_CHARS && REALMBUILD_LIST.matches(builds)) {
@@ -1298,7 +1302,7 @@ class DesktopRuntimeBackend(
                     },
                 )
             }
-            // DESK-93: the projected database resolves through the flavor
+            // the projected database resolves through the flavor
             // registry (ServerRuntimeFiles.serverDatabases), never a
             // hard-coded vanilla name — the conf's LoginDatabaseInfo and
             // this row land in the same database by construction.
@@ -1331,8 +1335,8 @@ class DesktopRuntimeBackend(
     }
 
     /**
-     * D4 (design-lan §3.1): the PROJECTED advertisement — the
-     * `realmlist.address` row the host's world start wrote (§2.2). The
+     * the PROJECTED advertisement — the
+     * `realmlist.address` row the host's world start wrote . The
      * invite card renders this, never the stored `lanAddress`, so the card
      * cannot promise an address the realm no longer advertises (and a
      * future tunnel advertise/bind split that rewrites the row is honored
@@ -1352,7 +1356,7 @@ class DesktopRuntimeBackend(
     }.getOrNull()
 
     /**
-     * Design-tunnel §6: the realm's NAME for the invite header — the same
+     * Design-tunnel: the realm's NAME for the invite header — the same
      * row's `name` column, the string the friend actually sees in-game.
      * Fail-soft null exactly like [projectedRealmAddress].
      */
@@ -1441,7 +1445,7 @@ class DesktopRuntimeBackend(
             if (!orphan) {
                 RuntimeActionResult(
                     false,
-                    "adoption refused: ${component.name.lowercase()} is not an ownerless running component " +
+                    "adoption refused: ${component.name.lowercase()} is not an unowned running component " +
                         "(state=${observed.state})",
                 )
             } else {
@@ -1451,7 +1455,7 @@ class DesktopRuntimeBackend(
         }
 
     /**
-     * DESK-61/29: an honest presence sample from what the world native
+     * an honest presence sample from what the world native
      * already reports — the exact fields the Android backend samples out of
      * the world service status: world lifecycle, playerbotsEnabled +
      * realPlayers from the bot status lane, onlinePlayers from the online
@@ -1478,7 +1482,7 @@ class DesktopRuntimeBackend(
     }
 
     /**
-     * DESK-71: the shared ForegroundPromotionPolicy's promote, acting on
+     * the shared ForegroundPromotionPolicy's promote, acting on
      * the client window — the desktop runtime's only foreground surface
      * (world+database live in this process; the Android twin promotes their
      * services' FGS instead). Never fakes success: no client, no visible
@@ -1500,7 +1504,7 @@ class DesktopRuntimeBackend(
         }
 
     /**
-     * DESK-71: the policy's demote. Nothing-to-demote is a true postcondition
+     * the policy's demote. Nothing-to-demote is a true postcondition
      * (no client window holds the foreground), reported ok=true; a client
      * window that DOES hold the foreground hands focus back to the app
      * console (never minimized), and a refused hand-back reports ok=false.
@@ -1534,7 +1538,7 @@ class DesktopRuntimeBackend(
         }
 
     // ------------------------------------------------------------------
-    // DESK-116/122/123/77: the live world-control verbs — the Android
+    // the live world-control verbs — the Android
     // world service's ops (WorldRuntimeService.kt:166-278) over the
     // already-compiled WorldNative externals, guarded like provisionAccount
     // (world READY + owned by this session) and returning honest results.
@@ -1564,7 +1568,7 @@ class DesktopRuntimeBackend(
     }
 
     /**
-     * DESK-122: the Android `setWorldPaused(1)` op — the world pause
+     * the Android `setWorldPaused(1)` op — the world pause
      * primitive (WorldNative.pauseWorldNative) with the "pause" lifecycle
      * record and an honest rc result, under the transition lock. Note the
      * user-facing Pause/Resume rides the supervisor's companion mode (the
@@ -1585,7 +1589,7 @@ class DesktopRuntimeBackend(
             }
         }
 
-    /** DESK-122: the "resume" leg of the pause primitive (setWorldPaused(0)). */
+    /** the "resume" leg of the pause primitive (setWorldPaused(0)). */
     suspend fun resumeWorld(owner: ComponentOwner): RuntimeActionResult =
         withContext(Dispatchers.IO) {
             synchronized(transitionLock) {
@@ -1600,7 +1604,7 @@ class DesktopRuntimeBackend(
         }
 
     /**
-     * DESK-116/123: the Android `setBotTarget(target)` op — a direct bot
+     * the Android `setBotTarget(target)` op — a direct bot
      * target retarget on a running world, refused while a measured
      * admission profile owns the target (the Android setBotTarget check,
      * WorldRuntimeService.kt:190-193): use [startBotProfile] for those.
@@ -1630,7 +1634,7 @@ class DesktopRuntimeBackend(
         }
 
     /**
-     * DESK-116/123: the Android `startBotProfile(profileId)` op, desktop
+     * the Android `startBotProfile(profileId)` op, desktop
      * form — a running world's bot population re-targeted mid-session
      * through the RpHost-proven admission-generation handshake (retire the
      * old measured generation, register a fresh one, set the profile's
@@ -1674,7 +1678,7 @@ class DesktopRuntimeBackend(
         }
 
     /**
-     * DESK-77: the characterPersistence op — one character's persistence
+     * the characterPersistence op — one character's persistence
      * facts from the live world. The identity tokens validate first (the
      * Android op's require order), then the native answers its own JSON.
      */
@@ -1692,7 +1696,7 @@ class DesktopRuntimeBackend(
     }
 
     /**
-     * DESK-77: the worldChat op — one chat line injected through the real
+     * the worldChat op — one chat line injected through the real
      * chat opcode handler. The native owns validation and answers with its
      * own ok verdict (the Android op's documented contract), so only the
      * world guard runs here.
@@ -1715,28 +1719,6 @@ class DesktopRuntimeBackend(
             }
         }
     }
-
-    /** DESK-77: the resetState op — clear one player's LLM assertion memory. */
-    suspend fun resetState(owner: ComponentOwner, player: String): RuntimeActionResult =
-        withContext(Dispatchers.IO) {
-            synchronized(transitionLock) {
-                worldControl(owner, "reset-state") {
-                    org.json.JSONObject(WorldNative.resetStateNative(player))
-                        .put("schema", 1).put("component", "world")
-                }
-            }
-        }
-
-    /** DESK-77: the llmMemoryState op — one player's LLM memory state. */
-    suspend fun llmMemoryState(owner: ComponentOwner, player: String): RuntimeActionResult =
-        withContext(Dispatchers.IO) {
-            synchronized(transitionLock) {
-                worldControl(owner, "llm-memory-state") {
-                    org.json.JSONObject(WorldNative.llmMemoryStateNative(player))
-                        .put("schema", 1).put("component", "world")
-                }
-            }
-        }
 
     /** The shared shape of the DESK-77 ops: world guard, native call, the
      * JSON verdict surfaces as the result (ok = the payload's own "ok"
@@ -1784,7 +1766,7 @@ class DesktopRuntimeBackend(
                         // a retried provisioning always converges to the
                         // active flavor's expansion (never a silently
                         // classic friend on a tbc/wotlk host).
-                        // R1-r2-1: the BOOT lane's expansion — a Home switch
+                        // the BOOT lane's expansion — a Home switch
                         // after world start must not re-lane the write onto
                         // another flavor's world database.
                         val expansion = (bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion
@@ -1808,14 +1790,14 @@ class DesktopRuntimeBackend(
                 }
                 rc != 0 -> AccountProvisionResult(ok = false, code = ServerRuntimeContract.errorName(rc.toLong()))
                 else -> {
-                    // F1-10 (lanes item 12): the fresh row is born with the
+                    // the fresh row is born with the
                     // seed's expansion default (0) and the core gates
                     // expansion content per account row, so the ACTIVE
                     // flavor's level is written before first login (vanilla
                     // stays 0) — resolved through the same serverFlavor()
                     // gate every per-flavor identity on this backend uses,
                     // and fail-loud like the gmlevel leg below it.
-                    // R1-r2-1: the BOOT lane's expansion, never the live machine.
+                    // the BOOT lane's expansion, never the live machine.
                     val expansion = (bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion
                     val addon = WorldNative.setAccountAddonNative(
                         username, expansion, ServerRuntimeContract.CONTROL_TIMEOUT_MS,
@@ -1900,7 +1882,7 @@ class DesktopRuntimeBackend(
     }
 
     // ------------------------------------------------------------------
-    // Remote friend accounts (design-remote-accounts §3/§8/§9/§11): the
+    // Remote friend accounts (design-remote-accounts / /): the
     // host-side verbs the Players surface and the approval flow ride. All
     // guard on the world being READY — the LoginDatabase query pools only
     // exist between StartDatabasesEmbedded and teardown (the account_info
@@ -1909,13 +1891,13 @@ class DesktopRuntimeBackend(
     // ------------------------------------------------------------------
 
     /**
-     * The verifier provisioning leg of friend approval (§3): inserts the
+     * The verifier provisioning leg of friend approval : inserts the
      * friend-derived (s, v) verbatim — mirroring AccountMgr::CreateAccount's
      * write WITHOUT a password — so the password never crosses the host
      * process. Name collisions return ACCOUNT_EXISTS and the HOST rejects
      * the request (the friend picks another name); no verify-and-adopt
      * shortcut exists for the verifier path because the host cannot even
-     * form a password to verify (§3.5).
+     * form a password to verify .
      */
     @Suppress("TooGenericExceptionCaught") // any native failure is an honest refusal, never a crash
     override suspend fun provisionAccountVerifier(
@@ -1934,16 +1916,16 @@ class DesktopRuntimeBackend(
             val accountId = verdict.getOrElse(1) { 0L }
             when {
                 rc == ERR_ACCOUNT_EXISTS.toLong() -> {
-                    // R1-arch-2 (android-core review round 1, serious): the
+                    // the
                     // designed HOST RETRY LANE (approvalFailed → the row
                     // returns to SUBMITTED → the host retries) re-enters
                     // here with ACCOUNT_EXISTS when an earlier attempt
                     // created the row but failed a later leg; the retry's
                     // authorization is the host's attempt bookkeeping
-                    // (allowExistingAccount — R2-1, review round 2). A FIRST
+                    // (allowExistingAccount — R2-1). A FIRST
                     // approval landing on an existing account is an identity
                     // COLLISION: refused with no addon write on the existing
-                    // row (the §3.5 contract — the host rejects, the friend
+                    // row (the contract — the host rejects, the friend
                     // picks another name).
                     if (!allowExistingAccount) {
                         AccountProvisionResult(ok = false, code = "ACCOUNT_EXISTS")
@@ -1953,7 +1935,7 @@ class DesktopRuntimeBackend(
                     if (!exists) {
                         AccountProvisionResult(ok = false, code = "ACCOUNT_EXISTS")
                     } else {
-                        // R1-r2-1: the BOOT lane's expansion — a Home switch
+                        // the BOOT lane's expansion — a Home switch
                         // after world start must not re-lane the write onto
                         // another flavor's world database.
                         val expansion = (bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion
@@ -1978,12 +1960,12 @@ class DesktopRuntimeBackend(
                 }
                 rc != 0L -> AccountProvisionResult(ok = false, code = ServerRuntimeContract.errorName(rc))
                 else -> {
-                    // F1-10 parity (R1-arch-2): the fresh row is born at the
+                    // F1-10 parity: the fresh row is born at the
                     // seed's expansion default (0) exactly like the Android
                     // seam — the ACTIVE flavor's level is written before
                     // first login, fail-loud on refusal (never a silently
                     // classic provisioned friend).
-                    // R1-r2-1: the BOOT lane's expansion, never the live machine.
+                    // the BOOT lane's expansion, never the live machine.
                     val expansion = (bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion
                     val addon = WorldNative.setAccountAddonNative(
                         username, expansion, ServerRuntimeContract.CONTROL_TIMEOUT_MS,
@@ -2012,7 +1994,7 @@ class DesktopRuntimeBackend(
         }
     }
 
-    /** The Players table read (§11): every account with its ban state, the
+    /** The Players table read: every account with its ban state, the
      * live failed-logins counter, and the last SUCCESSFUL logon. */
     override suspend fun accountRoster(): RosterRead = withContext(Dispatchers.IO) {
         val world = observeWorld()
@@ -2023,7 +2005,7 @@ class DesktopRuntimeBackend(
         RosterRead(reason, accounts)
     }
 
-    /** One friend's characters (§8). */
+    /** One friend's characters. */
     override suspend fun accountCharacters(username: String): CharactersRead = withContext(Dispatchers.IO) {
         val world = observeWorld()
         if (world.state != ComponentLifecycle.READY) return@withContext CharactersRead("world-not-ready")
@@ -2033,7 +2015,7 @@ class DesktopRuntimeBackend(
         CharactersRead(reason, characters)
     }
 
-    /** The shared moderation surface (§9): `ban account <name> <duration>
+    /** The shared moderation surface: `ban account <name> <duration>
      * <reason>` through the SEC_CONSOLE relay. Duration presets arrive in
      * TimeStringToSecs shape ("1h"/"1d"; "0" = permanent). */
     override suspend fun banFriendAccount(username: String, duration: String, reason: String): ModerationResult =
@@ -2048,7 +2030,7 @@ class DesktopRuntimeBackend(
             ModerationResult(ok, detail)
         }
 
-    /** Revoke (unban) (§9): `unban account <name>`. */
+    /** Revoke (unban): `unban account <name>`. */
     override suspend fun unbanFriendAccount(username: String): ModerationResult = withContext(Dispatchers.IO) {
         val world = observeWorld()
         if (world.state != ComponentLifecycle.READY) return@withContext ModerationResult(false, "world-not-ready")
@@ -2060,7 +2042,7 @@ class DesktopRuntimeBackend(
         ModerationResult(ok, detail)
     }
 
-    /** Per-friend gmlevel 0..3 (§10) through the existing set_account_gmlevel. */
+    /** Per-friend gmlevel 0..3 through the existing set_account_gmlevel. */
     override suspend fun setFriendGmLevel(username: String, level: Int): Boolean = withContext(Dispatchers.IO) {
         val world = observeWorld()
         if (world.state != ComponentLifecycle.READY) return@withContext false
@@ -2160,7 +2142,7 @@ class DesktopRuntimeBackend(
                     roots.sqliteDatadir + " (run gradlew seedRealmData from desktop/)",
             )
         }
-        // Seal re-proof BEFORE the drain/integrity legs (DESK-79): a
+        // Seal re-proof BEFORE the drain/integrity legs: a
         // tampered or stale generation refuses as itself — it must never
         // masquerade as a repairable dirty one. A dirty CLEAN seal is
         // exactly what recovery owns (the clean-stop seal is re-stamped
@@ -2324,8 +2306,7 @@ class DesktopRuntimeBackend(
         // then world, then realm. DATABASE is stateless on the SQLite lane
         // (no daemon; its clean-stop seal is stopDatabase's sidecar drain,
         // which the supervisor issues separately); the MariaDB lane's
-        // daemon service and the embedded-LLM sidecar stop here when this
-        // session ever routed through them.
+        // daemon service stops here when this session ever routed through it.
         runCatching { stopClient() }
         synchronized(transitionLock) {
             // The admission monitor retires with the process (best-effort).
@@ -2334,7 +2315,6 @@ class DesktopRuntimeBackend(
             runCatching { worldDataLease?.close() }
             worldDataLease = null
             runCatching { RealmNative.stopNative(FORCE_STOP_TIMEOUT_MS) }
-            files.stopLlmSidecar()
             runCatching { mariaDbService?.close() }
             mariaDbService = null
         }
@@ -2394,7 +2374,7 @@ class DesktopRuntimeBackend(
     }
 
     /**
-     * DESK-112: the self-spawned client died WITHOUT a stop (a crash, or
+     * the self-spawned client died WITHOUT a stop (a crash, or
      * the user closing WoW.exe themselves) — capture its exit code into
      * the durable client lifecycle record on the first observation that
      * sees the death. A code 0 death is still recorded (clean=true); the
@@ -2434,12 +2414,12 @@ class DesktopRuntimeBackend(
         client = null
     }
 
-    /** DESK-112: the durable last-client-exit record (null before the
+    /** the durable last-client-exit record (null before the
      * first journalled client death this storage root has seen) — the
      * Diagnostics "last client exit" line and a support-bundle member. */
     fun lastClientExit(): org.json.JSONObject? = files.readClientExit()
 
-    /** DESK-127: the world status telemetry as the shared ABI's status
+    /** the world status telemetry as the shared ABI's status
      * JSON (heartbeatMs/tickCount/lastTickMs/maxTickMs/activeSessions);
      * null when the native lane is not staged — never a throw into the
      * UI poll path. */
@@ -2452,7 +2432,7 @@ class DesktopRuntimeBackend(
         )
     }.getOrNull()
 
-    /** DESK-127: the realm status telemetry (heartbeatCount et al). */
+    /** the realm status telemetry (heartbeatCount et al). */
     fun realmTelemetry(): org.json.JSONObject? = runCatching {
         val lane = bootLane?.flavorId ?: "vanilla"
         ServerStatusJson.realm(
@@ -2465,7 +2445,7 @@ class DesktopRuntimeBackend(
     /**
      * Cheap public liveness probe for the in-game settings editor (DESK-41/96:
      * direct edit while stopped vs queue-while-running) and the gamepad
-     * bridge's foreground gate (DESK-4). Same scan observe(CLIENT) uses, at
+     * bridge's foreground gate. Same scan observe(CLIENT) uses, at
      * UI frequency — not on the supervisor's serialization path.
      */
     fun clientAlive(): Boolean = observedClientPid() != null
@@ -2478,7 +2458,7 @@ class DesktopRuntimeBackend(
      * null (no directory configured means nothing can be attributed).
      * Attribution is existence-based on purpose: a user-launched client is
      * observed and drained regardless of whether its identity would pass
-     * the launch gate (DESK-114's posture). */
+     * the launch gate. */
     private fun findClientProcess(): ClientProcessScan? {
         val dir = clientDir
             ?: runCatching { resolveManagedClient()?.root }.getOrNull()
@@ -2500,15 +2480,15 @@ class DesktopRuntimeBackend(
     }
 
     /** Launch WoW.exe natively in its own directory. The directory resolves
-     * per launch (DESK-67/97): constructor override (LaunchClient's
+     * per launch: constructor override (LaunchClient's
      * -DclientDir) → the ACTIVE MANAGED GENERATION through the fail-closed
      * reader → the stored client folder (the Home screen's picker / import)
      * → the conventional default, with the DESK-21/36/52/68 identity gate
      * refusing a wrong-build folder BEFORE any client-directory side effect.
      * After the gates the launch boundary applies, in order: the addon
-     * projection (DESK-11/40/54), the vanilla-tweaks patch lane + Config.wtf
+     * projection, the vanilla-tweaks patch lane + Config.wtf
      * overlay + session-aware realmlist projection (DESK-27/58/89, DESK-50,
-     * DESK-51), the spawn, and the per-launch audio mode (DESK-139). */
+     * DESK-51), the spawn, and the per-launch audio mode. */
     @Suppress("TooGenericExceptionCaught") // any launch failure surfaces as an honest throw
     private fun startClient(endpoint: RealmEndpoint): ComponentObservation = synchronized(transitionLock) {
         val resolution = resolveClientForLaunch()
@@ -2527,7 +2507,7 @@ class DesktopRuntimeBackend(
         }
         // Refuse BEFORE projecting the realmlist: a refused launch must
         // have no side effects on the client directory. The guard reads the
-        // same scan observe() does (DESK-114): a user-launched WoW.exe must
+        // same scan observe does: a user-launched WoW.exe must
         // not get a duplicate twin launched over it.
         client?.let { if (it.isAlive) error("client already running (pid ${it.pid()})") }
         findClientProcess()?.let {
@@ -2545,7 +2525,7 @@ class DesktopRuntimeBackend(
                 error("client identity refused: " + scan.failures.joinToString("; "))
             }
         }
-        // DESK-11/40/54/83/84: the launch-boundary addon projection. After
+        // the launch-boundary addon projection. After
         // every refusal gate (a refused launch must have no side effects on
         // the client directory), BEFORE the spawn: the shared migrator
         // normalizes pre-0.6.0 device data over the client WTF tree, the
@@ -2567,7 +2547,7 @@ class DesktopRuntimeBackend(
         val projectedAddons = com.pocketrealm.addons.DesktopAddonRuntimeProjector(
             File(roots.root, "addons"),
         ).project(dir, inputSafeMode)
-        // DESK-27/58/89: the vanilla-tweaks lane publishes `WoW.exe.patched`
+        // the vanilla-tweaks lane publishes `WoW.exe.patched`
         // through the lockfile-pinned staged patcher plus the nearby-loot
         // companion patch, AUTHORIZED_CLIENT_SHA256-gated, and the launch
         // runs that binary; an unpatched request keeps the pristine exe.
@@ -2575,7 +2555,7 @@ class DesktopRuntimeBackend(
         // (the Android prepare contract).
         val patch = DesktopVanillaTweaksPatcher.publishForLaunch(dir, snapshot.tweaks)
         val exe = patch.executable
-        // DESK-50: the app-owned Config.wtf overlay, before spawn — the
+        // the app-owned Config.wtf overlay, before spawn — the
         // EULA/TOS/intro gates die here so the DESK-138/134 auto-login never
         // types into the gate screens. The audio condition rides the
         // persisted DESK-139 audio mode; the sound-channels condition rides
@@ -2588,8 +2568,8 @@ class DesktopRuntimeBackend(
                 effectiveTweaks = patch.effectiveConfig,
             ),
         )
-        // DESK-51: the user's realmlist is backed up (first projection of the
-        // session) and MERGED — only the `set realmlist` line moves; the
+        // the user's realmlist is backed up (first projection
+        // of the session) and MERGED — only the `set realmlist` line moves; the
         // original bytes return on the teardown paths.
         DesktopRealmlist.projectForSession(dir, endpoint, roots, realmlistSession)
         launchedClientDir = dir
@@ -2602,7 +2582,7 @@ class DesktopRuntimeBackend(
             .apply { environment()["__COMPAT_LAYER"] = "RUNASINVOKER" }
             .start()
         client = spawned
-        // DESK-139: the persisted audio mode applies per launch. The client's
+        // the persisted audio mode applies per launch. The client's
         // audio session appears once DirectSound initializes, so the mute
         // polls OFF the transition gate (the READY observation never waits)
         // and reports honestly when no session ever appears.
@@ -2622,7 +2602,7 @@ class DesktopRuntimeBackend(
         )
     }
 
-    /** DESK-139: the per-launch audio mute, polled off the transition gate. */
+    /** the per-launch audio mute, polled off the transition gate. */
     private fun scheduleAudioMute(pid: Int) {
         Thread {
             val failure = Win32AudioMute.applyLaunchMode(pid, mute = true, muter = audioMuter)
@@ -2651,12 +2631,12 @@ class DesktopRuntimeBackend(
         return ClientResolution.Folder(candidate)
     }
 
-    /** DESK-67/97: the active managed generation through the fail-closed
+    /** the active managed generation through the fail-closed
      * reader, or null when no per-flavor pointer is published. A pointer
      * whose generation fails validation THROWS (the reader's contract) —
      * launch is refused, never re-pointed at an unverified folder.
      *
-     * GAP-3 (owner census UIUX-3): the lane resolves through the
+     * the lane resolves through the
      * [ActiveFlavor] machine — the switcher's selection drives the pointer
      * namespace at the second qualification; the machine's ambiguous-state
      * refusal surfaces through the callers' honest launch refusal copy
@@ -2669,7 +2649,7 @@ class DesktopRuntimeBackend(
     }
 
     /**
-     * DESK-52/68/97: the resolved client directory for status and launch —
+     * the resolved client directory for status and launch —
      * the active managed generation's root first, then the stored-or-default
      * folder WHEN ITS IDENTITY RESOLVES (a WoW.exe whose PE version resource
      * does not match the qualified flavor is refused here, not at spawn).
@@ -2683,10 +2663,10 @@ class DesktopRuntimeBackend(
         // A PRESENT but broken generation must not silently fall through to
         // the legacy folder: resolveManagedClient threw inside runCatching,
         // so re-derive the difference (pointer exists → fail closed).
-        // GAP-3: same ACTIVE-lane resolution as resolveManagedClient — the
+        // same ACTIVE-lane resolution as resolveManagedClient — the
         // former `.single()` here sat OUTSIDE the runCatching and crashed
         // the status/preflight paths at the second qualification.
-        // W4 flip (R6-2): the render/status path resolves through the
+        // The render/status path resolves through the
         // machine's canonical displayedId — no persisted pick under the
         // flipped registry is the honest "no client" state (fail closed as
         // no client), never an ambiguous-registry crash.
@@ -2702,6 +2682,31 @@ class DesktopRuntimeBackend(
         return legacyClientDirCandidate()?.takeIf { dir -> DesktopClientScanner().scan(dir).supported }
     }
 
+    /**
+     * The game folder to start when joining someone else's game of
+     * [flavorId]: that version's imported client first, then the folder the
+     * player chose for joining that version, then the Home game folder. A
+     * folder only counts when its WoW.exe is that exact version. Null when
+     * none fits, so the join asks for a folder instead of failing later.
+     */
+    fun resolveJoinClientDir(flavorId: String, joinClientDirs: Map<String, String>): File? {
+        val flavor = ClientFlavors.ALL.firstOrNull { it.flavorId == flavorId } ?: return null
+        val managed = runCatching {
+            ClientGenerationStore(roots).activeGeneration(flavor)
+                ?.let { ManagedClientStore(roots).load(flavor.clientId)?.root }
+        }.getOrNull()
+        if (managed != null && File(managed, "WoW.exe").isFile) return managed
+        val stored = DesktopSettingsStore(roots.settingsFile).load().clientDir
+        return listOfNotNull(joinClientDirs[flavorId], stored.takeIf { it.isNotBlank() })
+            .map(::File)
+            .firstOrNull { dir -> joinClientMatches(dir, flavor.build) }
+    }
+
+    /** True when [dir] holds a playable client of exactly [build]. */
+    fun joinClientMatches(dir: File, build: Int): Boolean =
+        File(dir, "WoW.exe").isFile &&
+            DesktopClientScanner().scan(dir).let { it.supported && it.build == build }
+
     /** The STORED client folder (the Home picker); null when unset or when
      * it holds no WoW.exe (existence only — identity is applied by the
      * callers). Deliberately NO conventional/dev-box default: the stored
@@ -2716,7 +2721,7 @@ class DesktopRuntimeBackend(
     }
 
     /**
-     * DESK-58: the world conf's PocketRealm.NearbyInteract knob verdict —
+     * the world conf's PocketRealm.NearbyInteract knob verdict —
      * the AUTHORIZED-layout EFFECTIVE resolution of the requested tweaks
      * over the user's actual client executable ([nearbyUseEnabledForExecutable]),
      * not the requested consent alone: on a non-vanilla-build layout the
@@ -2752,7 +2757,7 @@ class DesktopRuntimeBackend(
     }
 
     /**
-     * The client drain (DESK-114): destroy by pid — the self-spawned
+     * The client drain: destroy by pid — the self-spawned
      * process when it lives, else the scan hit under the client directory,
      * so an ownerless/user-launched client dies WITH the session instead of
      * surviving to play against a world the app just stopped. DESK-121: the
@@ -2801,7 +2806,7 @@ class DesktopRuntimeBackend(
     }
 
     /**
-     * DESK-51: the session's realmlist restore on the teardown paths (a
+     * the session's realmlist restore on the teardown paths (a
      * proven exit, the not-running early verdict, and close()). The user's
      * original bytes return and the backup slot retires — a session that
      * never projected (no backup) is the honest not-restored no-op.
@@ -2836,7 +2841,7 @@ class DesktopRuntimeBackend(
     // ---------------- database component ----------------
 
     /**
-     * DESK-49/92: whether every seeded realm database is present in the
+     * whether every seeded realm database is present in the
      * datadir — the first-run tutorial's prepare-world-data status (pure
      * file-existence check, no natives).
      */
@@ -2978,7 +2983,7 @@ class DesktopRuntimeBackend(
         if (!status.optBoolean("providerReady")) {
             return BackupAdmission(
                 null,
-                "DB-LINK: pinned MariaDB provider is not staged; stage the " +
+                "DB-LINK: the MariaDB provider is not staged; stage the " +
                     "distribution (tools/build_win_realm_runtime.py --database-backend " +
                     "mariadb) or select the SQLITE provider",
             )
@@ -3163,7 +3168,7 @@ class DesktopRuntimeBackend(
      * bookkeeping the model's COMMIT/ROLLBACK legs key on.
      */
     fun beginSnapshotRestore(snapshotId: String): BegunRestore = synchronized(transitionLock) {
-        // W4 flip: the restore targets the PERSISTED lane — pin the boot
+        // The restore targets the PERSISTED lane — pin the boot
         // lane before the engine's compatibility gate resolves it (a
         // restore is an operation leg like start; a headless or idle
         // backend never pinned it).
@@ -3234,7 +3239,7 @@ class DesktopRuntimeBackend(
      * follows the verification stop); the engine's own
      * restore token becomes this transaction's token. */
     /**
-     * R2-R4-3 (W4 code-red round 4): the snapshot store snapshots the
+     * the snapshot store snapshots the
      * WHOLE shared datadir while seals/ledgers are lane-scoped — restoring
      * an older backup on lane A silently rolls lane B's family back to
      * backup time (its seal vanishes; its next boot re-applies, and
@@ -3426,7 +3431,7 @@ class DesktopRuntimeBackend(
         )
     }
 
-    /** DESK-127: the statusNative telemetry indices the observation detail
+    /** the statusNative telemetry indices the observation detail
      * used to discard (3..) ride the detail string, so the supervisor's
      * journal/log trail carries the world-load facts too. */
     private fun realmTelemetrySummary(status: LongArray): String =
@@ -3440,7 +3445,7 @@ class DesktopRuntimeBackend(
             "maxTickMs=${status[STATUS_INDEX_MAX_TICK_MS]} " +
             "activeSessions=${status[STATUS_INDEX_ACTIVE_SESSIONS]}"
 
-    /** The bind value (design-tunnel §4.4.2): the typed endpoint address,
+    /** The bind value (design-tunnel ): the typed endpoint address,
      * or the wildcard literal when the start tunnel-advertises. */
     private fun startRealm(bindAddress: String): ComponentObservation = synchronized(transitionLock) {
         files.prepareRealmLogsForStart(currentRealmState())
@@ -3457,13 +3462,13 @@ class DesktopRuntimeBackend(
 
     @Suppress("TooGenericExceptionCaught") // config/data failures surface as the honest DATA_MISSING posture
     private fun startWorld(bindAddress: String, spec: RuntimeLaunchSpec): ComponentObservation = synchronized(transitionLock) {
-        // DESK-8/23/43/99: the Android ops' `check(stopAdmissionMonitor())`
+        // the Android ops' `check(stopAdmissionMonitor)`
         // start precondition — a start requires the previous monitor gone.
         check(runCatching { botAdmission.stop() }.getOrElse { false }) {
             "previous bot admission monitor did not stop"
         }
         var resolved: com.pocketrealm.bots.BotProfile? = null
-        // Design-timeframe §8: the active stage rides the world-start
+        // Design-timeframe: the active stage rides the world-start
         // lifecycle record ("... stage=<id>"), the support-evidence pattern.
         var timeframeStageForLifecycle = ""
         // worldConfig is the honest gate: without prepared data it fails
@@ -3472,13 +3477,13 @@ class DesktopRuntimeBackend(
             files.prepareWorldLogsForStart(currentWorldState())
             resolved = launchBotProfile(spec)
             // One blocking settings read feeds the nearby debounce leg and
-            // the lifecycle-recorded timeframe stage (design §8: the active
+            // the lifecycle-recorded timeframe stage (design: the active
             // stage rides the lifecycle/support evidence).
-            // R3-1: the PINNED snapshot (pinned at start() entry before the
+            // the PINNED snapshot (pinned at start entry before the
             // realm leg) — never a fresh disk load a mid-window write could
             // straddle. The fallback covers direct startWorld calls in tests.
             val snapshot = bootLaneSnapshot ?: DesktopSettingsStore(roots.settingsFile).load()
-            // R1-r3-1: the stage resolves through the PINNED boot lane
+            // the stage resolves through the PINNED boot lane
             // (confValueFor — the android D47-10 twin); the bare confValue(
             // delegates to the LIVE holder machine and tears the stage leg
             // (conf emission, overlay desiredStage, lifecycle record) off
@@ -3489,15 +3494,15 @@ class DesktopRuntimeBackend(
             )
             files.worldConfig(
                 bindAddress,
-                // DESK-132: the persisted nearby-use debounce reaches the
+                // the persisted nearby-use debounce reaches the
                 // conf's PocketRealm.NearbyInteractCooldownMs (the Android
                 // WorldRuntimeService threading twin).
                 nearbyInteractTriggerGuardMs = snapshot.nearbyInteractTriggerGuardMs,
-                // DESK-58: the conf knob follows the AUTHORIZED-layout
+                // the conf knob follows the AUTHORIZED-layout
                 // effective resolution over the user's actual client exe,
                 // not the requested consent alone.
                 nearbyUseEnabled = nearbyUseEnabledForConf(),
-                // DESK-99: the launch profile carries the persisted
+                // the launch profile carries the persisted
                 // admission-lowered initial target — the next
                 // `PocketRealm.BotTarget` conf knob.
                 botProfile = resolved?.let { botAdmission.persistedLaunchProfile(it) },
@@ -3512,7 +3517,7 @@ class DesktopRuntimeBackend(
             files.writeLifecycle("world", false, "start-failed-data", failure.message ?: "config failure")
             error("world start refused: ${failure.message}")
         }
-        // Design-timeframe §4.3: the stage overlay, applied at world start
+        // Design-timeframe: the stage overlay, applied at world start
         // BEFORE native boot (after the conf write, so a world whose data
         // cannot even produce a conf never touches the DB). Desired vs
         // applied resolves against the durable meta ledger; ANY overlay
@@ -3562,7 +3567,7 @@ class DesktopRuntimeBackend(
         }
         try {
             val ready = awaitComponentReady("world", worldReadyWaitMs()) { observeWorld() }
-            // DESK-25: READY spent the process's one world lifetime (the
+            // READY spent the process's one world lifetime (the
             // native pinned m_ever_ready) — every later start in this
             // process refuses WRONG_STATE; the app model offers the
             // app-relaunch action once this realm stops.
@@ -3639,7 +3644,7 @@ class DesktopRuntimeBackend(
     }
 
     private fun stopWorld(): RuntimeActionResult = synchronized(transitionLock) {
-        // DESK-8/23/43/99: the admission monitor retires with the world (a
+        // the admission monitor retires with the world (a
         // hung worker never blocks the stop — the retired generation dies
         // with the native, and the worker breaks on its next cadence).
         val admissionStopped = runCatching { botAdmission.stop() }.getOrDefault(false)
@@ -3649,12 +3654,9 @@ class DesktopRuntimeBackend(
         val rc = WorldNative.stopNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
         runCatching { worldDataLease?.close() }
         worldDataLease = null
-        // R1-r2-1: the boot-lane pin dies with the world it served.
+        // the boot-lane pin dies with the world it served.
         _bootLane.value = null
         bootLaneSnapshot = null
-        // The embedded-LLM lane's sidecar stops with the world it served
-        // (DESK-48/80/103; the Android supervisor's :llm stop contract).
-        files.stopLlmSidecar()
         files.writeLifecycle("world", rc == 0, "stop", ServerRuntimeContract.errorName(rc.toLong()))
         RuntimeActionResult(rc == 0, "world stop rc=$rc (${ServerRuntimeContract.errorName(rc.toLong())})")
     }
@@ -3691,7 +3693,7 @@ class DesktopRuntimeBackend(
         const val REALM_STATUS_WIDTH = 5
         const val WORLD_STATUS_WIDTH = 8
 
-        /** GAP-3 (owner census UIUX-3): the [ActiveFlavor] lane suffixes
+        /** the [ActiveFlavor] lane suffixes
          * naming this backend's flavor-resolving gates. */
         const val MANAGED_CLIENT_LANE = "the managed client generation resolves the qualified lane"
         const val NAMED_BACKUP_LANE = "named backups resolve the qualified lane"
@@ -3727,7 +3729,7 @@ class DesktopRuntimeBackend(
         /** The world lifecycle log tag (the admission monitor's lane). */
         const val WORLD_LOG_TAG = "World"
 
-        /** The snapshot-lane log tag (DESK-6/18/37/100). */
+        /** The snapshot-lane log tag. */
         const val SNAPSHOT_LOG_TAG = "Snapshots"
 
         /** Backup-name rule (the Android createNamedBackup's BACKUP_NAME). */

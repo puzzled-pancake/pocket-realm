@@ -93,7 +93,7 @@ def check_flavor_source_structure(errors: list[str]) -> None:
             errors.append(f"flavor-source structure: {required.name} is missing")
             return
     sources = json.loads(sources_path.read_text(encoding="utf-8"))["sources"]
-    # Review round 2 (R2-2): the by-id dict below silently collapses
+    # Review the by-id dict below silently collapses
     # duplicate ids (last wins), so the first entry's path/gitlink would go
     # unverified while a doctored second entry re-points a flavor pin.
     # Refuse duplicates before the structural legs run.

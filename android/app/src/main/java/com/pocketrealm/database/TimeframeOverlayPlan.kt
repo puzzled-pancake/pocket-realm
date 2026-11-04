@@ -7,7 +7,7 @@ import com.pocketrealm.client.TimeframeStages
 
 /**
  * The stage-overlay decision surface, SHARED by both platforms' appliers
- * (design-timeframe §2/§4.3): the default-stage verdict, the pinned
+ * (design-timeframe): the default-stage verdict, the pinned
  * overlay's statement plan (split + the INSERT OR IGNORE-only policy), and
  * the pocketrealm_meta stage-state bookkeeping text. Android-free so the
  * exact same statements and policy execute through the desktop SQLite seam
@@ -42,7 +42,7 @@ internal object TimeframeOverlayPlan {
     const val POLICY_EXCERPT_CHARS = 80
 
     /** The world-process lane binding (R1-arch-5/R2-2, android-core review
-     * round 1): this plan object is SHARED by both platforms and both
+     * ): this plan object is SHARED by both platforms and both
      * Android processes, and the [ActiveFlavor] holder's selection is
      * :ui-process-local in-memory state (the Home picker) — the default
      * resolver (the holder's own fail-loud machine) is right for the
@@ -68,7 +68,7 @@ internal object TimeframeOverlayPlan {
 
     /** The one qualified lane the world runs, resolved through the SAME
      * fail-loud machine as the conf stage writer (R2-1/R1-2, android-core
-     * review round 1): the old
+     * ): the old
      * `ClientFlavors.qualified().singleOrNull() ?: VANILLA` fallback picked
      * VANILLA silently when the qualified list was empty or ambiguous, so
      * at a multi-qualified flip the overlay's lane diverged from the active
@@ -89,7 +89,7 @@ internal object TimeframeOverlayPlan {
 
     /** The overlay's statement plan for one stage: the pinned catalog SQL
      * split by the shared seed scanner, every statement policy-checked to
-     * be a flag-set INSERT OR IGNORE (never a destructive one — design §2:
+     * be a flag-set INSERT OR IGNORE (never a destructive one — design:
      * backward moves re-apply an earlier overlay over the same datadir, so
      * nothing may be destroyed). Throws loudly on any hostile statement. */
     fun statementsFor(desiredStage: String): List<String> {

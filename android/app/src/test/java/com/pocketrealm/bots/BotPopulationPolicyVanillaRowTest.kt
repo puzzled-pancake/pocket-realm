@@ -20,7 +20,7 @@ class BotPopulationPolicyVanillaRowTest {
                 charactersPerBotAccount = 9,
                 minCustomTarget = 10,
                 maxSupportedTarget = 10_000,
-                maxBuiltInTarget = 600,
+                maxBuiltInTarget = 1_000,
                 maxAccounts = 2_000,
             ),
             BotPopulationPolicy.VANILLA_ROW,
@@ -29,7 +29,7 @@ class BotPopulationPolicyVanillaRowTest {
         assertEquals(9, BotPopulationPolicy.CHARACTERS_PER_BOT_ACCOUNT)
         assertEquals(10, BotPopulationPolicy.MIN_CUSTOM_TARGET)
         assertEquals(10_000, BotPopulationPolicy.MAX_SUPPORTED_TARGET)
-        assertEquals(600, BotPopulationPolicy.MAX_BUILT_IN_TARGET)
+        assertEquals(1_000, BotPopulationPolicy.MAX_BUILT_IN_TARGET)
         assertEquals(2_000, BotPopulationPolicy.MAX_ACCOUNTS)
     }
 

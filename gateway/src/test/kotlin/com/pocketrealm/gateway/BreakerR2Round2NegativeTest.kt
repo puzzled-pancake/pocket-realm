@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * W6-N3 code-red ROUND 2 (adversarial breaker R2) — the probes round 1 did
+ * Adversarial negative probes the first pass did
  * not run. Two kinds live here:
  *
  *  - LEAK PROBES (expected RED until fixed): they assert the invariant the
@@ -231,15 +231,19 @@ class BreakerR2Round2NegativeTest {
         assertEquals(
             setOf(
                 GatewayContractPorts.keepalive,
+                GatewayContractPorts.signup,
+                GatewayContractPorts.hello,
                 GatewayContractPorts.realm,
                 GatewayContractPorts.world,
             ),
             allowed,
             "the mux must open exactly the two game lanes plus the " +
-                "reserved keep-alive lane",
+                "reserved keep-alive, sign-up and hello lanes",
         )
         for (port in 0..0xffff) {
             if (port == GatewayContractPorts.keepalive ||
+                port == GatewayContractPorts.signup ||
+                port == GatewayContractPorts.hello ||
                 port == GatewayContractPorts.realm ||
                 port == GatewayContractPorts.world
             ) {
@@ -359,5 +363,7 @@ class BreakerR2Round2NegativeTest {
         val realm: Int = com.pocketrealm.discovery.iroh.GatewayContract.PORT_REALM
         val world: Int = com.pocketrealm.discovery.iroh.GatewayContract.PORT_WORLD
         val keepalive: Int = com.pocketrealm.discovery.iroh.GatewayContract.PORT_KEEPALIVE
+        val signup: Int = com.pocketrealm.discovery.iroh.GatewayContract.PORT_SIGNUP
+        val hello: Int = com.pocketrealm.discovery.iroh.GatewayContract.PORT_HELLO
     }
 }

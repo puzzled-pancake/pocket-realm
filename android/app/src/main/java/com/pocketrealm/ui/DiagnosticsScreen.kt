@@ -133,6 +133,10 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
                     Text("Storage roots", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Text("Mutable on internal storage: ${if (report.mutableRootIsInternal) "yes" else "NO"}",
                         style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Content volume: ${report.contentVolume.name.lowercase()}" +
+                            (if (report.removableUnavailable) " (SD card requested but not mounted)" else ""),
+                        style = MaterialTheme.typography.bodyMedium)
                     report.roots.forEach { r ->
                         Text("• ${r.name}: ${if (r.exists) "ok" else "MISSING"} · ${r.usableBytes / (1024 * 1024)} MB free",
                             style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
@@ -143,7 +147,7 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Client session evidence",
+                    Text("Client session info",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold)
                     if (clientEvidence.isEmpty()) {
@@ -155,7 +159,7 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
                                 fontFamily = FontFamily.Monospace)
                         }
                         Text("Crash dump texts live in the client generation's Errors/ folder " +
-                            "(Wine timestamps are UTC before the TZ fix).",
+                            "(Wine timestamps are UTC).",
                             style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -245,14 +249,12 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Provenance", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text("Sources: see schemas/sources.json (pinned submodules).",
+                    Text("Sources: recorded in schemas/sources.json (every dependency is version-locked).",
                         style = MaterialTheme.typography.bodyMedium)
-                    // The legacy product slug predates the registry; the
-                    // qualified set derives from ClientFlavors so
-                    // qualifying a flavor (port plan S5) updates this
-                    // line from the manifest.
-                    Text("Flavor: offline-vanilla-1.12 (see schemas/flavor.json" +
-                        "; qualified: ${ClientFlavors.qualified().joinToString("/") { it.flavorId }}).",
+                    // The version list derives from ClientFlavors so adding
+                    // a game version to the manifest updates this line.
+                    Text("Game versions: ${ClientFlavors.qualified().joinToString("/") { it.flavorId }} " +
+                        "(details in schemas/flavor.json).",
                         style = MaterialTheme.typography.bodyMedium)
                 }
             }

@@ -13,7 +13,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * Design-tunnel §4.4.2/§5: the wildcard-bind lane the tunnel host's
+ * Design-tunnel /: the wildcard-bind lane the tunnel host's
  * start path feeds the conf writers. "0.0.0.0" is the ONE raw conf value
  * accepted beside the strict typed grammar (design-tunnel: keep it out of
  * the typed path — it is never a RealmEndpoint), and it is a non-loopback
@@ -45,10 +45,7 @@ class DesktopTunnelServerFilesTest {
             com.pocketrealm.desktop.DesktopSettingsStore(roots.settingsFile)
                 .load().copy(selectedFlavorId = "vanilla"),
         )
-        return roots to ServerRuntimeFiles(
-            roots,
-            llmModelManager = com.pocketrealm.desktop.DesktopLlmModelManager(roots),
-        )
+        return roots to ServerRuntimeFiles(roots)
     }
 
     /** The minimal NORMAL generation stage (the golden-pin test's helper). */

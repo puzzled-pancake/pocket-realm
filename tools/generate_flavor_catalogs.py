@@ -714,7 +714,7 @@ def generate_settings(flavor: str, cfg: dict[str, object]) -> str:
             parts.append('defaultProvenance = WowSettingProvenance.FRAMEXML_PIN')
         parts.append(f'provenance = WowSettingProvenance.{r["provenance"]}')
         if r["fixed"]:
-            # R5-3-1 (review round 3): the emitted object declares the
+            # the emitted object declares the
             # FIXED_REASON_* consts (the repair shape the committed
             # catalogs carry); the rows must reference THOSE consts - the
             # old raw identifier forms resolve to nothing and a

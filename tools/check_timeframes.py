@@ -10,10 +10,7 @@ three places that must never drift:
   availability sets, and era-term classes);
 - `android/app/src/main/java/com/pocketrealm/client/TimeframeStage.kt` —
   the shared android-free registry the app compiles (mirrors
-  schemas/flavor.json the same way ClientFlavors does);
-- `native/patches/playerbots/PlayerbotLlmTruthCore.h` — the native era-policy
-  lists that `vanilla-1.12.1` must equal verbatim (the design's grounded
-  baseline / byte-equivalence requirement).
+  schemas/flavor.json the same way ClientFlavors does).
 
 Checks:
 - per manifest: schema 1; the flavor slug; unique canonical stage ids
@@ -25,11 +22,8 @@ Checks:
 - cross-source sync: the manifest stages == the Kotlin registry stages
   (ids AND orders, per flavor, including exactly one `final` stage per
   flavor whose id is the manifest default);
-- era baseline three ways: the manifest final-stage baseline == the Kotlin
-  registry's baseline == the GENERATED native header's baseline (the lists
-  the truth core serves are generated from the manifests by
-  tools/generate_timeframe_era.py and hash-pinned; that chain is verified
-  byte-identically, and the truth core must consume the generated selector);
+- era baseline sync: the manifest final-stage baseline == the Kotlin
+  registry's baseline;
 - the v1 overlay set: every vanilla stage carries the reversible
   marker-scaffolding overlay; schemas/timeframes/overlay-pins.json binds
   the SQL bytes and the generated Kotlin catalog, overlays carry
@@ -51,7 +45,6 @@ import argparse
 import hashlib
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -87,7 +80,7 @@ AVAILABILITY_INT_SETS = (
     "loot_demote_entries",
     "zone_entry_gates",
 )
-# The cmangos source facts the stage-marker mechanism depends on (design §2).
+# The cmangos source facts the stage-marker mechanism depends on (design).
 MANGOS_SCHEMA_FACTS = (
     ("CREATE TABLE `conditions`", "conditions DDL (the condition host table)"),
     ("CREATE TABLE `npc_vendor`", "npc_vendor DDL"),
@@ -366,34 +359,6 @@ def validate_kotlin_flavor_baseline_sync(
             errors.append(f"{flavor}: {error}")
 
 
-def validate_generated_era_chain(errors: list[str]) -> None:
-    """The native consumer chain: the generated era header + its pin must
-    regenerate byte-identically from the manifests (tools/
-    generate_timeframe_era.py check), and the truth core must consume the
-    generated selector - not its own hardcoded lists."""
-    generator = ROOT / "tools" / "generate_timeframe_era.py"
-    result = subprocess.run(
-        ["python", str(generator), "check"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        errors.append(
-            "generated era artifacts are stale: python tools/generate_timeframe_era.py "
-            f"check failed: {(result.stdout + result.stderr).strip()[:400]}"
-        )
-    core = ROOT / "native/patches/playerbots/PlayerbotLlmTruthCore.h"
-    if core.is_file():
-        text = core.read_text(encoding="utf-8")
-        if 'include "PlayerbotLlmEraStages.generated.h"' not in text:
-            errors.append("truth core: must include the generated era header")
-        if "erastages::AlwaysBanTermsFor(ActiveTimeframeStage())" not in text:
-            errors.append(
-                "truth core: EraAlwaysBanTerms must resolve through the generated "
-                "per-stage selector (design §5)"
-            )
-
-
 def validate_overlay_pins(errors: list[str], pins_path: Path | None = None) -> None:
     """The v1 overlay set: every VANILLA stage carries the reversible
     marker-scaffolding overlay; the pins bind the SQL bytes, the generated
@@ -425,15 +390,15 @@ def validate_overlay_pins(errors: list[str], pins_path: Path | None = None) -> N
         if sha256(sql.read_bytes()) != entry["sha256"]:
             errors.append(f"overlay pins: {entry['sql']} drifted from its pinned sha256")
         text = sql.read_text(encoding="utf-8")
-        # R2-2 (review round 3): the declared contract is the DEVICE
+        # the declared contract is the DEVICE
         # applier's own per-statement policy
         # (TimeframeOverlayPlan.policyChecked: every statement starts with
         # INSERT OR IGNORE INTO). The old substring bans
         # (DELETE/DROP/ALTER/ATTACH) accepted UPDATE, INSERT OR REPLACE,
         # and plain INSERT outright — a doctored overlay that passed this
         # gate failed only at world start. The statement-level check is
-        # ported here: strip COMMENT LINES FIRST (the honest overlays'
-        # prose carries semicolons), then split on ';' and require EVERY
+        # ported here: strip COMMENT LINES FIRST (the
+        # overlays' prose carries semicolons), then split on ';' and require EVERY
         # non-empty fragment to start with INSERT OR IGNORE INTO.
         code_lines = [line for line in text.splitlines()
                       if not line.strip().startswith("--")]
@@ -491,7 +456,7 @@ def main() -> int:
             for flavor in FLAVOR_IDS
             if flavor in manifests_by_flavor
         )
-        + " (registry, kotlin/native era sync, and overlay pins verified)"
+        + " (registry, kotlin era sync, and overlay pins verified)"
     )
     return 0
 
@@ -640,9 +605,9 @@ def run_checks(root: Path, errors: list[str]) -> None:
         validate_qualified_era_curation(_flavor_qualifications(root), manifest, errors)
     manifests_by_flavor.update(manifests)
     if root != ROOT:
-        # The generated-chain + overlay legs run against THIS checkout's
-        # tools; a foreign --repo-root only gets the manifest/Kotlin legs.
-        print("NOTE: --repo-root override; generated-era and overlay legs skipped")
+        # The overlay leg runs against THIS checkout's tools; a foreign
+        # --repo-root only gets the manifest/Kotlin legs.
+        print("NOTE: --repo-root override; overlay leg skipped")
     else:
         registry_path = (
             root / "android/app/src/main/java/com/pocketrealm/client/TimeframeStage.kt"
@@ -666,7 +631,6 @@ def run_checks(root: Path, errors: list[str]) -> None:
             validate_kotlin_flavor_baseline_sync(manifests, errors)
         else:
             errors.append(f"missing shared registry: {registry_path}")
-        validate_generated_era_chain(errors)
         validate_overlay_pins(errors)
 
     mangos_path = root / "native/cmangos/sql/base/mangos.sql"

@@ -14,7 +14,7 @@ import kotlin.io.path.absolute
  */
 
 /** One live gateway child process: stdout line queue, stderr tail, the
- * bounded READY/Error awaits. W6-N4 code-red R5-r4-N4-1: the drain
+ * bounded READY/Error awaits. W6-N4 R5-r4-N4-1: the drain
  * thread ALSO appends every line to a non-consuming TRANSCRIPT —
  * awaitLine/awaitReadyOrThrow/awaitErrorOrThrow destructively poll the
  * queue, so the evidence archivers read [stdoutLines] (the full
@@ -248,7 +248,7 @@ fun freshHexSecret(): String {
 
 /** The wave evidence root (the gitignored out/completion tree) — anchored
  * by walking up to the checkout root, because a test JVM's user.dir is
- * the gateway module dir (W6-N4 code-red: shared by both reconnect
+ * the gateway module dir (W6-N4 shared by both reconnect
  * legs so the archived narration/payload files land in ONE place). */
 fun waveEvidenceDir(): File {
     var dir: File? = File(System.getProperty("user.dir")).absoluteFile
@@ -264,7 +264,7 @@ fun waveEvidenceDir(): File {
 
 /** True when BOTH game ports can be bound the way the join gateway
  * binds them — a plain ServerSocket bind with NO SO_REUSEADDR, exactly
- * JoinGateway.bindListeners's semantics (W6-N4 code-red R5-2/R4-r2-3:
+ * JoinGateway.bindListeners's semantics (W6-N4 R5-2/R4-r2-3:
  * the permissive REUSEADDR probe lied — it succeeded over transient
  * holders the real bind then hit, turning a guard skip into a red).
  * A concurrent seat (or a local realm stack) holding 3724/8085 makes
@@ -329,7 +329,7 @@ fun acquireGamePortLock(
     }
 }
 
-/** Releases the cross-seat game-port lock. W6-N4 code-red R4-r2-3: the
+/** Releases the cross-seat game-port lock. W6-N4 R4-r2-3: the
  * lock FILE is NEVER deleted — a skipping seat's afterEach runs even
  * when its beforeEach aborted without acquiring, and deleting the file
  * under a live holder's open channel (Windows FILE_SHARE_DELETE) lets

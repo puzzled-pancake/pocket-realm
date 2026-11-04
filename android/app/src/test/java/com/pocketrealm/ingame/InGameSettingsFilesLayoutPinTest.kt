@@ -89,7 +89,7 @@ class InGameSettingsFilesLayoutPinTest {
     }
 
     @Test fun `vanilla flavor resolves the vanilla layout and the new lanes resolve their own`() {
-        // G3-10 froze the seam with fail-loud placeholders; W3.3 (H4-5)
+        // G3-10 froze the seam with fail-loud placeholders; W3.3
         // landed the TBC/WotLK strategies as NEW layouts — the vanilla
         // resolution is unchanged and the new lanes resolve their own
         // strategies (WtfFlavorLayoutTest pins their paths).

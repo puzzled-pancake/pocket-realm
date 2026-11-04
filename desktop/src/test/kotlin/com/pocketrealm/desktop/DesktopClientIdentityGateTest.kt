@@ -24,7 +24,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * DESK-21/36/52/67/97: the launch-boundary identity gates and the
+ * the launch-boundary identity gates and the
  * managed-generation-first resolution.
  *
  *  - a folder whose WoW.exe is not a PE, or whose PE version resource does
@@ -113,7 +113,7 @@ class DesktopClientIdentityGateTest {
 
     @Test
     fun aWrongBuildClientIsRefusedWithTheValCopyBeforeProjection() {
-        val dir = materializeClient(folder.newFolder("client"), build = 6005)
+        val dir = materializeClient(folder.newFolder("client"), build = 4222)
         // A sentinel the projection would overwrite: the refusal must leave
         // the client directory with NO side effects.
         val sentinel = "set realmlist 9.9.9.9\r\n"
@@ -124,12 +124,12 @@ class DesktopClientIdentityGateTest {
             clientProcessScanner = { emptyList() },
         )
         val message = startClientExpectingFailure(backend)
-        assertTrue("must carry VAL-03: $message", "VAL-03" in message)
+        assertTrue("must carry the version refusal: $message", "Unsupported game version" in message)
         assertTrue(
             "must name the expected qualified resource: $message",
             ClientFlavors.VANILLA.versionResource in message,
         )
-        assertTrue("must name the detected build: $message", "1.12.1.6005" in message)
+        assertTrue("must name the detected build: $message", "1.12.1.4222" in message)
         assertEquals(
             "the refusal must precede the realmlist projection (no side effects)",
             sentinel,
@@ -147,7 +147,7 @@ class DesktopClientIdentityGateTest {
             clientProcessScanner = { emptyList() },
         )
         val message = startClientExpectingFailure(backend)
-        assertTrue("must carry the VAL-02 PE refusal: $message", "VAL-02" in message)
+        assertTrue("must carry the PE refusal: $message", "not a valid Windows executable" in message)
     }
 
     @Test
@@ -185,7 +185,7 @@ class DesktopClientIdentityGateTest {
         )
         assertTrue(
             "must carry the pinned VAL-01 copy (DesktopClientScanner.kt:79-80): $message",
-            "VAL-01: direct WoW.exe is absent" in message,
+            "WoW.exe was not found in the selected folder" in message,
         )
         assertTrue(
             "the preempting existence-check copy must be gone: $message",
@@ -250,7 +250,7 @@ class DesktopClientIdentityGateTest {
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
         pickVanilla(roots)
         roots.ensureDirectories()
-        materializeClient(folder.newFolder("wrong-build"), build = 6005)
+        materializeClient(folder.newFolder("wrong-build"), build = 4222)
         DesktopSettingsStore(roots.settingsFile).save(
             com.pocketrealm.storage.Settings.Snapshot(
                 clientDir = File(folder.root, "wrong-build").absolutePath,

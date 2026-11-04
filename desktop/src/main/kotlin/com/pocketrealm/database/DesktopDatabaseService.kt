@@ -5,7 +5,7 @@ import com.pocketrealm.supervisor.ComponentOwner
 import org.json.JSONObject
 
 /**
- * The desktop DatabaseService twin (DESK-78): the fault-isolated owner of
+ * The desktop DatabaseService twin: the fault-isolated owner of
  * the MariaDB engine and its live datadir — the Android DatabaseService's
  * control surface, minus the Android-process machinery.
  *
@@ -109,7 +109,7 @@ internal class DesktopDatabaseService(private val engine: DesktopMariaDbEngine) 
     fun rollbackPendingRestore(): JSONObject = guarded { engine.rollbackPendingRestore() }
 
     /** The MariaDB lane's world-start timeframe-overlay leg (design
-     * timeframe §4.3): bring the live generation to the stage the world
+     * timeframe): bring the live generation to the stage the world
      * conf names; the guarded shape keeps every engine refusal on the
      * wire as JSON, never a crash. */
     fun applyTimeframeOverlay(desiredStage: String): JSONObject =

@@ -77,7 +77,7 @@ def test_check_flag_runs_green_cli() -> None:
     assert "conf-matrix check: OK" in result.stdout
 
 
-# ---- R4-1 (native-server round 1): the expansion trees ship a
+# R4-1 (native-server ): the expansion trees ship a
 # FLAVOR-SUFFIXED aiplayerbot dist (aiplayerbot.conf.dist.in.tbc/.wotlk)
 # and the build stages THAT variant as the shipped aiplayerbot.conf.dist
 # (PlayerBots/CMakeLists.txt:182-186 — the base dist is the Classic leg

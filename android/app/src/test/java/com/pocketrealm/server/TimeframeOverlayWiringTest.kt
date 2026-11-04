@@ -8,7 +8,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 /**
- * Design-timeframe §4.3: the ANDROID world-start wiring contract — every
+ * Design-timeframe: the ANDROID world-start wiring contract — every
  * world start applies the stage overlay AFTER the conf write and BEFORE the
  * native boot, and an overlay failure carries the loud start-failed-overlay
  * lifecycle record. WorldRuntimeService needs a live Android context (the

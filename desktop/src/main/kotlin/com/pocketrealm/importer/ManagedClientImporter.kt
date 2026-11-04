@@ -17,7 +17,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
- * DESK-34/63/97: the desktop managed-client import pipeline — the Android
+ * the desktop managed-client import pipeline — the Android
  * importer/ManagedClientImporter's FOLDER lane (row 2) over a plain
  * `java.io.File` source: scan (identity gates, VAL copy) → inventory →
  * storage preflight → copy into the staging generation with per-file
@@ -26,7 +26,7 @@ import org.json.JSONObject
  * [ClientGenerationStore] twin (immutable generation + atomic per-flavor
  * active pointer, via the shared lease/pointer plumbing).
  *
- * DESK-3/66: the lane runs on the [ImportJournal] desktop twin exactly like
+ * the lane runs on the [ImportJournal] desktop twin exactly like
  * the Android lane — the durable row exists before the copy (beginOrResume /
  * beginStagingOrResume), every file's VERIFIED/SKIPPED state lands in the
  * journal as it is copied, a crash resumes the SAME import id (verified
@@ -68,18 +68,21 @@ class ManagedClientImporter(
         val importLease = ClientGenerationLease.acquireImportOperation(
             File(roots.content, "client"),
         )
-        // DESK-3/66: one journal connection per run — the RESUME state is
+        // one journal connection per run — the RESUME state is
         // durable in the db, not in the connection, so a fresh run picks up
         // exactly where a crashed one stopped.
         val journal = ImportJournal(roots)
         try {
             // The identity gate runs FIRST: rejecting a selection must never
             // copy a byte of it (the Android scanner contract).
-            val scan = scanner.scan(sourceRoot)
+            // A picked parent folder (or a double "World of Warcraft" wrap)
+            // imports the single client folder inside it.
+            val clientRoot = DesktopClientScanner.locateClientRoot(sourceRoot)
+            val scan = scanner.scan(clientRoot)
             if (!scan.supported || !ClientFlavors.isManagedClientId(scan.clientId)) {
                 throw ImportRejected(scan.failures.joinToString("; ").ifBlank { "unsupported client selection" })
             }
-            val source = FolderTreeSource(sourceRoot, limits)
+            val source = FolderTreeSource(clientRoot, limits)
             val inventory = source.inventory()
             val storage = planner.plan(sourceBytes = inventory.totalBytes)
             if (!storage.canProceed) {
@@ -87,9 +90,9 @@ class ManagedClientImporter(
                     "STORAGE_PREFLIGHT: need=${storage.requiredBytes} allocatable=${storage.allocatableBytes}",
                 )
             }
-            // DESK-3/66: the durable row exists before the copy; resume
+            // the durable row exists before the copy; resume
             // matches the source path + inventory fingerprint.
-            val importId = journal.beginOrResume(sourceRoot.absolutePath, inventory)
+            val importId = journal.beginOrResume(clientRoot.absolutePath, inventory)
             journal.recordInventory(importId, inventory.entries)
             val staging = generations.prepare(importId)
             val copy = CopyContext(importId, ByteArray(COPY_BUFFER))
@@ -125,7 +128,7 @@ class ManagedClientImporter(
     }
 
     /**
-     * DESK-97: the desktop ARCHIVE lane — the Android runArchive's pipeline
+     * the desktop ARCHIVE lane — the Android runArchive's pipeline
      * over a locally picked file (the SAF staging copy is the android-only
      * leg; a local file is already durable and seekable): sniff
      * ([ArchiveFormatSniffer]) → quick check → deep detection through the
@@ -146,7 +149,7 @@ class ManagedClientImporter(
         afterRenameBeforeActivate: () -> Unit = {},
         onScratchEntry: (Int) -> Unit = {},
     ): ImportResult = withContext(Dispatchers.IO) {
-        require(pickedArchive.isFile) { "VAL-13: selected archive is unreadable" }
+        require(pickedArchive.isFile) { "The selected archive could not be read" }
         val started = System.nanoTime()
         val importLease = ClientGenerationLease.acquireImportOperation(
             File(roots.content, "client"),
@@ -154,11 +157,11 @@ class ManagedClientImporter(
         val stagedStore = StagedArchiveStore(File(File(roots.content, "client"), "incoming"))
         val journal = ImportJournal(roots)
         try {
-            // DESK-3/66: live imports keep their staged scratch across
+            // live imports keep their staged scratch across
             // runs (a resumed installer lane must find its extraction);
             // terminal rows prune.
             stagedStore.reconcile(activeImportIds = journal.activeImportIds())
-            // DESK-3/66: the journal row exists BEFORE staging and detection
+            // the journal row exists BEFORE staging and detection
             // (the Android contract) so progress is durable and a crash
             // resumes the same import. The picked file anchors the resume by
             // path + size; once detection adopts the payload totals the
@@ -196,7 +199,7 @@ class ManagedClientImporter(
                 if (quick is ArchiveQuickCheck.Verdict.Reject) throw ImportRejected(quick.failure)
                 if (rawEntries != null && rawEntries.any { it.encrypted }) {
                     throw ImportRejected(
-                        "VAL-13: the archive is password-protected — Pocket Realm cannot open encrypted archives; " +
+                        "This archive is password-protected — Pocket Realm cannot open encrypted archives; " +
                             "re-pack it without a password (or extract on a PC and import the folder)",
                     )
                 }
@@ -406,7 +409,7 @@ class ManagedClientImporter(
      * executables other than WoW.exe and non-standard root DLLs never enter
      * the managed generation.
      *
-     * DESK-3/66: every outcome is journaled — a resumed run skips the
+     * every outcome is journaled — a resumed run skips the
      * entries a previous attempt already VERIFIED (their copied files are
      * size-checked here; the full hash pass after the loop still validates
      * every byte), so a crash mid-import continues instead of restarting.

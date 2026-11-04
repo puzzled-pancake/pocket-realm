@@ -10,7 +10,6 @@ import com.pocketrealm.database.DesktopMariaDbEngine
 import com.pocketrealm.database.DesktopMariaDbProvider
 import com.pocketrealm.desktop.DesktopSettingsStore
 import com.pocketrealm.desktop.DesktopStorageRoots
-import com.pocketrealm.fs.FileDigests
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.RealmEndpoint
 import java.io.File
@@ -36,24 +35,17 @@ import org.json.JSONObject
  *  - the world always starts from the NORMAL prepared-data lane
  *    (PreparedDataStore, shared) — mmaps are mandatory on the desktop,
  *    so the o09 baseline shortcut lane does not exist;
- *  - the playerbot LLM conf append rides the
- *    LlmRuntimePolicy twin; world starts with the bots-
- *    disabled block when no LLM lane is enabled, which is exactly what
- *    the shared conf pins;
+ *  - world starts with the bots-disabled block when no bot profile is
+ *    selected, which is exactly what the shared conf pins;
  *  - secureWrite has no chmod leg (POSIX-only); the run dir lives under
  *    %LOCALAPPDATA%, private to the user by NTFS profile ACLs.
  */
 @Suppress("TooManyFunctions") // the conf-generation contract with the realm DLLs (the Android twin's verb count)
 internal class ServerRuntimeFiles(
     private val roots: DesktopStorageRoots,
-    /** DESK-5: the staged-provider presence seam (tests inject; production
+    /** the staged-provider presence seam (tests inject; production
      * resolves the real staging lazily). Null = resolve for real. */
     private val providerStagedOverride: Boolean? = null,
-    /** The embedded-model lane's manager (DESK-48/80/103). Default = the
-     * per-process singleton so production drives exactly one sidecar;
-     * tests inject a per-roots instance. */
-    private val llmModelManager: com.pocketrealm.desktop.DesktopLlmModelManager =
-        com.pocketrealm.desktop.DesktopLlmModelManager.shared(roots),
 ) {
     private val root = File(roots.runtime, "server").apply { mkdirs() }
     private val run = File(root, "run").apply { mkdirs() }
@@ -82,12 +74,12 @@ internal class ServerRuntimeFiles(
     }
 
     /**
-     * Design-tunnel §4.4.2: the bind value for both confs. The typed path
+     * Design-tunnel: the bind value for both confs. The typed path
      * parses through the strict [RealmEndpoint] grammar (loopback or
      * canonical private/link-local IPv4); the ONE extra literal accepted is
      * [RealmEndpoint.WILDCARD_BIND] — "0.0.0.0", the raw conf value tunnel
      * hosting binds so the advertised tunnel address is actually reachable
-     * (design-tunnel §4.4.2 keeps it out of the typed path deliberately).
+     * (design-tunnel keeps it out of the typed path deliberately).
      * Digits and dots only, interpolated into `BindIP = "..."`; anything
      * else is refused before any conf exists.
      */
@@ -99,7 +91,7 @@ internal class ServerRuntimeFiles(
         }
 
     /**
-     * The realmd conf. D11 (design-lan §2.6): the brute-force lockout keys
+     * The realmd conf. D11 (design-lan): the brute-force lockout keys
      * are emitted WHEN AND ONLY WHEN the bind is not loopback. The engine
      * default is lockout-off (`WrongPass.MaxCount` default 0,
      * native/cmangos/src/realmd/AuthSocket.cpp:664-665), so the un-exposed
@@ -150,13 +142,13 @@ internal class ServerRuntimeFiles(
 
 
     /**
-     * R1-r2-1 (desktop-twin round 2): the START-path lane resolver —
+     * the START-path lane resolver —
      * the PERSISTED Home selection (or the threaded settings snapshot
      * when the start leg carries one), never the :ui-local in-memory
      * machine a mid-start switch would flip. [ActiveFlavorState]
      * semantics: a sole qualified flavor degrades to it, the persisted
      * pick is honored, an ambiguous post-flip state refuses loud —
-     * the Android ServerRuntimeFiles.worldLaneFlavor twin (D62), which
+     * the Android ServerRuntimeFiles.worldLaneFlavor twin, which
      * the desktop boot path had never received. The backend pins this
      * once at world start ([bootLaneFlavor]) and the whole start —
      * prepared-data generation, conf database names, projection —
@@ -180,9 +172,8 @@ internal class ServerRuntimeFiles(
      * artifact verifies (win_prepare_data.py prepares it; until then this
      * fails honestly with the prepared-data copy). [botProfile] null keeps the
      * bots-disabled block (the reviewed default); a profile stages
-     * aiplayerbot-<id>.conf with the profile's population conf plus the
-     * external-LLM append when the LLM lane is enabled — the Android
-     * twin's worldConfigBot contract. [nearbyUseEnabled] is the DESK-58
+     * aiplayerbot-<id>.conf with the profile's population conf — the
+     * Android twin's worldConfigBot contract. [nearbyUseEnabled] is the DESK-58
      * knob verdict the backend computes at world start: the AUTHORIZED-
      * layout EFFECTIVE resolution of the requested tweaks over the user's
      * actual client executable ([com.pocketrealm.client.nearbyUseEnabledForExecutable])
@@ -216,8 +207,7 @@ internal class ServerRuntimeFiles(
         val botConfig = if (botProfile != null) {
             // the conf VALUES ride the same pinned boot lane as
             // the staging gate — never the :ui holder.
-            val botConfText =
-                botProfile.playerbotConfig(lane) + (llmConfigOverrides(botProfile, snapshot) ?: "")
+            val botConfText = botProfile.playerbotConfig(lane)
             // W3.4 fail-loud conf staging: an unknown key for the flavor's
             // bots build aborts the start instead of being silently dropped
             // by the core's config parser; excluded families (VoiceChat)
@@ -237,7 +227,7 @@ internal class ServerRuntimeFiles(
             AiPlayerbot.LLMEnabled = 0
             AiPlayerbot.ShowProgressBars = 0
         """.trimIndent() + "\n"
-            // R6-5/R2-6-1 (code-red round 6): the disabled staging leg runs
+            // the disabled staging leg runs
             // the SAME fail-loud gate as the profile leg — the desktop twin
             // of the android fix; a drifted disabled key
             // fails the start instead of silently dropping (the
@@ -270,7 +260,7 @@ internal class ServerRuntimeFiles(
             LogFile = "${logs.resolve("world.log").absolutePath}"
             LogFileLevel = ${worldLogFileLevel(snapshot.worldDebugLogs)}
             DBErrorLogFile = "${logs.resolve("database-errors.log").absolutePath}"
-            PlayerLimit = 10
+            PlayerLimit = ${ServerRuntimeContract.WORLD_PLAYER_LIMIT}
             # The production realm is app-private and loopback-only. Wine's
             # clock can deliver buffered CMSG_PING packets in a burst after a
             # slow emulated frame; CMaNGOS documents 0 as disabling this kick.
@@ -314,7 +304,7 @@ internal class ServerRuntimeFiles(
     /**
      * The stale-secret purge: a world start stages exactly ONE bot conf
      * (the active profile's — or the disabled block), so a rotated or
-     * cleared external LLM key would otherwise survive indefinitely in
+     * key staged by an older build (the retired bot-speech endpoint) would otherwise survive indefinitely in
      * every OTHER preset's staged conf. Before the active conf is
      * rewritten, delete every staged aiplayerbot-*.conf that carries a
      * key line — an inactive conf is never referenced by the running
@@ -339,197 +329,6 @@ internal class ServerRuntimeFiles(
         }
     }
 
-    /**
-     * The LLM append (the desktop twin of the Android llmConfigOverrides).
-     * DESK-48/80/103 add the ON-DEVICE lane: the Source settings toggle
-     * picks the emission. External mode keeps the user endpoint fields (any
-     * OpenAI-compatible API) and the confBlockExternal plumbing; embedded
-     * mode resolves the local llama-server sidecar's health-probed loopback
-     * URL through the [DesktopLlmModelManager] and emits the EMBEDDED-LANE
-     * block (LlmRuntimePolicy.confBlockEmbedded — the Android confBlock
-     * twin: model "local", keyless, the SELECTED registry model's measured
-     * profiles). One blocking settings read inside the transition gate —
-     * every LLM toggle applies on the next realm start, never mid-session.
-     * Any invalid endpoint/model/key — and any sidecar that cannot serve
-     * (model unstaged, binary unbundled, health probe failed) — fails
-     * CLOSED to no block (the base profile conf keeps its reviewed
-     * LLMEnabled = 0), exactly like the Android twin.
-     */
-    @Suppress("ReturnCount", "LongMethod") // fail-closed null returns are the Android twin's
-    // contract; the two-lane emission (external vs embedded) is one reviewed split
-    private fun llmConfigOverrides(
-        profile: com.pocketrealm.bots.BotProfile,
-        snapshot: Settings.Snapshot,
-    ): String? {
-        if (!snapshot.llmEnabled) return null
-        val endpoint: String
-        val model: String
-        val apiKey: String
-        if (snapshot.llmExternalMode) {
-            endpoint = LlmRuntimePolicy.normalizeExternalEndpoint(snapshot.llmExternalUrl)
-                ?: return null
-            model = LlmRuntimePolicy.normalizeExternalModel(snapshot.llmExternalModel) ?: return null
-            apiKey = LlmRuntimePolicy.normalizeExternalApiKey(snapshot.llmExternalApiKey)
-                ?: return null
-        } else {
-            // The embedded lane: the sidecar manager owns the lane (staged
-            // model + bundled binary + health probe); a sidecar that cannot
-            // serve fails the conf closed. The DESK-9 engine knobs (decode
-            // threads / offload layers) ride the launch; a knob change
-            // relaunches, a same-knob reuse does not.
-            endpoint = runCatching {
-                llmModelManager.ensureRunning(
-                    snapshot.llmModelId,
-                    decodeThreads = snapshot.llmThreads,
-                    offloadLayers = snapshot.llmOffloadLayers,
-                )
-            }.getOrNull() ?: return null
-            model = LlmRuntimePolicy.DEFAULT_EXTERNAL_MODEL
-            apiKey = ""
-        }
-        // Staging failures fail OPEN per file (the Android twin's posture):
-        // an asset problem must never fail a world start for a feature the
-        // user enabled — the conf line is simply omitted and the native
-        // default governs.
-        val chatterPower = runCatching {
-            DesktopChatterPowerMonitor.refreshOnce(
-                runDir = run,
-                enabled = snapshot.llmAmbience,
-                rungCap = profile.llmSpeech.chatterRung,
-            ).absolutePath
-        }.getOrNull()
-        // DESK-26: the prompt pack stages the RESOLVED player pack (the
-        // edited JSON from Settings, fail-open to default on corrupt edits) —
-        // the Android prepare-path contract, riding the same conf key.
-        val promptPack = runCatching {
-            stagePromptPack(
-                com.pocketrealm.llm.LlmPromptPack.resolve(snapshot.llmPromptPackJson).serialize(),
-            ).absolutePath
-        }.getOrNull()
-        val defaultPrompts = runCatching { stageEmptyFile(DEFAULT_PROMPTS_FILE_NAME).absolutePath }
-            .getOrNull()
-        val tlsCa = runCatching { stageBundledAsset("llm", TLS_CA_BUNDLE_FILE_NAME).absolutePath }
-            .getOrNull()
-        val lore = runCatching { stageBundledAsset("lore", loreCardsFileName()).absolutePath }
-            .getOrNull()
-        // The composer rides the EXTERNAL endpoint fields on both lanes (the
-        // Android twin's shape — the cloud composer is an external-lane knob);
-        // the cloud-lane widening is external-only too.
-        val composerEndpoint = LlmRuntimePolicy.normalizeExternalEndpoint(snapshot.llmExternalUrl)
-        val composerModel = LlmRuntimePolicy.normalizeExternalModel(snapshot.llmExternalModel)
-        val composerApiKey = LlmRuntimePolicy.normalizeExternalApiKey(snapshot.llmExternalApiKey)
-        return if (!snapshot.llmExternalMode) {
-            // The embedded emission: the SELECTED registry model's measured
-            // sampling/tier profiles (the Android confBlock twin).
-            val selected = com.pocketrealm.llm.LlmModelRegistry.byId(snapshot.llmModelId)
-            LlmRuntimePolicy.confBlockEmbedded(
-                endpoint,
-                banterEnabled = snapshot.llmBanter,
-                profile = selected.profile,
-                tier = selected.tierProfile,
-                loreFile = lore,
-                chatterPowerFile = chatterPower,
-                composerEndpoint = composerEndpoint,
-                composerModel = composerModel,
-                composerApiKey = composerApiKey,
-                maxNewTokensOverride = snapshot.llmMaxNewTokens,
-                generationTimeoutOverride = snapshot.llmGenerationTimeout,
-                speech = profile.llmSpeech,
-                promptPackFile = promptPack,
-                defaultPromptsFile = defaultPrompts,
-                tlsCaFile = tlsCa,
-            )
-        } else {
-            LlmRuntimePolicy.confBlockExternal(
-                endpoint, model, apiKey,
-                banterEnabled = snapshot.llmBanter,
-                loreFile = lore,
-                chatterPowerFile = chatterPower,
-                composerEndpoint = composerEndpoint,
-                composerModel = composerModel,
-                composerApiKey = composerApiKey,
-                maxNewTokensOverride = snapshot.llmMaxNewTokens,
-                generationTimeoutOverride = snapshot.llmGenerationTimeout,
-                speech = profile.llmSpeech,
-                promptPackFile = promptPack,
-                defaultPromptsFile = defaultPrompts,
-                tlsCaFile = tlsCa,
-                cloudLane = CloudLaneConf(cloudChatter = snapshot.llmCloudChatter),
-                logLines = snapshot.worldDebugLogs,
-            )
-        }
-    }
-
-    /** Stop the embedded-lane sidecar (world stop / backend close; the
-     * desktop twin of the Android supervisor's :llm process stop). */
-    fun stopLlmSidecar() {
-        runCatching { llmModelManager.stop() }
-    }
-
-    /**
-     * DESK-26: the staged prompt-pack file (the Android stagePromptPack
-     * twin): the resolved pack serialized next to the conf, written only
-     * when the content changed so a world restart does not bump the file
-     * for nothing.
-     */
-    private fun stagePromptPack(serialized: String): File {
-        val target = File(run, PROMPT_PACK_FILE_NAME)
-        if (target.isFile && runCatching { target.readText() }.getOrNull() == serialized) {
-            return target
-        }
-        return secureWrite(target, serialized)
-    }
-
-    /** The B8 empty default-prompts file (absolute path so the native
-     * loader never resolves the bare relative name against CWD). */
-    private fun stageEmptyFile(name: String): File {
-        val target = File(run, name)
-        if (target.isFile && target.length() == 0L) return target
-        return secureWrite(target, "")
-    }
-
-    /**
-     * Stage a bundled app asset next to the conf. Sources, in order: the
-     * jpackage app dir (java.library.path — packageApp stages DLLs and
-     * assets side by side there), then the repo's android asset tree (dev
-     * runs from the checkout). Digest-verified re-stage (GAP-6, was
-     * DESKPROD-7): size equality is not a content proxy — a refresh that
-     * keeps the byte count (a CA-bundle rotation, a lore-card edit) must
-     * still land in an existing run dir instead of being shadowed forever
-     * by the stale staged copy. Runs once per world start on small files,
-     * so the two SHA-256s are free. Missing everywhere yields null from
-     * the caller (fail-open).
-     */
-    private fun stageBundledAsset(subdir: String, name: String): File {
-        val source = resolveBundledAsset(subdir, name)
-            ?: throw java.io.FileNotFoundException("$subdir/$name not bundled")
-        val target = File(run, name)
-        if (target.isFile && FileDigests.sha256(target) == FileDigests.sha256(source)) return target
-        source.copyTo(target, overwrite = true)
-        return target
-    }
-
-    private fun resolveBundledAsset(subdir: String, name: String): File? {
-        val relative = "android/app/src/main/assets/$subdir/$name"
-        val javaLibraryPath = System.getProperty("java.library.path") ?: ""
-        // SOURCES ONLY - the run dir is the staging TARGET, never a source:
-        // listing it here would let a previously staged copy verify itself
-        // (its digest == its own digest, exactly like the size == its own
-        // size it replaced) and shadow a refreshed repo/app asset. The
-        // digest-verified cache in stageBundledAsset guards the TARGET
-        // side; this guard keeps the SOURCE side honest — both are needed
-        // for a refresh to land. Packaged runs resolve from $APPDIR via
-        // java.library.path; dev runs walk up to the checkout's android
-        // asset tree.
-        val candidates = javaLibraryPath.split(File.pathSeparator)
-            .filter { it.isNotBlank() }
-            .map { File(File(it), name) } +
-            generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
-                .take(MAX_ASSET_WALK_UP)
-                .map { File(it, relative) }
-        return candidates.firstOrNull { it.isFile }
-    }
-
     fun writeLifecycle(component: String, clean: Boolean, operation: String, detail: String = "") {
         require(component == "realm" || component == "world") { "unknown server component" }
         val value = JSONObject().put("schema", 1).put("component", component)
@@ -539,7 +338,7 @@ internal class ServerRuntimeFiles(
     }
 
     /**
-     * DESK-112/121: the CLIENT component's lifecycle record. WoW.exe is a
+     * the CLIENT component's lifecycle record. WoW.exe is a
      * real OS process (not an in-process native), so its exit code is the
      * crash-triage evidence: the backend journals every client death it
      * did not cause here — clean=false for a non-zero (abnormal) exit —
@@ -714,7 +513,6 @@ internal class ServerRuntimeFiles(
         private const val MAX_ERROR_LOG_BYTES = 8L * 1024L * 1024L
         private const val OPERATION_MAX_CHARS = 64
         private const val DETAIL_MAX_CHARS = 256
-        private const val MAX_ASSET_WALK_UP = 6
 
         /** the [ActiveFlavor] lane suffix naming the server
          * runtime's resolution gate (conf writes, the realmlist
@@ -725,7 +523,7 @@ internal class ServerRuntimeFiles(
         /**
          * The active client flavor the in-process server lane runs,
          * resolved through the shared [ActiveFlavor] machine — the
-         * Android twin's identity gate (DESK-93/94) lifted from the
+         * Android twin's identity gate lifted from the
          * single-qualified vanilla pin to multi-flavor resolution
          * (GAP-4, the MFL-owned S5 treatment's desktop code leg):
          * every desktop consumer of a per-flavor identity (conf
@@ -742,9 +540,8 @@ internal class ServerRuntimeFiles(
          *
          * Companion-scope (the Android twin keeps this private on the
          * instance) so the desktop's cross-package consumers
-         * [com.pocketrealm.desktop.DesktopRuntimeBackend],
-         * [com.pocketrealm.desktop.AuthGate]/[com.pocketrealm.desktop.RpWowClient]
-         * and [com.pocketrealm.desktop.RpHost] share this one gate
+         * [com.pocketrealm.desktop.DesktopRuntimeBackend] and
+         * [com.pocketrealm.desktop.AuthGate] share this one gate
          * instead of re-implementing it.
          */
         internal fun serverFlavor(
@@ -766,36 +563,13 @@ internal class ServerRuntimeFiles(
         ): ClientFlavor.DatabaseNames = flavor.databases
 
 
-        /** Chatter power rungs (ChatterPowerMonitor's constants; a desktop
-         * is always plugged in so NORMAL is the only on-rung). */
-        internal const val RUNG_OFF = 0
-        internal const val RUNG_NORMAL = 4
-
-        internal const val CHATTER_POWER_FILE_NAME = "chatter-power.conf"
-        internal const val PROMPT_PACK_FILE_NAME = "llm_prompt_pack.json"
-        internal const val DEFAULT_PROMPTS_FILE_NAME = "llm_character_card.json"
-        internal const val TLS_CA_BUNDLE_FILE_NAME = "cacert.pem"
-
-        /**
-         * W3.2 (D15(5) retirement): the staged lore-corpus file name
-         * resolves through the flavor registry's `llm.lore_cards` binding
-         * ([ClientFlavor.loreCardsFile]) instead of the duplicated const —
-         * the manifest owns the filename. The owner decision binds every
-         * flavor to the ONE shared corpus asset; the era filter is the
-         * native load-time lint (flavor-routed by the active stage's ban
-         * lists). Tracks [serverFlavor]'s active lane.
-         */
-        internal fun loreCardsFileName(
-            flavor: ClientFlavor = serverFlavor(),
-        ): String = flavor.loreCardsFile
-
         /** B2: errors-only world log level, matching realmd's LogFileLevel = 1. */
         internal const val DEFAULT_WORLD_LOG_FILE_LEVEL = 1
 
         /** B2: the verbose world log level staged by the World debug logs toggle. */
         internal const val DEBUG_WORLD_LOG_FILE_LEVEL = 3
 
-        /** D11 (design-lan §2.6): realmd brute-force lockout, non-loopback
+        /** realmd brute-force lockout, non-loopback
          * binds only. 10 attempts / 900 s ban / BanType 0 = IP autoban into
          * ip_banned (the engine default when the lockout is enabled). */
         internal const val WRONG_PASS_MAX_COUNT = 10

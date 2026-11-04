@@ -36,12 +36,9 @@ import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.client.VulkanDriverKind
 import com.pocketrealm.database.DatabaseService
 import com.pocketrealm.database.IDatabaseControl
-import com.pocketrealm.llm.LlmModelCoordinator
-import com.pocketrealm.llm.LlmRuntime
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.server.IRealmControl
 import com.pocketrealm.server.IWorldControl
-import com.pocketrealm.server.LlmRuntimePolicy
 import com.pocketrealm.server.PreparedDataStore
 import com.pocketrealm.server.RealmRuntimeService
 import com.pocketrealm.server.WorldRuntimeService
@@ -183,17 +180,21 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         }
         if (spec.mode == RuntimeMode.LAN_HOST) {
             val runtimeSettings = Settings(appContext).flow.first()
-            if (!runtimeSettings.allowLanPlayers) {
+            // The online host's loopback bind exposes nothing on the LAN —
+            // no stored authorization is owed. A private bind keeps
+            // requiring the stored switch exactly as before.
+            if (!spec.endpoint.isLoopback && !runtimeSettings.allowLanPlayers) {
                 return@withContext RuntimeActionResult(false, "Allow LAN players is disabled in Settings")
             }
-            // D1's liveness leg, mode-aware (design-tunnel §10, the desktop
+            // D1's liveness leg, mode-aware (design-tunnel, the desktop
             // DesktopRuntimeBackend.lanHostLivenessRefusal twin): a plain
             // LAN start proves the private LAN interface; a
             // tunnel-advertised start proves the TUNNEL adapter instead
             // (physical-LAN churn must never refuse a tunnel host), and a
-            // loopback advertisement (the cloudflared recipe) proves
-            // nothing — it binds 0.0.0.0 with no interface to lose.
-            when (val watch = InterfaceWatch.forSession(spec.advertisedAddress?.value)) {
+            // loopback advertisement (the cloudflared recipe) — or a
+            // loopback bind (the online host) — proves nothing.
+            when (val watch = InterfaceWatch.forSession(
+                spec.endpoint.address, spec.advertisedAddress?.value)) {
                 InterfaceWatch.None -> Unit
                 InterfaceWatch.Lan ->
                     if (!LanInterfacePolicy.isCurrentPrivateInterface(spec.endpoint)) {
@@ -217,7 +218,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         if (profileId != DEFAULT_PROFILE) {
             runCatching {
                 PreparedDataStore(File(StorageRoots.get(appContext).content, "o11-server"))
-                    // R1-arch-5/R2-2: resolve through the persisted Home
+                    // resolve through the persisted Home
                     // selection (the Settings-threaded form this backend's
                     // other lanes use) - the ActiveFlavor holder's selection
                     // is :ui-local and :supervisor never seeds it.
@@ -277,7 +278,6 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 json(world.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
                 val snapshot = Settings(appContext).flow.first()
                 val nearbyInteractTriggerGuardMs = snapshot.nearbyInteractTriggerGuardMs
-                ensureLlmRuntime(snapshot, profileId)
                 when {
                     BotProfiles.find(profileId) != null ->
                         json(world.api().startBotProfileAt(
@@ -299,15 +299,15 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     ): RuntimeActionResult = projectRealmAdvertisement(databaseOwner, endpoint, endpoint.address)
 
     /**
-     * Design-tunnel §4.4.2/§5 (the desktop DesktopRuntimeBackend twin): the
+     * Design-tunnel / (the desktop DesktopRuntimeBackend twin): the
      * ADVERTISED address — what friends' clients dial — lands in the one
      * realmlist row, diverging from the bind endpoint in tunnel mode. The
      * raw string is guarded BEFORE it reaches the database seam: it must
      * fit the realmlist column (varchar(32) upstream; the honest refusal
-     * instead of truncation, §5) and parse as a typed [AdvertisedAddress]
+     * instead of truncation) and parse as a typed [AdvertisedAddress]
      * — canonical numeric IPv4 only, which keeps the seam's interpolation
      * guard trivially closed. The projected row is reported back in the
-     * result detail (§5).
+     * result detail .
      */
     override suspend fun projectRealmAdvertisement(
         databaseOwner: ComponentOwner,
@@ -361,13 +361,6 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
 
     override suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult =
         withContext(Dispatchers.IO) {
-            if (component == RuntimeComponent.WORLD) {
-                // The battery-event chatter refresher only outlives a world
-                // session by mistake; drop it with the world it serves.
-                runCatching {
-                    com.pocketrealm.server.ChatterPowerMonitor.stopPeriodic(appContext)
-                }
-            }
             val value = when (component) {
                 RuntimeComponent.DATABASE -> json(database.api().stopOwned(owner.instanceToken))
                 RuntimeComponent.REALM -> json(realm.api().stopOwned(owner.instanceToken))
@@ -379,14 +372,6 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
 
     override suspend fun forceStop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult =
         withContext(Dispatchers.IO) {
-            if (component == RuntimeComponent.WORLD) {
-                // Forced stop is still a world stop: drop the battery-event
-                // chatter refresher here too (stop() covers the graceful
-                // path; the supervisor's recovery lanes come straight here).
-                runCatching {
-                    com.pocketrealm.server.ChatterPowerMonitor.stopPeriodic(appContext)
-                }
-            }
             val result = when (component) {
                 RuntimeComponent.DATABASE -> killBinder { database.api().forceStopOwned(owner.instanceToken) }
                     .also { database.close() }
@@ -493,54 +478,6 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         RuntimeActionResult(saved.getBoolean("ok"), saved.optString("error"))
     }
 
-    /**
-     * Start or stop the LLM runtime (:llm process) per the LLM submenu
-     * setting, immediately BEFORE the world server claims its memory — the
-     * measured ordering rule (start the runtime before the game container
-     * claims RAM). With the runtime disabled, or the model GGUF absent, the
-     * service is stopped; ServerRuntimeFiles independently emits LLMEnabled
-     * only when the runtime is enabled AND the model is present, so the conf
-     * and the running process can never disagree.
-     */
-    private fun ensureLlmRuntime(snapshot: Settings.Snapshot, profileId: String) {
-        // The chatter power refresher runs in BOTH modes (embedded
-        // and external) - the file is staged here at every world start
-        // and re-staged on battery events (low battery / plugged /
-        // unplugged); a dead refresh just leaves the last state standing,
-        // which is fail-safe under the collapsed off/dim/normal design.
-        runCatching {
-            com.pocketrealm.server.ChatterPowerMonitor.startPeriodic(appContext) {
-                runCatching {
-                    com.pocketrealm.storage.Settings(appContext).blockingSnapshot().llmAmbience
-                }.getOrDefault(false)
-            }
-        }
-        val model = LlmModelCoordinator.modelPathFor(appContext, snapshot.llmModelId)
-        // Only bot profiles consume the runtime: normal/integrated starts pin
-        // AiPlayerbot.LLMEnabled = 0 in their conf, so pre-claiming the model
-        // memory there would cost the coexistence budget for nothing.
-        // External-endpoint mode never runs the embedded server either — the
-        // stop branch actively reclaims any leftover :llm process from a
-        // previous embedded session, matching ServerRuntimeFiles' external
-        // conf emission so the conf and the running process never disagree.
-        val botProfile = BotProfiles.find(profileId) != null
-        if (!snapshot.llmEnabled || snapshot.llmExternalMode || !botProfile || !model.isFile) {
-            LlmRuntime.stop(appContext)
-            return
-        }
-        val config = LlmRuntimePolicy.runtimeConfig(
-            snapshot,
-            model.absolutePath,
-            // Stage the non-thinking chat template override so the
-            // service's warm-up probe can retry a thinking template with
-            // --chat-template <staged content> (same single source as
-            // LlmScreen's Start-now)
-            LlmRuntimePolicy.stageChatTemplate(appContext),
-        )
-        AppLog.i(TAG, "starting LLM runtime (${snapshot.llmComputeMode}) before world start")
-        LlmRuntime.start(appContext, config)
-    }
-
     override suspend fun setCompanionMode(owner: ComponentOwner, enabled: Boolean): RuntimeActionResult =
         withContext(Dispatchers.IO) {
             val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
@@ -594,7 +531,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     }
 
     // ------------------------------------------------------------------
-    // Remote friend accounts (design-remote-accounts §3/§8/§9/§11): the
+    // Remote friend accounts (design-remote-accounts / /): the
     // world-side relay ops through the same IWorldControl seam as
     // provisionAccount — the verifier op carries no password, and the
     // ban/unban/gm verbs are the shared moderation surface.
@@ -657,6 +594,32 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         val verdict = json(world.api().unbanAccount(username))
         ModerationResult(verdict.optBoolean("ok"), verdict.optString("output", verdict.optString("reason")))
     }
+
+    override suspend fun exportCharacter(characterName: String): CharacterTransferResult =
+        withContext(Dispatchers.IO) {
+            val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
+            if (!status.ready) return@withContext CharacterTransferResult(false, "world-not-ready")
+            // The dump reads the characters database: flush the live
+            // session first so an online character exports current.
+            json(world.api().save())
+            val verdict = json(world.api().characterExport(characterName))
+            CharacterTransferResult(
+                verdict.optBoolean("ok"),
+                verdict.optString("output", verdict.optString("reason", verdict.optString("error"))),
+                verdict.optString("dump").takeIf { verdict.optBoolean("ok") && it.isNotEmpty() },
+            )
+        }
+
+    override suspend fun importCharacter(dumpText: String, account: String, newName: String): CharacterTransferResult =
+        withContext(Dispatchers.IO) {
+            val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
+            if (!status.ready) return@withContext CharacterTransferResult(false, "world-not-ready")
+            val verdict = json(world.api().characterImport(dumpText, account, newName))
+            CharacterTransferResult(
+                verdict.optBoolean("ok"),
+                verdict.optString("output", verdict.optString("reason", verdict.optString("error"))),
+            )
+        }
 
     override suspend fun setFriendGmLevel(username: String, level: Int): Boolean = withContext(Dispatchers.IO) {
         val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
@@ -755,7 +718,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     }
 
     /**
-     * GAP-3 (owner census UIUX-3): the launch lanes resolve the ACTIVE lane
+     * the launch lanes resolve the ACTIVE lane
      * through the flavor machine from the PERSISTED Home-switcher pick —
      * this :supervisor process never sees the UI process's in-memory
      * [ActiveFlavor] selection, so the multi-process settings store is the
@@ -1322,7 +1285,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         }
 
         /**
-         * Design-tunnel §4.4.2: the bind value the servers receive. Plain
+         * Design-tunnel: the bind value the servers receive. Plain
          * LOCAL/LAN keeps the typed endpoint; a tunnel-advertised start
          * binds the wildcard (0.0.0.0 — the raw conf value, never a
          * [RealmEndpoint]) because the advertised tunnel address is only
@@ -1333,7 +1296,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             if (spec.tunnelAdvertising) RealmEndpoint.WILDCARD_BIND else spec.endpoint.address
 
         /**
-         * The start-time liveness leg, mode-aware (design-tunnel §10, the
+         * The start-time liveness leg, mode-aware (design-tunnel, the
          * desktop checkLanHostInterfaceAtStart twin): plain LAN_HOST
          * re-proves the private LAN interface; a tunnel-advertised start
          * proves the TUNNEL adapter instead; a loopback advertisement
@@ -1342,8 +1305,9 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
          */
         private fun checkLanHostInterfaceAtStart(spec: RuntimeLaunchSpec, component: String) {
             if (spec.mode != RuntimeMode.LAN_HOST) return
-            when (val watch = InterfaceWatch.forSession(spec.advertisedAddress?.value)) {
-                InterfaceWatch.None -> Unit // cloudflared: bind 0.0.0.0, no interface to prove
+            when (val watch = InterfaceWatch.forSession(
+                spec.endpoint.address, spec.advertisedAddress?.value)) {
+                InterfaceWatch.None -> Unit // loopback bind or cloudflared: no interface to prove
                 InterfaceWatch.Lan -> check(
                     LanInterfacePolicy.isCurrentPrivateInterface(spec.endpoint)) {
                     "LAN host interface disappeared before $component start"

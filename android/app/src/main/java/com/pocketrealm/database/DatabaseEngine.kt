@@ -64,7 +64,7 @@ internal class DatabaseEngine(private val context: Context) {
     private val dirtyRecord = File(roots.databaseRoot, "recovery.json")
     private val secretFile = File(roots.databaseRoot, "secrets.json")
     private val configFile = File(runDir, "my.cnf")
-    // GAP-3 (owner census UIUX-3): the snapshot compatibility gate resolves
+    // the snapshot compatibility gate resolves
     // the active lane from the PERSISTED Home-switcher pick — this
     // :database process never sees the UI process's in-memory ActiveFlavor
     // selection, so the multi-process settings store is the one selection
@@ -292,7 +292,7 @@ internal class DatabaseEngine(private val context: Context) {
             atomicWrite(File(datadir, "mariadb_upgrade_info"), "$providerVersion-MariaDB")
             val secrets = createSecrets()
             startDaemon(allowUnsealedBootstrap = true, allowedTransactionKind = "INIT")
-            // W1.2: the bootstrap's CREATE DATABASE / GRANT database names
+            // the bootstrap's CREATE DATABASE / GRANT database names
             // compose from the RESOLVED lane's registry names
             // (MariaDbBootstrap.initialAuthSql over bootstrapDatabaseNames())
             // — never a bare vanilla literal. The exactly-one-qualified +
@@ -477,7 +477,7 @@ internal class DatabaseEngine(private val context: Context) {
         realmbuilds: String,
     ): JSONObject = synchronized(lock) {
         check(state == State.RUNNING) { "database is not running" }
-        // Design-tunnel §4.4.1/§5: the projection seam takes the ADVERTISED
+        // Design-tunnel /: the projection seam takes the ADVERTISED
         // grammar (the desktop typed-guard twin) - canonical numeric IPv4 in
         // the loopback/private/link-local/CGNAT set, so the interpolation and
         // the bound parameter both stay inside the canonical address shape.
@@ -538,7 +538,7 @@ internal class DatabaseEngine(private val context: Context) {
     }
 
     /**
-     * The bootstrap's flavor-routed database names (W1.2): resolved from
+     * The bootstrap's flavor-routed database names: resolved from
      * static registry state that is byte-identical in every process —
      * exactly one qualified flavor, and that flavor the vanilla lane (the
      * recorded W1.2 per-flavor-seeding deferral, DECISIONS-PORT D72: a
@@ -567,12 +567,12 @@ internal class DatabaseEngine(private val context: Context) {
         }.selectedFlavorOrNull()
         val flavor = com.pocketrealm.client.ActiveFlavorState(persisted)
             .resolve(com.pocketrealm.client.ClientFlavors.qualified(), dbBootstrapLane)
-        // R4-1b (W4 code-red round 4): the ANDROID migration scope is
+        // the ANDROID migration scope is
         // VANILLA-only (android/app/build.gradle.kts stages the single
         // vanilla ledger). W5 built the HOST-SIDE per-flavor native lanes
         // and their lockfiles; the on-device per-flavor ledger/packaging
         // routing is recorded as open follow-up work in the decision log
-        // (D90). Provisioning the persisted lane's tbc*/wotlk* database
+        // Provisioning the persisted lane's tbc*/wotlk* database
         // family here would strand the datadir — the vanilla-only ledger
         // can never serve it and re-picking vanilla cannot recover (the
         // classic* family was never provisioned). Refuse LOUD before any
@@ -1289,7 +1289,7 @@ internal class DatabaseEngine(private val context: Context) {
         realmbuilds: String,
     ): JSONObject = synchronized(lock) {
         check(state == State.RUNNING) { "database is not running" }
-        // Design-tunnel §4.4.1/§5: the projection seam takes the ADVERTISED
+        // Design-tunnel /: the projection seam takes the ADVERTISED
         // grammar (the desktop typed-guard twin) - canonical numeric IPv4 in
         // the loopback/private/link-local/CGNAT set, so the interpolation and
         // the bound parameter both stay inside the canonical address shape.

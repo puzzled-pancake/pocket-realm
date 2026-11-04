@@ -1,7 +1,11 @@
 package com.pocketrealm.gateway
 
 import com.pocketrealm.discovery.iroh.GatewayContract
+import com.pocketrealm.discovery.iroh.JoinHello
+import com.pocketrealm.discovery.iroh.JoinPeer
+import com.pocketrealm.discovery.iroh.LogonPeek
 import com.pocketrealm.discovery.iroh.PortMux
+import com.pocketrealm.discovery.iroh.SignupProtocol
 import computer.iroh.Connection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +46,15 @@ internal object HostGateway {
             boundSockets = endpoint.boundSockets(),
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        if (parsed.signupChannel) {
+            // A ban closes the banned joiner's live connections at once.
+            SignupChannel.onDrop = { device, node ->
+                livePeers.entries
+                    .filter { entry -> entry.value.deviceToken == device || entry.value.nodeHex == node }
+                    .forEach { entry -> runCatching { entry.key.close() } }
+            }
+            SignupChannel.startHostReader()
+        }
         try {
             val acceptJob = scope.launch { acceptLoop(endpoint, parsed, scope) }
             parkOrTimeout(parsed.maxSeconds)
@@ -51,6 +64,49 @@ internal object HostGateway {
             runCatching { endpoint.close() }
         }
         GatewayContract.ExitCode.OK
+    }
+
+    /** Welcomed connections and who they are (the drop order's index). */
+    private val livePeers = java.util.concurrent.ConcurrentHashMap<Connection, JoinPeer>()
+
+    /** One hello in, one answer out. With the channel the app decides
+     * (bans); without it (the loopback test lanes) every joiner is
+     * welcome. A welcomed peer is remembered on the connection. */
+    private suspend fun answerHello(
+        stream: computer.iroh.BiStream,
+        conn: Connection,
+        nodeHex: String?,
+        parsed: Args,
+        peer: java.util.concurrent.atomic.AtomicReference<JoinPeer?>,
+    ) {
+        runCatching {
+            stream.use { bi ->
+                val recv = bi.recv()
+                val frame = kotlinx.coroutines.withTimeoutOrNull(JoinHello.TIMEOUT_MS) {
+                    SignupProtocol.readFrame { recv.read(SignupProtocol.MAX_FRAME_BYTES.toUInt()) }
+                }
+                val request = frame?.let(JoinHello::decodeRequest)
+                val reply = if (request == null || nodeHex == null) {
+                    JoinHello.INVALID_REPLY
+                } else {
+                    val candidate = JoinPeer(request.deviceToken, nodeHex)
+                    val answer = if (parsed.signupChannel) {
+                        SignupChannel.admit(candidate, request.passwordProof)
+                    } else {
+                        JoinHello.WELCOME_REPLY
+                    }
+                    if (answer.ok) {
+                        peer.set(candidate)
+                        livePeers[conn] = candidate
+                    }
+                    answer
+                }
+                bi.send().use { send ->
+                    send.writeAll(SignupProtocol.encodeReply(reply).toByteArray(Charsets.UTF_8))
+                    send.finish()
+                }
+            }
+        }.onFailure { System.err.println("gateway host: hello stream ended: ${it.message}") }
     }
 
     private suspend fun acceptLoop(
@@ -97,6 +153,12 @@ internal object HostGateway {
                 // joiner multiplexes its 3724/8085 lanes on one tunnel):
                 // the connection closes only when its LAST flow ends.
                 val activeFlows = java.util.concurrent.atomic.AtomicInteger(0)
+                // The self sign-up lane's per-connection allowance.
+                val signupBudget = com.pocketrealm.discovery.iroh.SignupProtocol.ConnectionBudget()
+                // Who this joiner is: its node id, which the transport
+                // authenticates, and its device token once it says hello.
+                val nodeHex = runCatching { hexLower(conn.remoteId().toBytes()) }.getOrNull()
+                val peer = java.util.concurrent.atomic.AtomicReference<JoinPeer?>(null)
                 // The idle reap: a connection that never opens a stream
                 // would park this accept loop forever — the watchdog closes
                 // it after the idle budget (which unblocks acceptBi with an
@@ -144,13 +206,42 @@ internal object HostGateway {
                         if (port == GatewayContract.PORT_KEEPALIVE) {
                             scope.launch {
                                 runCatching {
-                                    val probe = stream.recv().read(1u)
-                                    if (probe.isNotEmpty()) {
-                                        stream.send().write(probe)
+                                    stream.use { probeStream ->
+                                        probeStream.recv().use { recv ->
+                                            val probe = recv.read(1u)
+                                            probeStream.send().use { send ->
+                                                if (probe.isNotEmpty()) send.write(probe)
+                                                // Close this end now: QUIC's
+                                                // stream cap must not wait on GC.
+                                                send.finish()
+                                            }
+                                            runCatching { recv.stop(0uL) }
+                                        }
                                     }
                                 }
                                 lastStreamMs.set(System.currentTimeMillis())
                             }
+                            continue
+                        }
+                        if (port == GatewayContract.PORT_SIGNUP) {
+                            // Answered by the app, never dialed to loopback.
+                            scope.launch {
+                                SignupChannel.answer(stream, signupBudget, parsed.signupChannel, peer.get())
+                                lastStreamMs.set(System.currentTimeMillis())
+                            }
+                            continue
+                        }
+                        if (port == GatewayContract.PORT_HELLO) {
+                            scope.launch {
+                                answerHello(stream, conn, nodeHex, parsed, peer)
+                                lastStreamMs.set(System.currentTimeMillis())
+                            }
+                            continue
+                        }
+                        if (port != null && parsed.signupChannel && peer.get() == null) {
+                            // A host with the app channel serves game
+                            // streams only to joiners it welcomed (bans).
+                            runCatching { stream.close() }
                             continue
                         }
                         if (port != null) {
@@ -159,13 +250,24 @@ internal object HostGateway {
                         }
                         idleReaper.cancel()
                         scope.launch {
-                            serveFlow(conn, stream, port, parsed, activeFlows, flowBudget)
+                            serveFlow(conn, stream, port, parsed, activeFlows, flowBudget) { account ->
+                                val known = peer.get()
+                                if (known != null && parsed.signupChannel) {
+                                    SignupChannel.peerEvent(
+                                        JoinHello.PeerEvent(JoinHello.EVENT_LOGIN, known, account),
+                                    )
+                                }
+                            }
                         }
                     }
                 } finally {
                     idleReaper.cancel()
                     if (activeFlows.get() == 0) runCatching { conn.close() }
                     connectionBudget.release()
+                    livePeers.remove(conn)
+                    peer.get()?.takeIf { parsed.signupChannel }?.let { left ->
+                        SignupChannel.peerEvent(JoinHello.PeerEvent(JoinHello.EVENT_LEAVE, left, null))
+                    }
                 }
             }
         }
@@ -177,7 +279,7 @@ internal object HostGateway {
     /** Serves ONE mux stream: port-id header, loopback dial, raw pumps.
      * [activeFlows] counts this connection's live streams — the connection
      * closes when the count returns to zero (never mid-bundle). [flowBudget]
-     * bounds the endpoint-wide concurrent flows (code-red R4-5): an
+     * bounds the endpoint-wide concurrent flows: an
      * over-budget flow is refused loudly BEFORE any loopback dial. */
     private suspend fun serveFlow(
         conn: Connection,
@@ -186,6 +288,7 @@ internal object HostGateway {
         parsed: Args,
         activeFlows: java.util.concurrent.atomic.AtomicInteger,
         flowBudget: java.util.concurrent.Semaphore,
+        onLogin: (String) -> Unit = {},
     ) {
         if (!flowBudget.tryAcquire()) {
             GatewayMain.errorLine(
@@ -217,7 +320,12 @@ internal object HostGateway {
                 val remoteToLocal = kotlinx.coroutines.CoroutineScope(
                     kotlinx.coroutines.Dispatchers.IO,
                 ).launch {
-                    GatewayIo.pumpIrohToSocket(bi, upstream)
+                    // The realm lane's first packet names the account
+                    // logging in; the bytes pass on untouched.
+                    val peek = if (port == GatewayContract.PORT_REALM) LogonPeek.Accumulator() else null
+                    GatewayIo.pumpIrohToSocket(bi, upstream) { chunk ->
+                        peek?.feed(chunk)?.let { account -> runCatching { onLogin(account) } }
+                    }
                 }
                 val localToRemote = kotlinx.coroutines.CoroutineScope(
                     kotlinx.coroutines.Dispatchers.IO,

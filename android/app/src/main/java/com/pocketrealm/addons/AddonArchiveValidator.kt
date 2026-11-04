@@ -37,7 +37,7 @@ internal class AddonArchiveValidator {
         companion object {
             /**
              * The VANILLA-lane policy — the same companion-freeze hazard the
-             * VOICEOVER_PLAYER policy carries (R6-4): a companion val whose
+             * VOICEOVER_PLAYER policy carries: a companion val whose
              * default resolved [ActiveFlavor] would freeze WHICHEVER lane
              * was selected at first class-load, so the G3-6 vanilla pin
              * passes or fails on JUnit method order. Constructed with the
@@ -49,7 +49,7 @@ internal class AddonArchiveValidator {
             )
 
             /**
-             * R4-2: the player policy resolves the ACTIVE lane's accepted
+             * the player policy resolves the ACTIVE lane's accepted
              * interfaces per call (never frozen at companion-init — the
              * default Policy constructor resolves ActiveFlavor which is
              * process-global and would freeze the wrong lane's set at first
@@ -71,7 +71,7 @@ internal class AddonArchiveValidator {
             )
 
             /**
-             * R6-r2-2: the era-parameterized data policy — the expected
+             * the era-parameterized data policy — the expected
              * folder is the ACTIVE era's data pack identity, so the tbc/
              * wotlk packs validate instead of being refused by the vanilla
              * pin. The module-interface marker and size caps are
@@ -183,7 +183,7 @@ internal class AddonArchiveValidator {
                 }.distinctBy { it.lowercase(Locale.ROOT) }
             }
             require(addonFolders.isNotEmpty()) {
-                // R3-1 (android-ui-tests review round 3): when the projection
+                // when the projection
                 // is empty because no root toc declared an interface the
                 // active lane accepts, the refusal names the lane's own
                 // interface set — never a hard-coded Vanilla lane copy.
@@ -228,7 +228,7 @@ internal class AddonArchiveValidator {
         val text = readToc(zip, entry, path)
         val interfaceValues = declaredInterfaces(text)
         require(interfaceValues.any { it in policy.acceptedInterfaces }) {
-            // R3-1 (android-ui-tests review round 3): the accepted set is
+            // the accepted set is
             // flavor-routed (the default policy resolves the active lane),
             // so the refusal must not hard-code a lane name — it names the
             // interface numbers the ACTIVE flavor accepts.

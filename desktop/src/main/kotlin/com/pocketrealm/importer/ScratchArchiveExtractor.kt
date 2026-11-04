@@ -3,7 +3,7 @@ package com.pocketrealm.importer
 import java.io.File
 
 /**
- * DESK-97: the desktop twin of the Android importer/ScratchArchiveExtractor —
+ * the desktop twin of the Android importer/ScratchArchiveExtractor —
  * extracts a staged archive verbatim into a scratch directory for the Inno
  * installer lane. Unlike the client copy pipeline this applies no client
  * root allow-list — the payload is setup.exe plus its setup-N.bin slices —
@@ -11,7 +11,7 @@ import java.io.File
  * paths, traversal, case-fold collisions) so a hostile archive cannot write
  * outside the scratch directory.
  *
- * DESK-35/64: the RAR legs of the Android original are served by the desktop
+ * the RAR legs of the Android original are served by the desktop
  * [RarArchiveSource] twin (junrar), whose openRarArchive gate keeps the
  * pinned VAL-13 encrypted/multi-volume/solid-RAR4 refusals in front of any
  * extraction.
@@ -59,7 +59,7 @@ internal object ScratchArchiveExtractor {
                         while (remaining > 0) {
                             val n = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
                             if (n < 0) {
-                                throw ImportRejected("VAL-08: scratch extraction ended early: ${entry.relativePath}")
+                                throw ImportRejected("Extraction ended early: ${entry.relativePath}")
                             }
                             output.write(buffer, 0, n)
                             remaining -= n
@@ -98,28 +98,28 @@ internal object ScratchArchiveExtractor {
             val previous = folded.putIfAbsent(key, normalized to entry.directory)
             if (previous != null) {
                 if (previous.second != entry.directory) {
-                    throw ImportRejected("VAL-06: directory/file type conflict: '${previous.first}' and '$normalized'")
+                    throw ImportRejected("Archive conflict between a folder and a file: '${previous.first}' and '$normalized'")
                 }
-                throw ImportRejected("VAL-06: duplicate archive entry '$normalized' and '${previous.first}'")
+                throw ImportRejected("Duplicate archive entry: '$normalized' and '${previous.first}'")
             }
             if (entry.directory) {
                 out += ImportSourceEntry(entry.name, normalized, true, 0, 0, "dir")
                 continue
             }
-            if (entry.size < 0) throw ImportRejected("VAL-08: archive entry omitted size: $normalized")
+            if (entry.size < 0) throw ImportRejected("An archive entry is missing its size: $normalized")
             if (entry.size > limits.maxFileBytes) {
-                throw ImportRejected("VAL-08: file exceeds ${limits.maxFileBytes} bytes: $normalized")
+                throw ImportRejected("A file is too large to import: $normalized")
             }
             out += ImportSourceEntry(entry.name, normalized, false, entry.size, 0, "file")
             fileCount++
-            if (fileCount > limits.maxFiles) throw ImportRejected("VAL-08: file count exceeds ${limits.maxFiles}")
+            if (fileCount > limits.maxFiles) throw ImportRejected("Too many files in the source")
             totalBytes = Math.addExact(totalBytes, entry.size)
             if (totalBytes > limits.maxTotalBytes) {
-                throw ImportRejected("VAL-08: source exceeds ${limits.maxTotalBytes} bytes")
+                throw ImportRejected("The source is too large to import")
             }
         }
         if (out.size > limits.maxEntries) {
-            throw ImportRejected("VAL-08: source entry count exceeds ${limits.maxEntries}")
+            throw ImportRejected("Too many entries in the source")
         }
         return ImportExtractionPolicy.Classified(out, emptyList(), fileCount, totalBytes)
     }

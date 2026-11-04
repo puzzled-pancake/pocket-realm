@@ -99,7 +99,7 @@ class O12ArchiveImportTest {
         importer.close()
         val error = result.exceptionOrNull()
         assertTrue("expected rejection, got $error", error is ImportRejected)
-        assertTrue(error!!.message!!.contains("VAL-12"))
+        assertTrue(error!!.message!!.contains("Windows installer payload"))
         assertFalse(File(context.noBackupFilesDir, "client/active.json").exists())
         val incoming = File(File(context.noBackupFilesDir, "client"), "incoming")
         assertFalse("rejection must delete the staged copy", incoming.listFiles().orEmpty().isNotEmpty())
@@ -212,7 +212,7 @@ class O12ArchiveImportTest {
         importer.close()
         val error = result.exceptionOrNull()
         assertTrue(error is ImportRejected)
-        assertTrue(error!!.message!!.contains("VAL-13"))
+        assertTrue(error!!.message!!.contains("changed during import"))
         assertFalse(File(context.noBackupFilesDir, "client/active.json").exists())
     }
 

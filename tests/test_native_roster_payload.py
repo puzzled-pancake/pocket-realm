@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORLD_CPP = ROOT / "native/realm-runtime/src/world_runtime.cpp"
 ROSTER_JSON_KT = ROOT / "android/app/src/main/java/com/pocketrealm/supervisor/FriendRosterJson.kt"
-PLAYERS_KT = ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/PlayersScreen.kt"
+PLAYERS_KT = ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/PlayersAdvanced.kt"
 BOT_PROFILES_KT = ROOT / "android/app/src/main/java/com/pocketrealm/bots/BotProfiles.kt"
 
 

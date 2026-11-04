@@ -6,7 +6,7 @@ import org.junit.jupiter.api.extension.BeforeEachCallback
 import org.junit.jupiter.api.extension.ExtensionContext
 
 /**
- * W6-N4 code-red R5-2: the port-bound E2Es (3724/8085) get a
+ * W6-N4 R5-2: the port-bound E2Es (3724/8085) get a
  * cross-seat serialization guard — the cross-seat FILE LOCK is acquired
  * before each test and released after it, so two seats sharing the
  * module dir can never run their port-bound E2Es concurrently (the
@@ -31,7 +31,7 @@ class GamePortsGuard : BeforeEachCallback, AfterEachCallback {
         // (the joiner's own no-REUSEADDR bind semantics) under the lock,
         // retrying inside [POST_LOCK_PROBE_GRACE_MS] — a port that stays
         // unbindable aborts this E2E as SKIPPED, never a phantom red
-        // (W6-N4 code-red R5-2/R4-r2-3: the permissive probe lied).
+        // (W6-N4 R5-2/R4-r2-3: the permissive probe lied).
         val deadline = System.currentTimeMillis() + POST_LOCK_PROBE_GRACE_MS
         while (!gamePortsFree()) {
             if (System.currentTimeMillis() >= deadline) {

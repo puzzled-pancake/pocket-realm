@@ -583,14 +583,3 @@ def test_harness_and_prep_tools_forward_the_override(tmp_path, monkeypatch):
     assert str(override) in str(datadir)
 
 
-def test_desktop_host_injects_the_override_into_its_child_env():
-    """Functional (b, source-contract half — a live rpHost spawn is an
-    L3 launch): DesktopHost's child env must explicitly carry
-    POCKET_REALM_DATA_ROOT resolved from the shared resolver, so a
-    registry-only variable can never boot the app back onto
-    %LOCALAPPDATA%."""
-    host_source = (
-        check_e_only.DEFAULT_ROOT / "tools/rp_harness/desktop_host.py"
-    ).read_text(encoding="utf-8")
-    assert 'env["POCKET_REALM_DATA_ROOT"] = str(common.product_data_root())' in host_source
-    assert "import common" in host_source

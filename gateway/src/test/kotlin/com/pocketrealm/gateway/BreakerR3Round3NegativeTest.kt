@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 import kotlin.system.measureTimeMillis
 
 /**
- * W6-N3 code-red ROUND 3 (adversarial breaker R2) — the lanes rounds 1-2
+ * W6-N3 ROUND 3 (adversarial breaker R2) — the lanes rounds 1-2
  * did not cover:
  *
  *  - the BELT phase's per-byte drain COST under a hostile host's bulk
@@ -246,7 +246,7 @@ class BreakerR3Round3NegativeTest {
             GatewayContract.ARG_REALM_TARGET, "127.0.0.1:99999",
         )
         val thrown = runCatching { Args.parse(raw) }.exceptionOrNull()
-        // R5-r2-4 (round-6 minor): assert on the concrete refusal path's
+        // assert on the concrete refusal path's
         // CONTENT (the out-of-range port) — never a compiler-tautological
         // instanceof.
         assertTrue(

@@ -8,7 +8,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * DESK-54: the validator's accepted-interface seam routes through
+ * the validator's accepted-interface seam routes through
  * [ClientFlavor.addonInterfaces] — never a hard-coded 11200 inside the
  * validator — so qualifying a new flavor is a data change in the flavor
  * registry, not a silent accept/reject skew here. The vanilla literals stay

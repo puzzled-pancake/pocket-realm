@@ -4,11 +4,11 @@ package com.pocketrealm.importer
  * Name policy for archive lanes. Runs over client-root-relative entry names
  * (the source already rebased the wrapper folder): every entry passes
  * [ImportPathPolicy.normalizeEntry], all entries — directories included — join one
- * case-fold namespace (collisions and dir/file type conflicts reject), and
+ * case-fold namespace (a later duplicate differing only in case is skipped), and
  * root entries outside the known client layouts are excluded with a reason
  * instead of copied ("!1.8 Hack/", launcher scripts, dxvk/, …).
  *
- * Per-flavor root layouts (census lanes item 17): every archive lane
+ * Per-flavor root layouts: every archive lane
  * classifies BEFORE the flavor is resolved (the PE identity scan runs on the
  * classified inventory; the RAR/Inno lanes verify post-extraction), so the
  * admitted universe is the UNION of the declared layouts — the identity gate
@@ -48,7 +48,9 @@ class ImportExtractionPolicy(
         val totalBytes: Long,
     )
 
-    /** Classify a full raw entry list; rejects unsafe names, fold conflicts, and size-cap violations. */
+    /** Classify a full raw entry list; skips unusable names and case-only
+     * duplicates with a reason, rejects absolute/traversal paths and
+     * size-cap violations. */
     fun classify(entries: List<RawEntry>): Classified {
         val folded = mutableMapOf<String, Pair<String, Boolean>>()
         val copy = mutableListOf<ImportSourceEntry>()
@@ -56,16 +58,32 @@ class ImportExtractionPolicy(
         val excludedRoots = mutableSetOf<String>()
         var fileCount = 0
         var totalBytes = 0L
+        val skippedTrees = mutableSetOf<String>()
         for (raw in entries.sortedBy { it.rawName }) {
             val rawKey = raw.rawKey
-            val normalized = paths.normalizeEntry(raw.rawName)
+            // A name the client could never have shipped (a trailing dot or
+            // space, an over-long or blank component) is skipped with its
+            // reason; only absolute and traversal paths still refuse.
+            val normalized = when (val name = ImportNameCheck.check(paths, raw.rawName)) {
+                is ImportNameCheck.Name.Usable -> name.normalized
+                is ImportNameCheck.Name.Skip -> {
+                    excluded += Excluded(raw.rawName, name.reason)
+                    continue
+                }
+            }
             val key = paths.caseFoldKey(normalized)
+            if (skippedTrees.any { key.startsWith("$it/") }) {
+                excluded += Excluded(normalized, "below a skipped duplicate directory")
+                continue
+            }
             val previous = folded.putIfAbsent(key, normalized to raw.directory)
             if (previous != null) {
-                if (previous.second != raw.directory) {
-                    throw ImportRejected("VAL-06: directory/file type conflict: '${previous.first}' and '$normalized'")
-                }
-                throw ImportRejected("VAL-06: case-fold collision: '${previous.first}' and '$normalized'")
+                // Two names differing only in case (or a file and a folder
+                // of one name): keep the first, skip the duplicate and its
+                // subtree — the game resolves names case-insensitively.
+                excluded += Excluded(normalized, "duplicate of '${previous.first}' differing only in case")
+                if (raw.directory) skippedTrees += key
+                continue
             }
             val rootName = normalized.substringBefore('/')
             val underExcludedRoot = excludedRoots.any { root -> root.equals(rootName, true) }
@@ -82,31 +100,31 @@ class ImportExtractionPolicy(
                 copy += ImportSourceEntry(rawKey, normalized, true, 0, 0, "dir")
                 continue
             }
-            if (raw.size < 0) throw ImportRejected("VAL-08: archive entry omitted size: $normalized")
+            if (raw.size < 0) throw ImportRejected("An archive entry is missing its size: $normalized")
             if ('/' !in normalized && paths.caseFoldKey(normalized) !in rootFiles) {
                 excluded += Excluded(normalized, "non-client root file")
                 continue
             }
             if (raw.size > limits.maxFileBytes) {
-                throw ImportRejected("VAL-08: file exceeds ${limits.maxFileBytes} bytes: $normalized")
+                throw ImportRejected("A file is too large to import: $normalized")
             }
             copy += ImportSourceEntry(rawKey, normalized, false, raw.size, 0, "file")
             fileCount++
-            if (fileCount > limits.maxFiles) throw ImportRejected("VAL-08: file count exceeds ${limits.maxFiles}")
+            if (fileCount > limits.maxFiles) throw ImportRejected("Too many files in the source")
             totalBytes = Math.addExact(totalBytes, raw.size)
             if (totalBytes > limits.maxTotalBytes) {
-                throw ImportRejected("VAL-08: source exceeds ${limits.maxTotalBytes} bytes")
+                throw ImportRejected("The source is too large to import")
             }
         }
         if (copy.size > limits.maxEntries) {
-            throw ImportRejected("VAL-08: source entry count exceeds ${limits.maxEntries}")
+            throw ImportRejected("Too many entries in the source")
         }
         return Classified(copy, excluded, fileCount, totalBytes)
     }
 }
 
 /**
- * Per-flavor client-root layout (census lanes item 17), derived from the
+ * Per-flavor client-root layout, derived from the
  * measured staged clients (census: `WoW_Classic_ENG_1.12.1`,
  * `ExcaliburWoW Burning Crusade 2.4.3`, `World.of.Warcraft.3.3.5a.Truewow`).
  * Every set is case-folded (`ImportPathPolicy.caseFoldKey` form); rows follow
@@ -179,5 +197,38 @@ data class RootLayout(
 
         /** Every declared flavor's layout; the default policy admits the union. */
         val DECLARED: List<RootLayout> = listOf(VANILLA, TBC, WOTLK)
+
+        /** True when a client-root entry belongs to some declared layout
+         * ([lowerName] is the case-folded name); everything else — runtime
+         * debris (`Cache/`, `Logs/`, `WDB/`), backups, launcher scripts —
+         * is skipped, not copied. */
+        fun admitsRoot(lowerName: String, directory: Boolean): Boolean =
+            if (directory) DECLARED.any { lowerName in it.rootDirectories }
+            else DECLARED.any { lowerName in it.rootFiles }
     }
+}
+
+/**
+ * The tolerant name check every import lane shares: absolute paths and
+ * traversal (`..`) refuse the import — no genuine client carries them and
+ * they are the zip-slip signature — while any other unusable name (a
+ * trailing dot or space, a blank or over-long component, a control
+ * character) skips just that entry.
+ */
+object ImportNameCheck {
+    sealed interface Name {
+        data class Usable(val normalized: String) : Name
+        data class Skip(val reason: String) : Name
+    }
+
+    fun check(paths: ImportPathPolicy, rawName: String): Name = try {
+        Name.Usable(paths.normalizeEntry(rawName))
+    } catch (rejected: ImportRejected) {
+        val message = rejected.message.orEmpty()
+        if (REFUSING.any { it in message }) throw rejected
+        Name.Skip("unusable name skipped ($message)")
+    }
+
+    /** The refusal classes that stay fatal: path escapes, not odd names. */
+    private val REFUSING = listOf("absolute source path", "traversal")
 }

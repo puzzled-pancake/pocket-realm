@@ -10,7 +10,7 @@ import org.junit.Test
 import java.util.PriorityQueue
 
 /**
- * P11 lanes item 19 (android lane): the per-build login topologies and the
+ * P11 (android lane): the per-build login topologies and the
  * [LoginTopologies] resolver. The 5875 contract stays the verified pin; the
  * 8606/12340 twins are the build-keyed seams for the staged clients (same
  * Winlator transport family), and an unknown build/flavor resolves to null —

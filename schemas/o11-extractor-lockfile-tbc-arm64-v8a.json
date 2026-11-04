@@ -11,6 +11,10 @@
       "sha256": "f0103d0aa7426bbfd9237225657e25eb5c3446baefd98cbebb05a72ddefe27d0"
     },
     {
+      "path": "native/patches/o11-cmangos-mmap-taskqueue-wait.patch",
+      "sha256": "ecb89f966e077822c6f616f5379b4434ecb2fc5e73c5c62d8279568ab6f25fa4"
+    },
+    {
       "path": "native/o11-patches/o11-cmangos-tbc-icu-apple-guard.patch",
       "sha256": "b50e38fc8ed6f6a88382b6bbaf03ab596be96a8d31deebd256649a8c85fe37d9"
     }
@@ -63,8 +67,8 @@
     },
     {
       "path": "native/.build-o11-arm64-v8a-tbc/extractor-staging/jniLibs/arm64-v8a/libpocket_movemapgen.so",
-      "size": 1909624,
-      "sha256": "2d22ae010e29d509827c548dc78ee146d3e6ca09539f8f4a028cf70621d84cdd",
+      "size": 1909648,
+      "sha256": "5894f54efef3c0833b76d2c0b4a806d232ad4c8b460183324ac3f167eebdd9ea",
       "needed": [
         "libc.so",
         "libdl.so",

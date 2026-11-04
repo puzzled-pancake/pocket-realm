@@ -2,6 +2,8 @@ package com.pocketrealm.addons
 
 import android.content.Context
 import android.system.Os
+import com.pocketrealm.client.ClientFlavor
+import com.pocketrealm.client.ClientFlavors
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -19,7 +21,20 @@ class AddonRuntimeProjector(
     private val root = rootOverride ?: File(appContext.noBackupFilesDir, "addons")
     private val registry = File(root, "registry.json")
 
-    fun project(clientRoot: File, safeMode: Boolean): List<String> {
+    fun project(clientRoot: File, safeMode: Boolean): List<String> =
+        project(clientRoot, safeMode, ClientFlavors.VANILLA)
+
+    /**
+     * [flavor] is the client being launched: the built-in add-on's toc is
+     * projected onto that client's interface line so the client's own
+     * out-of-date gate accepts it.
+     */
+    fun project(
+        clientRoot: File,
+        safeMode: Boolean,
+        flavor: ClientFlavor,
+        controlLayout: String? = null,
+    ): List<String> {
         // 0.6.0 renamed the built-in addon. Normalize the persisted device
         // data before any installed or journal state is read below: reading
         // first would mistake an unmigrated device for a removal and retire
@@ -89,7 +104,8 @@ class AddonRuntimeProjector(
             requested.values.forEach { (folder, source) ->
                 val target = safeChild(stagingRoot, folder)
                 if (source == null) {
-                    copyBuiltInAssetTree("${AndroidPortPackage.ASSET_PATH}/$folder", target)
+                    copyBuiltInAssetTree("${AndroidPortPackage.ASSET_PATH}/$folder", target, flavor)
+                    AndroidPortHostLayout.write(target, controlLayout)
                 } else {
                     copyTree(source, target)
                 }
@@ -205,7 +221,7 @@ class AddonRuntimeProjector(
         }
     }
 
-    private fun copyBuiltInAssetTree(assetRoot: String, destination: File) {
+    private fun copyBuiltInAssetTree(assetRoot: String, destination: File, flavor: ClientFlavor) {
         var files = 0
         var bytes = 0L
         fun copy(path: String, target: File) {
@@ -242,9 +258,18 @@ class AddonRuntimeProjector(
         }
         copy(assetRoot, destination)
         require(files > 0) { "Built-in Android Port assets are missing" }
-        val toc = File(destination, "${AndroidPortPackage.ADDON_FOLDER}.toc")
-        require(toc.isFile && Regex("""(?m)^## Interface:\s*11200\s*$""").containsMatchIn(toc.readText())) {
-            "Built-in Android Port is not an Interface 11200 add-on"
+        // The projected toc carries the running client's interface line: the
+        // master asset stays Vanilla, the rewrite happens here per launch.
+        val toc = File(destination, AndroidPortTocProjection.TOC_FILE)
+        require(toc.isFile) { "Built-in Android Port assets are missing their toc" }
+        val projectedToc = AndroidPortTocProjection.projectTocText(toc.readText(), flavor)
+        toc.writeBytes(projectedToc.toByteArray(Charsets.UTF_8))
+        val projectedInterface = AndroidPortTocProjection.interfaceFor(flavor)
+        require(
+            Regex("""(?m)^## Interface:\s*$projectedInterface\s*$""")
+                .containsMatchIn(projectedToc)
+        ) {
+            "Built-in Android Port is not an Interface $projectedInterface add-on"
         }
     }
 

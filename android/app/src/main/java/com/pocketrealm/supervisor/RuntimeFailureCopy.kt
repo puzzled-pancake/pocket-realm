@@ -56,7 +56,7 @@ object RuntimeFailureCopy {
                 "if the host just enabled hosting, Windows Firewall on the host must " +
                 "have allowed Pocket Realm on private networks."
         }
-        // v2-gated (design-lan §5.2): the join grammar refuses every
+        // v2-gated (design-lan): the join grammar refuses every
         // non-private address at validation time today, so this branch is
         // dormant until the tunnel lane's endpoint widening lands.
         "LAN-PROBE-NOT-LAN" in detail ->
@@ -72,7 +72,7 @@ object RuntimeFailureCopy {
                     "unban it (Guests → Unban)."
             }
         }
-        // Design-timeframe §4.3's fail-closed world-start refusals: the
+        // Design-timeframe 's fail-closed world-start refusals: the
         // shared overlay plan's refusal strings, humanized with a remedy.
         // The mechanics stay fail-loud — the raw engineer detail stays in
         // the journal and logs verbatim; the realm card just never renders it.
@@ -94,11 +94,11 @@ object RuntimeFailureCopy {
                     "content stage, so the start was refused. Re-prepare the game files " +
                     "(Settings → Game files) and start the realm again."
             } else {
-                "This flavor's timeframe content data is not part of this " +
-                    "build yet, so the start at the selected stage was " +
-                    "refused. Set World timeframe back to the current-release " +
-                    "stage (Settings → World timeframe) and start the realm " +
-                    "again."
+                "This game version's timeframe content data is not part " +
+                    "of this build yet, so the start at the selected stage " +
+                    "was refused. Set World timeframe back to the " +
+                    "current-release stage (Settings → World timeframe) and " +
+                    "start the realm again."
             }
         }
         "timeframe overlay" in detail ->

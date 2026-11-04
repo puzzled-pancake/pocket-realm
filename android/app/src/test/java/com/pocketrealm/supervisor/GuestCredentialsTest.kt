@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** D5a (design-lan §4.2): the shared guest password generator's pins. */
+/** the shared guest password generator's pins. */
 class GuestCredentialsTest {
 
     @Test fun `password is sixteen symbols from the unambiguous alphabet`() {

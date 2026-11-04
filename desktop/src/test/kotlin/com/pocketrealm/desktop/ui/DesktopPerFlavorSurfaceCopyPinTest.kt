@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * R6-1/R6-5 (code-red round 4): the desktop add-ons screen's AndroidPort
+ * the desktop add-ons screen's AndroidPort
  * copy is FLAVOR-CONDITIONAL (mirroring the android fix) and the desktop
  * in-game settings screen's vanilla-catalog remainder is recorded for the
  * flip checklist.
@@ -67,12 +67,12 @@ class DesktopPerFlavorSurfaceCopyPinTest {
             val at = text.indexOf("fun flavorTweaksCopy(")
             // The expression-bodied function ends with the shared string
             // literal in both twins — slice to it inclusively.
-            val end = text.indexOf("1.12.1 client only.\"", at)
+            val end = text.indexOf("1.12.1 client.\"", at)
             // Line-wrapping differences are formatting, not contract
             // drift: compare the token stream (whitespace, the string-
             // concatenation operator, and the string delimiters stripped
             // — the SIGNATURE and the rendered string content must match).
-            return text.substring(at, end + "1.12.1 client only.\"".length)
+            return text.substring(at, end + "1.12.1 client.\"".length)
                 .replace(Regex("[\\s+\"]"), "")
         }
         val desktop = copyBody(
@@ -143,12 +143,12 @@ class DesktopPerFlavorSurfaceCopyPinTest {
             ).containsMatchIn(source),
         )
         assertTrue(
-            "the non-vanilla recommended copy must carry the reference-grade wording",
-            "(reference-grade evidence, not hardware-tested). " in source,
+            "the non-vanilla recommended copy must say not hardware-tested",
+            "not hardware-tested. " in source,
         )
     }
     @Test fun `the desktop settings screen routes through the flavor-routed seam R5-1`() {
-        // R5-1 (W4 code-red round 5): the D83 remainder is RETIRED - the
+        // the D83 remainder is RETIRED - the
         // desktop settings screen resolves every catalog read through the
         // flavor-routed seam (WowFlavorCatalogs + the editor's ACTIVE
         // lane), never a hard-coded vanilla object.

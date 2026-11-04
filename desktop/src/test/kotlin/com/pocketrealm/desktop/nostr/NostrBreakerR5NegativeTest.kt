@@ -36,7 +36,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * W6-N1 code-red round 5 — the adversarial breaker's negative tests
+ * W6-N1 — the adversarial breaker's negative tests
  * (cheap, desktop JVM lane). Round 5 probes the gaps rounds 2-4 left:
  *
  *  - the frozen-schema key-set pin covers the TOP-LEVEL keys only — a
@@ -247,9 +247,6 @@ class NostrBreakerR5NegativeTest {
 
     private val nowMs = longArrayOf(1_760_000_000_000L)
 
-    private val visibility =
-        java.util.concurrent.atomic.AtomicReference(RealmStatusVisibility.OFF)
-
     private val payload = java.util.concurrent.atomic.AtomicReference<org.json.JSONObject?>(null)
 
     private val frames = LinkedBlockingQueue<String>()
@@ -300,7 +297,6 @@ class NostrBreakerR5NegativeTest {
             seams = Seams(
                 clockMs = { nowMs[0] },
                 client = client,
-                visibilityProvider = { visibility.get() },
                 payloadProvider = { payload.get() },
                 gatePollMs = Long.MAX_VALUE,
                 heartbeatSeconds = RealmListingContract.HEARTBEAT_SECONDS,
@@ -308,7 +304,7 @@ class NostrBreakerR5NegativeTest {
         )
         publisher.boot()
         model.updateSettings {
-            it.copy(nostrDiscoveryEnabled = true, nostrRelays = listOf(relayUrl()))
+            it.copy(onlineHosting = true, nostrRelays = listOf(relayUrl()))
         }
         runBlocking {
             kotlinx.coroutines.withTimeout(10_000) {
@@ -317,7 +313,6 @@ class NostrBreakerR5NegativeTest {
                 }
             }
         }
-        visibility.set(RealmStatusVisibility.PUBLIC)
         payload.set(greenPayload())
     }
 

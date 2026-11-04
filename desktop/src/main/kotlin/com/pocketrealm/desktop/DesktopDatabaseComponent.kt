@@ -52,7 +52,7 @@ internal class DesktopDatabaseComponent(
             "$CODE_DB_NOT_SEEDED: seed the datadir first (relaunch to bootstrap from the " +
                 "packaged transcripts, or gradlew seedRealmData from desktop/)"
         }
-        // The prepare-for-start gate (DESK-98): the shared
+        // The prepare-for-start gate: the shared
         // DatabaseStartPreparation machine must say READY before the DB
         // component reports READY — INITIALIZATION/MIGRATIONS/dirty
         // states refuse with their own codes, never a silent boot.

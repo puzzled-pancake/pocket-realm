@@ -7,7 +7,7 @@ Pocket Realm is a self-contained Android home for a classic local game world. It
 Pocket Realm brings these parts together:
 
 - A simple Android launcher with Home, Add-ons, Controls, and Settings areas.
-- A managed copy of a user-supplied World of Warcraft client for the selected flavor (Vanilla 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340).
+- A managed copy of a user-supplied World of Warcraft client for the selected game version (Vanilla 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340).
 - A private local realm that normally runs only on the handheld.
 - Local player account creation and optional automatic login.
 - Computer-controlled residents, usually called bots, with several population presets.
@@ -34,7 +34,7 @@ Pocket Realm does not include proprietary World of Warcraft client files or game
 
 ## Current state
 
-The project is an active work in progress. The launcher, local runtime, client import, account flow, controls, add-on manager, settings, diagnostics, and live handheld integration are present. Some areas are still being tuned and physically qualified.
+The project is an active work in progress. The launcher, local runtime, client import, account flow, controls, add-on manager, settings, diagnostics, and live handheld integration are present. Some areas are still being tuned and tested on hardware.
 
 For a full explanation of the combined software, see [Projects and technologies used](Projects-and-Technologies.md). For the complete runtime flow, see [How the pieces work together](How-It-Works.md).
 
@@ -42,6 +42,6 @@ For a full explanation of the combined software, see [Projects and technologies 
 
 - It is not an official Blizzard product.
 - It does not include the original game client.
-- It is not a public Internet realm service by default. The one opt-in exception is the Realms browser's Public realms lane (desktop): an explicit publish switch (off by default) posts a small world-readable listing to community Nostr relays while your realm is up and the status page is Public — see Home-Screen. Nothing is published unless you flip that switch, and no router port is ever opened; a listing that carries the join descriptor (the realm's iroh node id and home-relay hostname) lets desktop browsers join over the relay while the host's gateway runs.
+- It is not a public Internet realm service by default. The one opt-in exception is the Realms browser's Public realms feature (desktop): an explicit publish switch (off by default) posts a small world-readable listing to community Nostr relays while your realm is up and the status page is Public — see Home-Screen. Nothing is published unless you flip that switch, and no router port is ever opened; a listing that carries the join descriptor (the realm's iroh node id and home-relay hostname) lets desktop browsers join over the relay while the host's gateway runs.
 - It does not promise modern World of Warcraft features inside any of the supported classic-era clients (Vanilla 1.12.1, TBC 2.4.3, WotLK 3.3.5a).
 - The experimental LAN option is not the same as the normal offline mode.

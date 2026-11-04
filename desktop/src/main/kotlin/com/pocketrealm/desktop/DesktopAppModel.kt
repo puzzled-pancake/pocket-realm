@@ -38,10 +38,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * D2 (design-lan §2.4): the interface-loss monitor — the desktop twin of the
+ * the interface-loss monitor — the desktop twin of the
  * Android RealmService monitor loop (RealmService.kt:440-498). A 1 s tick
  * that, while the runtime hosts on the LAN (`spec.mode == LAN_HOST`) and the
  * phase is one of the Android MONITORED_PHASES, checks
@@ -61,7 +62,7 @@ internal class LanInterfaceLossMonitor(
     private val snapshot: () -> com.pocketrealm.supervisor.RuntimeSnapshot?,
     /** The -filtered liveness predicate. */
     private val liveInterface: (com.pocketrealm.supervisor.RealmEndpoint) -> Boolean,
-    /** Design-tunnel §10: the tunnel-adapter liveness leg — the watched
+    /** Design-tunnel: the tunnel-adapter liveness leg — the watched
      * predicate when the session advertises a tunnel address. */
     private val liveTunnelInterface: (com.pocketrealm.supervisor.AdvertisedAddress) -> Boolean =
         { com.pocketrealm.supervisor.TunnelInterfacePolicy.isCurrentTunnelInterface(it) },
@@ -97,10 +98,10 @@ internal class LanInterfaceLossMonitor(
      * True when the grace elapsed and [onGraceElapsed] must run (the loop
      * version runs it; tests assert the verdict instead).
      *
-     * Mode-aware (design-tunnel §10) through the SHARED decision table —
+     * Mode-aware (design-tunnel) through the SHARED decision table —
      * [com.pocketrealm.supervisor.InterfaceWatch.forSession], the exact
      * function the Android monitor and both platforms' start-legs run, so
-     * the two platforms can no longer disagree (design §1 decision 6: one
+     * the two platforms can no longer disagree (design decision 6: one
      * implementation, not two). The watched input is the SESSION
      * SNAPSHOT's own advertisement — the value the launch spec froze at
      * start — never a live settings re-read, which a mid-session Settings
@@ -118,6 +119,7 @@ internal class LanInterfaceLossMonitor(
         val monitored = snapshotValue.runtimeMode == com.pocketrealm.supervisor.RuntimeMode.LAN_HOST &&
             snapshotValue.phase in MONITORED_PHASES
         val watch = com.pocketrealm.supervisor.InterfaceWatch.forSession(
+            snapshotValue.realmEndpoint.address,
             snapshotValue.advertisedAddress,
         )
         val tunnelLeg = watch is com.pocketrealm.supervisor.InterfaceWatch.Tunnel
@@ -282,7 +284,7 @@ internal fun RuntimeSnapshot.withBootLane(lane: ClientFlavor?): RuntimeSnapshot 
 class DesktopAppModel(
     val roots: DesktopStorageRoots = DesktopStorageRoots(),
     private val clientDirOverride: File? = null,
-    /** DESK-25: the spent-world app relauncher (injectable for the JVM
+    /** the spent-world app relauncher (injectable for the JVM
      * tests; the production default resolves the running jpackage image
      * through the updater's code-source probe). */
     private val relauncher: DesktopAppRelauncher = DesktopAppRelauncher(),
@@ -304,7 +306,7 @@ class DesktopAppModel(
     init {
         roots.ensureDirectories()
         instanceLock = AppInstanceLock.acquire(roots.realm)
-        // DESK-10/83: construct the addon repository once at app start so the
+        // construct the addon repository once at app start so the
         // fresh-install seed (built-in Android Port) runs even if the Add-ons
         // destination is never opened; the launch-boundary projector reads
         // its registry.json at client launch. Off the UI thread — init does
@@ -355,14 +357,8 @@ class DesktopAppModel(
     private val _storedAccount = MutableStateFlow(accountStore.loadOrQuarantine())
     val storedAccount: StateFlow<UserAccountStore.UserAccount?> = _storedAccount.asStateFlow()
 
-    /** The embedded-model lane's shared manager (DESK-48/80/103): the same
-     * singleton ServerRuntimeFiles' conf writer uses, so the LlmScreen and
-     * a world start drive exactly one sidecar. */
-    internal val llmModelManager: DesktopLlmModelManager
-        get() = DesktopLlmModelManager.shared(roots)
-
     /**
-     * D3/D2 (design-lan §2.4/§2.5): the one desktop LAN interface seam —
+     * D3/D2 (design-lan): the one desktop LAN interface seam —
      * the Settings quick-picks, the backend's D1 liveness re-checks, and
      * this model's D2 monitor all filter the SAME candidate list.
      */
@@ -388,7 +384,7 @@ class DesktopAppModel(
         .stateIn(modelScope, SharingStarted.Eagerly, supervisor.state.value)
 
     /**
-     * D9/D2 (design-lan §7): the last interface-loss stop reason (raw
+     * D9/D2 (design-lan): the last interface-loss stop reason (raw
      * marker, decoded at render through the shared [RuntimeFailureCopy]);
      * set by the monitor's graceful stop, cleared on the next successful
      * start — so the Home card's STOPPED copy can say WHY hosting ended.
@@ -397,7 +393,7 @@ class DesktopAppModel(
     val lanStopReason: StateFlow<String?> = _lanStopReason.asStateFlow()
 
     /** The monitor thread; started with the model, stopped in [close].
-     * Mode-aware per design-tunnel §10 through the SHARED
+     * Mode-aware per design-tunnel through the SHARED
      * [com.pocketrealm.supervisor.InterfaceWatch] decision: plain LAN_HOST
      * watches the LAN endpoint (D2 verbatim); a tunnel-advertised session
      * watches the TUNNEL adapter instead (physical-LAN churn must not kill
@@ -405,7 +401,7 @@ class DesktopAppModel(
      * interface to lose and skips the liveness leg. The watched input is
      * the supervisor snapshot's frozen advertisement — the exact value the
      * launch spec projected — so a mid-session Settings edit can never
-     * re-target the watchdog of a live session (design §1 decision 6: one
+     * re-target the watchdog of a live session (design decision 6: one
      * implementation with Android, not two). */
     private val lanInterfaceMonitor = LanInterfaceLossMonitor(
         snapshot = { supervisor.state.value },
@@ -414,7 +410,7 @@ class DesktopAppModel(
             com.pocketrealm.supervisor.TunnelInterfacePolicy.isCurrentTunnelInterface(advertised)
         },
         onGraceElapsed = {
-            // Mode-aware stop reason (design-tunnel §10): the watch that
+            // Mode-aware stop reason (design-tunnel): the watch that
             // fired derived from the session snapshot, so the user-facing
             // decoded copy must be too — a tunnel-advertised session's
             // loss signal is a dropped tunnel, and the LAN remedy ("pick
@@ -461,6 +457,11 @@ class DesktopAppModel(
                 storeDirectory = File(roots.realm, FRIEND_ACCESS_STORE_DIR),
                 backend = backend,
                 supervisor = supervisor,
+                signupLane = { request ->
+                    // The D7 LAN sign-up lane rides the friend-access port;
+                    // the decision is this model's answerLanSignup.
+                    kotlinx.coroutines.runBlocking { answerLanSignup(request) }
+                },
                 logWarning = { DesktopLog.w(FRIEND_ACCESS_LOG_TAG, it) },
                 logInfo = { DesktopLog.i(FRIEND_ACCESS_LOG_TAG, it) },
             ).also { friendAccessInstance = it }
@@ -484,7 +485,7 @@ class DesktopAppModel(
     }
 
     /**
-     * DESK-12/22/41/59/85/96: the in-game settings editor over the configured
+     * the in-game settings editor over the configured
      * client's WTF tree — shared codecs + shared catalogs, the edit lock kept
      * for contract parity (on the desktop's single JVM it degenerates to an
      * in-process reentrant mutex). The queue file rides the app's runtime
@@ -531,24 +532,24 @@ class DesktopAppModel(
         )
     }
 
-    /** DESK-4: the versioned input profile store — the desktop twin's
+    /** the versioned input profile store — the desktop twin's
      * file-backed lane, under the app settings root. */
     val inputProfileStore: com.pocketrealm.client.InputProfileStore by lazy {
         com.pocketrealm.client.InputProfileStore(File(roots.settings, "input-profile.json"))
     }
 
     /**
-     * DESK-10/39/82: the addon manager — one app-scoped repository over
+     * the addon manager — one app-scoped repository over
      * %LOCALAPPDATA%\PocketRealm\addons (registry + packages + the two-file
      * transaction journal), reconciling the input profile with the same
      * file-backed store the Controls editor uses. The launch-boundary
-     * projector (DESK-40/84) reads the registry this manages.
+     * projector reads the registry this manages.
      */
     val addons: com.pocketrealm.addons.DesktopAddonRepository by lazy {
         com.pocketrealm.addons.DesktopAddonRepository.get(roots)
     }
 
-    /** DESK-4: the Win32 gamepad bridge — injects the profile's mapped keys
+    /** the Win32 gamepad bridge — injects the profile's mapped keys
      * into WoW.exe while it is foreground. */
     val gamepadBridge: Win32GamepadBridge by lazy {
         Win32GamepadBridge(
@@ -571,7 +572,7 @@ class DesktopAppModel(
     /**
      * Resolve the folder WoW.exe launches from, for the Home status line:
      * the constructor override, else the backend's managed-generation-first
-     * + identity-gated resolution (DESK-52/67/97). Null when nothing usable
+     * + identity-gated resolution. Null when nothing usable
      * resolves — the exact state that shows the client picker.
      */
     fun resolveClientDir(): File? {
@@ -580,7 +581,7 @@ class DesktopAppModel(
     }
 
     /**
-     * DESK-135: the pure state behind the client-selection affordance. The
+     * the pure state behind the client-selection affordance. The
      * "Change game folder…"/import control renders in every state; what it
      * says depends on this: MANAGED (an active generation is live),
      * FOLDER (a legacy folder passes the identity scan), or NONE (the
@@ -599,12 +600,12 @@ class DesktopAppModel(
     enum class ClientSelectionState { MANAGED_GENERATION, FOLDER, NONE }
 
     /**
-     * DESK-97: the active managed client generation (id, verified identity,
+     * the active managed client generation (id, verified identity,
      * activated-at), or null when no per-flavor pointer is published. A
      * pointer whose generation fails the fail-closed reader reports
      * [ClientGenerationStatus.broken] with the reader's refusal.
      *
-     * GAP-3 (owner census UIUX-3): the lane resolves through the
+     * the lane resolves through the
      * [com.pocketrealm.client.ActiveFlavor] machine — the Home switcher's
      * selection drives the pointer namespace when several flavors qualify,
      * replacing the former `qualified().single()` landmine that crashed
@@ -653,7 +654,7 @@ class DesktopAppModel(
     )
 
     /**
-     * DESK-34/97: import the client folder at [sourceRoot] into a managed
+     * import the client folder at [sourceRoot] into a managed
      * generation (staging → hash-verify → fsync → immutable publication →
      * atomic per-flavor pointer switch). Runs on IO; [onPhase] receives
      * coarse progress wording for the Import screen. Throws
@@ -677,7 +678,7 @@ class DesktopAppModel(
     }
 
     /**
-     * DESK-97: import the client from a picked ARCHIVE (.zip / .7z / .rar, or
+     * import the client from a picked ARCHIVE (.zip /.7z /.rar, or
      * an Inno Setup installer payload) into a managed generation. Same
      * semantics as [importClientFolder]; the archive lane sniffs the format,
      * detects the client (wrapper layouts included), and extracts installer
@@ -703,7 +704,7 @@ class DesktopAppModel(
     }
 
     /**
-     * DESK-3/66: the durable import view for the Import screen — the journal
+     * the durable import view for the Import screen — the journal
      * twin's latest row and data stages rendered through the SHARED
      * [ImportProgressPresentation.fromJson] (the exact presentation contract
      * the Android import page renders, so both platforms word progress
@@ -762,7 +763,7 @@ class DesktopAppModel(
     }
 
     // ------------------------------------------------------------------
-    // DESK-44/69/102: in-app world-data preparation. The app owns the lane
+    // in-app world-data preparation. The app owns the lane
     // end-to-end; the composition lives in the DataPreparationHost (the
     // DESK-102-named host) so the Home, Settings and Diagnostics cards all
     // render the same lane, journal, and copy.
@@ -790,7 +791,7 @@ class DesktopAppModel(
     }
 
     // ------------------------------------------------------------------
-    // DESK-16/31/49/92/105: first-run tutorial state. The overlay is
+    // first-run tutorial state. The overlay is
     // gated on the previously dead `setupComplete` settings field (shown
     // while it is unset, hidden once the flow completes) and is
     // replayable from the Settings Setup card through this process-wide
@@ -816,7 +817,7 @@ class DesktopAppModel(
         updateSettings { it.copy(setupComplete = true) }
     }
 
-    /** DESK-49/92: whether the seeded realm databases are in place — the
+    /** whether the seeded realm databases are in place — the
      * prepare-world-data step's live status (the first start refuses with
      * the honest seed instruction when not). */
     fun datadirSeeded(): Boolean = backend.isDatadirSeeded()
@@ -845,7 +846,7 @@ class DesktopAppModel(
         if (joinClash != null) {
             return RuntimeOperation(false, supervisor.state.value, joinClash)
         }
-        // DESK-24: join mode = stop realm/world + launch the client against
+        // join mode = stop realm/world + launch the client against
         // the remote IP. A join while a local runtime is still up stops that
         // runtime first (graceful, with the world save) — the shared
         // supervisor itself only refuses an active runtime, so the join
@@ -858,7 +859,7 @@ class DesktopAppModel(
                 return stopped
             }
         }
-        // DESK-15/24/42: the topology launch spec from the stored settings —
+        // the topology launch spec from the stored settings —
         // LOCAL loopback, LAN_HOST binding the chosen private IPv4 (gated on
         // the stored allowLanPlayers authorization: hosting with the toggle
         // off is refused here, before the supervisor is engaged), or
@@ -898,7 +899,7 @@ class DesktopAppModel(
                 )
             }
         }.also { operation ->
-            // DESK-4: with the client up, the gamepad bridge begins feeding
+            // with the client up, the gamepad bridge begins feeding
             // the profile's mapped keys whenever the game is foreground.
             if (operation.ok && includeClient) startGamepadBridgeIfUseful()
         }
@@ -907,7 +908,7 @@ class DesktopAppModel(
     /** The launch spec for one start: mode + endpoint + the stored
      * allowLanPlayers authorization from the settings, the resolved bot
      * profile id, the client wish (LAN_JOIN is client-only by contract —
-     * the factory forces its client), and — design-tunnel §4.4 — the stored
+     * the factory forces its client), and — design-tunnel — the stored
      * tunnel advertised address when set (LAN_HOST only; the shared v2
      * grammar validates it, so a malformed value refuses at this gate).
      * LAN_HOST is built directly rather than through the lanHost() factory
@@ -935,10 +936,61 @@ class DesktopAppModel(
         }
     }
 
+    /**
+     * The ONLINE host launch spec (the Host-online button): the game binds
+     * loopback and the internet gateway forwards to it — hosting needs no
+     * LAN. With LAN players on and a private interface up, the same session
+     * also serves direct LAN joins (exactly today's LAN host).
+     */
+    internal fun onlineHostLaunchSpec(
+        includeClient: Boolean,
+        lanPlayers: Boolean,
+        availableLan: List<RealmEndpoint> = lanInterfaces.available(),
+    ): RuntimeLaunchSpec {
+        val profileId = backend.activeBotProfileId() ?: DESKTOP_PROFILE
+        return RuntimeLaunchSpec.lanHost(
+            profileId,
+            com.pocketrealm.supervisor.HostOnlineEndpointPolicy.selectAddress(lanPlayers, availableLan),
+            includeClient = includeClient,
+        )
+    }
+
+    /** Host online (the shared online-first path): start the realm on the
+     * [onlineHostLaunchSpec], refusing a mid-join start exactly like
+     * [startRealm]. */
+    suspend fun hostOnline(
+        includeClient: Boolean = false,
+        lanPlayers: Boolean = false,
+    ): RuntimeOperation {
+        val joinClash = com.pocketrealm.desktop.iroh.IrohJoinGuards.realmStartRefusal(
+            irohGateway.joinState.value,
+        )
+        if (joinClash != null) {
+            return RuntimeOperation(false, supervisor.state.value, joinClash)
+        }
+        val spec = try {
+            onlineHostLaunchSpec(includeClient, lanPlayers)
+        } catch (failure: IllegalArgumentException) {
+            return RuntimeOperation(
+                false,
+                supervisor.state.value,
+                "launch refused: ${failure.message}",
+            )
+        }
+        return supervisor.start(spec).also { operation ->
+            if (operation.ok) {
+                DesktopLog.i(TAG, "host online ok: " + operation.detail)
+                _lanStopReason.value = null
+            } else {
+                DesktopLog.w(TAG, "host online FAILED: " + operation.detail)
+            }
+        }
+    }
+
     suspend fun relaunchClient(): RuntimeOperation =
         supervisor.relaunchClient().also { operation ->
             logOperation(operation)
-            // DESK-4: the relaunched client gets the gamepad bridge too.
+            // the relaunched client gets the gamepad bridge too.
             if (operation.ok) startGamepadBridgeIfUseful()
         }
 
@@ -946,9 +998,9 @@ class DesktopAppModel(
         supervisor.stop(StopMode.GRACEFUL).also { operation ->
             logOperation(operation)
             if (operation.ok) {
-                // DESK-4: no client is owed injected keys after the stop.
+                // no client is owed injected keys after the stop.
                 gamepadBridge.stop()
-                // DESK-41/96: a clean stop is when the queued in-game
+                // a clean stop is when the queued in-game
                 // settings deliver (the queue-while-running lane).
                 drainQueuedInGameSettings()
             }
@@ -1028,14 +1080,14 @@ class DesktopAppModel(
         supervisor.consentedForceStopOrphanStack().also(::logOperation)
 
     // ------------------------------------------------------------------
-    // DESK-116/117/122/123/77: the live world-control surface — the app
+    // the live world-control surface — the app
     // model's verbs over the supervisor (companion mode) and the backend's
     // live-control members (the Android world service's op set). The world
     // owner resolves from the supervisor snapshot exactly like the
     // auto-login credential proof does.
     // ------------------------------------------------------------------
 
-    /** DESK-8/23/43/99: the live bot admission verdict (null while no
+    /** the live bot admission verdict (null while no
      * bot-profile world runs in this process); the Bots screen renders it. */
     val botAdmission: kotlinx.coroutines.flow.StateFlow<DesktopBotAdmissionVerdict?>
         get() = backend.botAdmissionVerdicts()
@@ -1063,7 +1115,7 @@ class DesktopAppModel(
     }
 
     /**
-     * DESK-117: companion mode enter/exit — the shared supervisor's
+     * companion mode enter/exit — the shared supervisor's
      * journaled RUNNING→PAUSED→RUNNING phase operation (the Android
      * RealmService "companion-mode" maintenance op); the Home phase card
      * is its desktop surface and the phase machine + journal copy come
@@ -1072,7 +1124,7 @@ class DesktopAppModel(
     suspend fun setCompanionMode(enabled: Boolean): RuntimeOperation =
         supervisor.setCompanionMode(enabled).also(::logOperation)
 
-    /** DESK-122: the world pause primitive (the Android setWorldPaused(1)
+    /** the world pause primitive (the Android setWorldPaused(1)
      * op) — the lane for world-up phases where the companion transition
      * does not apply (WORLD_READY / CLIENT_FAILED). */
     suspend fun pauseWorld(): RuntimeActionResult {
@@ -1080,13 +1132,13 @@ class DesktopAppModel(
         return backend.pauseWorld(owner).also { logResult("pause-world", it) }
     }
 
-    /** DESK-122: the world resume primitive (setWorldPaused(0)). */
+    /** the world resume primitive (setWorldPaused(0)). */
     suspend fun resumeWorld(): RuntimeActionResult {
         val owner = worldOwner() ?: return noWorldOwner()
         return backend.resumeWorld(owner).also { logResult("resume-world", it) }
     }
 
-    /** DESK-123: a direct bot-target retarget on the running world —
+    /** a direct bot-target retarget on the running world —
      * refused while a measured admission profile owns the target (the
      * Android setBotTarget check); use [applyBotProfile] for those. */
     suspend fun setBotTarget(target: Int): RuntimeActionResult {
@@ -1095,7 +1147,7 @@ class DesktopAppModel(
     }
 
     /**
-     * DESK-116/123: apply the settings' resolved bot selection to the
+     * apply the settings' resolved bot selection to the
      * RUNNING world through the admission-generation handshake — the
      * Android startBotProfile op; the Bots screen's "Apply now" action.
      */
@@ -1109,7 +1161,7 @@ class DesktopAppModel(
         return backend.startBotProfile(owner, profileId).also { logResult("apply-bot-profile", it) }
     }
 
-    /** DESK-77: the characterPersistence op (the Android world service's
+    /** the characterPersistence op (the Android world service's
      * app verb): one character's persistence facts from the live world. */
     suspend fun characterPersistence(username: String, characterName: String): RuntimeActionResult {
         val owner = worldOwner() ?: return noWorldOwner()
@@ -1117,7 +1169,7 @@ class DesktopAppModel(
             .also { logResult("character-persistence", it) }
     }
 
-    /** DESK-77: the worldChat op — one chat line through the real chat
+    /** the worldChat op — one chat line through the real chat
      * opcode handler; the native owns validation and answers its own ok. */
     suspend fun worldChat(
         characterName: String,
@@ -1130,20 +1182,8 @@ class DesktopAppModel(
             .also { logResult("world-chat", it) }
     }
 
-    /** DESK-77: the resetState op — clear one player's LLM assertion memory. */
-    suspend fun resetState(player: String): RuntimeActionResult {
-        val owner = worldOwner() ?: return noWorldOwner()
-        return backend.resetState(owner, player).also { logResult("reset-state", it) }
-    }
-
-    /** DESK-77: the llmMemoryState op — one player's LLM memory state. */
-    suspend fun llmMemoryState(player: String): RuntimeActionResult {
-        val owner = worldOwner() ?: return noWorldOwner()
-        return backend.llmMemoryState(owner, player).also { logResult("llm-memory-state", it) }
-    }
-
     // ------------------------------------------------------------------
-    // D5a (design-lan §4.2): the host guest-account surface. LAN
+    // the host guest-account surface. LAN
     // provisioning is the bounded direct handoff: the host types the
     // username, the password is GENERATED (shared [GuestCredentials],
     // gmLevel = 0 always), and the credential pair is displayed ONLY in
@@ -1178,7 +1218,7 @@ class DesktopAppModel(
     }
 
     /**
-     * D5a/D7 (design-lan §4.2/§6.2): the players-online facts —
+     * D5a/D7 (design-lan): the players-online facts —
      * `activeSessions` from the world status telemetry plus `realPlayers`
      * from [DesktopRuntimeBackend.observeWorldPresence], rendered by the
      * Guests card as "N players in world (you + M guests)". Null while no
@@ -1213,7 +1253,7 @@ class DesktopAppModel(
     }
 
     // ------------------------------------------------------------------
-    // D5b (design-lan §4.3, as resolved with the run owner): guest
+    // guest
     // revocation = ban/unban as DIRECT account_banned rows on the realmd
     // database (realmd enforces the row at every logon challenge,
     // AuthSocket.cpp:466-477) — no native change. Kick (disconnecting a
@@ -1242,7 +1282,7 @@ class DesktopAppModel(
                 roots.sqliteDatadir,
                 com.pocketrealm.server.ServerRuntimeFiles.serverDatabases().realmd,
             ),
-            // design-remote-accounts §12: the Guests-card ban path lands the
+            // design-remote-accounts: the Guests-card ban path lands the
             // same no-secret audit rows as the Players moderation verbs.
             audit = { action, username, accountId, outcome ->
                 friendAccess.store.auditModeration(action, username, accountId, outcome)
@@ -1354,7 +1394,7 @@ class DesktopAppModel(
         return backend.withDatadirQuiesced { guestBanStore.unban(username) }
     }
 
-    /** Design-tunnel §9.3: the timed-suspension preset (duration presets —
+    /** Design-tunnel: the timed-suspension preset (duration presets —
      * expires_at = now + [durationSeconds]), the middle lever between
      * "talk to them" and a permanent ban. Same next-logon enforcement on
      * both lanes: the direct store on SQLITE (transition-locked, as
@@ -1400,7 +1440,7 @@ class DesktopAppModel(
      * F7: the MARIADB-lane verbs' shared shape — run the provider-agnostic
      * engine relay verb (bridged onto the calling thread: the Guests
      * card's verbs keep the sync shape the card already calls), land the
-     * §12 no-secret audit row on EVERY settled call (the same rows the
+     * no-secret audit row on EVERY settled call (the same rows the
      * SQLITE lane's store and the Players moderation verbs write), and
      * convert any native failure to an honest refusal verdict — never a
      * crash into the UI path.
@@ -1483,7 +1523,218 @@ class DesktopAppModel(
     // instance owns 3724/8085 at a time.
     // ------------------------------------------------------------------
 
-    private val irohGatewayLazy = lazy { com.pocketrealm.desktop.iroh.IrohGatewayManager() }
+    private val irohGatewayLazy = lazy {
+        com.pocketrealm.desktop.iroh.IrohGatewayManager().also { manager ->
+            // Self sign-up requests the host gateway relays from joiners.
+            manager.hostSignupHandler = { request -> runBlocking { answerSignup(request) } }
+            manager.hostPeerSignupHandler = { request, peer -> runBlocking { answerSignup(request, peer) } }
+            // Bans, the join password and the player limit: the host
+            // gateway asks before serving a joiner.
+            manager.hostAdmissionHandler = { peer, passwordProof ->
+                val s = _settings.value
+                val locked = s.gamePassword.isNotBlank()
+                val hostNode = manager.hostDescriptor()?.nodeHex
+                val expectedProof = if (locked && hostNode != null) {
+                    com.pocketrealm.discovery.iroh.JoinPasscode.proof(
+                        com.pocketrealm.discovery.iroh.JoinPasscode.keyHex(s.gamePassword),
+                        hostNode,
+                        peer.nodeHex,
+                    )
+                } else {
+                    null
+                }
+                publicModeration.admit(
+                    peer,
+                    com.pocketrealm.discovery.iroh.JoinHello.Request(
+                        com.pocketrealm.discovery.iroh.JoinHello.SCHEMA,
+                        peer.deviceToken,
+                        passwordProof,
+                    ),
+                    locked = locked,
+                    expectedProof = expectedProof,
+                    playerLimit = com.pocketrealm.server.ServerRuntimeContract.WORLD_PLAYER_LIMIT,
+                    onlinePlayers = publicModeration.connectedPeers(),
+                ).also { if (it.ok) publicModeration.markConnected(peer) }
+            }
+            manager.hostPeerEvents = { event ->
+                when (event.kind) {
+                    com.pocketrealm.discovery.iroh.JoinHello.EVENT_LOGIN ->
+                        event.account?.let { publicModeration.recordLogin(it, event.peer) }
+                    com.pocketrealm.discovery.iroh.JoinHello.EVENT_LEAVE -> publicModeration.markLeft(event.peer)
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Public hosting moderation: who joined from which device, device /
+    // node / account bans, and the per-device sign-up limits (shared with
+    // the Android host).
+    // ------------------------------------------------------------------
+
+    private val publicModeration by lazy {
+        com.pocketrealm.supervisor.PublicHostModerationStore(
+            File(roots.realm, com.pocketrealm.supervisor.PublicHostModerationStore.FILE_NAME),
+        )
+    }
+
+    private val publicModerator by lazy {
+        com.pocketrealm.supervisor.PublicHostModerator(
+            store = publicModeration,
+            banAccount = { name, reason ->
+                supervisor.banFriendAccount(name, com.pocketrealm.supervisor.PublicHostModerator.PERMANENT, reason)
+            },
+            unbanAccount = { name -> supervisor.unbanFriendAccount(name) },
+            disconnect = { device, node ->
+                if (irohGatewayLazy.isInitialized()) irohGateway.dropHostPeer(device, node)
+            },
+        )
+    }
+
+    /** The host's players list (sign-ups plus anyone seen logging in over
+     * the internet) with ban state. */
+    internal fun publicPlayers(): List<com.pocketrealm.supervisor.PublicHostModerationStore.PlayerRow> =
+        publicModeration.players(signupStore.list())
+
+    internal fun publicDeviceBans(): List<com.pocketrealm.supervisor.PublicHostModerationStore.DeviceBan> =
+        publicModeration.deviceBans()
+
+    /** One host ban verb (account / device / both, or lifting one). */
+    internal suspend fun moderatePublicPlayer(
+        action: com.pocketrealm.supervisor.PublicHostModerator.Action,
+        target: String,
+    ): ModerationResult = withContext(Dispatchers.IO) {
+        publicModerator.act(action, target).also { result ->
+            DesktopLog.i(TAG, "public moderation $action ${if (result.ok) "applied" else "refused"}")
+        }
+    }
+
+    /** This machine's device secret: Windows' MachineGuid (it survives an
+     * app reinstall) or, without one, this install's random id. Only ever
+     * hashed into per-host tokens; the raw value never leaves the app. */
+    private val deviceSecret: ByteArray by lazy {
+        val installId = com.pocketrealm.discovery.iroh.DeviceIdentity.loadOrCreateInstallId(
+            File(roots.settings, DEVICE_INSTALL_ID_FILE),
+        )
+        val machineGuid = runCatching {
+            com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(
+                com.sun.jna.platform.win32.WinReg.HKEY_LOCAL_MACHINE,
+                "SOFTWARE\\Microsoft\\Cryptography",
+                "MachineGuid",
+            )
+        }.getOrNull()
+        com.pocketrealm.discovery.iroh.DeviceIdentity.deviceSecret(installId, machineGuid)
+    }
+
+    // ------------------------------------------------------------------
+    // Self sign-up for the published realm (the Android twin's lane):
+    // strangers create their own account through the tunnel, gated by the
+    // host's switch + cap, created through the supervisor's validated
+    // verifier path (the host flavor's expansion, gmlevel 0 — never GM).
+    // ------------------------------------------------------------------
+
+    private val signupStore by lazy {
+        com.pocketrealm.supervisor.SignupAccountStore(
+            File(roots.realm, com.pocketrealm.supervisor.SignupAccountStore.FILE_NAME),
+        )
+    }
+
+    /** One decision at a time: the cap check and the create are one step. */
+    private val signupMutex = kotlinx.coroutines.sync.Mutex()
+
+    internal suspend fun answerSignup(
+        request: com.pocketrealm.discovery.iroh.SignupProtocol.Request,
+        /** The joiner's identity from its hello (null = none, and then a
+         * host that checks devices refuses the sign-up). */
+        peer: com.pocketrealm.discovery.iroh.JoinPeer? = null,
+        /** Off for the legacy no-identity path the tests drive. */
+        checkDevice: Boolean = peer != null,
+    ): com.pocketrealm.discovery.iroh.SignupProtocol.Reply = signupMutex.withLock {
+        val s = _settings.value
+        com.pocketrealm.discovery.iroh.SignupProtocol.gate(
+            s.onlineHosting && s.signupOpen, s.signupCap, signupStore.names(), request,
+        )?.let { return@withLock it }
+        if (checkDevice) publicModeration.signupGate(peer)?.let { return@withLock it }
+        val result = supervisor.provisionFriendAccount(
+            request.username, request.sHex, request.vHex, allowExistingAccount = false,
+        )
+        if (result.ok) {
+            signupStore.add(request.username, System.currentTimeMillis())
+            peer?.let { publicModeration.recordSignup(request.username, it) }
+        }
+        DesktopLog.i(TAG, "sign-up ${if (result.ok) "created" else "refused (${result.code})"}")
+        com.pocketrealm.discovery.iroh.SignupProtocol.fromProvisionCode(result.ok, result.code, request.username)
+    }
+
+    /**
+     * The D7 LAN sign-up lane (the friend-access port's kind=signup
+     * request): the internet sign-up's gate and account creation with the
+     * LAN-players switch and the game password's proof in front. No device
+     * identity rides this lane — the listener's per-source rate limiter is
+     * the abuse bound. (The Android twin is PublicListingHost.answerLanSignup.)
+     */
+    internal suspend fun answerLanSignup(
+        request: com.pocketrealm.server.FriendProvisionProtocol.SignupRequest,
+    ): com.pocketrealm.discovery.iroh.SignupProtocol.Reply = signupMutex.withLock {
+        val s = _settings.value
+        if (!s.signupOpen || !s.allowLanPlayers) {
+            return@withLock com.pocketrealm.discovery.iroh.SignupProtocol.Reply(
+                false,
+                com.pocketrealm.discovery.iroh.SignupProtocol.SIGNUP_CLOSED,
+                "This realm is not taking sign-ups right now.",
+            )
+        }
+        if (s.gamePassword.isNotBlank()) {
+            val expected = com.pocketrealm.server.FriendProvisionProtocol.lanSignupPass(s.gamePassword)
+            if (!com.pocketrealm.discovery.iroh.JoinPasscode.matches(expected, request.pass)) {
+                return@withLock com.pocketrealm.discovery.iroh.SignupProtocol.PASSWORD_WRONG_REPLY
+            }
+        }
+        val ask = com.pocketrealm.discovery.iroh.SignupProtocol.Request(request.username, request.sHex, request.vHex)
+        com.pocketrealm.discovery.iroh.SignupProtocol.gate(open = true, s.signupCap, signupStore.names(), ask)
+            ?.let { return@withLock it }
+        val result = supervisor.provisionFriendAccount(
+            ask.username, ask.sHex, ask.vHex, allowExistingAccount = false,
+        )
+        if (result.ok) {
+            signupStore.add(ask.username, System.currentTimeMillis())
+        }
+        DesktopLog.i(TAG, "LAN sign-up ${if (result.ok) "created" else "refused (${result.code})"}")
+        com.pocketrealm.discovery.iroh.SignupProtocol.fromProvisionCode(result.ok, result.code, ask.username)
+    }
+
+    /** Realms this machine already signed up on (host node ids), so the
+     * sign-up form only shows on the first join. */
+    private val signedUpRealmsFile by lazy { File(roots.realm, "public-realm-signups.txt") }
+
+    internal fun hasSignedUpOn(nodeHex: String): Boolean =
+        runCatching { signedUpRealmsFile.readLines().any { it.trim() == nodeHex } }.getOrDefault(false)
+
+    internal fun rememberSignupOn(nodeHex: String) {
+        if (hasSignedUpOn(nodeHex)) return
+        runCatching {
+            signedUpRealmsFile.parentFile?.mkdirs()
+            signedUpRealmsFile.appendText(nodeHex + "\n")
+        }
+    }
+
+    /** The signed-up accounts (names and times only). */
+    internal fun signupAccounts(): List<com.pocketrealm.supervisor.SignupAccountStore.Entry> = signupStore.list()
+
+    /** Remove = a permanent ban (the world has no account delete); the
+     * name leaves the list, freeing a cap slot. */
+    internal suspend fun removeSignupAccount(username: String): ModerationResult {
+        if (signupStore.names().none { it.equals(username, ignoreCase = true) }) {
+            return ModerationResult(false, "not a sign-up account")
+        }
+        val ban = supervisor.banFriendAccount(username, PERMANENT_BAN_DURATION, "removed from sign-ups")
+        if (ban.ok) {
+            signupStore.remove(username)
+            publicModeration.recordAccountBan(username, "removed from sign-ups")
+        }
+        return ban
+    }
 
     /** The gateway process manager (host + join). */
     internal val irohGateway: com.pocketrealm.desktop.iroh.IrohGatewayManager
@@ -1507,9 +1758,50 @@ class DesktopAppModel(
     suspend fun startIrohJoin(
         descriptor: com.pocketrealm.discovery.iroh.IrohJoinDescriptor,
         listingFlavorId: String,
+        /** Self sign-up sent on the READY tunnel before the client
+         * launches (name + locally derived salt/verifier only). */
+        signup: com.pocketrealm.discovery.iroh.SignupProtocol.Request? = null,
+        /** The join password's derived key (64 hex) when the game is
+         * locked — stdin to the gateway process after the device token;
+         * the password itself never crosses. */
+        passwordKeyHex: String? = null,
+        /** The account to sign in with once the game opens (name to
+         * password), or null to leave the login screen to the player. */
+        login: Pair<String, String>? = null,
     ): RuntimeOperation {
-        prepareIrohJoin(descriptor, listingFlavorId)?.let { return it }
-        return awaitJoinReadyAndLaunch(descriptor)
+        val outcome = prepareIrohJoin(descriptor, listingFlavorId, passwordKeyHex)
+            ?: awaitJoinReadyAndLaunch(descriptor, listingFlavorId, signup, login)
+        if (outcome.ok) return outcome
+        DesktopLog.w(TAG, "internet join failed: ${outcome.detail}")
+        return outcome.copy(detail = joinFailureForPlayer(outcome.detail))
+    }
+
+    /** The join failure as the player reads it: no internal codes. */
+    private fun joinFailureForPlayer(detail: String): String = when {
+        detail.startsWith(com.pocketrealm.desktop.iroh.IrohJoinGuards.VAL_IROH_JOIN_CLASH) ->
+            "Stop your own realm or the other game you joined first, then try again."
+        detail.startsWith("The gateway did not become ready") ->
+            "Couldn't reach that game. The host may be offline; try again in a minute."
+        else -> detail.replace(Regex("^[A-Z][A-Z0-9_-]+:\\s*"), "").replaceFirstChar { it.uppercase() }
+    }
+
+    /** True when a game folder for [flavorId] is ready to start for a join
+     * (an imported client, the folder chosen for joining, or the Home game
+     * folder of that exact version). */
+    fun joinClientReady(flavorId: String): Boolean =
+        backend.resolveJoinClientDir(flavorId, _settings.value.joinClientDirs) != null
+
+    /** Remembers [dir] as the game folder for joining [flavorId] games.
+     * Returns why it was refused, or null when it was saved. */
+    fun chooseJoinClientDir(flavorId: String, dir: java.io.File): String? {
+        val flavor = com.pocketrealm.client.ClientFlavors.ALL.firstOrNull { it.flavorId == flavorId }
+            ?: return "This game version isn't supported."
+        if (!backend.joinClientMatches(dir, flavor.build)) {
+            return "That folder doesn't have the right version of the game. " +
+                "Pick the folder with WoW.exe for ${flavor.expansion}."
+        }
+        updateSettings { it.copy(joinClientDirs = it.joinClientDirs + (flavorId to dir.absolutePath)) }
+        return null
     }
 
     /** The pre-flight ladder: the pure refusal table (clash + flavor
@@ -1518,16 +1810,31 @@ class DesktopAppModel(
     private fun prepareIrohJoin(
         descriptor: com.pocketrealm.discovery.iroh.IrohJoinDescriptor,
         listingFlavorId: String,
+        passwordKeyHex: String? = null,
     ): RuntimeOperation? {
+        // A join starts the client of the GAME's version from its own
+        // folder, so the Home version pick does not matter here; what does
+        // is that a folder of that version exists before anything is dialed.
+        if (!joinClientReady(listingFlavorId)) {
+            return RuntimeOperation(false, supervisor.state.value, JOIN_NEEDS_GAME_FOLDER)
+        }
         val refusal = com.pocketrealm.desktop.iroh.IrohJoinGuards.joinRefusal(
             phase = supervisor.state.value.phase,
             joinState = irohGateway.joinState.value,
-            activeFlavorId = com.pocketrealm.client.ActiveFlavor.displayedId,
+            activeFlavorId = listingFlavorId,
             listingFlavorId = listingFlavorId,
         ) ?: irohGateway.startJoin(
             descriptor = descriptor,
             flavorId = listingFlavorId,
             relayOnly = _settings.value.irohRelayOnly,
+            // This machine's per-host key and device token (a host's bans
+            // key on the token; the raw machine id never leaves the app).
+            identity = runCatching {
+                com.pocketrealm.desktop.iroh.IrohGatewayManager.JoinIdentity.forHost(deviceSecret, descriptor.nodeHex)
+            }.getOrNull(),
+            passwordKeyHex = passwordKeyHex?.takeIf {
+                com.pocketrealm.discovery.iroh.JoinPasscode.isKeyHex(it)
+            },
         )
         return refusal?.let { RuntimeOperation(false, supervisor.state.value, it) }
     }
@@ -1535,12 +1842,15 @@ class DesktopAppModel(
     /** Bounded wait for READY (the manager lands Ready/Error on the state
      * flow; this verb joins the outcome so the caller sees it), then the
      * client launch. A timeout stops the half-open join loudly. The whole
-     * wait runs on Dispatchers.IO and SUSPENDS between polls (code-red
-     * R1-2/R4-1/R6-1: a Thread.sleep poll here blocked the Compose UI
+     * wait runs on Dispatchers.IO and SUSPENDS between polls (
+     * a Thread.sleep poll here blocked the Compose UI
      * thread for up to 45 s — the verb is suspend exactly so the caller's
      * thread never owns this wait). */
     private suspend fun awaitJoinReadyAndLaunch(
         descriptor: com.pocketrealm.discovery.iroh.IrohJoinDescriptor,
+        flavorId: String,
+        signup: com.pocketrealm.discovery.iroh.SignupProtocol.Request? = null,
+        login: Pair<String, String>? = null,
     ): RuntimeOperation = withContext(Dispatchers.IO) {
         val deadline = System.currentTimeMillis() + JOIN_READY_TIMEOUT_MS
         var outcome: RuntimeOperation? = null
@@ -1552,14 +1862,18 @@ class DesktopAppModel(
                         "iroh join READY (node " +
                             "${descriptor.nodeHex.take(IROH_LOG_NODE_CHARS)}…)",
                     )
-                    launchIrohJoinClient()
+                    signupThenLaunch(flavorId, signup, login)
                 }
 
                 is com.pocketrealm.desktop.iroh.IrohGatewayManager.JoinState.Error ->
                     RuntimeOperation(
                         false,
                         supervisor.state.value,
-                        "${state.code}: ${state.detail}",
+                        if (state.code == com.pocketrealm.discovery.iroh.GatewayContract.ERR_JOIN_REFUSED) {
+                            state.detail
+                        } else {
+                            "${state.code}: ${state.detail}"
+                        },
                     )
 
                 else -> {
@@ -1573,7 +1887,7 @@ class DesktopAppModel(
             outcome = RuntimeOperation(
                 false,
                 supervisor.state.value,
-                "VAL-IROH-JOIN-TIMEOUT: the gateway did not become ready within " +
+                "The gateway did not become ready within " +
                     "${JOIN_READY_TIMEOUT_MS / JOIN_READY_TIMEOUT_SECONDS_DIVISOR}s " +
                     "(host offline? relay unreachable?)",
             )
@@ -1583,20 +1897,35 @@ class DesktopAppModel(
 
     /** The client launch after the tunnel is READY: the directory resolves
      * through the SAME managed-generation-first, identity-gated seam the
-     * local lane uses (code-red R6-N3-1: the legacy settings clientDir
+     * local lane uses ( R6-N3-1: the legacy settings clientDir
      * alone launched a wrong-flavor or unmanaged binary against the joined
      * realm); realmlist then projects to 127.0.0.1 (the joiner gateway's
      * listeners) — the game sees a loopback realm. */
-    private fun launchIrohJoinClient(): RuntimeOperation {
-        val resolvedDir = backend.resolveClientDir()
+    /** A refused sign-up ends the join (the player picks another name). */
+    private fun signupThenLaunch(
+        flavorId: String,
+        signup: com.pocketrealm.discovery.iroh.SignupProtocol.Request?,
+        login: Pair<String, String>?,
+    ): RuntimeOperation {
+        if (signup != null) {
+            val reply = irohGateway.joinSignup(signup)
+            lastJoinSignup = reply
+            if (!reply.ok) {
+                irohGateway.stopJoin()
+                return RuntimeOperation(false, supervisor.state.value, reply.detail)
+            }
+        }
+        return launchIrohJoinClient(flavorId, login)
+    }
+
+    /** The last internet join's sign-up answer (the browser's copy). */
+    @Volatile internal var lastJoinSignup: com.pocketrealm.discovery.iroh.SignupProtocol.Reply? = null
+
+    private fun launchIrohJoinClient(flavorId: String, login: Pair<String, String>?): RuntimeOperation {
+        val resolvedDir = backend.resolveJoinClientDir(flavorId, _settings.value.joinClientDirs)
             ?: return run {
                 irohGateway.stopJoin()
-                RuntimeOperation(
-                    false,
-                    supervisor.state.value,
-                    "the tunnel is up but no client is available: import a " +
-                        "managed client or configure the game folder on Home",
-                )
+                RuntimeOperation(false, supervisor.state.value, JOIN_NEEDS_GAME_FOLDER)
             }
         // The client launcher refuses honestly (exe missing, already
         // running, before any side effect on the client directory.
@@ -1614,14 +1943,35 @@ class DesktopAppModel(
                 "iroh join client launched (pid ${observation.pid}, " +
                     "dir ${resolvedDir.name})",
             )
+            login?.let { (name, password) -> signInJoinedClient(observation.pid, name, password, flavorId) }
             RuntimeOperation(true, supervisor.state.value, "joined over the internet (tunnel up)")
         } catch (failure: IllegalStateException) {
             irohGateway.stopJoin()
             RuntimeOperation(
                 false,
                 supervisor.state.value,
-                "the tunnel is up but the client refused to launch: ${failure.message}",
+                "The game couldn't start: ${failure.message}",
             )
+        }
+    }
+
+    /** Types the joined game's account into the client's login screen in
+     * the background; a failure leaves the login screen to the player. */
+    private fun signInJoinedClient(pid: Int?, username: String, password: String, flavorId: String) {
+        val clientPid = pid ?: return
+        modelScope.launch(Dispatchers.IO) {
+            val failure = Win32AutoLogin.tryLogin(
+                clientPid,
+                username,
+                password,
+                _settings.value.effectiveAutoLoginTimings(),
+                flavorId,
+            )
+            if (failure != null) {
+                DesktopLog.w(TAG_AUTO_LOGIN, "joined game sign-in skipped: $failure")
+            } else {
+                DesktopLog.i(TAG_AUTO_LOGIN, "joined game sign-in delivered")
+            }
         }
     }
 
@@ -1653,7 +2003,7 @@ class DesktopAppModel(
     }
 
     // ------------------------------------------------------------------
-    // Design-tunnel §4/§5/§6: the host-over-the-internet (tunnel) lane's
+    // Design-tunnel / /: the host-over-the-internet (tunnel) lane's
     // model helpers — the stored advertised address as typed state, the
     // effective advertisement for display/invite, and the invite
     // artifact (address block only). All settings-derived: the same source
@@ -1665,7 +2015,7 @@ class DesktopAppModel(
      * is not a LAN_HOST session with a valid tunnel address set. The
      * settings-derived leg only — the RUNNING session's watchdog AND the
      * invite/display surfaces read the supervisor snapshot's frozen
-     * advertisement first ([advertisedForInvite], design-tunnel §10/§5). */
+     * advertisement first ([advertisedForInvite], design-tunnel). */
     private fun storedTunnelAdvertisement(): com.pocketrealm.supervisor.AdvertisedAddress? {
         val snapshot = _settings.value
         if (snapshot.runtimeMode != RuntimeMode.LAN_HOST) return null
@@ -1677,7 +2027,7 @@ class DesktopAppModel(
     }
 
     /**
-     * The advertisement the invite/display surfaces name (design-tunnel §5:
+     * The advertisement the invite/display surfaces name (design-tunnel:
      * "the live advertised address, whichever mode is active"). While a
      * LAN_HOST session is up this is the SNAPSHOT's frozen advertisement —
      * the value the projection actually wrote into the realmlist row and
@@ -1695,7 +2045,7 @@ class DesktopAppModel(
     }
 
     /**
-     * The effective advertisement for display (§5: "the live advertised
+     * The effective advertisement for display ( "the live advertised
      * address, whichever mode is active"): the live session's frozen
      * advertisement when one is up, else the settings-derived tunnel
      * override when set and valid, else the bind LAN address, in LAN_HOST;
@@ -1712,11 +2062,11 @@ class DesktopAppModel(
     }
 
     /**
-     * The §6 invite artifact, rendered from the effective advertisement
+     * The invite artifact, rendered from the effective advertisement
      * (the tunnel address in tunnel mode — never the LAN IP then), the
      * projected realm name (fail-soft generic header), and the tunnel-kind
      * split. Carries NO credential (the Guests card's handoff pair is the
-     * separate sensitive step, design-lan D5a / this doc §6).
+     * separate sensitive step, design-lan D5a / this doc).
      *
      * Mode-honest: with NO tunnel advertisement set this is the LAN lane,
      * and the artifact is [TunnelInvite.lanInviteText] — the LAN address
@@ -1743,7 +2093,7 @@ class DesktopAppModel(
     }
 
     /**
-     * D6 (design-lan §5.2): the one-shot pre-join reachability probe against
+     * the one-shot pre-join reachability probe against
      * the stored join address (TCP 3724, ~2 s). Blocking socket work — the
      * caller runs it off the UI thread. A failure renders through the
      * shared [RuntimeFailureCopy] `LAN-PROBE-UNREACHABLE` entry (firewall
@@ -1753,7 +2103,7 @@ class DesktopAppModel(
         LanJoinProbe.probe(_settings.value.lanAddress)
 
     // ------------------------------------------------------------------
-    // DESK-6/18/37/100: the transactional database restore. Mirrors the
+    // the transactional database restore. Mirrors the
     // Android RealmService.restoreBackup exactly: BEGIN (the backend
     // hash-restores a candidate snapshot and swaps it in, quarantining the
     // live datadir) → PROVE (boot db+realm+world to WORLD_READY) → clean
@@ -1860,7 +2210,7 @@ class DesktopAppModel(
         runCatching { backend.listBackups() }.getOrDefault(emptyList())
 
     // ------------------------------------------------------------------
-    // DESK-7/33/38/60/101: the realm data archive — one plain-ZIP file
+    // the realm data archive — one plain-ZIP file
     // (a stopped-state snapshot + the paired credentials when opted in +
     // a manifest) that moves characters between installs, cross-compatible
     // with the Android app through the SHARED RealmDataArchive codec.
@@ -2085,7 +2435,7 @@ class DesktopAppModel(
     }
 
     /**
-     * Best-effort auto-login after a client launch (DESK-57): the shared
+     * Best-effort auto-login after a client launch: the shared
      * [AutoLoginPolicy] gate, then a live-world READ-ONLY credential proof
      * through the shared [AutoLoginCredentialProof] dispositions — the
      * proof never creates or mutates an identity (a credential saved from
@@ -2102,7 +2452,7 @@ class DesktopAppModel(
      * both platforms.
      */
     suspend fun autoLoginIfEnabled() {
-        // DESK-30: the gate decision resolves through the shared, tested
+        // the gate decision resolves through the shared, tested
         // AutoLoginPolicy (master switch AND user-provisioned identity — no
         // synthesized fallback), the same seam the Android client stack
         // drives; the desktop no longer re-implements the truth table.
@@ -2137,7 +2487,7 @@ class DesktopAppModel(
                 )
                 return@withContext
             }
-            // DESK-57: prove the stored credential against the live world
+            // prove the stored credential against the live world
             // owner BEFORE any keystroke — the same verdict order the
             // Android backend drives, through the same READ-ONLY seam
             // ([supervisor.verifyAccountCredentials]): the proof NEVER
@@ -2195,7 +2545,7 @@ class DesktopAppModel(
                     return@withContext
                 }
             }
-            // DESK-138: the typed entry polls for the pinned login-frame
+            // the typed entry polls for the pinned login-frame
             // signature (never the first visible window) with the honest
             // "login window never appeared" timeout verdict.
             val failure = Win32AutoLogin.tryLogin(
@@ -2250,7 +2600,7 @@ class DesktopAppModel(
         // torn-down roots after close().
         runCatching { addonRepositoryWarmUp?.cancel() }
         friendAccessInstance?.let { controller -> runCatching { controller.close() } }
-        // DESK-4: never leave the bridge injecting across teardown.
+        // never leave the bridge injecting across teardown.
         runCatching { gamepadBridge.stop() }
         supervisor.close()
         // Released last: the single-instance lock guards the whole model.
@@ -2266,7 +2616,15 @@ class DesktopAppModel(
          * loopback binds) and its poll grain; the persisted transport
          * identity's byte/hex lengths; the READY log line's node prefix. */
         const val JOIN_READY_TIMEOUT_MS = 45_000L
+
+        /** The join refusal when no game folder of the game's version is
+         * known; the join screen asks for one when it sees this. */
+        const val JOIN_NEEDS_GAME_FOLDER = "Choose your game folder for this version to join."
         const val JOIN_READY_POLL_MS = 200L
+        /** The relay's permanent-ban duration convention (sign-up removal). */
+        const val PERMANENT_BAN_DURATION = "0"
+        /** This install's random id (the device secret's fallback). */
+        const val DEVICE_INSTALL_ID_FILE = "device-install-id"
         const val JOIN_READY_TIMEOUT_SECONDS_DIVISOR = 1_000L
         const val IROH_SECRET_HEX_LENGTH = 64
         const val IROH_SECRET_BYTES = 32

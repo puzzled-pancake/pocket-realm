@@ -38,7 +38,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 
 /**
- * DESK-4: the gamepad controls editor — the scheme picker (stock leveling /
+ * the gamepad controls editor — the scheme picker (stock leveling /
  * Android Port / custom), the per-button action map (main + the two face
  * layers), stick dead zones, camera sensitivity and trigger hysteresis, and
  * the gamepad bridge toggle. The profile is the desktop twin of the Android

@@ -55,7 +55,7 @@ object NostrJson {
     fun numberOrNull(value: Double?): String = when {
         value == null -> "null"
         value.isNaN() || value.isInfinite() ->
-            throw IllegalArgumentException("VAL-NOSTR-CONTENT: rates must be finite numbers")
+            throw IllegalArgumentException("rates must be finite numbers")
         else -> value.toString()
     }
 

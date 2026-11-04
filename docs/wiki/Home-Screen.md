@@ -23,31 +23,30 @@ The large card at the top shows the current state.
 
 The card also shows the selected bot profile and its starting and target population.
 
-## Game flavor
+## Game version
 
-A **Game flavor** switcher card sits with the setup cards. Each chip
-selects the game version this lane plays: Vanilla 1.12.1, The Burning
-Crusade 2.4.3, or Wrath of the Lich King 3.3.5a — all three flavors are
-qualified for play, so every chip is selectable. A flavor whose client is not qualified for play would render as a chip
-that is visible but unselectable.
+A **Game version** switcher card sits with the setup cards. Each chip
+selects the version the app runs: Vanilla 1.12.1, The Burning
+Crusade 2.4.3, or Wrath of the Lich King 3.3.5a — all three versions are
+supported, so every chip is selectable. A version that is not yet
+supported would render as a chip that is visible but unselectable.
 The pick persists and drives imports, prepared world data, and bot
-populations; switching the flavor re-targets all three on the next import
+populations; switching versions re-targets all three on the next import
 or session.
 
-Which flavor actually boots depends on where you run the app. On a
-Windows desktop from the full project, all three flavors boot; a
-development harness (`-PrpFlavor=`) loads a per-lane runtime for
-development boots, and each lane keeps its own MariaDB database family
-and migration ledger, so a lane switch applies the right data on first
-boot. An installed desktop image stages the Vanilla lane's runtime only:
+Which version actually boots depends on where you run the app. On a
+Windows desktop from the full project, all three versions boot; a
+development harness (`-PrpFlavor=`) loads a per-version runtime for
+development boots, and each version keeps its own MariaDB database family
+and migration ledger, so a switch applies the right data on first
+boot. An installed desktop image ships the Vanilla runtime only:
 picking TBC or WotLK there refuses with the RUNTIME-LANE MISMATCH
-message. On Android, the app ships the Vanilla lane's runtime and
+message. On Android, the app ships the Vanilla runtime and
 migration ledger only: picking TBC or WotLK on a phone refuses at boot
-(and at the server database gate) with a RUNTIME-LANE MISMATCH /
-ANDROID-LANE-SCOPE message naming the remedy — re-pick Vanilla. The
-extra flavors can still import and prepare their data on those devices,
-and the packaging work that will let them boot is tracked as decision
-D90 in `docs/DECISIONS-PORT.md`.
+(and at the server database gate) with a message naming the remedy —
+re-pick Vanilla. TBC and WotLK can still import and prepare their data
+on those devices; the packaging work that will let them boot is tracked
+internally.
 
 ## Main buttons
 
@@ -61,7 +60,7 @@ When the realm is already running, the available actions change to match the cur
 
 The LAN host box accepts a private or link-local IPv4 address. **Join LAN** opens a client-only session that connects to a Pocket Realm host on the same private network.
 
-LAN hosting is experimental and off by default. It does not search the network automatically, open router ports, or publish the realm on the Internet by itself. The one exception is explicit and opt-in: a desktop host can turn on **Public realms** (the Realms browser's publish switch, off by default), which publishes a small world-readable listing — realm name, description (MOTD), flavor and client build, timeframe stage, rates and player counts, no IP address (the optional status-page link is a public trycloudflare hostname; while the host's internet gateway runs the listing also carries the join descriptor — the realm's iroh node id and its home-relay hostname) — to public Nostr relays every 5 minutes while the realm is up and the status page is Public. Nostr relays and the iroh home relay see your IP address, and a directly-connected player may learn it; the listing is retracted when any of the gates stops or the app closes.
+LAN hosting is experimental and off by default. It does not search the network automatically, open router ports, or publish the realm on the Internet by itself. The one exception is explicit and opt-in: a desktop host can turn on **Public realms** (the Realms browser's publish switch, off by default), which publishes a small world-readable listing — realm name, description (MOTD), game version and client build, timeframe stage, rates and player counts, no IP address (the optional status-page link is a public trycloudflare hostname; while the host's internet gateway runs the listing also carries the join descriptor — the realm's iroh node id and its home-relay hostname) — to public Nostr relays every 5 minutes while the realm is up and the status page is Public. Nostr relays and the iroh home relay see your IP address, and a directly-connected player may learn it; the listing is retracted when any of the gates stops or the app closes.
 
 ## Active setup
 

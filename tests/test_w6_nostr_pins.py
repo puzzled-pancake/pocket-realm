@@ -249,10 +249,12 @@ def test_relay_only_switch_copy_names_the_transport_internal_direct_path():
     """R7-N3-6: the switch copy must NOT claim relay-only keeps the
     connection on the relay unconditionally — iroh 1.1.0 has no
     path-selection knob (D92(2)/D93(5)), so the copy names the
-    transport-internal direct-path possibility."""
+    transport-internal direct-path possibility. (Re-pointed with the
+    Phase 5 screen split: the controls moved from RealmBrowserScreen
+    into the Find tab's join-lane controls, copy verbatim.)"""
     screen = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/"
-              "RealmBrowserScreen.kt").read_text(encoding="utf-8")
-    assert "the dial is pinned to the" in screen and "home relay" in screen
+              "online/JoinLaneAdvanced.kt").read_text(encoding="utf-8")
+    assert "the connection goes through" in screen and "the listing's home relay" in screen
     assert "iroh may still move" in screen and "direct path" in screen
     assert "keeps that connection on the relay" not in screen
 
@@ -261,7 +263,7 @@ def test_wiki_relay_only_sentence_names_the_transport_internal_direct_path():
     """R7-N3-6: the wiki sentence must not claim the switch keeps the
     connection on the relay unconditionally."""
     accounts = (ROOT / "docs/wiki/Accounts-Security-and-Networking.md")         .read_text(encoding="utf-8")
-    assert "pins the dial to that relay" in accounts
+    assert "keeps the connection on that relay" in accounts
     assert "may still move an established connection onto a direct path"         in accounts
     assert "keeps that connection on the relay" not in accounts
 
@@ -305,11 +307,13 @@ def test_gateway_host_role_carries_no_rewrite_symbols():
 def test_join_state_error_lane_is_rendered():
     """R3-2: a post-READY join failure must render the actionable code +
     detail in the browser (the stop button and 'Connected' copy must
-    never silently vanish)."""
+    never silently vanish). (Re-pointed with the Phase 5 screen split:
+    the error lane moved from RealmBrowserScreen into the Find tab's
+    join-lane controls.)"""
     screen = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/"
-              "RealmBrowserScreen.kt").read_text(encoding="utf-8")
+              "online/JoinLaneAdvanced.kt").read_text(encoding="utf-8")
     assert "JoinState.Error" in screen
-    assert "realm-browser-join-error" in screen
+    assert "mp-join-error" in screen
     # the rendered string is the manager's extracted
     # joinErrorLine (model-level pinned in IrohGatewayWatcherTest) — the
     # composable must route through it, never a drifted inline copy.
@@ -397,11 +401,17 @@ def test_wave_exit_n3_focused_numbers_equal_the_archived_counts():
     log_path = ROOT / "out/completion/w6" / cited.group(3)
     assert log_path.is_file(), f"the cited focused log {cited.group(3)} is missing"
     log_text = log_path.read_text(encoding="utf-8", errors="replace")
+    # the android focused lane's TRACKED emitter
+    # (tools/focused_android_unit_test.py) prints the FOCUSED-COUNTS
+    # marker with the era label of its mechanism — N4 since the W6-N4
+    # wrapper, N3 in the hand-aggregated era — so this pin matches the
+    # marker the lane actually emits (either era-labeled line remains
+    # acceptable for an archive), exactly as the desktop half below.
     counts = re.search(
-        r"# N3-FOCUSED-COUNTS tests=(\d+) classes=(\d+) failures=(\d+)",
+        r"# N[34]-FOCUSED-COUNTS tests=(\d+) classes=(\d+) failures=(\d+)",
         log_text,
     )
-    assert counts, f"{cited.group(3)} lost its N3-FOCUSED-COUNTS line"
+    assert counts, f"{cited.group(3)} lost its FOCUSED-COUNTS line"
     assert int(counts.group(1)) == int(cited.group(1)), (
         f"WAVE-EXIT cites {cited.group(1)} android focused tests but "
         f"{cited.group(3)} records tests={counts.group(1)} — correct the "
@@ -413,12 +423,15 @@ def test_wave_exit_n3_focused_numbers_equal_the_archived_counts():
         )
     assert int(counts.group(3)) == 0, "the cited focused run records failures"
     # the archive covers the FULL filter set — the archived
-    # classes count equals the tree census under the three filters.
+    # classes count equals the tree census under the two filters.
+    # (ui/RealmBrowserModelTest.kt — the third filter at W6 — was retired
+    # with the old browser screens in the online-play task's Phase 5, and
+    # the focused set was re-measured over the surviving tree on
+    # 2026-10-25: exact equality again, no deletion accounting.)
     census = 0
     for pattern in (
         "android/app/src/test/java/com/pocketrealm/discovery/iroh/*.kt",
         "android/app/src/test/java/com/pocketrealm/discovery/nostr/*.kt",
-        "android/app/src/test/java/com/pocketrealm/ui/RealmBrowserModelTest.kt",
     ):
         for source in sorted(ROOT.glob(pattern)):
             if "@Test" in source.read_text(encoding="utf-8", errors="replace"):
@@ -441,17 +454,37 @@ def test_wave_exit_n3_focused_numbers_equal_the_archived_counts():
         re.DOTALL,
     )
     assert desktop_cited, "the exit record lost its desktop focused sentence"
+    # android-path files join the desktop census ONLY when the desktop
+    # shared manifest compiles them (desktop/shared-sources.json) — a
+    # file the desktop lane does not compile can never execute there, so
+    # counting it made the census unsatisfiable the day an android-only
+    # test landed under discovery/ (HostGatewayPolicyTest and the
+    # listing-publisher trio; synced 2026-10-25). The guard's strength is
+    # unchanged: every class the lane CAN run must appear in the archive.
+    shared_manifest = (
+        ROOT / "desktop/shared-sources.json"
+    ).read_text(encoding="utf-8")
     desktop_census = 0
     for pattern in (
         "android/app/src/test/java/com/pocketrealm/discovery/iroh/*.kt",
         "android/app/src/test/java/com/pocketrealm/discovery/nostr/*.kt",
         "desktop/src/test/kotlin/com/pocketrealm/desktop/iroh/*.kt",
         "desktop/src/test/kotlin/com/pocketrealm/desktop/nostr/*.kt",
+        # desktop-NATIVE tests under the shared discovery packages (the
+        # breaker twins landed after W6 with the shared packages but the
+        # desktop tree; counted unconditionally — the desktop lane always
+        # compiles its own tree).
+        "desktop/src/test/kotlin/com/pocketrealm/discovery/iroh/*.kt",
+        "desktop/src/test/kotlin/com/pocketrealm/discovery/nostr/*.kt",
     ):
+        android_lane = pattern.startswith("android/")
         for source in sorted(ROOT.glob(pattern)):
-            if "@Test" in source.read_text(encoding="utf-8",
-                                           errors="replace"):
-                desktop_census += 1
+            if "@Test" not in source.read_text(encoding="utf-8",
+                                               errors="replace"):
+                continue
+            if android_lane and f"{source.name}" not in shared_manifest:
+                continue
+            desktop_census += 1
     desktop_path = ROOT / "out/completion/w6" / desktop_cited.group(3)
     assert desktop_path.is_file(), (
         f"the cited desktop focused log {desktop_cited.group(3)} is missing"
@@ -540,8 +573,8 @@ def test_wiki_scopes_the_network_change_sentence_and_documents_reconnect():
     restart and no new listing is required)."""
     wiki = ROOT / "docs/wiki/Accounts-Security-and-Networking.md"
     text = wiki.read_text(encoding="utf-8")
-    assert "On the LAN lane, if the host's active interface or address changes" in text, (
-        "the LAN restart sentence must be scoped to the LAN lane"
+    assert "On LAN, if the host's active interface or address changes" in text, (
+        "the LAN restart sentence must be scoped to LAN"
     )
     assert "Internet play through the iroh gateway behaves differently" in text, (
         "the internet lane's reconnect behavior must be documented"
@@ -571,8 +604,8 @@ def test_wiki_import_page_names_every_qualified_flavor():
         "the import page must name all three qualified flavors' clients — "
         "the flow accepts each of them (R6-N5-r2-3)"
     )
-    assert "the same flow serves every qualified lane" in text, (
-        "the import page must say the documented flow serves every lane"
+    assert "the same flow serves every game version" in text, (
+        "the import page must say the documented flow serves every game version"
     )
 
 
@@ -583,8 +616,8 @@ def test_wiki_controls_binding_reference_is_lane_scoped():
     binding IDs' is false on those lanes."""
     wiki = ROOT / "docs/wiki/Controls.md"
     text = wiki.read_text(encoding="utf-8")
-    assert "On the Vanilla lane the reference holds all 211 stock WoW 1.12.1 binding IDs" in text, (
-        "the binding-reference sentence must be scoped to the Vanilla lane"
+    assert "On Vanilla the reference holds all 211 stock WoW 1.12.1 binding IDs" in text, (
+        "the binding-reference sentence must be scoped to Vanilla"
     )
     assert "deliberately ship no stock-default key data" in text, (
         "the honest-empty posture of the tbc/wotlk reference must be documented"

@@ -757,6 +757,63 @@ public:
         return json.str();
     }
 
+    // ---- character transfer: the core's own player-dump verbs ----
+    // `pdump write <file> <name>` serializes one character (inventory,
+    // spells, skills, quest log, reputation) as SQL; `pdump load <file>
+    // <account> [<newname>]` re-inserts it under fresh guids, and the
+    // core's name check renames on conflict. The file path is app-private
+    // (the caller's run dir), restricted to a quote-free path charset, and
+    // the names to the realm's ASCII account/character grammar.
+    static bool transfer_path_ok(const std::string& path)
+    {
+        return !path.empty() && path.size() <= 512 && path[0] == '/' &&
+            path.find("..") == std::string::npos &&
+            std::all_of(path.begin(), path.end(), [](unsigned char c) {
+                return c < 0x80 && (std::isalnum(c) || c == '/' || c == '.' || c == '_' || c == '-');
+            });
+    }
+
+    static bool transfer_name_ok(const std::string& value, size_t max_len, bool letters_only)
+    {
+        return !value.empty() && value.size() <= max_len &&
+            std::all_of(value.begin(), value.end(), [letters_only](unsigned char c) {
+                return c < 0x80 && (letters_only ? std::isalpha(c) : std::isalnum(c));
+            });
+    }
+
+    std::string character_export(const std::string& character_name, const std::string& path,
+        uint64_t timeout_ms)
+    {
+        if (m_state.state() != POCKET_SERVER_READY) return "{\"ok\":false,\"reason\":\"world-not-ready\"}";
+        if (!transfer_name_ok(character_name, 12, true) || !transfer_path_ok(path))
+            return "{\"ok\":false,\"reason\":\"invalid-identity\"}";
+        std::string output;
+        const int result = issue_command("pdump write " + path + " " + character_name, timeout_ms, &output);
+        std::ostringstream json;
+        json << "{\"ok\":" << (result == POCKET_SERVER_OK ? "true" : "false")
+             << ",\"result\":" << result
+             << ",\"output\":\"" << json_escape(output) << "\"}";
+        return json.str();
+    }
+
+    std::string character_import(const std::string& path, const std::string& account,
+        const std::string& new_name, uint64_t timeout_ms)
+    {
+        if (m_state.state() != POCKET_SERVER_READY) return "{\"ok\":false,\"reason\":\"world-not-ready\"}";
+        if (!transfer_path_ok(path) || !transfer_name_ok(account, 16, false) ||
+            (!new_name.empty() && !transfer_name_ok(new_name, 12, true)))
+            return "{\"ok\":false,\"reason\":\"invalid-identity\"}";
+        std::string command = "pdump load " + path + " " + account;
+        if (!new_name.empty()) command += " " + new_name;
+        std::string output;
+        const int result = issue_command(command, timeout_ms, &output);
+        std::ostringstream json;
+        json << "{\"ok\":" << (result == POCKET_SERVER_OK ? "true" : "false")
+             << ",\"result\":" << result
+             << ",\"output\":\"" << json_escape(output) << "\"}";
+        return json.str();
+    }
+
     // ---- relay-min: the per-change smoke rail's three fixed-purpose
     // ops. All three answer in JSON (the character_persistence pattern):
     // no SQL and no raw chat text crosses Binder - each op is a fixed verb
@@ -840,185 +897,6 @@ public:
         json << ",\"textBytes\":" << text.size();
         if (!ok) json << ",\"reason\":\"" << json_escape(reason) << "\"";
         json << "}";
-        return json.str();
-    }
-
-    std::string reset_state(const std::string& player_name)
-    {
-        if (m_state.state() != POCKET_SERVER_READY)
-            return "{\"ok\":false,\"reason\":\"world-not-ready\"}";
-        // Test isolation: clears the LLM assertion state - the two memory
-        // tables whose contents the rp-harness assertions read. Deleting
-        // while bots are online is acceptable for tests: facts re-mint on
-        // the next conversation (GetOrCreateBackstory/LogFact are
-        // mint-on-demand) and relationships regrow from zero. The
-        // process-local rolling history and chatter pools are NOT cleared
-        // - they die with the world process, which a full reset restarts.
-        uint32_t player_guid = 0;
-        if (!player_name.empty())
-        {
-            if (player_name.size() < 2 || player_name.size() > 12 ||
-                !std::all_of(player_name.begin(), player_name.end(),
-                    [](unsigned char c) { return c < 0x80 && std::isalpha(c); }))
-                return "{\"ok\":false,\"reason\":\"invalid-player-name\"}";
-            std::string escaped = player_name;
-            CharacterDatabase.escape_string(escaped);
-            if (auto result = CharacterDatabase.PQuery(
-                    "SELECT guid FROM characters WHERE name='%s' AND deleteDate IS NULL LIMIT 1",
-                    escaped.c_str()))
-                player_guid = result->Fetch()[0].GetUInt32();
-            if (!player_guid) return "{\"ok\":false,\"reason\":\"player-missing\"}";
-        }
-        // PExecute reports no affected rows, so the counts are pre-delete
-        // snapshots taken under the same call. They iterate real rows from
-        // the same tables and player key the llm-memory-state listing reads
-        // (a folded COUNT(*) on the pooled sync connection loses the busy
-        // race with the live writer and folds to a null result - reported
-        // as 0 over rows that existed), and a lost read is retried, never
-        // silently zeroed.
-        const auto count_rows = [&](const char* table) {
-            for (int attempt = 0; attempt < 3; ++attempt)
-            {
-                if (auto result = player_guid
-                        ? CharacterDatabase.PQuery(
-                              "SELECT bot FROM %s WHERE player='%u'", table, player_guid)
-                        : CharacterDatabase.PQuery("SELECT bot FROM %s", table))
-                {
-                    uint32_t counted = 0;
-                    do { ++counted; } while (result->NextRow());
-                    return counted;
-                }
-            }
-            return uint32_t(0);
-        };
-        const uint32_t facts = count_rows("bot_player_facts");
-        const uint32_t relationships = count_rows("bot_player_relationship");
-        if (player_guid)
-        {
-            CharacterDatabase.PExecute(
-                "DELETE FROM bot_player_facts WHERE player='%u'", player_guid);
-            CharacterDatabase.PExecute(
-                "DELETE FROM bot_player_relationship WHERE player='%u'", player_guid);
-        }
-        else
-        {
-            CharacterDatabase.PExecute("DELETE FROM bot_player_facts");
-            CharacterDatabase.PExecute("DELETE FROM bot_player_relationship");
-        }
-        std::ostringstream json;
-        json << "{\"ok\":true,\"scope\":\"" << (player_guid ? "player" : "all") << "\"";
-        if (player_guid)
-            json << ",\"player\":\"" << json_escape(player_name) << "\""
-                 << ",\"playerGuid\":" << player_guid;
-        json << ",\"factsCleared\":" << facts
-             << ",\"relationshipsCleared\":" << relationships << "}";
-        return json.str();
-    }
-
-    std::string llm_memory_state(const std::string& player_name)
-    {
-        if (m_state.state() != POCKET_SERVER_READY && m_state.state() != POCKET_SERVER_SAVING)
-            return "{\"ok\":false,\"reason\":\"world-not-ready\"}";
-        if (player_name.empty())
-        {
-            // world summary - the smoke rail's bot picker. Names sorted so
-            // suite selection is deterministic; the players-map read is the
-            // same lock-guarded pattern as online_players().
-            std::vector<std::string> bots;
-            {
-                HashMapHolder<Player>::ReadGuard guard(HashMapHolder<Player>::GetLock());
-                for (auto& entry : sObjectAccessor.GetPlayers())
-                    if (Player* player = entry.second)
-                        if (player->GetPlayerbotAI())
-                            bots.push_back(player->GetName());
-            }
-            std::sort(bots.begin(), bots.end());
-            uint32_t total_facts = 0;
-            uint32_t total_relationships = 0;
-            if (auto result = CharacterDatabase.PQuery("SELECT COUNT(*) FROM bot_player_facts"))
-                total_facts = result->Fetch()[0].GetUInt32();
-            if (auto result = CharacterDatabase.PQuery("SELECT COUNT(*) FROM bot_player_relationship"))
-                total_relationships = result->Fetch()[0].GetUInt32();
-            std::ostringstream json;
-            json << "{\"ok\":true,\"scope\":\"world\",\"botsOnline\":" << bots.size()
-                 << ",\"onlineBots\":[";
-            for (size_t i = 0; i < bots.size(); ++i)
-            {
-                if (i) json << ',';
-                json << "\"" << json_escape(bots[i]) << "\"";
-            }
-            json << "],\"totalFacts\":" << total_facts
-                 << ",\"totalRelationships\":" << total_relationships << "}";
-            return json.str();
-        }
-        if (player_name.size() < 2 || player_name.size() > 12 ||
-            !std::all_of(player_name.begin(), player_name.end(),
-                [](unsigned char c) { return c < 0x80 && std::isalpha(c); }))
-            return "{\"ok\":false,\"reason\":\"invalid-player-name\"}";
-        std::string escaped = player_name;
-        CharacterDatabase.escape_string(escaped);
-        uint32_t player_guid = 0;
-        if (auto result = CharacterDatabase.PQuery(
-                "SELECT guid FROM characters WHERE name='%s' AND deleteDate IS NULL LIMIT 1",
-                escaped.c_str()))
-            player_guid = result->Fetch()[0].GetUInt32();
-        if (!player_guid) return "{\"ok\":false,\"reason\":\"player-missing\"}";
-
-        // per-bot relationship rows (the tier/points the tier_up
-        // assertion observes), bot names joined in for normalized matching
-        std::ostringstream relationships;
-        uint32_t relationship_count = 0;
-        if (auto result = CharacterDatabase.PQuery(
-                "SELECT r.bot, c.name, r.tier, r.points FROM bot_player_relationship r "
-                "LEFT JOIN characters c ON c.guid = r.bot WHERE r.player = '%u' ORDER BY r.bot",
-                player_guid))
-        {
-            do
-            {
-                Field* row = result->Fetch();
-                if (relationship_count) relationships << ',';
-                relationships << "{\"bot\":\"" << json_escape(row[1].GetCppString()) << "\""
-                              << ",\"botGuid\":" << row[0].GetUInt32()
-                              << ",\"tier\":\"" << json_escape(row[2].GetCppString()) << "\""
-                              << ",\"points\":" << row[3].GetInt32() << '}';
-                ++relationship_count;
-            } while (result->NextRow());
-        }
-
-        // per-(bot, prefix) fact counts: the prefix bucket is the first 16
-        // bytes of fact_text (SUBSTR is engine-common; the lane is sqlite),
-        // category kept so opinion/preference rows stay distinguishable
-        std::ostringstream facts;
-        uint32_t fact_count = 0;
-        if (auto result = CharacterDatabase.PQuery(
-                "SELECT f.bot, c.name, SUBSTR(f.fact_text, 1, 16), f.category, COUNT(*) "
-                "FROM bot_player_facts f LEFT JOIN characters c ON c.guid = f.bot "
-                "WHERE f.player = '%u' "
-                "GROUP BY f.bot, SUBSTR(f.fact_text, 1, 16), f.category "
-                "ORDER BY f.bot, f.category",
-                player_guid))
-        {
-            do
-            {
-                Field* row = result->Fetch();
-                if (fact_count) facts << ',';
-                facts << "{\"bot\":\"" << json_escape(row[1].GetCppString()) << "\""
-                      << ",\"botGuid\":" << row[0].GetUInt32()
-                      << ",\"prefix\":\"" << json_escape(row[2].GetCppString()) << "\""
-                      << ",\"category\":\"" << json_escape(row[3].GetCppString()) << "\""
-                      << ",\"count\":" << row[4].GetUInt32() << '}';
-                ++fact_count;
-            } while (result->NextRow());
-        }
-
-        std::ostringstream json;
-        json << "{\"ok\":true,\"scope\":\"player\""
-             << ",\"player\":\"" << json_escape(player_name) << "\""
-             << ",\"playerGuid\":" << player_guid
-             << ",\"relationships\":[" << relationships.str() << "]"
-             << ",\"relationshipCount\":" << relationship_count
-             << ",\"facts\":[" << facts.str() << "]"
-             << ",\"factCount\":" << fact_count << "}";
         return json.str();
     }
 
@@ -1501,13 +1379,13 @@ private:
         // line and a client line: CheckChatMessage, the CanSpeak flood
         // control, ChatHandler::ParseCommands, RandomPlayerbotMgr's
         // radius/team filters on say/yell, the per-bot
-        // PlayerbotAI::HandleCommand hook on whisper, and inside it the
-        // LLM say/party/whisper trigger gates under test. LANG_UNIVERSAL
-        // reads as every faction so the receiving bots understand the line
-        // regardless of team. A session-grafted synthetic login was
-        // rejected: without a socket the session reads as a bot
-        // (GetRemoteAddress() == "disconnected/bot"), so isRealPlayer()
-        // stays false and the LLM conversational gates would never fire.
+        // PlayerbotAI::HandleCommand hook on whisper and the bot reply
+        // gates behind it. LANG_UNIVERSAL reads as every faction so the
+        // receiving bots understand the line regardless of team. A
+        // session-grafted synthetic login was rejected: without a socket
+        // the session reads as a bot (GetRemoteAddress() ==
+        // "disconnected/bot"), so isRealPlayer() stays false and the
+        // real-player reply gates would never fire.
         Player* sender = sObjectAccessor.FindPlayerByName(request.sender.c_str());
         WorldSession* session = sender ? sender->GetSession() : nullptr;
         if (!session)
@@ -1789,6 +1667,25 @@ Java_com_pocketrealm_server_WorldNative_unbanAccountNative(
         from_jstring(env, username), static_cast<uint64_t>(std::max<jlong>(0, timeout_ms))));
 }
 
+// ---- character transfer ----
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_server_WorldNative_characterExportNative(
+    JNIEnv* env, jclass, jstring character_name, jstring path, jlong timeout_ms)
+{
+    return to_jstring(env, g_runtime.character_export(from_jstring(env, character_name),
+        from_jstring(env, path), static_cast<uint64_t>(std::max<jlong>(0, timeout_ms))));
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_server_WorldNative_characterImportNative(
+    JNIEnv* env, jclass, jstring path, jstring account, jstring new_name, jlong timeout_ms)
+{
+    return to_jstring(env, g_runtime.character_import(from_jstring(env, path),
+        from_jstring(env, account), from_jstring(env, new_name),
+        static_cast<uint64_t>(std::max<jlong>(0, timeout_ms))));
+}
+
 // ---- relay-min smoke-rail ops ----
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -1800,14 +1697,6 @@ Java_com_pocketrealm_server_WorldNative_worldChatNative(
         from_jstring(env, channel), from_jstring(env, target), from_jstring(env, text),
         static_cast<uint64_t>(std::max<jlong>(0, timeout_ms))));
 }
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_pocketrealm_server_WorldNative_resetStateNative(JNIEnv* env, jclass, jstring player)
-{ return to_jstring(env, g_runtime.reset_state(from_jstring(env, player))); }
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_pocketrealm_server_WorldNative_llmMemoryStateNative(JNIEnv* env, jclass, jstring player)
-{ return to_jstring(env, g_runtime.llm_memory_state(from_jstring(env, player))); }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_pocketrealm_server_WorldNative_realmInfoNative(JNIEnv* env, jclass)
@@ -1842,14 +1731,10 @@ extern "C" JNIEXPORT jint JNICALL
 Java_com_pocketrealm_server_WorldNative_onlinePlayersNative(JNIEnv*, jclass)
 { return static_cast<jint>(g_runtime.online_players()); }
 
-// ---- companion mode: world pause + LLM runtime profile switch ----
+// ---- companion mode: world pause ----
 
 extern "C" void pocket_world_set_paused(int paused);
 extern "C" int pocket_world_is_paused(void);
-
-#ifdef ENABLE_PLAYERBOTS
-#include "playerbot/PlayerbotLlamaRuntime.h"
-#endif
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_pocketrealm_server_WorldNative_pauseWorldNative(JNIEnv*, jclass, jint paused)
@@ -1866,9 +1751,8 @@ extern "C" JNIEXPORT jint JNICALL
 Java_com_pocketrealm_server_WorldNative_setCompanionModeNative(JNIEnv*, jclass, jint enabled)
 {
 #ifdef ENABLE_PLAYERBOTS
-    // companion mode = world paused + full-residency LLM profile for the
-    // faster prefill; coexistence profile restores on exit
-    PlayerbotLlamaRuntime::SetCompanionMode(enabled != 0);
+    // companion mode = world paused (the bot-LLM runtime profile it once
+    // switched is retired)
     pocket_world_set_paused(enabled != 0 ? 1 : 0);
     return 0;
 #else

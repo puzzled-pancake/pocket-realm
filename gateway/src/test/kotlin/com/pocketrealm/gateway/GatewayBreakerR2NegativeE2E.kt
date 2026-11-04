@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * W6-N3 code-red R2 (adversarial breaker): the LOUD rewrite-failure exit —
+ * W6-N3 R2 (adversarial breaker): the LOUD rewrite-failure exit —
  * the ask's "fail the join loudly on dial/rewrite failure" — exercised at
  * the PROCESS level. A hostile/misbehaving host's realmd answers
  * CMSG_REALM_LIST with a frame that fails the flavor's structural parse
@@ -82,7 +82,7 @@ class GatewayBreakerR2NegativeE2E {
             client.tcpNoDelay = true
             client.soTimeout = 8_000
             val output = client.getOutputStream()
-            // The client leg of the REAL auth dance (code-red R5-1) so
+            // The client leg of the REAL auth dance so
             // the filter is FRAMED when the corrupt frame arrives.
             output.write(ByteArray(75).also { it[0] = 0x00 })
             output.flush()
@@ -139,7 +139,7 @@ class GatewayBreakerR2NegativeE2E {
                             client.tcpNoDelay = true
                             val input = DataInputStream(client.getInputStream())
                             val output = client.getOutputStream()
-                            // The REAL auth dance (code-red R5-1): the
+                            // The REAL auth dance: the
                             // corrupt frame must reach the filter's FRAMED
                             // phase for the loud exit to be exercised.
                             output.write(challengeResponse()); output.flush()

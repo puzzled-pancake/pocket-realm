@@ -35,7 +35,7 @@ class DesktopServerRuntimeFilesTest {
     @get:Rule
     val folder = TemporaryFolder()
 
-    /** GAP-4: the S5-flip tests swap [ActiveFlavor]'s qualified source
+    /** the S5-flip tests swap [ActiveFlavor]'s qualified source
      * for synthetic two-qualified lanes; the reset keeps every golden
      * pin in this class resolving today's real (vanilla-only)
      * registry, whatever a flip test leaves behind. */
@@ -57,12 +57,7 @@ class DesktopServerRuntimeFilesTest {
         // against BOTH ways (persisted + holder); per-test picks
         // override it (the boot-lane-binding tests write their own).
         pickVanilla(roots)
-        // A per-roots embedded-lane manager (not the process singleton):
-        // the tests' staged-model state must never leak across roots.
-        return roots to ServerRuntimeFiles(
-            roots,
-            llmModelManager = com.pocketrealm.desktop.DesktopLlmModelManager(roots),
-        )
+        return roots to ServerRuntimeFiles(roots)
     }
 
  /** Flip: pins the fixture's lane BOTH ways the flip contract reads
@@ -94,7 +89,7 @@ class DesktopServerRuntimeFilesTest {
         assertEquals("realmd.conf", File(files.realmdConfig().parentFile, "realmd.conf").name)
     }
 
-    /** DESK-15/24/42: the LAN host bind — the shared RealmEndpoint parsing
+    /** the LAN host bind — the shared RealmEndpoint parsing
      * accepts a private dotted quad and the conf carries it as BindIP
      * (the non-loopback threading the supervisor's lanHost spec rides). */
     @Test
@@ -108,7 +103,7 @@ class DesktopServerRuntimeFilesTest {
     }
 
     /**
-     * D11 (design-lan §2.6): the brute-force lockout keys are emitted for a
+     * the brute-force lockout keys are emitted for a
      * non-loopback bind with the decided values — MaxCount 10 / BanTime 900 /
      * BanType 0 (IP autoban into ip_banned, the engine default when the
      * lockout is enabled).
@@ -128,7 +123,7 @@ class DesktopServerRuntimeFilesTest {
     }
 
     /**
-     * D11: the LOCAL (loopback) bind emits NO lockout keys. An unconditional
+     * the LOCAL (loopback) bind emits NO lockout keys. An unconditional
      * emission would self-lockout the host: BanType 0 autobans the SOURCE IP,
      * and the logon challenge's ip_banned gate matches loopback too
      * (AuthSocket.cpp:416-423), so ten mistyped LOCAL passwords would lock
@@ -231,7 +226,7 @@ class DesktopServerRuntimeFilesTest {
             "mmap.enabled = 1",
             "LogLevel = 1",
             "LogFileLevel = 1", // errors-only default (the debug toggle flips this to 3)
-            "PlayerLimit = 10",
+            "PlayerLimit = 100",
             "MaxOverspeedPings = 0",
             "MaxCoreStuckTime = 0",
             "Corpse.Decay.NORMAL = 1800",
@@ -239,16 +234,16 @@ class DesktopServerRuntimeFilesTest {
             "Corpse.Decay.ELITE = 3600",
             "Corpse.Decay.RAREELITE = 7200",
             "Corpse.Decay.WORLDBOSS = 14400",
-            // DESK-58: the nearby-use knob follows the patch lane's consent —
+            // the nearby-use knob follows the patch lane's consent —
             // the DEFAULT snapshot carries no tweak consent, so the reviewed
             // knob stays 0 (the nearby-use acceptance leg pins below).
             "PocketRealm.NearbyInteract = 0",
-            // DESK-132: the default debounce rides the conf at the shared
+            // the default debounce rides the conf at the shared
             // policy's default.
             "PocketRealm.NearbyInteractCooldownMs = " +
                 com.pocketrealm.server.NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
             "PocketRealm.BotTarget = 0",
-            // Design-timeframe §4.2: the golden conf carries the DEFAULT
+            // Design-timeframe: the golden conf carries the DEFAULT
             // stage (the qualified flavor's final patch, resolved from the
             // empty stored default) — the contract line rides the same
             // golden-pinned body every other PocketRealm.* key does.
@@ -315,7 +310,7 @@ class DesktopServerRuntimeFilesTest {
     }
 
     /**
-     * DESK-62/93: the conf database names are the QUALIFIED lane's
+     * the conf database names are the QUALIFIED lane's
      * [com.pocketrealm.client.ClientFlavor.databases] — resolved through
      * the shared registry with the exactly-one-qualified fail-loud gate
      * — never a hard-coded vanilla literal. Today the qualified lane is
@@ -328,8 +323,8 @@ class DesktopServerRuntimeFilesTest {
     fun confDatabaseNamesResolveThroughTheFlavorRegistry() {
         val (roots, files) = files()
  // Flip: all three lanes are qualified and the server lane is
-        // the persisted selection's (default vanilla when the test roots'
-        // settings carry no pick under... the sole-qualified degrade is
+        // the persisted selection's (default vanilla when the
+        // test roots' settings carry no pick under... the sole-qualified degrade is
         // RETIRED - the test pins the DEFAULT settings state explicitly:
         // no persisted pick + several qualified = the loud refusal the
         // flip contract requires, so the test pins the boot lane through
@@ -448,7 +443,7 @@ class DesktopServerRuntimeFilesTest {
     }
 
     /**
-     * DESK-42: the world's LAN-bind golden body — the hosted world binds
+     * the world's LAN-bind golden body — the hosted world binds
      * the exact private interface endpoint, port fixed at 8085. */
     @Test
     fun worldConfigBindsTheLanAddress() {
@@ -459,10 +454,10 @@ class DesktopServerRuntimeFilesTest {
         assertTrue("the world port stays fixed:\n$conf", "WorldServerPort = 8085" in conf)
     }
 
-    // ---- design-timeframe §4: the content-patch stage knob ----------------
+    // design-timeframe: the content-patch stage knob ----------------
 
     /**
-     * Design-timeframe §4.2: a persisted NON-DEFAULT stage of the qualified
+     * Design-timeframe: a persisted NON-DEFAULT stage of the qualified
      * flavor lands in the conf verbatim; the DEFAULT persists as "" in
      * settings and still names the final patch in the conf ("<stage-or-
      * default>" — never an empty value).
@@ -504,7 +499,7 @@ class DesktopServerRuntimeFilesTest {
     }
 
     /**
-     * Design-timeframe §4.3, the one-read discipline: startWorld resolves
+     * Design-timeframe, the one-read discipline: startWorld resolves
      * the stage ONCE and passes its snapshot via [ServerRuntimeFiles.worldConfig]'s
      * settingsSnapshot, feeding BOTH the conf write and the overlay's
      * desiredStage — two independent loads could straddle a settings write
@@ -538,7 +533,7 @@ class DesktopServerRuntimeFilesTest {
     }
 
     /**
-     * Design-timeframe §4.1: an IMPOSSIBLE persisted stage (a stale stage of
+     * Design-timeframe: an IMPOSSIBLE persisted stage (a stale stage of
      * an unqualified flavor, a never-registered id) degrades to the default
      * at the settings layer — the conf can never carry a stage the lane
      * cannot run, and the world start is never refused for one.
@@ -562,7 +557,7 @@ class DesktopServerRuntimeFilesTest {
     }
 
     /**
-     * DESK-132: a non-default nearbyInteractTriggerGuardMs lands in the
+     * a non-default nearbyInteractTriggerGuardMs lands in the
      * conf's PocketRealm.NearbyInteractCooldownMs, normalized through the
      * shared policy (the bound-clamped value, never the raw one).
      */
@@ -586,7 +581,7 @@ class DesktopServerRuntimeFilesTest {
     }
 
     /**
-     * DESK-58: the knob leg — the conf's PocketRealm.NearbyInteract rides
+     * the knob leg — the conf's PocketRealm.NearbyInteract rides
      * the backend-computed EFFECTIVE verdict (the authorized-layout
      * resolution of the requested tweaks over the user's actual exe), NOT
      * the requested consent alone: a consented request on a non-qualified
@@ -637,7 +632,7 @@ class DesktopServerRuntimeFilesTest {
             body.startsWith(profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)),
         )
         assertTrue(
-            "no LLM block without the LLM lane enabled",
+            "the retired bot-speech block is never emitted",
             "AiPlayerbot.LLMEnabled = 2" !in body,
         )
         assertTrue(
@@ -646,28 +641,10 @@ class DesktopServerRuntimeFilesTest {
         )
     }
 
-    @Test
-    fun llmExternalBlockFailsClosedWithoutEndpoint() {
-        val (roots, files) = files()
-        stageActiveGeneration(roots)
-        roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(
-            Settings.Snapshot(llmEnabled = true, llmExternalUrl = "not-a-url", selectedFlavorId = "vanilla").toJson(),
-        )
-        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
-        files.worldConfig(botProfile = profile)
-        val botConf = File(File(roots.runtime, "server/run"), "aiplayerbot-${profile.id}.conf")
-        val body = botConf.readText()
-        assertTrue(
-            "an invalid endpoint must fail closed to no LLM block: $body",
-            "AiPlayerbot.LLMEnabled = 2" !in body,
-        )
-    }
-
     /**
      * The stale-secret purge: only the ACTIVE profile's conf is rewritten
-     * at each world start, so a rotated or cleared external LLM key used
-     * to survive forever in every OTHER preset's staged conf. The next
+     * at each world start, so an endpoint key the retired bot-speech lane
+     * staged would survive forever in every OTHER preset's conf. The next
      * world start must delete every staged bot conf carrying a key line —
      * the inactive preset's conf goes away entirely (it is re-staged from
      * its profile when that profile is next active), while keyless confs
@@ -677,48 +654,21 @@ class DesktopServerRuntimeFilesTest {
     fun worldStartPurgesStaleKeysFromInactivePresetConfs() {
         val (roots, files) = files()
         stageActiveGeneration(roots)
-        roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(
-            Settings.Snapshot(
-                llmEnabled = true,
-                llmExternalUrl = "https://api.openai.com",
-                llmExternalModel = "gpt-test",
-                llmExternalApiKey = "sk-old",
-                selectedFlavorId = "vanilla",
-            ).toJson(),
-        )
         val runDir = File(File(roots.runtime, "server"), "run")
-        // A previous world start on ANOTHER preset staged its conf with the key.
+        // An older build's bot-speech lane staged another preset's conf
+        // with an endpoint key in it.
         val lively = com.pocketrealm.bots.BotProfiles.LIVELY_160
         files.worldConfig(botProfile = lively)
         val staleConf = File(runDir, "aiplayerbot-${lively.id}.conf")
-        assertTrue(
-            "precondition: the other preset's conf carries the old key",
-            "AiPlayerbot.LLMApiKey = sk-old" in staleConf.readText(),
-        )
-        // An even earlier keyless start's disabled block shares the run dir.
+        staleConf.appendText("AiPlayerbot.LLMApiKey = sk-old\n")
+        // An earlier keyless start's disabled block shares the run dir.
         files.worldConfig()
         val disabled = File(runDir, "aiplayerbot-disabled.conf")
         assertTrue("precondition: the keyless disabled conf is staged", disabled.isFile)
 
-        // The key is rotated; the next world start (on ANY profile) is the
-        // only writer that can evict the stale secret.
-        roots.settingsFile.writeText(
-            Settings.Snapshot(
-                llmEnabled = true,
-                llmExternalUrl = "https://api.openai.com",
-                llmExternalModel = "gpt-test",
-                llmExternalApiKey = "sk-new",
-                selectedFlavorId = "vanilla",
-            ).toJson(),
-        )
         val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
         val conf = files.worldConfig(botProfile = profile).readText()
         val active = File(runDir, "aiplayerbot-${profile.id}.conf")
-        assertTrue(
-            "the active conf carries the NEW key:\n${active.readText()}",
-            "AiPlayerbot.LLMApiKey = sk-new" in active.readText(),
-        )
         assertTrue(
             "mangosd.conf still points at the active conf",
             "PocketRealm.PlayerbotConfig = \"${active.absolutePath}\"" in conf,
@@ -730,248 +680,8 @@ class DesktopServerRuntimeFilesTest {
         assertTrue("a keyless staged conf keeps its bytes", disabled.isFile)
         runDir.listFiles { file -> file.name.startsWith("aiplayerbot-") }!!
             .forEach { staged ->
-                assertFalse(
-                    "no staged bot conf may carry the rotated key: ${staged.name}",
-                    "sk-old" in staged.readText(),
-                )
+                assertFalse("no staged bot conf may carry a key: ${staged.name}", "sk-old" in staged.readText())
             }
-    }
-
-    @Test
-    @Suppress("LongMethod") // the pinned emission list IS the test's content
-    fun llmExternalBlockEmitsTheExternalLane() {
-        val (roots, files) = files()
-        stageActiveGeneration(roots)
-        roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(
-            Settings.Snapshot(
-                llmEnabled = true,
-                llmExternalUrl = "https://api.openai.com",
-                llmExternalModel = "gpt-test",
-                llmExternalApiKey = "sk-test",
-                llmBanter = true,
-                llmAmbience = true,
-                llmCloudChatter = true,
-                selectedFlavorId = "vanilla",
-            ).toJson(),
-        )
-        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
-        files.worldConfig(botProfile = profile)
-        val botConf = File(File(roots.runtime, "server/run"), "aiplayerbot-${profile.id}.conf")
-        val body = botConf.readText()
-        // The external-lane emission, pinned against the Android confLines twin.
-        val pinnedLines = listOf(
-            "AiPlayerbot.LLMEnabled = 2",
-            "AiPlayerbot.LLMBackend = 0",
-            "AiPlayerbot.LLMApiEndpoint = https://api.openai.com/v1/chat/completions",
-            "AiPlayerbot.LLMApiKey = sk-test",
-            "AiPlayerbot.LLMApiJson = ${
-                LlmRuntimePolicy.apiJsonTemplate(
-                    "gpt-test",
-                    LlmRuntimePolicy.EXTERNAL_PROFILE,
-                    providerSafe = true,
-                )
-            }",
-            "AiPlayerbot.LLMPromptFormat = 1",
-            "AiPlayerbot.LLMApiModel = gpt-test",
-            "AiPlayerbot.LLMTemp = 0.7",
-            "AiPlayerbot.LLMTopP = 0.9",
-            "AiPlayerbot.LLMTopK = 20",
-            "AiPlayerbot.LLMRepeatPenalty = 1",
-            "AiPlayerbot.LLMMaxNewTokens = 600",
-            "AiPlayerbot.LLMGenerationTimeout = 240",
-            "AiPlayerbot.LLMConnectTimeout = 10",
-            "AiPlayerbot.LLMFactsCap = 48",
-            "AiPlayerbot.LLMMemoriesTail = 16",
-            "AiPlayerbot.LLMBotToBotChatChance = 25", // cloud-lane widening, after the tail
-            "AiPlayerbot.LLMProviderSafe = 1",
-            "AiPlayerbot.LLMBanterEnabled = 1",
-            "AiPlayerbot.LLMChatterEnabled = 1",
-            // DESK-26: the prompt-pack file stages between the chatter and
-            // TLS lines (the confLines emission order).
-            "AiPlayerbot.LLMPromptPackFile = \"",
-            "AiPlayerbot.LLMCloudChatter = 1",
-        )
-        // ORDER-SENSITIVE: the desktop object is a verbatim twin of the
-        // Android confLines emission - a key that moved position (parsed
-        // conf unchanged) must still fail here, or the twins can silently
-        // fork. Substring presence alone is not enough.
-        var searchFrom = 0
-        pinnedLines.forEach { line ->
-            val at = body.indexOf(line, searchFrom)
-            assertTrue(
-                "external block must carry, IN ORDER: $line\n$body",
-                at >= 0,
-            )
-            searchFrom = at + line.length
-        }
-        // The chatter power file is staged enabled with the machine's honest
-        // rung (DESK-81: the GetSystemPowerStatus read replaced the old
-        // always-plugged-in constant — AC/charged/unreadable all read
-        // NORMAL, a low battery off the charger reads CONSTRAINED).
-        val power = File(File(roots.runtime, "server/run"), "chatter-power.conf")
-        assertTrue("chatter power file staged", power.isFile)
-        val powerBody = power.readText()
-        assertTrue("enabled=1: $powerBody", "enabled=1" in powerBody)
-        val expectedRung = DesktopChatterPowerMonitor.applyRungCap(
-            DesktopChatterPowerMonitor.computeRung(DesktopChatterPowerMonitor.SYSTEM.read()),
-            profile.llmSpeech.chatterRung,
-        )
-        assertTrue("rung=$expectedRung (the machine's honest rung): $powerBody", "rung=$expectedRung" in powerBody)
-        // DESK-26: the staged prompt pack carries the RESOLVED default pack.
-        val pack = File(File(roots.runtime, "server/run"), ServerRuntimeFiles.PROMPT_PACK_FILE_NAME)
-        assertTrue("prompt pack file staged", pack.isFile)
-        assertEquals(
-            com.pocketrealm.llm.LlmPromptPack.resolve("").serialize(),
-            pack.readText(),
-        )
-    }
-
-    // ---- GAP-6 (was DESKPROD-7): digest-verified bundled-asset staging --
-
-    /**
-     * GAP-6: the staged-asset cache must verify CONTENT, not length. A
-     * same-size refresh of a bundled asset — the CA bundle's worst case:
-     * a rotation re-issuing a byte-count-identical pem — has to land in
-     * an existing run dir. Under the old size-equality cache the stale
-     * staged copy verified itself against the fresh source and shadowed
-     * it forever, silently freezing the security asset the process
-     * trusts. The test owns the SOURCE through resolveBundledAsset's
-     * FIRST candidate order (java.library.path — restored in a finally),
-     * so the refresh rewrites a temp file, never a tracked repo asset.
-     */
-    @Test
-    fun stageBundledAssetRestagesWhenContentChangesAtTheSameSize() {
-        val (roots, files) = files()
-        stageActiveGeneration(roots)
-        val sourceDir = folder.newFolder("bundled-app")
-        val source = File(sourceDir, ServerRuntimeFiles.TLS_CA_BUNDLE_FILE_NAME)
-        val original = "A".repeat(2048)
-        val refreshed = "B".repeat(2048)
-        source.writeText(original)
-        roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(
-            Settings.Snapshot(
-                llmEnabled = true,
-                llmExternalUrl = "https://api.openai.com",
-                llmExternalModel = "gpt-test",
-                llmExternalApiKey = "sk-test",
-                selectedFlavorId = "vanilla",
-            ).toJson(),
-        )
-        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
-        val previousLibraryPath = System.getProperty("java.library.path") ?: ""
-        try {
-            System.setProperty("java.library.path", sourceDir.absolutePath)
-            val runDir = File(roots.runtime, "server/run")
-            files.worldConfig(botProfile = profile)
-            val staged = File(runDir, ServerRuntimeFiles.TLS_CA_BUNDLE_FILE_NAME)
-            assertEquals(
-                "the first stage must land the source bytes",
-                original,
-                staged.readText(),
-            )
-            // The defect's exact premise: same byte count, different bytes.
-            assertEquals(
-                "both contents must be the same length for this pin to bite",
-                original.length,
-                refreshed.length,
-            )
-            source.writeText(refreshed)
-            files.worldConfig(botProfile = profile)
-            assertEquals(
-                "a same-size content refresh must reach the staged copy",
-                refreshed,
-                staged.readText(),
-            )
-        } finally {
-            System.setProperty("java.library.path", previousLibraryPath)
-        }
-    }
-
-    /**
-     * GAP-6, the counter-pin: digest verification must not degenerate into
-     * an unconditional re-copy. A world restart over an unchanged asset
-     * keeps the staged bytes untouched (no run-dir rewrite churn) — pinned
-     * by AGING the staged file's mtime: any rewrite would reset it to now,
-     * a cached copy keeps the aged timestamp.
-     */
-    @Test
-    fun stageBundledAssetKeepsTheCachedCopyWhenContentIsIdentical() {
-        val (roots, files) = files()
-        stageActiveGeneration(roots)
-        val sourceDir = folder.newFolder("bundled-app")
-        val source = File(sourceDir, ServerRuntimeFiles.TLS_CA_BUNDLE_FILE_NAME)
-        val original = "C".repeat(2048)
-        source.writeText(original)
-        roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(
-            Settings.Snapshot(
-                llmEnabled = true,
-                llmExternalUrl = "https://api.openai.com",
-                llmExternalModel = "gpt-test",
-                llmExternalApiKey = "sk-test",
-                selectedFlavorId = "vanilla",
-            ).toJson(),
-        )
-        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
-        val previousLibraryPath = System.getProperty("java.library.path") ?: ""
-        try {
-            System.setProperty("java.library.path", sourceDir.absolutePath)
-            val runDir = File(roots.runtime, "server/run")
-            files.worldConfig(botProfile = profile)
-            val staged = File(runDir, ServerRuntimeFiles.TLS_CA_BUNDLE_FILE_NAME)
-            assertEquals(
-                "the first stage must land the source bytes",
-                original,
-                staged.readText(),
-            )
-            val aged = staged.lastModified() - 60_000L
-            assertTrue("aging the staged copy must succeed", staged.setLastModified(aged))
-            files.worldConfig(botProfile = profile)
-            assertEquals(
-                "identical content must keep the staged bytes",
-                original,
-                staged.readText(),
-            )
-            assertEquals(
-                "identical content must not rewrite the staged copy",
-                aged,
-                staged.lastModified(),
-            )
-        } finally {
-            System.setProperty("java.library.path", previousLibraryPath)
-        }
-    }
-
-    @Test
-    fun chatterRungCapLowersTheStagedRung() {
-        // The default profile's NORMAL cap makes rung=4 indistinguishable
-        // from a broken always-4; a preset cap of 0 (off) and 2 must lower
-        // the staged rung exactly like the Android applyRungCap twin.
-        listOf(0 to "rung=0", 2 to "rung=2").forEach { (cap, expected) ->
-            val roots = DesktopStorageRoots(folder.newFolder("roots-cap-$cap"))
-            pickVanilla(roots)
-            val files = ServerRuntimeFiles(roots)
-            stageActiveGeneration(roots)
-            roots.settingsFile.parentFile?.mkdirs()
-            roots.settingsFile.writeText(
-                Settings.Snapshot(
-                    llmEnabled = true,
-                    llmExternalUrl = "https://api.openai.com",
-                    llmAmbience = true, // the staged file's enabled flag
-                selectedFlavorId = "vanilla",
-            ).toJson(),
-            )
-            val base = com.pocketrealm.bots.BotProfiles.defaultProfile
-            val capped = base.copy(
-                llmSpeech = base.llmSpeech.copy(chatterRung = cap),
-            )
-            files.worldConfig(botProfile = capped)
-            val powerBody = File(File(roots.runtime, "server/run"), "chatter-power.conf").readText()
-            assertTrue("cap $cap must stage $expected:\n$powerBody", expected in powerBody)
-            assertTrue("cap $cap keeps the subsystem enabled:\n$powerBody", "enabled=1" in powerBody)
-        }
     }
 
     @Test
@@ -1153,7 +863,7 @@ class DesktopServerRuntimeFilesTest {
         assertTrue(!Settings.Snapshot().worldDebugLogs)
     }
 
-    /** DESK-24/42: the LAN topology rides the settings snapshot round trip
+    /** the LAN topology rides the settings snapshot round trip
      * (mode + the explicit allowLanPlayers gate + the canonical endpoint). */
     @Test
     fun settingsSnapshotCarriesTheLanTopology() {
@@ -1173,10 +883,10 @@ class DesktopServerRuntimeFilesTest {
     }
 
     /**
-     * DESK-13/26/132/139: the client-lane settings round trip through the
+     * the client-lane settings round trip through the
      * JSON store — the tweaks request, the audio mode (DESK-139's "setting
      * round-trips in the JSON store" leg), the normalized nearby guard
-     * (DESK-132), and the prompt-pack JSON (DESK-26).
+     * , and the prompt-pack JSON.
      */
     @Test
     fun settingsSnapshotCarriesTheClientLaunchLaneFields() {
@@ -1190,7 +900,6 @@ class DesktopServerRuntimeFilesTest {
             tweaks = tweaks,
             audioMode = Settings.AudioMode.OFF,
             nearbyInteractTriggerGuardMs = 600,
-            llmPromptPackJson = com.pocketrealm.llm.LlmPromptPack().serialize(),
         )
         val store = com.pocketrealm.desktop.DesktopSettingsStore(
             folder.newFolder("store").resolve("settings.json"),
@@ -1200,11 +909,9 @@ class DesktopServerRuntimeFilesTest {
         assertEquals(tweaks, loaded.tweaks)
         assertEquals(Settings.AudioMode.OFF, loaded.audioMode)
         assertEquals(600, loaded.nearbyInteractTriggerGuardMs)
-        assertEquals(written.llmPromptPackJson, loaded.llmPromptPackJson)
 
         // The defaults: audio ON (the Android twin's default), the policy's
-        // default guard, the pristine tweak request, the empty pack (=
-        // default pack at resolve time).
+        // default guard, the pristine tweak request.
         val defaults = Settings.Snapshot()
         assertEquals(Settings.AudioMode.ON, defaults.audioMode)
         assertEquals(
@@ -1212,7 +919,6 @@ class DesktopServerRuntimeFilesTest {
             defaults.nearbyInteractTriggerGuardMs,
         )
         assertEquals(com.pocketrealm.client.ClientTweaksConfig(), defaults.tweaks)
-        assertEquals("", defaults.llmPromptPackJson)
 
         // The normalize-on-load/write contract (the Android :801/:1077 twin):
         // an out-of-band persisted guard clamps to the policy bounds on
@@ -1240,77 +946,6 @@ class DesktopServerRuntimeFilesTest {
         )
     }
 
-    // ---- DESK-48/80/103: the embedded (local sidecar) lane --------------
-
-    @Test
-    fun llmEmbeddedWithoutAServableSidecarFailsClosed() {
-        val (roots, files) = files()
-        stageActiveGeneration(roots)
-        roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(
-            Settings.Snapshot(
-                llmEnabled = true,
-                llmExternalMode = false,
-                llmModelId = com.pocketrealm.llm.LlmModelRegistry.BASE_E2B.id,
-                selectedFlavorId = "vanilla",
-            ).toJson(),
-        )
-        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
-        files.worldConfig(botProfile = profile)
-        val botConf = File(File(roots.runtime, "server/run"), "aiplayerbot-${profile.id}.conf")
-        val body = botConf.readText()
-        assertTrue(
-            "an unstaged model + no bundled sidecar must fail closed to no LLM block: $body",
-            "AiPlayerbot.LLMEnabled = 2" !in body,
-        )
-    }
-
-    @Test
-    fun llmEmbeddedEndpointOverridesTheExternalFieldsWhenTheLaneServes() {
-        // The manager's endpoint gate is the sidecar's honest absence here;
-        // the LAN ROUTING is what this leg pins: an embedded-mode snapshot
-        // whose EXTERNAL endpoint is deliberately broken still routes the
-        // emission decision through the manager (the conf stays off — the
-        // fail-closed shape), and an external-mode snapshot with the same
-        // broken endpoint fails closed identically. The routing symmetry
-        // proves the Source toggle actually selects the emission branch.
-        val (roots, files) = files()
-        stageActiveGeneration(roots)
-        roots.settingsFile.parentFile?.mkdirs()
-        roots.settingsFile.writeText(
-            Settings.Snapshot(
-                llmEnabled = true,
-                llmExternalMode = false,
-                llmExternalUrl = "https://embedded-lane-ignores-this.invalid",
-                selectedFlavorId = "vanilla",
-            ).toJson(),
-        )
-        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
-        files.worldConfig(botProfile = profile)
-        val botConf = File(File(roots.runtime, "server/run"), "aiplayerbot-${profile.id}.conf")
-        val body = botConf.readText()
-        assertTrue(
-            "the embedded lane must not leak the external endpoint: $body",
-            "embedded-lane-ignores-this" !in body,
-        )
-    }
-
-    @Test
-    fun llmSourceAndModelSelectionsRoundTripThroughTheSnapshotCodec() {
-        // DESK-103: the Source toggle + selected registry id persist; the
-        // defaults keep the reviewed external-only posture for old files.
-        val defaults = Settings.Snapshot.fromJson(Settings.Snapshot().toJson())
-        assertTrue("external stays the shipped default", defaults.llmExternalMode)
-        assertEquals("", defaults.llmModelId)
-        val toggled = Settings.Snapshot(llmExternalMode = false, llmModelId = "qwen35-08b-CLEAN-tuned-q4_0")
-        val parsed = Settings.Snapshot.fromJson(toggled.toJson())
-        assertFalse("the embedded selection persists", parsed.llmExternalMode)
-        assertEquals("qwen35-08b-CLEAN-tuned-q4_0", parsed.llmModelId)
-        // An old settings file without the keys keeps the external lane.
-        val legacy = Settings.Snapshot.fromJson("{\"llmEnabled\":true}")
-        assertTrue(legacy.llmExternalMode)
-        assertEquals("", legacy.llmModelId)
-    }
 
     /** serverDatabases resolves through the [ActiveFlavor]
      * machine, not the single-qualified vanilla pin. At the S5 flip
@@ -1379,7 +1014,7 @@ class DesktopServerRuntimeFilesTest {
         )
     }
 
-    /** GAP-4: the realmlist projection (DESK-93's flavor-registry
+    /** the realmlist projection (DESK-93's flavor-registry
      * resolution site in DesktopRuntimeBackend) projects the ACTIVE
      * flavor's realmd — at the S5 flip the selected lane's database
      * gets the advertised address, where the old require() turned the
@@ -1441,7 +1076,7 @@ class DesktopServerRuntimeFilesTest {
 
     @Test
     fun `the disabled conf staging leg runs the fail-loud gate R6-5`() {
-        // R6-5/R2-6-1 (code-red round 6): the desktop aiplayerbot-disabled
+        // the desktop aiplayerbot-disabled
         // leg is the desktop twin of the android fix — the
         // staged body must pass BotConfStaging for the boot lane (proven
         // here by driving the real worldConfig write), and the gate must

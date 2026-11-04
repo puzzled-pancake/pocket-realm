@@ -38,30 +38,22 @@ def test_every_home_card_state_has_a_wiki_row():
 
 
 def test_the_game_flavor_card_is_documented():
-    """The Game flavor switcher card shipped in W0's diff; its copy and its
-    unqualified-off rule belong on the page. R6-6 (W4 code-red round 3):
-    the round-2 revision had tautologized this pin with a permanent
-    `if False else` — the registry-state sentence the wave added to the
-    wiki was asserted NOWHERE. Both sentences are pinned for real now, and
-    the qualified-count claim must agree with schemas/flavor.json."""
+    """The game-version switcher card's copy and its
+    not-yet-supported-off rule belong on the page; the supported-count
+    claim must agree with schemas/flavor.json."""
     import json
     wiki = WIKI_PAGE.read_text(encoding="utf-8")
     source = HOME_SCREEN.read_text(encoding="utf-8")
-    assert '"Game flavor"' in source
+    assert '"Game version"' in source
     assert "visible but unselectable." in wiki, (
         "the wiki page lost the flavor-card phrase: 'visible but "
         "unselectable.'")
     normalized = " ".join(wiki.split())
-    # The round-5 rewrite put the page in player voice; the registry-
-    # state fact survives as "all three flavors are qualified for play,
-    # so every chip is selectable" — the pin follows the wording, and the
-    # qualified-count agreement with schemas/flavor.json below keeps the
-    # claim true.
     assert (
-        "all three flavors are qualified for play, so every chip is "
+        "all three versions are supported, so every chip is "
         "selectable." in normalized
-    ), ("the wiki page lost the all-qualified statement (the player-voice "
-        "form of the W4-flip registry-state sentence)")
+    ), ("the wiki page lost the all-supported statement (the player-voice "
+        "form of the registry-state sentence)")
     # the wiki's qualified-count claim must agree with the registry
     flavor = json.loads((ROOT / "schemas" / "flavor.json").read_text(encoding="utf-8"))
     qualified = [f["id"] for f in flavor["flavors"] if f.get("qualified")]
@@ -91,28 +83,25 @@ def test_the_desktop_image_wiki_names_the_packaged_lane_honestly():
         "harness routing that loads a per-lane runtime")
 
 
-def test_troubleshooting_documents_the_wave_val_codes():
-    """R6-r6-2 (W4 code-red round 6): Troubleshooting.md must document the
-    VAL codes the wave made user-reachable — the tbc/wotlk exact-set VAL-04
-    (including the vanilla-tolerates/expansions-refuse distinction) and the
-    VAL-02 oversized fast-scan cap — the page's VAL-01/03/11/12/13 rows set
-    the expectation that VAL codes are explained there."""
+def test_troubleshooting_documents_the_import_refusals():
+    """Troubleshooting.md must document the import refusals a real device
+    can hit — the TBC/WotLK exact-patch-set refusal (including the
+    vanilla-tolerates/expansions-refuse distinction) and the oversized
+    executable scan cap."""
     page = (ROOT / "docs/wiki/Troubleshooting.md").read_text(encoding="utf-8")
     normalized = " ".join(page.split())
-    for code in ("VAL-02", "VAL-04"):
-        assert code in page, (
-            f"Troubleshooting.md never explains {code} — the wave's "
-            "negative-matrix legs made it user-reachable"
-        )
-    assert "unknown patch MPQ not in the exact set" in normalized, (
-        "Troubleshooting.md must quote the exact-set refusal text"
+    assert "WoW.exe is too large to scan" in normalized, (
+        "Troubleshooting.md must quote the size-cap refusal text"
     )
-    assert "Vanilla flavor tolerates unknown patch files" in normalized, (
+    assert "unknown patch file" in normalized, (
+        "Troubleshooting.md must explain the exact-set patch refusal"
+    )
+    assert "The Vanilla version tolerates unknown patch files" in normalized, (
         "Troubleshooting.md must state the vanilla-tolerates/expansions-"
         "refuse distinction"
     )
-    assert "exceeds fast-scan limit" in normalized, (
-        "Troubleshooting.md must quote the VAL-02 size-cap refusal text"
+    assert "Missing game data files" in normalized, (
+        "Troubleshooting.md must quote the missing-MPQ refusal text"
     )
 
 
@@ -126,21 +115,31 @@ def test_the_wiki_states_the_per_platform_runtime_honesty():
     wave name — W5 exited with it open). A wiki that documents only the
     desktop refusal hides the Android gate the flip made reachable."""
     home = (ROOT / "docs/wiki/Home-Screen.md").read_text(encoding="utf-8")
-    assert "On Android, the app ships the Vanilla lane's runtime and migration ledger only" in " ".join(home.split()), (
-        "the wiki's flavor section must state the Android vanilla-only "
+    normalized_home = " ".join(home.split())
+    assert (
+        "On Android, the app ships the Vanilla runtime and migration "
+        "ledger only" in normalized_home
+    ), (
+        "the wiki's version section must state the Android vanilla-only "
         "runtime + ledger scope and the boot refusal")
-    assert "ANDROID-LANE-SCOPE" in home, (
-        "the wiki must name the Android server-database gate's refusal code")
+    assert (
+        "picking TBC or WotLK on a phone refuses at boot (and at the "
+        "server database gate) with a message naming the remedy" in
+        normalized_home
+    ), ("the wiki must state that the Android server-database gate refuses "
+        "a TBC/WotLK boot with a message naming the remedy")
     started = (ROOT / "docs/wiki/Getting-Started.md").read_text(
         encoding="utf-8", errors="replace")
     normalized = " ".join(started.split())
     assert "Vanilla does, on every platform" in normalized, (
         "Getting-Started must answer 'which flavors run the server today' "
         "with the per-platform truth")
-    assert "D90" in normalized, (
-        "Getting-Started must cite the recorded follow-up decision (D90) "
-        "for the per-flavor packaging scope — the pending-W5 phrasing is "
-        "falsified by the wave's own exit (R6-r5-1)"
+    assert (
+        "Packaging the TBC/WotLK server runtimes for those installs is "
+        "open follow-up work" in normalized
+    ), (
+        "Getting-Started must record the per-version packaging scope as "
+        "open follow-up work"
     )
 
 

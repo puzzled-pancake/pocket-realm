@@ -6,7 +6,7 @@ import com.pocketrealm.server.ServerRuntimeContract
 import java.io.File
 
 /**
- * D5b (design-lan §4.3), as resolved with the run owner: the guest
+ * D5b (design-lan), as resolved with the run owner: the guest
  * revocation store — ban/unban implemented as DIRECT rows on the realmd
  * database's `account_banned` table, NOT through the engine console relay.
  * The console relay (`issue_command`, world_runtime.cpp:1130-1152) has no
@@ -34,7 +34,7 @@ internal class DesktopGuestBans(
     private val clockSeconds: () -> Long = { System.currentTimeMillis() / MS_PER_SECOND },
     /** The ban attribution recorded in the row (the schema's banned_by). */
     private val bannedBy: String = "PocketRealm host",
-    /** design-remote-accounts §12: the host audit sink. Every settled
+    /** design-remote-accounts: the host audit sink. Every settled
      * ban/suspend/unban appends a row (action, username, accountId,
      * outcome) to the same no-secret audit store the invite flow writes;
      * the default is a no-op so existing constructions stay valid. */
@@ -105,7 +105,7 @@ internal class DesktopGuestBans(
     }
 
     /**
-     * Design-tunnel §9.3: the timed-suspension preset — an active row that
+     * Design-tunnel: the timed-suspension preset — an active row that
      * EXPIRES ([durationSeconds] from now), so realmd's logon gate
      * (AuthSocket.cpp:466-477: `expires_at > now OR expires_at = banned_at`)
      * admits the friend again once the suspension lapses, with no host

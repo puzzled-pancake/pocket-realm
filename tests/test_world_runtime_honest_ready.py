@@ -25,10 +25,8 @@ completed World::Update):
    inside cleanup()'s world-thread join must not seize m_lifecycle
    forever).
 
-The behavioral regression is tools/rp_harness/desktop_boots.py: N
-consecutive boots that drive the full protocol login the moment READY
-flips. These pins hold the native contract textually (the
-test_rp_harness.py pattern - the host cannot drive the native boot).
+These pins hold the native contract textually - the host cannot drive
+the native boot.
 """
 from __future__ import annotations
 
@@ -37,8 +35,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORLD_CPP = ROOT / "native" / "realm-runtime" / "src" / "world_runtime.cpp"
 MASTER_DRIVER = ROOT / "tools" / "build_o09_realm_runtime.py"
-BOOTS_PY = ROOT / "tools" / "rp_harness" / "desktop_boots.py"
-PLAY_PY = ROOT / "tools" / "rp_harness" / "desktop_play.py"
 
 
 def cpp_run_body() -> str:
@@ -175,127 +171,30 @@ def test_the_listener_gate_lives_inside_start_network_embedded():
     assert driver.index("WORLD_THREAD_UPSTREAM") < driver.index("MASTER_LISTENER_GATE_UPSTREAM")
 
 
-def test_boot_battery_attempts_login_immediately_at_ready():
-    source = BOOTS_PY.read_text(encoding="utf-8")
-    # the regression battery: READY -> login with no settling waits
-    ready_at = source.index("host.wait_ready(")
-    login_at = source.index('"op": "proto-login"')
-    assert ready_at < login_at
-    between = source[ready_at:login_at]
-    assert "time.sleep" not in between
-    assert "POCKET_WORLD_LOOP" not in between
-    assert "Avg Diff" not in between
-
-
-def test_desktop_battery_carries_no_stale_workaround_gates():
-    source = PLAY_PY.read_text(encoding="utf-8")
-    # the old workarounds are gone from the conversational battery; the
-    # boot-race regression lives in desktop_boots.py (pinned above)
-    assert "POCKET_WORLD_LOOP" not in source
-    assert "Avg Diff" not in source
-
-
-def test_a_whisper_to_an_inactive_bot_reaches_the_trigger_evaluation():
-    driver = (ROOT / "tools" / "build_o09_realm_runtime.py").read_text(encoding="utf-8")
-    # live-battery pin: the second bot never answers when
-    # the SMSG_MESSAGECHAT activity gate dropped whispers from inactive
-    # bots BEFORE the trigger evaluation - contradicting the A3 law that
-    # a whisper is direct address. The gate must exempt whispers.
-    android = driver[driver.index('PB_AI_CHATCASE_ANDROID = """'):]
-    android = android[:android.index('"""', android.index('"""') + 3)]
-    assert "llmWhisperDirect" in android
-    assert "llmPeek.contents()[0] == CHAT_MSG_WHISPER" in android
-    # the gate itself still runs for every other channel (the whisper
-    # and street exemptions ride the single real-player-direct flag)
-    assert "bool llmPlayerDirect = llmWhisperDirect;" in android
-    assert "if (!llmPlayerDirect && !AllowActivity())" in android
-    assert "activity gate drop" in android
-
-
-def test_a_real_players_street_say_reaches_the_trigger_evaluation():
-    driver = (ROOT / "tools" / "build_o09_realm_runtime.py").read_text(encoding="utf-8")
-    # LVF-bot-actors-010 pin: the 600 s ambient soak heard exactly ONE
-    # bot-side chat event in its whole window (world.log.1 bot=39,
-    # 01:17:19) and the gate ate it - the SMSG_MESSAGECHAT gate ran the
-    # DEFAULT ActivityType (ALL_ACTIVITY), stricter than the reaction
-    # lane's own REACT_ACTIVITY gate, so a bot the player can see
-    # (react-active: VISIBLE_FOR_PLAYER + ForceActiveWhenNearPlayer=1,
-    # staged by every shipped profile) still had the street arm starved:
-    # an unaddressed real-player /say is a non-trigger for generations
-    # but the street lane may still react, and it never even saw the
-    # line - soakReplyLines=0 with the conversational whispers green
-    # (whispers were already exempt). A real player's say/yell is
-    # direct address at street level and must peek past the gate like
-    # the whisper; bot-authored chatter keeps the gate and its drop
-    # diagnostic. Fail-closed: an unreadable sender never widens it.
-    android = driver[driver.index('PB_AI_CHATCASE_ANDROID = """'):]
-    android = android[:android.index('"""', android.index('"""') + 3)]
-    assert "llmStreetType" in android
-    assert "llmPeek.contents()[0] == CHAT_MSG_SAY" in android
-    assert "llmPeek.contents()[0] == CHAT_MSG_YELL" in android
-    # say/yell wire shape peek: type, lang, sender
-    assert "llmStreetPeek.rpos(0)" in android
-    assert "llmStreetPeek >> llmType >> llmLang" in android
-    assert "llmStreetPeek >> llmSender.ReadAsPacked()" in android
-    # the exemption keys on the REAL PLAYER sender, never the channel
-    assert "sObjectAccessor.FindPlayer(llmSender)" in android
-    assert "llmSpeaker->isRealPlayer()" in android
-    assert "llmPlayerDirect = llmSpeaker->isRealPlayer()" in android
-
-
-def test_row17_ambient_gate_lane_yields_all_activity():
-    # LV-bot-actors-17 / LVF-bot-actors-010 closeout: the sniffer gate's
-    # behavior is fixed at BUILD time - no staged-conf key, no
-    # settings.json field, and no relay verb ever reaches it. The gate
-    # the row exercises is the compiled AllowActivity() call (whose
-    # ActivityType is the header DEFAULT), and the lane binary must
-    # actually carry that compiled gate. The closeout re-execution ran a
-    # pocket_world_runtime.dll linked ~16h BEFORE the round-3 gate fix
-    # landed in this driver, so the row physically could not pick the
-    # fix up (21 'activity gate drop' lines, 0 ambient replies). This
-    # pins the whole configuration path, end to end.
+def test_every_win_lane_world_dll_postdates_its_build_inputs():
+    # Recorded at LV-bot-actors-17: a closeout re-execution ran a
+    # pocket_world_runtime.dll linked ~16h BEFORE a driver fix landed, so
+    # the row physically could not pick the fix up. Every committed win
+    # lane's world dll must be at least as new as the driver and the
+    # newest native/patches/ input, and its lockfile must record the
+    # on-disk bytes.
     import hashlib
     import json
 
-    # (1) The DEFAULT SITE: the pinned playerbots source declares the
-    # AllowActivity default as ALL_ACTIVITY, so a bare AllowActivity()
-    # call IS the ALL_ACTIVITY gate - the fixed default the row must
-    # exercise.
-    header = (ROOT / "native" / "playerbots" / "playerbot" /
-              "PlayerbotAI.h").read_text(encoding="utf-8")
-    assert ("bool AllowActivity(ActivityType activityType = ALL_ACTIVITY, "
-            "bool checkNow = false);") in header
-
-    # (2) The row's build INPUT: the driver's ANDROID chat case gates
-    # bot-authored ambient chatter with the BARE call - no explicit
-    # ActivityType, so the compiled gate resolves to the ALL_ACTIVITY
-    # default from (1) - behind the whisper/street real-player peek.
-    driver = MASTER_DRIVER.read_text(encoding="utf-8")
-    android = driver[driver.index('PB_AI_CHATCASE_ANDROID = """'):]
-    android = android[:android.index('"""', android.index('"""') + 3)]
-    assert "if (!llmPlayerDirect && !AllowActivity())" in android
-    # a narrower explicit type here would silently replace the default
-    assert "AllowActivity(REACT_ACTIVITY)" not in android
-    assert "AllowActivity(ALL_ACTIVITY" not in android
-
-    # (3) The EXERCISED SITE: the lane binary on disk is at least as new
-    # as the driver that carries the fixed gate - a stale dll is exactly
-    # how the row missed the fix - and the lane's own lockfile records
-    # the on-disk bytes, so the provenance chain cannot go hollow.
+    driver = MASTER_DRIVER
     dll = (ROOT / "native" / ".build-win-x86_64" / "pocket-runtime-build" /
            "pocket_world_runtime.dll")
     assert dll.is_file(), f"{dll} missing; run tools/build_win_realm_runtime.py"
-    assert dll.stat().st_mtime >= MASTER_DRIVER.stat().st_mtime, (
-        "pocket_world_runtime.dll predates the driver's fixed sniffer "
-        "gate - the row's lane would run the stale gate (the closeout-1 "
-        "signature); rebuild via tools/build_win_realm_runtime.py")
-    # R6: the driver leg above cannot see an OVERLAY-only fix. A
+    assert dll.stat().st_mtime >= driver.stat().st_mtime, (
+        "pocket_world_runtime.dll predates the build driver - the lane "
+        "would run stale overlays (the closeout-1 signature); rebuild via "
+        "tools/build_win_realm_runtime.py")
+    # the driver leg above cannot see an OVERLAY-only fix. A
     # whole-file replacement source under native/patches/ (exactly the
     # inputs the lockfiles' patches_content rows pin - o09.
     # patches_content_digests rglob-walks this tree verbatim) never
-    # touches the driver, so the R5-F1 roundtable player-line scrub
-    # (NotePartyLine, PlayerbotLlmChatter.cpp) landed in NO built
-    # runtime: both win DLLs predated it while the lockfile refresh
+    # touches the driver, so the R5-F1 overlay-only scrub landed in NO
+    # built runtime: both win DLLs predated it while the lockfile refresh
     # recorded the FIXED source pins beside the pre-fix artifact bytes,
     # and this gate stayed green - fresh sources + stale binaries. EVERY
     # committed win lane's world DLL must postdate the newest patches

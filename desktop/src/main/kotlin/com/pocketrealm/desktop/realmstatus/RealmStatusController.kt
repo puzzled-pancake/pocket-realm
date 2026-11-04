@@ -98,7 +98,7 @@ internal class RealmStatusController(
     /** The gate: held while a lost-record orphan is unacknowledged. */
     @Volatile private var orphanGatePid: Long? = null
 
-    /** §5.3: the pids the host has EXPLICITLY acknowledged this app
+    /** the pids the host has EXPLICITLY acknowledged this app
      * lifetime — the accepts-the-exposure ack is per-pid, so a sweep that
      * re-detects an acknowledged pid does not re-trip the gate; only a NEW
      * record-less orphan does. */
@@ -140,7 +140,7 @@ internal class RealmStatusController(
 
     init {
         // The uptime record fold — the watcher's ONLY page-relevant act
-        // (the §1 rule: realm stops never touch the visibility session).
+        // (the rule: realm stops never touch the visibility session).
         scope.launch {
             var wasWorldUp = false
             model.supervisor.state.collect { snapshot ->
@@ -159,7 +159,7 @@ internal class RealmStatusController(
 
     /** The app-launch leg (boot semantics) a persisted FRIENDS
      * restores; a persisted PUBLIC re-arms WITHOUT auto-resuming. Also
-     * runs the §5.3 sweep (every app start sweeps) and the §7 unclean-stop
+     * runs the sweep (every app start sweeps) and the unclean-stop
      * recovery fold (the crash-terminated session credits the record). */
     fun boot() {
         runSweepAndGate()
@@ -194,7 +194,7 @@ internal class RealmStatusController(
     }
 
     /** The visibility switch verb. Refusals keep the prior state and land
-     * the honest copy on the card (§4). */
+     * the honest copy on the card . */
     fun setVisibility(target: RealmStatusVisibility) {
         synchronized(transitionLock) {
             _uiState.value = _uiState.value.copy(refusalCopy = null, refusalReason = null)
@@ -220,12 +220,12 @@ internal class RealmStatusController(
         }
     }
 
-    /** §6.3: the MOTD write — clamped AT THE SETTINGS WRITE PATH. */
+    /** the MOTD write — clamped AT THE SETTINGS WRITE PATH. */
     fun setRealmDescription(raw: String) {
         model.updateSettings { it.copy(realmDescription = RealmStatusPayload.clampDescription(raw)) }
     }
 
-    /** §6.3: the roster consent toggle (payload gate; §3.4). */
+    /** the roster consent toggle (payload gate; ). */
     fun setShowCharacterNames(enabled: Boolean) {
         model.updateSettings { it.copy(showCharacterNames = enabled) }
     }
@@ -241,7 +241,7 @@ internal class RealmStatusController(
         model.updateSettings { it.copy(pageRateLimitPerMinute = limit.coerceIn(1, 10_000)) }
     }
 
-    /** §5.3: clear the orphan notice WITHOUT adopting (the host stopped
+    /** clear the orphan notice WITHOUT adopting (the host stopped
      * the process out-of-band, or accepts the exposure). The ack is
      * remembered PER-PID for this app lifetime: the next sweep that still
      * sees THIS pid leaves the gate clear (the accepts-the-exposure case);
@@ -254,7 +254,7 @@ internal class RealmStatusController(
         }
     }
 
-    /** §5.3: adopt the orphan into THIS instance's records under the same
+    /** adopt the orphan into THIS instance's records under the same
      * kill rules (the gate clears; the child becomes our own). */
     fun adoptOrphan() {
         synchronized(transitionLock) {
@@ -303,7 +303,7 @@ internal class RealmStatusController(
     }
 
     /** The machine's Allowed applied to the real sockets — serialized,
-     * rebind ordered (§4): stop old server → drain → bind new → flip. */
+     * rebind ordered : stop old server → drain → bind new → flip. */
     @Suppress("ReturnCount", "MagicNumber") // the refusal exits keep the PRIOR state; 10_000 is the hook's cap
     private fun applyTransition(
         target: RealmStatusVisibility,
@@ -368,9 +368,9 @@ internal class RealmStatusController(
     }
 
     /**
-     * The §5.3 apply-time orphan refusal: the fresh sweep that gates
+     * The apply-time orphan refusal: the fresh sweep that gates
      * every binding transition refused THIS one. Unlike
-     * [bindFailureRefusal] the §4 teardown has not run yet — the prior
+     * [bindFailureRefusal] the teardown has not run yet — the prior
      * listener (if any) never stopped, so the prior state keeps serving
      * untouched and only the copy/reason land on the card.
      */
@@ -384,8 +384,8 @@ internal class RealmStatusController(
     }
 
     /**
-     * The §4 bind-failure refusal: visibility stays at its PRIOR state —
-     * which must keep SERVING. The §4 rebind ordering stopped the prior
+     * The bind-failure refusal: visibility stays at its PRIOR state —
+     * which must keep SERVING. The rebind ordering stopped the prior
      * lane's listener before the new bind was attempted, so "stays prior"
      * means REBINDING the prior lane; a prior rebind that also fails
      * degrades to OFF (persisted) rather than leaving a phantom state
@@ -459,7 +459,7 @@ internal class RealmStatusController(
             visibility != RealmStatusVisibility.FRIENDS || advertised != null -> null
             else -> snapshot.realmEndpoint.address
         }
-        // The roster rides inside buildPlayers (§3.4's gates live there:
+        // The roster rides inside buildPlayers (the gates live there:
         // running world + consent + SQLite provider — never in the down
         // state, where crash-stale online flags would list dead sessions).
 
@@ -576,7 +576,7 @@ internal class RealmStatusController(
      * telemetry's activeSessions lane WITHIN the bot-population delta —
      * either counting semantics (bots-in-sessions or humans-only) passes;
      * a disagreement beyond the whole bot population means a lane is lying.
-     * (The exact counting-semantics pin is §10 item 1 — this bound is the
+     * (The exact counting-semantics pin is item 1 — this bound is the
      * fail-closed reading until that pin lands.) */
     private fun crossCheckHolds(totalOnline: Int, activeSessions: Long, botDelta: Int): Boolean {
         if (activeSessions < 0) return false
@@ -593,13 +593,13 @@ internal class RealmStatusController(
     }
 
     /**
-     * GAP-3 (owner census UIUX-3, the desktop status leg): the lane this
+     * the lane this
      * page NAMES — the journaled session lane (G3-4's truth about what is
      * running) while a world runs; otherwise the Home switcher's ACTIVE
      * lane through [ActiveFlavor], so with two qualified flavors the page
      * names the SELECTED lane instead of silently defaulting to vanilla.
      * The machine's ambiguous-state refusal keeps the fail-soft page
-     * contract (§7: an unresolvable lane renders the journaled lane's
+     * contract ( an unresolvable lane renders the journaled lane's
      * honest down state, never a broken page).
      */
     internal fun pageFlavorId(snapshot: RuntimeSnapshot, worldUp: Boolean): String =
@@ -610,7 +610,7 @@ internal class RealmStatusController(
      * pointer read keys the cache; the envelope + counts parse runs only
      * when the generation identity changes.
      *
-     * GAP-3: the cache key and pointer read resolve the ACTIVE lane through
+     * the cache key and pointer read resolve the ACTIVE lane through
      * the flavor machine — the former `qualified().single()` degraded
      * silently at the second qualification (flavor null → empty identity →
      * the world cache never keyed, every request re-reading the envelope);
@@ -661,7 +661,7 @@ internal class RealmStatusController(
         val counts: WorldCounts?,
     )
 
-    /** The roster (§3.4/§6.2): online characters only, cached once per
+    /** The roster: online characters only, cached once per
      * supervisor poll, read under the datadir-quiesce discipline the ban
      * lane uses — a roster read can never extend a backup/datadir swap.
      * The reads are single-value queries (the JNI seam's contract), so the
@@ -880,7 +880,7 @@ internal class RealmStatusController(
         private fun isWindows(): Boolean =
             System.getProperty("os.name").lowercase().contains("windows")
 
-        /** The page limiter's fixed tiers (§6.2 defaults): 60/min per
+        /** The page limiter's fixed tiers ( defaults): 60/min per
          * visitor, 300/min global, 120/min host budget. */
         private const val GLOBAL_LIMIT_PER_MINUTE = 300
         private const val HOST_LIMIT_PER_MINUTE = 120

@@ -5,7 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * DESK-44/69/102: the world-data preparation HOST — the named desktop
+ * the world-data preparation HOST — the named desktop
  * counterpart of Android's DataPreparationStore wiring. It resolves the
  * active managed client generation, opens the [com.pocketrealm.importer.ImportJournal]
  * twin, drives the checkpointed extractor pipeline

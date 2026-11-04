@@ -6,7 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * R6-1 (code-red round 1): the invite pane's refusal copy derives from the
+ * the invite pane's refusal copy derives from the
  * SERVICE'S STRUCTURED refusal, never a guess. A cap refusal, a
  * supervisor-unreachable failure, and an unknown structured error are three
  * distinct user situations — assert each renders its OWN copy and neither

@@ -53,7 +53,7 @@ class BotPolicyTest {
         assertTrue(config.contains("AiPlayerbot.RandomBotsMaxLoginsPerInterval = 4"))
         assertTrue(config.contains("AiPlayerbot.CommandServerPort = 0"))
         assertTrue(config.contains("AiPlayerbot.LLMEnabled = 0"))
-        assertTrue(config.contains("AiPlayerbot.RandomBotJoinBG = 0"))
+        assertTrue(config.contains("AiPlayerbot.RandomBotJoinBG = 1"))
         assertFalse(config.contains("AuctionHouseBot"))
         assertTrue(BotProfiles.ids().contains(profile.id))
     }
@@ -93,20 +93,20 @@ class BotPolicyTest {
             assertTrue(config.contains("AiPlayerbot.EnableMinimalMove = 1"))
             assertTrue(config.contains("AiPlayerbot.IterationsPerTick = 10"))
             assertTrue(config.contains("AiPlayerbot.RandomBotJoinLfg = 0"))
-            assertTrue(config.contains("AiPlayerbot.RandomBotJoinBG = 0"))
+            assertTrue(config.contains("AiPlayerbot.RandomBotJoinBG = 1"))
             assertTrue(config.contains("AiPlayerbot.ShouldQueryAHListingsOutsideOfAH = 0"))
             assertTrue(profile.accountCount * 9 >= profile.maximumOnline)
         }
     }
 
     @Test fun settingsExposeTheExperienceLadderAndPreserveLegacyIdentities() {
-        assertEquals(BotProfiles.LOW_POWER_80, BotProfiles.forRequestedTarget(80))
-        assertEquals(BotProfiles.BUSY_WORLD_240, BotProfiles.forRequestedTarget(250))
-        assertEquals(BotProfiles.ALIVE_REALM_320, BotProfiles.forRequestedTarget(320))
-        assertEquals(BotProfiles.FULL_REALM_500, BotProfiles.forRequestedTarget(500))
-        assertEquals(BotProfiles.LAUNCH_DAY_700, BotProfiles.forRequestedTarget(700))
+        assertEquals(BotProfiles.LIGHT_200, BotProfiles.forRequestedTarget(80))
+        assertEquals(BotProfiles.LIGHT_200, BotProfiles.forRequestedTarget(320))
+        assertEquals(BotProfiles.STANDARD_500, BotProfiles.forRequestedTarget(500))
+        assertEquals(BotProfiles.STANDARD_500, BotProfiles.forRequestedTarget(700))
+        assertEquals(BotProfiles.MASSIVE_1000, BotProfiles.forRequestedTarget(900))
         assertEquals(
-            listOf(80, 160, 240, 320, 400, 500, 600, 700),
+            listOf(200, 500, 1_000),
             BotProfiles.userSelectable().map { it.selectedTarget },
         )
 
@@ -121,7 +121,7 @@ class BotPolicyTest {
         // Legacy ladder members are still resolvable for stored selections.
         assertFalse(BotProfiles.QUIET_25.userSelectable)
         assertFalse(BotProfiles.BALANCED_100.userSelectable)
-        assertTrue(BotProfiles.LAUNCH_DAY_700.userSelectable)
+        assertFalse(BotProfiles.LAUNCH_DAY_700.userSelectable)
     }
 
     @Test fun intermediateHighPopulationProfilesRampConservativelyAndReduceLocalCrowding() {
@@ -306,8 +306,14 @@ class BotPolicyTest {
         assertTrue(config.contains("PocketRealm.GenerationYieldMs = 250"))
         assertTrue(config.contains("AiPlayerbot.CommandServerPort = 0"))
         assertTrue(config.contains("AiPlayerbot.LLMEnabled = 0"))
-        assertTrue(config.contains("AiPlayerbot.RandomBotJoinBG = 0"))
+        assertTrue(config.contains("AiPlayerbot.RandomBotJoinBG = 1"))
         assertTrue(config.contains("AiPlayerbot.RandomBotArenaTeamCount = 0"))
+        // Bots answer battleground queues but never queue on their own; the
+        // arena lanes form bot teams, vanilla (no arenas) none.
+        assertTrue(config.contains("AiPlayerbot.RandomBotAutoJoinBG = 0"))
+        for (lane in listOf(com.pocketrealm.client.ClientFlavors.TBC, com.pocketrealm.client.ClientFlavors.WOTLK)) {
+            assertTrue(profile.playerbotConfig(lane).contains("AiPlayerbot.RandomBotArenaTeamCount = 20"))
+        }
         assertTrue(config.contains("AiPlayerbot.AllowMultiAccountAltBots = 0"))
         assertTrue(config.contains("AiPlayerbot.ShouldQueryAHListingsOutsideOfAH = 0"))
         assertFalse(config.contains("AiPlayerbot.MinRandomBots = 1000"))

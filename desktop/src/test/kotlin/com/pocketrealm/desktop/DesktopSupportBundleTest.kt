@@ -19,7 +19,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * DESK-119/110/107/112/126: the support bundle's manifest header names the
+ * the support bundle's manifest header names the
  * producing build, the app-log member is a bounded tail, the typed log
  * ring rides along as logs.json, and the client crash evidence (Errors/
  * crash texts, the last client exit record, the WER dump index, the
@@ -56,7 +56,11 @@ class DesktopSupportBundleTest {
         dumpsDir: File? = null,
         eventLog: String = "",
     ): ZipFile {
-        DesktopSettingsStore(roots.settingsFile).save(Settings.Snapshot(llmExternalApiKey = canary))
+        // The retired bot-speech API key as an older build left it on disk.
+        DesktopSettingsStore(roots.settingsFile).save(Settings.Snapshot())
+        roots.settingsFile.writeText(
+            JSONObject(roots.settingsFile.readText()).put("llmExternalApiKey", canary).toString(),
+        )
         val evidence = DesktopCrashEvidence(
             localDumpsDir = dumpsDir ?: File(folder.root, "no-dumps-dir"),
             eventLog = { eventLog },
@@ -164,7 +168,7 @@ class DesktopSupportBundleTest {
         }
     }
 
-    /** R7-r2-1/R3-r2-1 (W6-N1 round 2, serious): the realm's Nostr
+    /** the realm's Nostr
      * identity key (nostrPrivateKeyHex) must never survive the bundle —
      * parsed member AND corrupt-raw member, mirroring the API-key
      * precedent. */
@@ -227,7 +231,7 @@ class DesktopSupportBundleTest {
         }
     }
 
-    /** R3-1/R6-3 (W6-N3 code-red round 1, serious): the realm's iroh
+    /** the realm's iroh
      * transport secret (irohGatewaySecretHex) must never survive the
      * bundle — parsed member AND corrupt-raw member, mirroring the
      * Nostr key precedent above. */
@@ -314,7 +318,7 @@ class DesktopSupportBundleTest {
         File(dumps, "notepad.exe.999.dmp").writeBytes(dumpBytes)
         val dumpMtime = System.currentTimeMillis()
         assertTrue(clientDump.setLastModified(dumpMtime))
-        // The journalled client exit (DESK-112/121).
+        // The journalled client exit.
         ServerRuntimeFiles(roots).writeClientExit(
             pid = 4242,
             exitCode = 255,
@@ -360,7 +364,7 @@ class DesktopSupportBundleTest {
             // and manifest.json excluded).
             val header = setOf(
                 "schema", "redaction", "appVersion", "flavorId", "nativeRuntimeBuildId",
-                // design-lan §3.3: the session's own topology rides the
+                // design-lan: the session's own topology rides the
                 // manifest header (a stuck LAN session reports its mode +
                 // address); it is header data, not a member row.
                 "topology",

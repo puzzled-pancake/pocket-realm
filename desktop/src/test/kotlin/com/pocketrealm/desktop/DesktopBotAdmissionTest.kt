@@ -16,12 +16,12 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-8/23/43/99: the desktop admission monitor's decision cycle with
+ * the desktop admission monitor's decision cycle with
  * synthetic samples (the pattern of the shared BotPolicyTest) — every
  * WorldNative touch rides the constructor seams, so the shared
  * BotAdmissionController's apply path, the generation fence, the persisted
  * record (the next `PocketRealm.BotTarget` conf knob) and the retarget
- * handshake (DESK-116/123) are pinned without any DLL. The profile is
+ * handshake are pinned without any DLL. The profile is
  * LOW_CPU_160: its launch target equals its selected target (no startup
  * ramp phase) with headroom above its minimum online, so the overload /
  * recovery policy legs are deterministic.

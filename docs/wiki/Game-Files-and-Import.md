@@ -19,21 +19,21 @@ Go to **Settings**, find **Setup**, and choose **Game files and import**. On a f
 
 Choose **Choose client folder** and select the folder that contains the supported client. Android controls which folders are visible and which one the app can read.
 
-a plain, already-extracted (uncompressed) genuine client folder for your flavor — Vanilla 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340 (the same flow serves every qualified lane) — or a single `.zip`, `.7z` or `.rar` archive (RAR4/RAR5) holding exactly one client (optionally inside one wrapper folder) also works: Pocket Realm stages it, detects the client inside, extracts and verifies it, then deletes the staged copy — plan for roughly twice the archive size in free space during the install. The original installer archive (setup.exe plus its setup-*.bin files, zipped or re-packed) is supported too: Pocket Realm unpacks it on device through the same verified pipeline — plan for roughly three times the archive size in free space for that lane. Never select Windows installers you must run yourself (`VAL-12`), disc images (`VAL-11`), password-protected / multi-volume / solid-RAR4 archives (`VAL-13` — the `tools/install_client_windows.ps1` PC helper extracts those for the folder lane), downloaders/launchers, or a parent folder around the client. One ~5 GB archive copied over USB beats ~20 000 loose files.
+a plain, already-extracted (uncompressed) genuine client folder — Vanilla 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340 (the same flow serves every game version) — or a single `.zip`, `.7z` or `.rar` archive (RAR4/RAR5) holding exactly one client (optionally inside one wrapper folder) also works: Pocket Realm stages it, detects the client inside, extracts and verifies it, then deletes the staged copy — plan for roughly twice the archive size in free space during the install. The original installer archive (setup.exe plus its setup-*.bin files, zipped or re-packed) is supported too: Pocket Realm unpacks it on device through the same verified pipeline — plan for roughly three times the archive size in free space for that route. Never select Windows installers you must run yourself, disc images, password-protected / multi-volume / solid-RAR4 archives (the `tools/install_client_windows.ps1` PC helper extracts those for you), downloaders/launchers, or a parent folder around the client. One ~5 GB archive copied over USB beats ~20 000 loose files.
 
-## How big each flavor is
+## How big each game version is
 
-The three flavors need very different amounts of space. The numbers below are the measured genuine-client trees and prepared server data the storage planner budgets from (the same figures `schemas/flavor.json` enforces per flavor):
+The three versions need very different amounts of space. The numbers below are the measured genuine-client trees and prepared server data the storage planner budgets from (the same figures `schemas/flavor.json` enforces per version):
 
-| Flavor | Genuine client tree | Prepared server data | Free space the import reserves |
+| Game version | Genuine client tree | Prepared server data | Free space the import reserves |
 |---|---|---|---|
 | Vanilla 1.12.1 | 5.15 GB (5,526,986,723 bytes, 78 entries) | 2.34 GB (2,336,608,036 bytes, 10,674 files) | 6 GB managed-copy reserve (raised from the pre-measurement 4 GB round number); 20 GB import-source cap |
 | TBC 2.4.3 | 8.0 GB (8,579,714,973 bytes, 976 files) | 3.0 GB (3,217,410,914 bytes, 15,199 files) | 12 GB managed-copy reserve; 24 GB import-source cap |
 | WotLK 3.3.5a | 16.6 GB (17,856,619,157 bytes, 185 files) | 3.1 GB (3,309,122,582 bytes, 22,697 files) | 24 GB managed-copy reserve; 40 GB import-source cap |
 
-The archive lanes need their staged-copy headroom on top (roughly twice the archive size during the install, three times for an installer archive). WotLK's official preparation story is the desktop lane (`tools/win_prepare_data.py --flavor wotlk` on the PC, then the device consumes the published generation); on-device preparation stays best-effort for that flavor.
+Archive imports need their staged-copy headroom on top (roughly twice the archive size during the install, three times for an installer archive). WotLK's supported preparation route is the desktop app (`tools/win_prepare_data.py --flavor wotlk` on the PC, then the device consumes the published generation); on-device preparation stays best-effort for that version.
 
-If you pick the wrong kind of folder, the import rejects it with a `VAL-01` message (for example a launcher-only selection with no direct `WoW.exe`). Nothing is copied or changed in that case: choose the folder again and point at the extracted client itself.
+If you pick the wrong kind of folder, the import rejects it with a message explaining what is wrong (for example a launcher or installer folder, which has no direct `WoW.exe`). Nothing is copied or changed in that case: choose the folder again and point at the extracted client itself.
 
 ## Reading the progress display
 

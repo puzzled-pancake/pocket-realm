@@ -12,7 +12,7 @@ import java.nio.file.Files
 import java.security.MessageDigest
 
 /**
- * R4-4 (android-core review round 1): [PreparedDataStore.requireActive]
+ * [PreparedDataStore.requireActive]
  * re-hashes the ENTIRE prepared dataset inside the serialized transition
  * gate before native boot — the walk must be TOTAL (every manifest file,
  * every byte), which is what these pins prove: corrupting or truncating
@@ -25,7 +25,7 @@ import java.security.MessageDigest
  *    reviewer's independent sample 441 MiB/s, 6.2 MiB .mmtile) over a
  *    2228-3100 MiB generation -> ~7 s desktop-side per verify;
  *  - RP6-class device: UNMEASURED — the per-start verify wall clock is a
- *    named W4.4 record (decision D62); until that number lands, the walk
+ * named W4.4 record; until that number lands, the walk
  *    itself must stay total, never sampled.
  */
 class PreparedDataVerifyWalkTest {

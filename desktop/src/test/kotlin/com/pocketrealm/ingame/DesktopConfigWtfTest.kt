@@ -12,7 +12,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-50: the desktop Config.wtf overlay — the merged file is golden-pinned
+ * the desktop Config.wtf overlay — the merged file is golden-pinned
  * against the shared ManagedConfigPolicy's enforced keys (the desktop launch
  * conditions: windowed, movie off, TOS/EULA read, d3d, uncapped, audio leg
  * per DESK-139). Pure JVM.

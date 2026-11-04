@@ -6,12 +6,12 @@ import android.provider.DocumentsContract
 
 /**
  * Launcher-only selections (an installer/downloader folder) are the most
- * common wrong pick. Named constant so the JVM suite can pin the "VAL-01: "
- * prefix and the "launcher-only" phrase the instrumented suite asserts.
+ * common wrong pick. Named constant so the JVM and instrumented suites can
+ * pin the wording.
  */
 internal const val VAL01_LAUNCHER_ONLY_SELECTION: String =
-    "VAL-01: launcher-only selection; direct WoW.exe is absent — " +
-        "choose the extracted client folder itself (Vanilla, TBC, or WotLK), not the installer/launcher"
+    "This looks like an installer or launcher folder — it has no WoW.exe. " +
+        "Choose the extracted game folder itself (Vanilla, TBC, or WotLK)."
 
 /** Read-only SAF fast scan for the client identity decision.
  *
@@ -34,9 +34,27 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
         val failures: List<String>,
         val sourceMutated: Boolean = false,
         val sourceRuntimeDependency: Boolean = false,
+        /** The client folder's document id when the selection holds the
+         * client one or more levels down; null = the selection itself. */
+        val clientRootDocumentId: String? = null,
     )
 
-    fun scan(treeUri: Uri): Result = scanAccess(DocumentsAccess(resolver, treeUri))
+    /** Scans the selection; when it is not itself a client folder but holds
+     * exactly one (up to [NESTED_CLIENT_DEPTH] levels down — a picked parent
+     * folder, a "World of Warcraft/World of Warcraft" double wrap), that
+     * client folder is scanned instead. */
+    fun scan(treeUri: Uri): Result {
+        val top = DocumentsAccess(resolver, treeUri)
+        val direct = scanAccess(top)
+        if (direct.supported) return direct
+        val nested = findNestedClientRoot(top) ?: return direct
+        val scanned = scanAccess(DocumentsAccess(resolver, treeUri, nested.first))
+        return scanned.copy(
+            clientRootDocumentId = nested.first,
+            warnings = (listOf("Using the client folder '${nested.second}' found inside the selection") +
+                scanned.warnings).distinct(),
+        )
+    }
 
     internal fun scan(access: Access): Result = scanAccess(access)
 
@@ -51,8 +69,9 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
     private class DocumentsAccess(
         private val resolver: ContentResolver,
         private val treeUri: Uri,
+        rootDocumentId: String? = null,
     ) : Access {
-        override val rootId: String = DocumentsContract.getTreeDocumentId(treeUri)
+        override val rootId: String = rootDocumentId ?: DocumentsContract.getTreeDocumentId(treeUri)
 
         override fun children(parentId: String): List<Entry> {
             val uri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
@@ -74,7 +93,7 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
                         if (size >= 0 && !cursor.isNull(size)) cursor.getLong(size) else -1,
                     ))
                 }
-            } ?: error("VAL-01: selected SAF tree is unreadable")
+            } ?: error("The selected folder could not be read")
         }
 
         override fun read(documentId: String, maxBytes: Int, rejectTruncation: Boolean): ByteArray {
@@ -89,36 +108,42 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
                     output.write(buffer, 0, count)
                 }
                 if (rejectTruncation && output.size() == maxBytes && input.read() >= 0) {
-                    error("VAL-02: selected executable exceeds fast-scan limit")
+                    error("WoW.exe is too large to scan")
                 }
                 output.toByteArray()
-            } ?: error("VAL-01: selected SAF document is unreadable")
+            } ?: error("A file in the selected folder could not be read")
         }
     }
 
     companion object {
-        /** The tbc/wotlk mpq_set notes promise exact-set
-     * semantics for the patch train — an unknown patch-*.mpq (not in the
-     * flavor's own set) is VAL-04 naming the file, enforced now that both
-     * flavors qualify. Vanilla keeps its documented tolerance (its own
-     * mpq_set note: the official patch train drops unknown patch MPQs
-     * freely). Extracted from scanAccess for nesting depth. */
-    private fun appendExactSetFailures(
-        failures: MutableList<String>,
-        flavor: ClientFlavor?,
-        mpqByRelPath: Map<String, Entry>,
-    ) {
-        if (flavor == null || flavor.flavorId == ClientFlavors.VANILLA.flavorId) return
-        for ((rel, entry) in mpqByRelPath) {
-            val base = rel.substringAfterLast('/')
-            val known = flavor.requiredMpqs.any {
-                val lowered = it.lowercase()
-                lowered == rel || lowered.substringAfterLast('/') == base
+    /** How far below the selection a lone client folder is looked for. */
+    internal const val NESTED_CLIENT_DEPTH = 3
+    private const val NESTED_SEARCH_MAX_DIRS = 256
+
+    /** The single folder holding WoW.exe beside Data below [access]'s root
+     * (shallowest level wins; two at that level is ambiguous → null), as
+     * (document id, relative path). */
+    internal fun findNestedClientRoot(access: Access): Pair<String, String>? {
+        var level = listOf(access.rootId to "")
+        var visited = 0
+        repeat(NESTED_CLIENT_DEPTH) {
+            val next = mutableListOf<Pair<String, String>>()
+            val found = mutableListOf<Pair<String, String>>()
+            for ((id, path) in level) {
+                val dirs = runCatching { access.children(id) }.getOrDefault(emptyList()).filter { it.directory }
+                for (dir in dirs) {
+                    if (++visited > NESTED_SEARCH_MAX_DIRS) return null
+                    val rel = if (path.isEmpty()) dir.name else "$path/${dir.name}"
+                    val inner = runCatching { access.children(dir.id) }.getOrDefault(emptyList())
+                    val isClient = inner.any { !it.directory && it.name.equals("WoW.exe", true) } &&
+                        inner.any { it.directory && it.name.equals("Data", true) }
+                    if (isClient) found += dir.id to rel else next += dir.id to rel
+                }
             }
-            if (!known && base.startsWith("patch-") && base.endsWith(".mpq")) {
-                failures += "VAL-04: unknown patch MPQ not in the exact set: Data/$rel"
-            }
+            if (found.isNotEmpty()) return found.singleOrNull()
+            level = next
         }
+        return null
     }
 
     internal fun scanAccess(access: Access): Result {
@@ -129,80 +154,52 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
             if (wow == null) {
                 failures += if (root.any { it.name.contains("launcher", true) })
                     VAL01_LAUNCHER_ONLY_SELECTION
-                else "VAL-01: direct WoW.exe is absent"
+                else "WoW.exe was not found in the selected folder"
             }
 
             var identity: ClientPeIdentity.Identity? = null
-            var flavor: ClientFlavor? = null
             if (wow != null) {
-                if (wow.size > MAX_EXE_BYTES) failures += "VAL-02: selected executable exceeds fast-scan limit"
+                if (wow.size > MAX_EXE_BYTES) failures += "WoW.exe is too large to scan"
                 identity = runCatching { ClientPeIdentity.parse(access.read(wow.id, MAX_EXE_BYTES, rejectTruncation = true)) }
-                    .onFailure { failures += (it.message ?: "VAL-02: invalid WoW.exe") }
+                    .onFailure { failures += (it.message ?: "WoW.exe is not a valid game executable") }
                     .getOrNull()
-                flavor = ClientPeIdentity.qualifiedFlavor(identity)
-                if (identity != null && flavor == null) {
-                    failures += "VAL-03: expected $EXPECTED_VERSION, detected ${ClientPeIdentity.detected(identity)}"
-                }
-                if (flavor != null) {
-                    if (flavor.knownExeSha256 != null && identity?.sha256 == flavor.knownExeSha256) {
-                        warnings += "VAL-03: executable hash matches the inspected build-${flavor.build} copy"
-                    } else {
-                        warnings += "VAL-03: build confirmed; this WoW.exe is accepted for ${flavor.flavorId} launch, but optional executable tweaks require the inspected byte layout"
-                    }
-                }
             }
 
             val data = root.singleOrNull { it.directory && it.name.equals("Data", true) }
-            if (data == null) {
-                failures += "VAL-04: Data directory is absent"
-            } else {
-                // W4 (the locale-MPQ defect the tbc E2E surfaced): genuine
-                // tbc/wotlk trees stage their locale MPQs inside
-                // Data/<locale>/ subdirectories while the registry's
-                // required keys carry the locale-slash path — the
-                // direct-children-only walk refused EVERY genuine
-                // later-expansion client with VAL-04. Walk Data (bounded
-                // depth) and match each required key by its own form: a
-                // slash key ("enus/locale-enus.mpq") must resolve at that
-                // path RELATIVE to Data (a basename-only match
-                // accepted a path-doctored set — Data/decoy/ with no
-                // Data/enUS/ — whose client cannot load its data), a bare
-                // key matches by basename (the vanilla flat set).
-                val mpqByRelPath = LinkedHashMap<String, SafClientScanner.Entry>()
-                fun walkMpqTree(dirId: String, rel: String, depth: Int) {
-                    if (depth > 4) return
-                    for (entry in access.children(dirId)) {
-                        val childRel = (if (rel.isEmpty()) entry.name else "$rel/${entry.name}").lowercase()
-                        if (entry.directory) walkMpqTree(entry.id, childRel, depth + 1)
-                        else if (entry.name.endsWith(".mpq", true)) {
-                            mpqByRelPath.putIfAbsent(childRel, entry)
-                        }
+            // Genuine tbc/wotlk trees stage their locale MPQs inside
+            // Data/<locale>/, so Data is walked (bounded depth) and every
+            // MPQ is keyed by its path relative to Data.
+            val mpqByRelPath = LinkedHashMap<String, SafClientScanner.Entry>()
+            fun walkMpqTree(dirId: String, rel: String, depth: Int) {
+                if (depth > 4) return
+                for (entry in access.children(dirId)) {
+                    val childRel = (if (rel.isEmpty()) entry.name else "$rel/${entry.name}").lowercase()
+                    if (entry.directory) walkMpqTree(entry.id, childRel, depth + 1)
+                    else if (entry.name.endsWith(".mpq", true)) {
+                        mpqByRelPath.putIfAbsent(childRel, entry)
                     }
                 }
-                walkMpqTree(data.id, "", 0)
-                // A foreign client (no qualified flavor matched) already failed
-                // VAL-03; never compare the qualified MPQ union against it.
-                val missing = flavor?.requiredMpqs.orEmpty().filterNot { key ->
-                    val lowered = key.lowercase()
-                    if ('/' in lowered) mpqByRelPath.containsKey(lowered)
-                    else mpqByRelPath.keys.any { it.substringAfterLast('/') == lowered }
-                }
-                appendExactSetFailures(failures, flavor, mpqByRelPath)
-                if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
-                val mpqs = mpqByRelPath
-                for (entry in mpqs.values) {
-                    val header = runCatching { access.read(entry.id, 4) }.getOrDefault(ByteArray(0))
-                    if (!header.contentEquals(byteArrayOf(0x4d, 0x50, 0x51, 0x1a))) {
-                        failures += "VAL-04: invalid MPQ header: Data/${entry.name}"
-                    }
-                }
-                warnings += "VAL-05: FLAT_ENGLISH_LOCALE_INFERRED"
             }
+            if (data == null) failures += "The Data folder is missing" else walkMpqTree(data.id, "", 0)
+            val verdict = ClientDataAudit.audit(identity, mpqByRelPath.keys, EXPECTED_VERSION, dataPresent = data != null) { rel ->
+                mpqByRelPath[rel]?.let { entry -> runCatching { access.read(entry.id, 4) }.getOrNull() }
+            }
+            failures += verdict.failures
+            warnings += verdict.warnings
+            val flavor = verdict.flavor
+            if (flavor != null) {
+                if (flavor.knownExeSha256 != null && identity?.sha256 == flavor.knownExeSha256) {
+                    warnings += "WoW.exe matches the original build ${flavor.build} release"
+                } else {
+                    warnings += "Build confirmed — the client can launch, but optional gameplay tweaks stay off because this WoW.exe differs from the original release"
+                }
+            }
+            if (data != null) warnings += "English (US) locale assumed — no locale folder was found"
 
             val customDlls = root.filter {
                 !it.directory && it.name.endsWith(".dll", true) && it.name.lowercase() !in STANDARD_ROOT_DLLS
             }.map { it.name }.sorted()
-            if (customDlls.isNotEmpty()) warnings += "VAL-10: unrecognized root DLLs: ${customDlls.joinToString()}"
+            if (customDlls.isNotEmpty()) warnings += "Extra files kept alongside the client: ${customDlls.joinToString()}"
 
             val knownBytes = root.sumOf { if (it.size >= 0) it.size else 0L }
             val supported = failures.isEmpty() && flavor != null
@@ -218,7 +215,7 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
             )
         }
 
-        /** VAL-03 "expected" text: the qualified flavors' version resources. */
+        /** The "expected versions" text shown when a client is not supported. */
         private val EXPECTED_VERSION = ClientPeIdentity.expectedVersions
 
         // Fast-scan read cap (platform budget, not flavor data).

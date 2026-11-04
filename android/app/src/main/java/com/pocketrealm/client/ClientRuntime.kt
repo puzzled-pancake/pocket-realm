@@ -109,8 +109,8 @@ object ClientRuntimeContract {
                 val dxvk = requireNotNull(RendererPackageCatalog.requireForRequest(
                     translator, renderer, rendererPackageId,
                 ))
-                // The user lane's build identity is its registry id; catalog
-                // ids keep the exact fail-closed package gate.
+                // A user-supplied driver's build identity is its registry id;
+                // catalog ids keep the exact fail-closed package gate.
                 val driverBuildId = if (UserVulkanDriver.isUserId(vulkanDriverId)) {
                     checkNotNull(vulkanDriverId)
                 } else {
@@ -133,37 +133,36 @@ object ClientRuntimeContract {
     }
 
     /**
-     * W3.6 (D15(4) retirement / decision D3): the per-flavor graphics-route
-     * gate. [renderer] is the runtime route id ("dxvk"/"opengl"/"virgl");
-     * it must be one of the flavor's manifest routes
-     * ([ClientFlavor.graphicsRoutes] — `wine.graphics_routes` in
-     * schemas/flavor.json). The tbc/wotlk lanes ship DXVK (d3d9) only: the
-     * Gladio/VirGL lanes are validated against vanilla's GL usage and are
-     * honestly refused elsewhere — never silently allowed.
+     * The per-game-version graphics-route gate. [renderer] is the runtime
+     * route id ("dxvk"/"opengl"/"virgl"); it must be one of the flavor's
+     * manifest routes ([ClientFlavor.graphicsRoutes] — `wine.graphics_routes`
+     * in schemas/flavor.json). TBC/WotLK ship DXVK (d3d9) only: the
+     * Gladio/VirGL routes are validated against vanilla's GL usage and are
+     * refused elsewhere — never silently allowed.
      */
     fun requireFlavorGraphicsRoute(flavor: com.pocketrealm.client.ClientFlavor, renderer: String) {
         check(renderer in flavor.graphicsRoutes) {
             "the $renderer graphics route is not available for the ${flavor.flavorId} flavor " +
                 "(validated routes: " + flavor.graphicsRoutes.sorted().joinToString(", ") +
-                ") — the Gladio/VirGL lanes are validated against the vanilla 1.12.1 " +
-                "client's GL usage only (decision D3); use the DXVK route"
+                ") — the Gladio/VirGL routes are validated against the vanilla 1.12.1 " +
+                "client's GL usage only; use the DXVK route"
         }
     }
 
-    /** The per-flavor graphics-route copy for the renderer surfaces: null
-     * when the route is available, the honest one-line reason otherwise. */
+    /** The per-game-version graphics-route copy for the renderer surfaces:
+     * null when the route is available, the one-line reason otherwise. */
     fun flavorGraphicsRouteCopy(
         flavor: com.pocketrealm.client.ClientFlavor,
         renderer: String,
     ): String? = if (renderer in flavor.graphicsRoutes) null else
-        "Not available for ${flavor.expansion} — validated for the vanilla 1.12.1 client only (DXVK is the ${flavor.flavorId} route)."
+        "Not available for ${flavor.expansion}. Only DXVK is supported for this game version."
 
-    /** The per-flavor vanilla-tweaks copy: null when the tweaks are
-     * available, the honest "not available for this flavor" line otherwise
+    /** The per-game-version vanilla-tweaks copy: null when the tweaks are
+     * available, the "not available for this game version" line otherwise
      * (the tweak set is validated against the 1.12.1 client only). */
     fun flavorTweaksCopy(flavor: com.pocketrealm.client.ClientFlavor): String? =
         if (flavor.vanillaTweaksEnabled) null else
-            "Vanilla tweaks are not available for ${flavor.expansion} — the tweak set is validated against the vanilla 1.12.1 client only."
+            "Vanilla tweaks are not available for ${flavor.expansion}. They only work with the vanilla 1.12.1 client."
 
     /** Arguments passed after Wine for an exact ARM renderer route. */
     fun armClientArguments(executable: String, renderer: String): List<String> {
@@ -177,7 +176,7 @@ object ClientRuntimeContract {
 
     /** Wine DLL policy for the fixed ARM D3D9 route.
      *
-     * This is the loader order used by the qualified Box64/DXVK sessions.
+     * This is the loader order used by the Box64/DXVK sessions.
      * Runtime readiness separately requires a fresh, version-matched DXVK log,
      * so a builtin fallback can never be reported as a successful ARM client.
      */
@@ -210,7 +209,7 @@ object ClientRuntimeContract {
         executableName: String = "WoW.exe",
     ): Boolean = isArmDxvkLogAttested(text, dxvkVersion, driver.kind, executableName)
 
-    /** Kind-based form used by the user lane, which has no catalog package. */
+    /** Kind-based form used by user-supplied drivers, which have no catalog package. */
     fun isArmDxvkLogAttested(
         text: String,
         dxvkVersion: String,

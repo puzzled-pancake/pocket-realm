@@ -49,7 +49,7 @@ object Win32AutoLogin {
      * splash and loading windows the old first-visible-window pick
      * accepted carry neither.
      *
-     * [alternateWindowClasses] (P11, lanes item 19) covers the flavors whose
+     * [alternateWindowClasses] (P11) covers the flavors whose
      * engine registers the login frame under a renderer-dependent class name:
      * the staged 8606/12340 exes each embed several `GxWindowClass*` literals
      * (OpenGL / Direct3D / Direct3D9Ex) and pick one at device init, so the
@@ -103,7 +103,7 @@ object Win32AutoLogin {
      * [ClientFlavors] registry — a flavor without an entry has no pin, so
      * auto-login refuses honestly for it instead of guessing a window).
      *
-     * The tbc/wotlk entries (P11, lanes item 19) were pinned from the staged
+     * The tbc/wotlk entries (P11) were pinned from the staged
      * clients' own binaries via tools/capture_flavor_framexml.py and are
      * LIVE-VERIFIED since W3.5 (2026-10-11): the genuine 8606/12340 exes
      * (S5.1 hash pins) each presented their login frame as ONE top-level

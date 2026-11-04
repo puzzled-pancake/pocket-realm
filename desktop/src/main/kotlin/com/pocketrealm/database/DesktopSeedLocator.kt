@@ -3,7 +3,7 @@ package com.pocketrealm.database
 import java.io.File
 
 /**
- * The runtime bootstrap's seed-source resolution (DESK-108): a fresh
+ * The runtime bootstrap's seed-source resolution: a fresh
  * packaged install ships the four seed transcripts + BUILD_PROVENANCE.json
  * FLAT in the jpackage app dir (packageApp copies them through --input;
  * the app dir is exactly what `-Djava.library.path=$APPDIR` exposes), and

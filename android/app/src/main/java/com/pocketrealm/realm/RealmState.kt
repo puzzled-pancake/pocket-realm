@@ -21,7 +21,7 @@ sealed interface RealmState {
      * [stopCopy] carries the humanized D9 reason when the previous stop was
      * the interface-loss monitor's call (LAN/TUNNEL_HOST_INTERFACE_LOST) —
      * a phone whose network churned mid-hosting must not present a clean,
-     * unexplained stop (design-lan §7/§8, both platforms).
+     * unexplained stop (design-lan /, both platforms).
      */
     data class Idle(val stopCopy: String? = null) : RealmState
 
@@ -40,7 +40,7 @@ sealed interface RealmState {
         val mode: RuntimeMode = RuntimeMode.LOCAL,
         val endpointAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
         /**
-         * Design-tunnel §5: the live session's ADVERTISED address when a
+         * Design-tunnel: the live session's ADVERTISED address when a
          * tunnel host is up (the realmlist row friends dial); null = the
          * plain endpoint advertisement. The host UI renders THIS as the
          * live advertisement — never re-derived from settings, so the copy
@@ -93,14 +93,14 @@ sealed interface RealmState {
 
     /**
      * The supervisor's status lane is UNREACHABLE — an explicit emission,
-     * never silence (design realm-status-browser.md §6.4): the poll's
+     * never silence (design realm-status-browser.md): the poll's
      * binder death (the :supervisor process died or the binding died) and
      * a repeated decode failure (e.g. an unknown phase enum from a newer
      * supervisor) must surface as a distinct state within ONE poll
      * interval, because an unreadable upstream is not evidence that the
      * realm is offline — the UI must say "unreachable", not guess a
      * polarity. Downstream page/status consumers treat this exactly as
-     * §6.4's degraded lane: realmOnline publishes as null, never false.
+     * 's degraded lane: realmOnline publishes as null, never false.
      */
     data class SupervisorUnreachable(val reason: String) : RealmState
 }

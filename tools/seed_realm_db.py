@@ -633,7 +633,7 @@ def _flavor_seed_plan(flavor_id: str) -> SeedPlan:
     db_root = ROOT / layout.db_submodule
     seed = (block.get("db_content") or {}).get("seed")
     if isinstance(seed, str) and seed:
-        # R2-1 (review round 1, serious): a doctored db_content.seed
+        # a doctored db_content.seed
         # ("../classic-db-wotlk/...", an absolute path) joins onto db_root
         # uncontained and — because the floors are MINIMUMS and the
         # version-table leg is a WARN — seeds foreign world content under
@@ -759,7 +759,7 @@ def _world_dump_content_error(plan: SeedPlan, world_dump: Path) -> str | None:
             # at 67 MB decompressed, so a capped probe would falsely refuse
             # the honest archive; a full pass costs <1 s (measured) next to
             # the seed's own full read. EVERY any-family hit in the window
-            # is classified (review round 2, R2-1 serious: the old
+            # is classified ( -1 serious: the old
             # first-hit-only `search` accepted a composite dump whose FIRST
             # marker was own-family and whose foreign marker sat later in
             # the same window — the contract is that NO foreign marker
@@ -1002,7 +1002,7 @@ def main() -> int:
                     help="log every tolerated translation error")
     args = ap.parse_args()
 
-    # R2-2 (review round 1): EVERY flavor verifies its pins before seeding —
+    # EVERY flavor verifies its pins before seeding —
     # vanilla included, like stage_database_migrations.select_inputs ("
     # ran this check only for tbc/wotlk as the earlier stopgap;... vanilla
     # is verified like the rest"). The old `!= "vanilla"` guard let a stale

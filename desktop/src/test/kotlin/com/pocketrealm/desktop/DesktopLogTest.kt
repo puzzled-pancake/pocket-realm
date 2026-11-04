@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * DESK-110: the typed in-memory ring (the Android AppLog contract) over
+ * the typed in-memory ring (the Android AppLog contract) over
  * the desktop log sink.
  */
 class DesktopLogTest {

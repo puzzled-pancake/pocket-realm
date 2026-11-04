@@ -52,7 +52,7 @@ data class DesktopBotResourceMetrics(
 )
 
 /**
- * DESK-8/23/43/99: the desktop sampler leg of the shared bot admission
+ * the desktop sampler leg of the shared bot admission
  * controller — the JVM twin of the Android `BotResourceSampler`. The tick
  * lanes come from the world status surface exactly as the parity plans
  * name it: `WorldNative.performanceStatusNative()` carries the tick

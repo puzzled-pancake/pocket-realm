@@ -33,15 +33,23 @@ class BotPresetStore(private val directory: File) {
         /** Highest revision retained per preset; bounds file growth. */
         const val MAX_REVISIONS_PER_PRESET = 32
         const val EXPORT_KIND = "pocketrealm.bot-preset"
-        // Schema 2 adds the RP-layer configuration keys (llmPackDeltas,
-        // llmInitiative, llmVolatility, llmReactivity, llmLongForm) to the
-        // canonical form the checksum covers. Schema-1 files verify
-        // against the v4-keys-stripped legacy form so pre-RP exports
-        // still import (see importJson).
-        const val EXPORT_SCHEMA = 2
-        private val SCHEMA_1_LEGACY_KEYS = arrayOf(
-            "llmPackDeltas", "llmInitiative", "llmVolatility",
-            "llmReactivity", "llmLongForm",
+        // Schema 3 drops the retired AI-speech keys from the canonical
+        // form. Schema 1/2 files carried them inside the checksum, so their
+        // digest is verified against the canonical form with the file's own
+        // speech keys re-inserted (see importJson).
+        const val EXPORT_SCHEMA = 3
+        /** Retired speech keys in their canonical order, with the default
+         * the old reader substituted when a file omitted one. */
+        private val LEGACY_SPEECH_DEFAULTS: List<Pair<String, () -> Any>> = listOf(
+            "llmReplyTokens" to { 0 }, "llmBotToBotChatChance" to { -1 },
+            "llmFactsCap" to { 0 }, "llmMemoriesTail" to { 0 },
+            "llmPackDeltas" to { JSONObject() }, "llmInitiative" to { -1 },
+            "llmVolatility" to { -1 }, "llmReactivity" to { -1 }, "llmLongForm" to { -1 },
+            "llmChatterRung" to { -1 },
+        )
+        /** Schema-1 digests predate these keys. */
+        private val SCHEMA_1_ABSENT_SPEECH_KEYS = setOf(
+            "llmPackDeltas", "llmInitiative", "llmVolatility", "llmReactivity", "llmLongForm",
         )
 
         /** Preset-name charset/length rule (letters, digits, punctuation, spaces). */
@@ -57,7 +65,10 @@ class BotPresetStore(private val directory: File) {
 
         fun decodeConfiguration(encoded: String): BotCustomConfiguration? =
             runCatching { readConfiguration(JSONObject(encoded)) }.getOrNull()
-        internal fun writeConfiguration(configuration: BotCustomConfiguration): JSONObject {
+        internal fun writeConfiguration(
+            configuration: BotCustomConfiguration,
+            legacySpeech: List<Pair<String, Any>> = emptyList(),
+        ): JSONObject {
             val admission = configuration.admission
             return JSONObject()
                 .put("selectedTarget", configuration.selectedTarget)
@@ -97,16 +108,7 @@ class BotPresetStore(private val directory: File) {
                 .put("groupNearby", configuration.groupNearby)
                 .put("wanderWhenIdle", configuration.wanderWhenIdle)
                 .put("enableOffSpecStrategies", configuration.enableOffSpecStrategies)
-                .put("llmReplyTokens", configuration.llmSpeech.replyTokens)
-                .put("llmBotToBotChatChance", configuration.llmSpeech.botToBotChatChance)
-                .put("llmFactsCap", configuration.llmSpeech.factsCap)
-                .put("llmMemoriesTail", configuration.llmSpeech.memoriesTail)
-                .put("llmPackDeltas", JSONObject(configuration.llmSpeech.packDeltas))
-                .put("llmInitiative", configuration.llmSpeech.initiative)
-                .put("llmVolatility", configuration.llmSpeech.volatility)
-                .put("llmReactivity", configuration.llmSpeech.reactivity)
-                .put("llmLongForm", configuration.llmSpeech.longForm)
-                .put("llmChatterRung", configuration.llmSpeech.chatterRung)
+                .apply { legacySpeech.forEach { (key, value) -> put(key, value) } }
                 .put(
                     "admission", JSONObject()
                         .put("maxWorldP99Ms", admission.maxWorldP99Ms)
@@ -169,27 +171,6 @@ class BotPresetStore(private val directory: File) {
                     increaseStep = admission.getInt("increaseStep"),
                     healthyRampMs = admission.getLong("healthyRampMs"),
                     changeCooldownMs = admission.getLong("changeCooldownMs"),
-                ),
-                // opt* reads: presets saved before the AI/RP tabs carry no
-                // llmSpeech object and must resolve to the sentinels
-                llmSpeech = BotLlmSpeech.normalize(
-                    replyTokens = json.optInt("llmReplyTokens", 0),
-                    botToBotChatChance = json.optInt("llmBotToBotChatChance", -1),
-                    factsCap = json.optInt("llmFactsCap", 0),
-                    memoriesTail = json.optInt("llmMemoriesTail", 0),
-                    packDeltas = runCatching {
-                        val deltas = json.optJSONObject("llmPackDeltas")
-                        buildMap {
-                            deltas?.keys()?.forEachRemaining { key ->
-                                put(key, deltas.getBoolean(key))
-                            }
-                        }
-                    }.getOrDefault(emptyMap()),
-                    initiative = json.optInt("llmInitiative", -1),
-                    volatility = json.optInt("llmVolatility", -1),
-                    reactivity = json.optInt("llmReactivity", -1),
-                    longForm = json.optInt("llmLongForm", -1),
-                    chatterRung = json.optInt("llmChatterRung", -1),
                 ),
             )
         }
@@ -382,13 +363,14 @@ class BotPresetStore(private val directory: File) {
         val canonical = writeConfiguration(readConfiguration(configurationJson))
         val storedChecksum = document.getString("checksum")
         val checksumOk = configurationChecksum(canonical) == storedChecksum ||
-            // schema-1 files predate the RP-layer keys: their checksum
-            // covers the canonical form WITHOUT them. Accept the legacy
-            // digest rather than failing a legitimate old export with a
-            // misleading tamper error.
-            (schema < 2 && run {
-                val legacy = JSONObject(canonical.toString())
-                SCHEMA_1_LEGACY_KEYS.forEach { legacy.remove(it) }
+            // Older files carried the retired speech keys inside the digest:
+            // re-insert the file's own values at their original position
+            // rather than failing a legitimate old export as tampered.
+            (schema < EXPORT_SCHEMA && run {
+                val speech = LEGACY_SPEECH_DEFAULTS
+                    .filter { (key, _) -> schema >= 2 || key !in SCHEMA_1_ABSENT_SPEECH_KEYS }
+                    .map { (key, default) -> key to (configurationJson.opt(key) ?: default()) }
+                val legacy = writeConfiguration(readConfiguration(configurationJson), speech)
                 configurationChecksum(legacy) == storedChecksum
             })
         require(checksumOk) { "preset file failed its integrity check" }

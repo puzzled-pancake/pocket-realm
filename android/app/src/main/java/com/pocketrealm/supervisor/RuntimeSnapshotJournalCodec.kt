@@ -10,7 +10,7 @@ import org.json.JSONObject
  * from this same tree; the desktop journal is a JVM twin of the atomic file
  * mechanics around it.
  *
- * G3-4: the session flavor rides as an OPTIONAL field at the existing
+ * the session flavor rides as an OPTIONAL field at the existing
  * schema pair ([LEGACY_SCHEMA] / [RuntimeSnapshot.JOURNAL_SCHEMA] — the
  * constants never move to introduce it). The key is written only when
  * non-vanilla, so every journal bytes written by the pre-flavor release
@@ -44,7 +44,7 @@ internal object RuntimeSnapshotJournalCodec {
         .put("recoverability", value.recoverability.name)
         .also { encoded ->
             if (value.flavor != ClientFlavors.VANILLA.flavorId) encoded.put("flavor", value.flavor)
-            // Design-tunnel §5: the tunnel advertisement rides as an
+            // Design-tunnel: the tunnel advertisement rides as an
             // OPTIONAL field at the existing schema pair (the flavor-field
             // precedent) — written only when set, so every journal bytes
             // written before the tunnel lane decode identically, and a
@@ -87,7 +87,15 @@ internal object RuntimeSnapshotJournalCodec {
             }
             RealmEndpoint.parseStored(value.getString("realmEndpoint"))
         }
-        require((mode == RuntimeMode.LOCAL) == endpoint.isLoopback) {
+        // LOCAL is always loopback; a LAN_HOST session may be loopback
+        // (the online host — the gateway carries the players) or a private
+        // interface (LAN players); LAN_JOIN may be loopback only as the
+        // internet join through the in-app gateway.
+        require(
+            (mode == RuntimeMode.LOCAL && endpoint.isLoopback) ||
+                mode == RuntimeMode.LAN_HOST ||
+                mode == RuntimeMode.LAN_JOIN,
+        ) {
             "journal topology and endpoint disagree"
         }
         if (mode == RuntimeMode.LAN_JOIN) {

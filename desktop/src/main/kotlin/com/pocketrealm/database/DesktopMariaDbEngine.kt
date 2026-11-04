@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit
 import org.json.JSONObject
 
 /**
- * The desktop MariaDB lifecycle owner (DESK-5/47/78) — the JVM twin of the
+ * The desktop MariaDB lifecycle owner — the JVM twin of the
  * Android DatabaseEngine's MariaDB leg, process-managed instead of
  * JNI-translated. All paths and commands derive internally from the staged
  * provider closure and the durable records; callers cannot inject SQL or
@@ -155,12 +155,12 @@ internal class DesktopMariaDbEngine(
                         },
                     ).apply {
                         redirectErrorStream(false)
-                        // R3-r2-1 (desktop-twin round 2, serious): the
+                        // the
                         // capture previously resolved java.io.tmpdir — the
                         // Gradle daemon/test lanes redirect it to E:, but
                         // the rpHost harness and any jpackage install
                         // resolve %TEMP% ON C: (a project writer on C:,
-                        // plan §1 hard rule 1; pocket-mariadbd.out/.err were
+                        // plan hard rule 1; pocket-mariadbd.out/.err were
                         // observed in %TEMP%). The capture files now ride
                         // in from the caller: the engine's DesktopStorageRoots
                         // logs root, which the D50 override relocates with
@@ -229,7 +229,7 @@ internal class DesktopMariaDbEngine(
     private val dirtyRecord = File(databaseRoot, DIRTY_RECORD_NAME)
     private val secretFile = File(databaseRoot, SECRETS_FILE_NAME)
     /**
-     * W4 (R5-2): the LANE-SCOPED transaction journal — a lane killed
+     * the LANE-SCOPED transaction journal — a lane killed
      * mid-apply leaves its journal in its OWN file, so another lane's
      * initialize/start is never blocked by lane A's pending transaction
      * (the charter's kill-mid-switch requirement). The vanilla lane keeps
@@ -237,7 +237,7 @@ internal class DesktopMariaDbEngine(
      */
     private fun laneTransactionFile(): File {
         val lane = laneFlavorId()
-        // R4 (round 4): the suffix composes onto the BARE name — the former
+        // the suffix composes onto the BARE name — the former
         // "$TRANSACTION_FILE_NAME-$lane.json" produced the malformed
         // "database-transaction.json-tbc.json" (the .json baked into the
         // constant), so the lane journal the recovery reads and the one a
@@ -349,7 +349,7 @@ internal class DesktopMariaDbEngine(
             })
             .put("datadir", datadir.absolutePath)
             .put("pid", ProcessHandle.current().pid())
-            // GAP-5: the daemon the engine spawned and tracks (startDaemon's
+            // the daemon the engine spawned and tracks (startDaemon's
             // handle), NOT this JVM's ambient pid — a diagnostics reader must
             // never mistake the app process for mariadbd. NULL whenever the
             // engine is not RUNNING: a fabricated pid is the defect class.
@@ -369,8 +369,8 @@ internal class DesktopMariaDbEngine(
         requireProvider()
         recoverIncompleteInitialization()
         if (initialized()) {
-            // R5-R6-1 (round 6): a pending MIGRATION journal was written
-            // with the LANE identity (R3-2) — the disposition must be
+            // a pending MIGRATION journal was written
+            // with the LANE identity — the disposition must be
             // proven kind-aware (MIGRATION -> lane identity, INIT ->
             // shared), or a kill-mid-migration on a tbc/wotlk lane answers
             // the false FAIL_CLOSED instead of the documented
@@ -441,7 +441,7 @@ internal class DesktopMariaDbEngine(
             // GRANT ALL password included), so no copy of it may outlive
             // the verb that consumed it — secrets.json stays the only
             // at-rest copy (the migration/overlay transcript delete law).
-            // W1.2: the database names route through the flavor resolver
+            // the database names route through the flavor resolver
             // (bootstrapDatabaseNames -> MariaDbBootstrap.initialAuthSql),
             // never a bare vanilla literal; the exactly-one-qualified +
             // vanilla-only law refuses BEFORE any SQL crosses (DECISIONS-PORT
@@ -563,7 +563,7 @@ internal class DesktopMariaDbEngine(
      * LoginDatabaseInfo and this row land in the same database by
      * construction, and the ActiveFlavor machine's honesty gates the SQL
      * before any of it crosses the client. */
-    /** R1-r3-4 (desktop-twin round 3): the android
+    /** the android
      * DatabaseEngine.realmdDatabaseName guard's desktop twin — the realmd
      * database the MariaDB SQL targets is registry-resolved with the
      * exactly-one-qualified + vanilla-only requirement BEFORE any SQL
@@ -578,7 +578,7 @@ internal class DesktopMariaDbEngine(
     private fun realmdDatabaseName(): String = bootstrapDatabaseNames().realmd
 
     /**
-     * The bootstrap's flavor-routed database names (W1.2): the machine's own
+     * The bootstrap's flavor-routed database names: the machine's own
      * fail-loud resolution ([com.pocketrealm.server.ServerRuntimeFiles.serverFlavor]
      * — exactly-one-qualified or an explicit selection), then the W1.2
      * vanilla-only requirement (the recorded W1.2 per-flavor-seeding
@@ -591,7 +591,7 @@ internal class DesktopMariaDbEngine(
     private fun bootstrapDatabaseNames(): ClientFlavor.DatabaseNames {
         val flavor = bootLane()
             ?: com.pocketrealm.server.ServerRuntimeFiles.serverFlavor()
-        // W4 (D72 RETIRED, owner ruling 2026-10-12): the vanilla-only
+        // the vanilla-only
         // requirement is GONE — every qualified lane bootstraps its own
         // database family (the per-flavor migration ledgers stage through
         // tools/stage_mariadb_flavor_migrations.py; applyPinnedMigrations
@@ -602,7 +602,7 @@ internal class DesktopMariaDbEngine(
     }
 
     /**
-     * W4 (D72 retirement): the LANE the engine's per-flavor state resolves
+     * the LANE the engine's per-flavor state resolves
      * against — the pinned boot lane (the backend supplier), holder
      * fallback for standalone tools. Every per-flavor surface below keys
      * off this: the migration ledger table, the migration seal marker,
@@ -629,13 +629,13 @@ internal class DesktopMariaDbEngine(
         else File(datadir, ".pocketrealm-migrations-$lane.json")
     }
 
-    /** R1-r3-5 (desktop-twin round 3): the harness SRP verifier seeding
+    /** the harness SRP verifier seeding
      * for the SHIPPED-DEFAULT MariaDB lane — the same owner-gated SQL path
      * the realmlist projection rides, so AuthGate's proto-login verifier
      * lands in the database realmd actually reads (it previously went to
      * the sqlite datadir unconditionally, a store the MariaDB lane's
      * realmd never opens). */
-    /** R1-r3-5: the persisted session key the protocol gate's proof 3
+    /** the persisted session key the protocol gate's proof 3
      * verifies (the MariaDB lane's realmd account row). */
     fun readVerifierSessionKey(account: String): String? = synchronized(lock) {
         check(state == State.RUNNING) { "database is not running" }
@@ -650,7 +650,7 @@ internal class DesktopMariaDbEngine(
             .lastOrNull()?.takeIf { it.isNotEmpty() && it != "NULL" }
     }
 
-    /** R1-r3-5: the gate's known-password account row leaves the live
+    /** the gate's known-password account row leaves the live
      * realmd database after every proof landed. */
     fun deleteVerifierRow(account: String): JSONObject = synchronized(lock) {
         check(state == State.RUNNING) { "database is not running" }
@@ -901,7 +901,7 @@ internal class DesktopMariaDbEngine(
         check(initialized()) { "DB-INIT: initialize must pass before migrations" }
         check(cleanGeneration()) { "DB-SNAPSHOT: pre-migration generation is not clean" }
         val closure = providerClosure
-        // W4 (D72 retirement + R3-1/R3-2): the LANE's manifest, digest-verified
+        // the LANE's manifest, digest-verified
         // against the lane lockfile document, and the LANE's OWN identity —
         // the seal/marker/currency gate binds the lane's ledger digest and
         // count (the shared vanilla 414-entry identity would make a
@@ -920,7 +920,7 @@ internal class DesktopMariaDbEngine(
         val identity = if (lane == "vanilla") shared else laneIdentity
         val total = manifest.getJSONArray("entries").length()
         if (migrationsCurrent()) {
-            // R4-5: the recovered-transaction disclosure belongs on EVERY
+            // the recovered-transaction disclosure belongs on EVERY
             // recovery-terminated apply — an interrupted transaction whose
             // lane is already current still rolls its snapshot back (the
             // kill's partial bytes are undone), and the caller must see it.
@@ -961,7 +961,7 @@ internal class DesktopMariaDbEngine(
         try {
             updateDatabaseTransactionPhase("MIGRATION", "RUNNING")
             startDaemon(allowedTransactionKind = "MIGRATION")
-            // W4 (D72 retirement): the LANE's database family is provisioned
+            // the LANE's database family is provisioned
             // BEFORE its ledger applies — the four CREATE DATABASE IF NOT
             // EXISTS + the pocket_core grants, composed by the shared
             // bootstrap (idempotent; the initialized datadir created only
@@ -994,7 +994,7 @@ internal class DesktopMariaDbEngine(
                 }
                 val sql = materializeMigration(closure, entry)
                 ledgerPending(entry, snapshotId, manifest)
-                // R2-r6-1 (round 6): the mandatory family backstop — a
+                // the mandatory family backstop — a
                 // ledger entry naming a database outside THIS lane's own
                 // family refuses BEFORE any SQL executes (the digest gates
                 // cannot catch a mis-generated ledger; the post-apply
@@ -1305,7 +1305,7 @@ internal class DesktopMariaDbEngine(
 
     /**
      * The MariaDB lane's timeframe-overlay leg (design-timeframe
-     * §2/§4.3), the twin of the SQLite seam's DesktopTimeframeOverlay
+     * ), the twin of the SQLite seam's DesktopTimeframeOverlay
      * execution: bring the LIVE MariaDB generation from its recorded
      * stage to [desiredStage] at world start, BEFORE the native boot.
      * The applied-stage record lives in the pocketrealm_meta schema
@@ -1475,7 +1475,7 @@ internal class DesktopMariaDbEngine(
         projectedRealmEndpoint = null
         state = State.STARTING
         val pid = try {
-            // R3-r2-1: the daemon capture rides the logs root —
+            // the daemon capture rides the logs root —
             // override-honoring, never java.io.tmpdir (%TEMP% on C: in the
             // rpHost/jpackage lanes).
             processes.startDaemon(
@@ -1612,7 +1612,7 @@ internal class DesktopMariaDbEngine(
     private fun readSecrets(): Secrets {
         check(secretFile.isFile) { "DB-SECRET: credential record is missing" }
         val text = secretFile.readText()
-        // R2-r5-1 (code-red round 5): the android twin validates the record
+        // the android twin validates the record
         // on every read (DatabaseGenerationSeal.validSecrets) — the desktop
         // lane now does too, so a corrupted or hand-edited secrets.json
         // refuses loud here instead of flowing verbatim into root-context
@@ -1741,7 +1741,7 @@ internal class DesktopMariaDbEngine(
     }
     private fun verifyExpectedRevisions(manifest: JSONObject): JSONObject {
         val expected = manifest.getJSONObject("expected_revisions")
-        // W4 (D72 retirement): the revision probes run against the LANE'S
+        // the revision probes run against the LANE'S
         // OWN database family — the former vanilla literals queried
         // classicrealmd for the tbc lane's revision column and refused
         // every non-vanilla apply ("realm missing
@@ -1819,8 +1819,8 @@ internal class DesktopMariaDbEngine(
     private fun recoverPendingMigrationTransaction(): Boolean {
         if (!laneTransactionFile().isFile) return false
         val raw = laneTransactionFile().readText()
-        // R3-r3-fix: the pending record was written with the LANE identity
-        // on a non-vanilla lane (R3-2) — the recovery proof must use the
+        // the pending record was written with the LANE identity
+        // on a non-vanilla lane — the recovery proof must use the
         // same identity, not the shared vanilla one.
         val recordIdentity = transactionRecordIdentity(raw)
         val action = DatabaseDurableState.migrationRecovery(
@@ -1869,8 +1869,8 @@ internal class DesktopMariaDbEngine(
         check(provider != DatabaseRuntimeContract.SQLITE_PROVIDER_ID) {
             "DB-TRANSACTION: a sqlite-lane transaction cannot recover through the MariaDB engine"
         }
-        // R3-r3-fix: the record's KIND owns its identity scheme — a
-        // MIGRATION record was written with the LANE identity (R3-2),
+        // the record's KIND owns its identity scheme — a
+        // MIGRATION record was written with the LANE identity,
         // an INIT record with the shared one — prove each against its
         // own writer's scheme.
         val kind = runCatching { JSONObject(raw).optString("kind") }.getOrNull()
@@ -1883,7 +1883,7 @@ internal class DesktopMariaDbEngine(
     ): JSONObject {
         return JSONObject()
             .put("provider", identity.providerId)
-            // W4 (R4-r2-2): the lane rides the stamp so per-lane retention
+            // the lane rides the stamp so per-lane retention
             // and the restore compatibility gate can group by flavor.
             .put("flavor", laneFlavorId())
             .put("providerClosureSha256", identity.providerClosureSha256)
@@ -1938,11 +1938,11 @@ internal class DesktopMariaDbEngine(
     private fun identity(): DatabaseDurableState.Identity = providerClosure.identity()
 
     /**
-     * R3-r3-fix (W4 code-red round 3): the identity a MIGRATION
+     * the identity a MIGRATION
      * transaction record is proven against must be the one its writer
      * used — applyPinnedMigrations writes the LANE identity (the lane
      * manifest's own digest + count) into the lane journal on
-     * non-vanilla lanes (R3-2), so the phase-update and recovery reads
+     * non-vanilla lanes, so the phase-update and recovery reads
      * must resolve the same lane identity. Proving a lane record against
      * the shared (vanilla 414-entry) identity is exactly the
      * "DB-TRANSACTION: transaction identity drift" that refused every
@@ -1990,13 +1990,13 @@ internal class DesktopMariaDbEngine(
     }.getOrDefault(false)
 
     private fun migrationsCurrent(): Boolean = initialized() && runCatching {
-        // W4 (D72 retirement): the LANE's seal marker and the LANE's own
+        // the LANE's seal marker and the LANE's own
         // identity — a lane whose ledger has never applied is NOT current
         // even though the vanilla marker (the first-initialized lane's) is
         // present, and a re-staged lane ledger (new digest) goes stale the
-        // same way (R3-2).
+        // same way.
         val lane = laneFlavorId()
-        // R3-2: the LANE identity is only read for NON-vanilla lanes — the
+        // the LANE identity is only read for NON-vanilla lanes — the
         // vanilla marker keeps the shared identity and never touches the
         // per-lane reader (which would demand a sibling manifest the
         // vanilla lane legitimately does not stage).
@@ -2111,7 +2111,7 @@ internal class DesktopMariaDbEngine(
          * working set lives in the same order of magnitude). */
         private const val MIN_INITIALIZE_BYTES = 768L * 1024 * 1024
         private const val MIN_START_BYTES = 128L * 1024 * 1024
-        // R4-r2-3: the gate is a SNAPSHOT budget — applyPinnedMigrations
+        // the gate is a SNAPSHOT budget — applyPinnedMigrations
         // takes a full pre-migration datadir snapshot (measured ~1.76 GiB
         // on the W4 tbc/wotlk lanes) while the live datadir keeps its
         // bytes, and the post-migration family grows on top. 1.5 GiB sat
@@ -2151,7 +2151,7 @@ internal class DesktopMariaDbEngine(
 
         private val MIGRATION_ID = Regex("[A-Za-z0-9._-]{1,191}")
         private val DATABASE_NAME = Regex("[a-z][a-z0-9_]{0,63}")
-        /** W4.2: the realmd account-token shape (1..16 ASCII alnum) the
+        /** the realmd account-token shape (1..16 ASCII alnum) the
          * verifier seeding interpolates — the core's own create-account
          * gate, mirrored here so a decorated name refuses before SQL. */
         private val ACCOUNT_TOKEN = Regex("[A-Za-z][A-Za-z0-9]{0,15}")

@@ -12,7 +12,7 @@ import java.io.File
 import kotlin.system.exitProcess
 
 /**
- * W4.1: the per-flavor DESKTOP END-TO-END qualification probe — the flow a
+ * the per-flavor DESKTOP END-TO-END qualification probe — the flow a
  * real user drives, headless, on the shipped-default MariaDB lane:
  *
  *   import (folder lane, or the archive lane) → the prepared-data lane's
@@ -95,7 +95,7 @@ private fun importLane(flavor: ClientFlavor, model: DesktopAppModel): String {
         // archive's own WoW.exe member is hash-pinned below, which is the
         // same S5.1 evidence the folder lane produces.
         System.getProperty("clientDir")?.let { pinnedClientDir(flavor) }
-        // R3-W4-1 (code-red round 3): the archive's own WoW.exe member
+        // the archive's own WoW.exe member
         // must hash to the S5.1 pin — a doctored same-PE-version archive
         // is refused here.
         pinnedArchiveExe(flavor, archive)
@@ -109,7 +109,7 @@ private fun importLane(flavor: ClientFlavor, model: DesktopAppModel): String {
     }
 }
 
-/** R3-W4-1: the archive member's WoW.exe must be the flavor's S5.1-measured
+/** the archive member's WoW.exe must be the flavor's S5.1-measured
  * build. Streams the member (never a full extract) and enforces the pin
  * with the same loud copy as the folder lane. */
 internal fun pinnedArchiveExe(flavor: ClientFlavor, archive: File) {
@@ -290,7 +290,7 @@ fun main() {
 }
 
 
-/** R3-4 (round 2 extraction): the S5.1 sha-pin gate over the staged
+/** the S5.1 sha-pin gate over the staged
  * WoW.exe — a pinless flavor refuses (a hash-pinned genuine-client import
  * cannot be evidenced unpinned) and a sha drift refuses naming both
  * digests. Internal so the JVM pin test drives the production check. */

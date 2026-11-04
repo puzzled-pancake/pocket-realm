@@ -480,7 +480,7 @@ class UserVulkanDriverRegistryTest {
         // crash streak.
         val result = registry.import("Crashy again", soFile())
         val reason = (result as UserVulkanDriverImport.Rejected).reason
-        assertTrue(reason.contains("byte-identical"))
+        assertTrue(reason.contains("the same file as"))
         assertTrue(reason.contains("\"Crashy\""))
         assertTrue(reason.contains("quarantined after 2 early crashes"))
         assertEquals(1, registry.list().size)

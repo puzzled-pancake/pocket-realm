@@ -2,51 +2,27 @@ package com.pocketrealm.importer
 
 import com.pocketrealm.client.SafClientScanner
 
-/** W4: the bounded-depth Data walk collecting MPQs by lowercase
+/** the bounded-depth Data walk collecting MPQs by lowercase
  * basename (locale subdirectories included, wrapper levels too). */
 private const val MPQ_WALK_MAX_DEPTH = 4
 
-/** The MPQ file magic ("MPQ") and its length. */
-private val MPQ_MAGIC: ByteArray = byteArrayOf(0x4d.toByte(), 0x50.toByte(), 0x51.toByte(), 0x1a.toByte())
-private const val MPQ_MAGIC_LEN = 4
-
-/** W4: the whole MPQ audit for the archive lane — the locale walk, the
- * per-form missing check, and the /-2 exact-set leg (an unknown
- * patch-*.mpq on a non-vanilla lane is VAL-04 naming the file; vanilla
- * keeps its documented tolerance). Extracted from verifyExtracted for
- * complexity/nesting. */
-private fun auditMpqSet(
-    data: java.io.File,
-    flavor: com.pocketrealm.client.ClientFlavor?,
-    failures: MutableList<String>,
-) {
-    val mpqByRelPath = collectMpqFiles(data)
-    val missing = flavor?.requiredMpqs.orEmpty().filterNot { key ->
-        val lowered = key.lowercase()
-        if ('/' in lowered) mpqByRelPath.containsKey(lowered)
-        else mpqByRelPath.keys.any { it.substringAfterLast('/') == lowered }
-    }
-    if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
-    if (flavor != null && flavor.flavorId != com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
-        for ((rel, file) in mpqByRelPath) {
-            val base = rel.substringAfterLast('/')
-            val known = flavor.requiredMpqs.any {
-                val lowered = it.lowercase()
-                lowered == rel || lowered.substringAfterLast('/') == base
-            }
-            if (!known && base.startsWith("patch-") && base.endsWith(".mpq")) {
-                failures += "VAL-04: unknown patch MPQ not in the exact set: Data/$rel"
-            }
-        }
-    }
-    @Suppress("MagicNumber")  // the MPQ magic bytes, named by their use
-    for (file in mpqByRelPath.values) {
-        val header = file.inputStream().use { runCatching { it.readNBytes(MPQ_MAGIC_LEN) }.getOrDefault(ByteArray(0)) }
-        if (!header.contentEquals(MPQ_MAGIC)) {
-            failures += "VAL-04: invalid MPQ header: Data/${file.name}"
+/** The shared identity + MPQ audit over an extracted Data tree. */
+private fun auditExtracted(
+    identity: com.pocketrealm.client.ClientPeIdentity.Identity?,
+    data: java.io.File?,
+    expectedVersions: String,
+): com.pocketrealm.client.ClientDataAudit.Verdict {
+    val mpqByRelPath = if (data != null) collectMpqFiles(data) else LinkedHashMap()
+    return com.pocketrealm.client.ClientDataAudit.audit(
+        identity, mpqByRelPath.keys, expectedVersions, dataPresent = data != null,
+    ) { rel ->
+        mpqByRelPath[rel]?.let { file ->
+            runCatching { file.inputStream().use { input -> readUpTo(input, MPQ_HEADER_PROBE_BYTES) } }.getOrNull()
         }
     }
 }
+
+private const val MPQ_HEADER_PROBE_BYTES = 4
 
 private fun collectMpqFiles(data: java.io.File):
         LinkedHashMap<String, java.io.File> {
@@ -111,7 +87,7 @@ internal class ArchiveClientScanner(
         val rebased = mutableListOf<ImportExtractionPolicy.RawEntry>()
         val outsideRoot = mutableListOf<ImportExtractionPolicy.Excluded>()
         for (entry in entries) {
-            val unified = entry.name.replace('\\', '/').trimEnd('/')
+            val unified = cleanArchiveName(entry.name)
             val relative = rebase(entry.name, rootPrefix)
             when {
                 relative != null -> rebased += ImportExtractionPolicy.RawEntry(relative, entry.directory, entry.size, entry.name)
@@ -149,25 +125,27 @@ internal class ArchiveClientScanner(
      * identity fields the folder/zip lanes pin at detection time.
      */
     fun verifyExtracted(root: java.io.File, warnings: List<String> = emptyList()): SafClientScanner.Result {
-        val exe = java.io.File(root, "WoW.exe")
+        // Case-insensitive: genuine clients ship "Wow.exe", and Android's
+        // extraction target is a case-sensitive filesystem.
+        val children = root.listFiles().orEmpty()
+        val exe = children.firstOrNull { it.isFile && it.name.equals("WoW.exe", true) }
+            ?: java.io.File(root, "WoW.exe")
         val failures = mutableListOf<String>()
+        val notes = mutableListOf<String>()
         var identity: com.pocketrealm.client.ClientPeIdentity.Identity? = null
-        var flavor: com.pocketrealm.client.ClientFlavor? = null
         if (!exe.isFile) {
-            failures += "VAL-01: direct WoW.exe is absent"
+            failures += "WoW.exe was not found in the archive"
         } else {
-            identity = com.pocketrealm.client.ClientPeIdentity.parse(exe.readBytes())
-            flavor = com.pocketrealm.client.ClientPeIdentity.qualifiedFlavor(identity)
-            if (identity != null && flavor == null) {
-                failures += "VAL-03: expected $EXPECTED_VERSION, detected ${com.pocketrealm.client.ClientPeIdentity.detected(identity)}"
-            }
+            identity = runCatching { com.pocketrealm.client.ClientPeIdentity.parse(exe.readBytes()) }
+                .onFailure { failures += (it.message ?: "WoW.exe is not a valid game executable") }
+                .getOrNull()
         }
-        val data = java.io.File(root, "Data")
-        if (!data.isDirectory) {
-            failures += "VAL-04: Data directory is absent"
-        } else {
-            auditMpqSet(data, flavor, failures)
-        }
+        val data = children.firstOrNull { it.isDirectory && it.name.equals("Data", true) }
+        if (data == null) failures += "The Data folder is missing"
+        val verdict = auditExtracted(identity, data, EXPECTED_VERSION)
+        failures += verdict.failures
+        notes += verdict.warnings
+        val flavor = verdict.flavor
         val supported = failures.isEmpty() && flavor != null
         return SafClientScanner.Result(
             supported = supported,
@@ -176,7 +154,7 @@ internal class ArchiveClientScanner(
             build = identity?.build,
             executableSha256 = identity?.sha256,
             sourceBytesKnown = exe.length(),
-            warnings = (warnings + "VAL-05: FLAT_ENGLISH_LOCALE_INFERRED").distinct(),
+            warnings = (warnings + notes + "English (US) locale assumed — no locale folder was found").distinct(),
             failures = failures.distinct(),
         )
     }
@@ -192,28 +170,42 @@ internal class ArchiveClientScanner(
      * folder. Requiring `Data` disambiguates the ENG-style contamination
      * where `!1.8 Hack/wow.exe` sits beside the real wrapper.
      */
+    private val MAX_WRAPPER_DEPTH = 3
+
     private fun findClientRoot(entries: List<RawEntry>): String {
-        val unified = entries.map { it.name.replace('\\', '/').trimEnd('/') to it }
+        val unified = entries.map { cleanArchiveName(it.name) to it }
         fun hasData(parent: String): Boolean {
             val dataPath = if (parent.isEmpty()) "Data" else "$parent/Data"
-            return unified.any { (name, entry) -> entry.directory && name.equals(dataPath, true) }
+            return unified.any { (name, entry) ->
+                entry.directory && name.equals(dataPath, true) ||
+                    // A file path under Data/ proves the directory: most
+                    // real-world zips store no explicit directory entries
+                    // (the W4 e2e TBC/WotLK zips carry none — the live RP6
+                    // owner-session VAL-04 refused a good client on this).
+                    !entry.directory && name.startsWith("$dataPath/", true)
+            }
         }
         val candidates = unified.filter { (name, entry) ->
             !entry.directory && name.substringAfterLast('/').equals("WoW.exe", true) &&
-                name.count { it == '/' } <= 1
+                name.count { it == '/' } <= MAX_WRAPPER_DEPTH
         }.groupBy { it.first.substringBeforeLast('/', "") }
-        val rooted = candidates.keys.filter(::hasData)
+        // Up to MAX_WRAPPER_DEPTH wrapper folders ("WoW 3.3.5a/World of
+        // Warcraft/Wow.exe"); the shallowest client root wins, and only two
+        // roots at that same depth are ambiguous.
+        val withData = candidates.keys.filter(::hasData)
+        val shallowest = withData.minOfOrNull { root -> if (root.isEmpty()) 0 else root.count { it == '/' } + 1 }
+        val rooted = withData.filter { root -> (if (root.isEmpty()) 0 else root.count { it == '/' } + 1) == shallowest }
         when {
             candidates.isEmpty() -> throw ImportRejected(
-                "VAL-01: no WoW.exe at the archive root or inside a single wrapper folder — " +
+                "no WoW.exe at the archive root or inside up to $MAX_WRAPPER_DEPTH wrapper folders — " +
                     "choose the client archive itself, not a launcher, downloader or installer",
             )
             rooted.size > 1 -> throw ImportRejected(
-                "VAL-01: multiple WoW.exe candidates with a Data directory " +
+                "multiple WoW.exe candidates with a Data directory " +
                     "(${rooted.joinToString()}) — the archive must contain exactly one client",
             )
             rooted.isEmpty() -> throw ImportRejected(
-                "VAL-04: WoW.exe found but no Data directory beside it " +
+                "WoW.exe found but no Data directory beside it " +
                     "(${candidates.keys.joinToString()}) — the archive must be the client itself",
             )
             else -> return if (rooted.single().isEmpty()) "" else "${rooted.single()}/"
@@ -221,7 +213,7 @@ internal class ArchiveClientScanner(
     }
 
     private fun rebase(rawName: String, rootPrefix: String): String? {
-        val unified = rawName.replace('\\', '/')
+        val unified = cleanArchiveName(rawName)
         val prefix = if (rootPrefix.isEmpty()) "" else rootPrefix
         val relative = when {
             prefix.isEmpty() -> unified
@@ -271,7 +263,7 @@ internal class ArchiveClientScanner(
         init {
             val explicitDirs = mutableSetOf<Pair<String, String>>() // (parent, name)
             for (entry in entries) {
-                val unified = entry.name.replace('\\', '/')
+                val unified = normalizeArchiveSeparators(entry.name)
                 val prefix = rootPrefix.trimEnd('/')
                 val relative = when {
                     prefix.isEmpty() && unified.isNotEmpty() -> unified
@@ -311,7 +303,7 @@ internal class ArchiveClientScanner(
         override fun read(documentId: String, maxBytes: Int, rejectTruncation: Boolean): ByteArray {
             val bytes = reader.read(documentId, maxBytes + 1)
             if (rejectTruncation && bytes.size > maxBytes) {
-                throw IllegalArgumentException("VAL-02: selected executable exceeds fast-scan limit")
+                throw IllegalArgumentException("WoW.exe is too large to scan")
             }
             return bytes.copyOf(minOf(bytes.size, maxBytes))
         }

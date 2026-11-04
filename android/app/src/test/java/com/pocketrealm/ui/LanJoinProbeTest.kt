@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * D6 (design-lan §5.2): the pre-join reachability probe's copy branches and
+ * the pre-join reachability probe's copy branches and
  * the v1 tunnel-shaped parse-time copy. The socket is faked; the honest
  * humanized outcomes (through the SHARED RuntimeFailureCopy) are pinned.
  * SHARED: this suite runs on BOTH platforms (desktop/shared-sources.json

@@ -19,7 +19,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * Pins the desktop updater's download/apply contract (DESK-14/32/45/91/104)
+ * Pins the desktop updater's download/apply contract
  * over a local HTTP fixture: feed parsing, full + resumed (Range/206)
  * downloads, sha256 mismatch refusal, verified-download reuse, the honest
  * display copy, and the consent gate around the app-image swap.

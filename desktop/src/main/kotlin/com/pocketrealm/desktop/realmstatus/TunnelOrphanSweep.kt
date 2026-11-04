@@ -75,7 +75,7 @@ class TunnelOrphanSweep(
      * (detection fails open by design — the kill rules stay fail-closed),
      * never throws into the caller, and reports the failure through the
      * [logWarning] seam (a silent Clear would hide a dead detector). The
-     * branch shape mirrors §5.3's disposition order (consult records → own
+     * branch shape mirrors 's disposition order (consult records → own
      * kill → notice). */
     @Suppress("NestedBlockDepth", "SwallowedException", "MagicNumber")
     fun sweep(): Outcome = try {
@@ -141,7 +141,7 @@ class TunnelOrphanSweep(
          * cloudflared invocation (a different URL, a user's own debug
          * run) never matches, and a game-lane cloudflared `access tcp`
          * recipe never matches either — the page tunnel and the game TCP
-         * lane stay disjoint by construction (§5's two-tunnel contract).
+         * lane stay disjoint by construction (the two-tunnel contract).
          */
         const val PAGE_TUNNEL_ARGUMENT_TAIL: String = "tunnel --url http://127.0.0.1:18080"
 
@@ -151,14 +151,14 @@ class TunnelOrphanSweep(
 
         /** The command line the spawn REALIZES — what the OS is handed for
          * this child (the executable + the argument tail joined with
-         * single spaces). The durable record stores THIS, so the §5.3
+         * single spaces). The durable record stores THIS, so the
          * triple match pairs the record with the process table's real
          * `CommandLine` instead of a fabricated string. */
         fun realizedCommandLine(binary: String): String =
             "$binary $PAGE_TUNNEL_ARGUMENT_TAIL"
 
         /**
-         * The record↔table command-line comparison (§5.3's full-command-
+         * The record↔table command-line comparison (the full-command-
          * line leg). Exact equality first; then the ONE documented
          * tolerance: Windows/ProcessBuilder may QUOTE the executable head
          * when its path contains spaces, so the comparison strips quote

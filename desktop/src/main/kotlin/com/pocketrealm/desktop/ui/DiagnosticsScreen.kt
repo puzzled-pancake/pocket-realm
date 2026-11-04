@@ -47,12 +47,12 @@ import kotlinx.coroutines.withContext
  * SecretRedactor over the desktop's own artifacts), and the recent app
  * log tail.
  *
- * DESK-107/112/126: the "crash dumps are Windows' own" deferral is
+ * the "crash dumps are Windows' own" deferral is
  * replaced with real client crash evidence — the client's own Errors/
  * crash texts, the WER LocalDumps minidumps with the Application event
  * log's WoW.exe faults, and the journalled last client exit.
- * DESK-110: the Recent log card reads the typed in-memory ring.
- * DESK-127: the World load card renders the statusNative telemetry
+ * the Recent log card reads the typed in-memory ring.
+ * the World load card renders the statusNative telemetry
  * (tick / last-tick / max-tick / active sessions) the desktop previously
  * discarded.
  */
@@ -69,7 +69,7 @@ fun DiagnosticsScreen(model: DesktopAppModel) {
 
     LaunchedEffect(Unit) {
         while (true) {
-            // DESK-110: the ring is in-memory — no file I/O on the poll
+            // the ring is in-memory — no file I/O on the poll
             // path; the list is assigned only when the tail actually
             // changed so idle logs do not recompose the card every poll.
             val freshLog = DesktopLog.snapshot()
@@ -89,7 +89,7 @@ fun DiagnosticsScreen(model: DesktopAppModel) {
         modifier = Modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // DESK-44/102: the Diagnostics progress card for the in-app
+        // the Diagnostics progress card for the in-app
         // world-data preparation lane (the Home/Settings card's twin view).
         DataPreparationCard(model)
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -128,7 +128,7 @@ fun DiagnosticsScreen(model: DesktopAppModel) {
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
                 )
-                // DESK-137: the decode boundary renders human copy; the raw
+                // the decode boundary renders human copy; the raw
                 // detail stays in the log (DesktopAppModel logs it verbatim).
                 snapshot.lastError?.let { raw ->
                     Text(
@@ -164,7 +164,7 @@ fun DiagnosticsScreen(model: DesktopAppModel) {
                 ) { Text(if (busy) "Working…" else "Create support bundle") }
                 Text(
                     bundleStatus ?: "No support bundle created. Bundles carry the app log tail, the " +
-                        "typed log ring, the supervisor journal, the client exit and crash evidence, " +
+                        "typed log ring, the supervisor journal, the client exit and crash records, " +
                         "the prepared-data pointer, the session's own topology (runtime mode + LAN " +
                         "address) and the runtime conf (secrets redacted) as a zip next to the logs. " +
                         "Client crash minidumps are NEVER included — they are process memory images " +
@@ -176,7 +176,7 @@ fun DiagnosticsScreen(model: DesktopAppModel) {
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Recent log", style = MaterialTheme.typography.titleMedium)
-                // DESK-110: the typed ring's tail (kind-tagged), mirroring
+                // the typed ring's tail (kind-tagged), mirroring
                 // the Android diagnostics card's slice of AppLog.
                 val tail = remember(logLines) { logLines.takeLast(RECENT_LOG_ROWS) }
                 if (tail.isEmpty()) {
@@ -195,7 +195,7 @@ fun DiagnosticsScreen(model: DesktopAppModel) {
 }
 
 /**
- * DESK-6/18/37/100: the backup-and-restore card (the Android Diagnostics
+ * the backup-and-restore card (the Android Diagnostics
  * "Backup and restore" card's desktop twin): create a named backup of the
  * stopped datadir, restore the newest or any named backup through the
  * transactional restore (boot-to-world-ready proof, rollback on failure),
@@ -365,7 +365,7 @@ private fun BackupsCard(model: DesktopAppModel) {
     // GAP-2 (was DESKPROD-2): the dialog also names what the PROOF does —
     // it boots bots-disabled (so the backup's state is restored exactly,
     // with no bot population added) and it spends this app session's one
-    // world start (DESK-25), so the next Start needs an app relaunch that
+    // world start, so the next Start needs an app relaunch that
     // the card offers once the restore completes.
     pendingRestoreId?.let { snapshotId ->
         AlertDialog(
@@ -461,7 +461,7 @@ private data class DiagnosticsPoll(
     val realmHeartbeatLine: String? = null,
 )
 
-/** DESK-112: the journalled exit of the last WoW.exe death, human copy. */
+/** the journalled exit of the last WoW.exe death, human copy. */
 private fun clientExitLine(exit: org.json.JSONObject?): String? {
     if (exit == null) return null
     val code = exit.optInt("exitCode", -1)
@@ -504,12 +504,12 @@ private fun pollOnce(model: DesktopAppModel, crashEvidence: DesktopCrashEvidence
 private fun CrashEvidenceCard(poll: DiagnosticsPoll, model: DesktopAppModel) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Client crash evidence", style = MaterialTheme.typography.titleMedium)
+            Text("Client crash reports", style = MaterialTheme.typography.titleMedium)
             poll.clientExitLine?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
             }
             if (poll.crashRows.isEmpty() && poll.dumpRows.isEmpty() && !poll.hasEventLog) {
-                Text("No client crash evidence found.", style = MaterialTheme.typography.bodySmall)
+                Text("No client crash reports found.", style = MaterialTheme.typography.bodySmall)
             }
             poll.crashRows.forEach { row ->
                 Text(
@@ -555,7 +555,7 @@ private fun WorldLoadCard(poll: DiagnosticsPoll) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("World load", style = MaterialTheme.typography.titleMedium)
-            // DESK-127: the statusNative telemetry indices the observation
+            // the statusNative telemetry indices the observation
             // detail used to discard, rendered like the Android status JSON.
             if (poll.worldLines.isEmpty()) {
                 Text(

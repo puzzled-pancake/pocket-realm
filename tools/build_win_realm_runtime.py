@@ -108,7 +108,7 @@ def select_win_flavor(flavor_id: str, backend: str = "sqlite") -> None:
     # with the mariadb flag, reproduced the gap).
     EXTRACTORS_BUILD = ROOT / "native" / f".build-win-x86_64{suffix}"
     # The seam DLL is the flavor-agnostic SQLite engine + JNI surface
-    # (decision D37): one physical artifact shared by every flavor's lane —
+    # one physical artifact shared by every flavor's lane —
     # the build root carries the suffix, the seam home never does.
     SEAM_BUILD = ROOT / "native" / ".build-win-x86_64" / "sqlite-seam-build"
     LOCKFILE_ARTIFACTS = [
@@ -121,7 +121,7 @@ def select_win_flavor(flavor_id: str, backend: str = "sqlite") -> None:
         "schemas/realm-runtime-lockfile-mariadb-win.json" if not suffix
         else f"schemas/realm-runtime-lockfile-mariadb-win{suffix}.json")
 
-# DESK-78: the MariaDB backend variant's documents. The mariadb lane never
+# the MariaDB backend variant's documents. The mariadb lane never
 # touches the sqlite lockfile; it writes its own runtime lockfile plus the
 # provider lockfile the desktop engine (DesktopMariaDbProvider) verifies the
 # staged distribution against.
@@ -393,10 +393,15 @@ def verify_jni_exports(vcvars: Path, dll: Path, symbols: list[str]) -> None:
         encoding="ascii",
     )
     result = subprocess.run(["cmd", "/c", str(script)], capture_output=True, text=True)
-    # Export table rows list the symbol as the last whitespace-separated
-    # token (ordinal hint RVA name); other lines never end in a Java_ token.
-    exports = {line.split()[-1] for line in result.stdout.splitlines()
-               if line.split() and line.split()[-1].startswith("Java_")}
+    # Export table rows are `ordinal hint RVA name`; an export the linker
+    # folded onto an identical function (/OPT:ICF) is printed as
+    # `name = target`, so the exported name is the last token before any
+    # ` = `. Other lines never carry a Java_ token there.
+    exports = set()
+    for line in result.stdout.splitlines():
+        tokens = line.split(" = ", 1)[0].split()
+        if tokens and tokens[-1].startswith("Java_"):
+            exports.add(tokens[-1])
     assert exports, f"{dll.name}: dumpbin reported no JNI exports at all"
     missing = []
     for symbol in symbols:
@@ -429,7 +434,7 @@ def write_lockfile(backend: str = "sqlite") -> None:
     this file and refreshes desktop BuildConfig's runtime telltale.
     """
     lockfile = WIN_LOCKFILE if backend == "sqlite" else WIN_MARIADB_LOCKFILE
-    # Review round 2 (R2-2 medium): the sibling is flavor-resolved with a
+    # The sibling is flavor-resolved with a
     # fallback — once a flavor's own android sqlite lane has staged, its
     # lockfile carries the flavor's own seed_transcripts pins; until then
     # the vanilla sibling is the only source, and the placeholder note
@@ -563,8 +568,8 @@ def write_lockfile(backend: str = "sqlite") -> None:
     else:
         # The mariadb lane's runtime lockfile cross-references the provider
         # lockfile (the staged distribution's reviewed bytes) — the two
-        # documents are written together by --write-lockfile. R3R1-5 (W4
-        # code-red round 3): a NON-VANILLA lane must reference its OWN
+        # documents are written together by --write-lockfile. A NON-VANILLA
+        # lane must reference its OWN
         # lane-scoped provider document, never the vanilla-scoped shared
         # one — the shared document's own lane_scope note says
         # non-vanilla lanes must not use it, and a future consumer
@@ -651,7 +656,7 @@ def verify_backend_selection(configure_stdout: str, backend: str = "sqlite",
 
 
 # ---------------------------------------------------------------------------
-# DESK-78: the MariaDB provider distribution's staging gate. The provider
+# the MariaDB provider distribution's staging gate. The provider
 # (mariadbd.exe / mariadb.exe / bootstrap / pinned migration manifest) is a
 # PHYSICAL artifact the lane cannot synthesize: when the staging directory is
 # absent the variant fails loud with the remedy instead of silently building
@@ -667,8 +672,8 @@ PROVIDER_EXECUTABLES = {
 }
 # The Connector/C client DLL the qualified provider distribution ships as
 # lib/libmariadb.dll. The mariadb lane's realm runtimes import it BY NAME as
-# libmysql.dll (the connector's MySQL-compat import name — the runtimes'
-# pe_imports pin only the NAME) and the app image ships it beside them, so
+# libmysql.dll (the connector's MySQL-compat import name —
+    # the runtimes' pe_imports pin only the NAME) and the app image ships it beside them, so
 # the lane stages its own copy from THIS hash-verified distribution member
 # (stage_connector_client_dll): before that producer existed the pinned
 # fourth artifact was an untracked manual copy no documented remedy could

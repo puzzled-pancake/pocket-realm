@@ -126,7 +126,7 @@ class RealmBuildsProjectionContractTest {
 
     @Test
     fun theAndroidLedgerScopeRefusesNonVanillaPicksBeforeProvisioning() {
-        // R4-1b (W4 code-red round 4): the android migration ledger is
+        // the android migration ledger is
         // VANILLA-only — provisioning the persisted lane's tbc*/wotlk*
         // family would strand the datadir (the vanilla-only ledger can
         // never serve it, and re-picking vanilla cannot recover a family
@@ -134,7 +134,7 @@ class RealmBuildsProjectionContractTest {
         // LOUD, naming the scope + the remedy, BEFORE it can return any
         // non-vanilla database names. built the host-side per-flavor
         // native lanes; the on-device packaging routing is the recorded
-        // open follow-up (decision D90) — the refusal cites it, never a
+        // open follow-up — the refusal cites it, never a
         // wave name.
         val engine = mainSource("database/DatabaseEngine.kt")
         val gate = engine.substringAfter("private fun bootstrapDatabaseNames")
@@ -210,7 +210,7 @@ class RealmBuildsProjectionContractTest {
             "the switcher's tap must persist the pick beside the in-memory " +
                 "select — :supervisor reads this key when it projects the " +
                 "session's realmlist row",
-            "settings.update { it.copy(selectedFlavorId = chip.flavor.flavorId) }" in home,
+            "settings.update { it.copy(selectedFlavorId = chip.game.flavorId) }" in home,
         )
         assertTrue(
             "a fresh UI process must re-apply the persisted pick to its " +
@@ -263,7 +263,7 @@ class RealmBuildsProjectionContractTest {
         // process — NOT the UI-local selection the r2/r3 pins keep out of
         // this process), loud at zero or several qualified flavors, and
         // vanilla-only while the conf templates seed only that lane.
-        // W1.2: the law moved into bootstrapDatabaseNames() and the MariaDB
+        // the law moved into bootstrapDatabaseNames and the MariaDB
         // bootstrap's CREATE DATABASE literals route through the same
         // resolver (MariaDbBootstrap.initialAuthSql), so the gate pin slices
         // the law's new home and the bootstrap leg must consume it.

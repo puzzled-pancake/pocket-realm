@@ -37,8 +37,6 @@ CONTRACT_KT = (ROOT / "android" / "app" / "src" / "main" / "java" /
 WORLD_CPP = ROOT / "native" / "realm-runtime" / "src" / "world_runtime.cpp"
 DESKTOP_BACKEND_KT = (ROOT / "desktop" / "src" / "main" / "kotlin" /
                       "com" / "pocketrealm" / "desktop" / "DesktopRuntimeBackend.kt")
-RP_HOST_KT = (ROOT / "desktop" / "src" / "main" / "kotlin" /
-              "com" / "pocketrealm" / "desktop" / "RpHost.kt")
 CLIENT_FLAVOR_KT = (ROOT / "android" / "app" / "src" / "main" / "java" /
                     "com" / "pocketrealm" / "client" / "ClientFlavor.kt")
 WORLD_NATIVE_KT = (ROOT / "android" / "app" / "src" / "main" / "java" /
@@ -150,7 +148,7 @@ def test_relay_composite_ok_is_the_and_of_the_leg_verdicts():
     assert 'override fun worldStartBotProfile(profileId: String): String =' in wiring
     # the world leg still rides the real binder start (whose rc is the honest
     # verdict), now guarded by the DB-lane precondition and bounded like
-    # every composite stage (round 4: the row -09 hang)
+    # every composite stage
     assert ('"world-start-bot" -> worldBootRefusal("world-start-bot", databaseStatus())\n'
             "                ?: boundWorldStart(\"world-start-bot\") { worldApi().startBotProfile(arg1) }"
             ) in relay
@@ -173,7 +171,7 @@ def test_a_failed_world_leg_names_the_leg_through_the_operation_error():
         assert name in contract
 
 
-# ---- relay-native readiness guards (round 2: the :world SIGSEGV) ------------
+# relay-native readiness guards ------------
 #
 # The crash (logcat null-deref at WorldNative_accountInfoNative+49,
 # tombstone_02): account_info has NO state guard, so a FAILED or still
@@ -194,7 +192,7 @@ RELAY_NATIVE_GUARDS = [
     ("bool verify_account_password(const std::string& username, const std::string& password)",
      "if (m_state.state() != POCKET_SERVER_READY",
      "return false;", "account_info(username)"),
-    # R2-1 (round 2): create_account no longer rides issue_command — the
+    # create_account no longer rides issue_command — the
     # credential must never enter the echoed console lane — so its first
     # world deref is the direct non-echoed AccountMgr write
     ("int create_account(const std::string& username, const std::string& password, uint64_t timeout_ms)",
@@ -215,12 +213,6 @@ RELAY_NATIVE_GUARDS = [
     ("std::string world_chat(const std::string& character_name, const std::string& channel,",
      "if (m_state.state() != POCKET_SERVER_READY)",
      '\\"ok\\":false,\\"reason\\":\\"world-not-ready\\"', "m_chat_slot"),
-    ("std::string reset_state(const std::string& player_name)",
-     "if (m_state.state() != POCKET_SERVER_READY)",
-     '\\"ok\\":false,\\"reason\\":\\"world-not-ready\\"', "CharacterDatabase"),
-    ("std::string llm_memory_state(const std::string& player_name)",
-     "if (m_state.state() != POCKET_SERVER_READY && m_state.state() != POCKET_SERVER_SAVING)",
-     '\\"ok\\":false,\\"reason\\":\\"world-not-ready\\"', "HashMapHolder"),
     ("std::string realm_info()",
      "if (m_state.state() != POCKET_SERVER_READY && m_state.state() != POCKET_SERVER_SAVING)",
      '\\"found\\":false,\\"reason\\":\\"world-not-ready\\"', "LoginDatabase.Query"),
@@ -261,7 +253,7 @@ def test_account_info_guard_sits_in_the_runtime_method_not_the_jni_boundary():
             "m_state.state() != POCKET_SERVER_SAVING)") in body
 
 
-# ---- death-recipient-backed binder cache (round 2: the stale :world proxy) --
+# death-recipient-backed binder cache --
 
 
 def test_cached_binders_are_death_recipient_backed_and_ping_revalidated():
@@ -287,8 +279,8 @@ def test_cached_binders_are_death_recipient_backed_and_ping_revalidated():
 def test_a_mid_op_component_death_answers_not_ready_and_drops_the_cache():
     relay = RELAY_KT.read_text(encoding="utf-8")
     # the race pingBinder cannot close (death between the check and the
-    # call) is answered with the branchable errorClass the services'
-    # guarded() convention uses, never a bare DeadObjectException string
+    # call) is answered with the branchable errorClass
+    # the services' guarded() convention uses, never a bare DeadObjectException string
     assert "if (failure is DeadObjectException && deadComponents.isNotEmpty())" in relay
     assert 'deadComponents.first() + "_NOT_READY"' in relay
     # every dead cache is closed and dropped so the next op rebinds
@@ -296,7 +288,7 @@ def test_a_mid_op_component_death_answers_not_ready_and_drops_the_cache():
     assert "remedy" in relay
 
 
-# ---- stack-up-bot DB-RECOVERY gate (round 2: the dirty-DB composite) --------
+# stack-up-bot DB-RECOVERY gate --------
 
 
 def test_stack_up_bot_gates_its_db_legs_on_the_supervisor_recovery_lane():
@@ -349,7 +341,7 @@ def test_the_gate_budget_fits_the_host_console_slow_op_window():
     assert "timeout_s = 900 if op in SLOW_OPS else 120" in console
 
 
-# ---- stack-up-bot engine-marker gate + legs verdict (round 3: N2) ------------
+# stack-up-bot engine-marker gate + legs verdict ------------
 #
 # A power-loss/emulator kill DURING a relay composite leaves the supervisor
 # journal STOPPED-clean (composites are not journaled) while the mariadb
@@ -396,30 +388,7 @@ def test_a_failed_leg_carries_the_gate_error_class_and_remedy():
     assert "filterNot" in run_body
 
 
-# ---- reset-state counters snapshot the listing source (round 3: N4) ----------
-#
-# llm-memory-state listed 2 relationships; 4 s later reset-state answered
-# ok:true factsCleared:0 relationshipsCleared:0 while the post-reset state was
-# correctly empty. The folded COUNT(*) reads ran on the pooled sync
-# connection, whose single step can lose the busy race with the live writer
-# and fold to a null result - reported as 0 over rows that existed.
-
-
-def test_reset_state_counters_snapshot_the_listing_source_before_clearing():
-    body = cpp_body("std::string reset_state(const std::string& player_name)")
-    # the counters are PRE-delete snapshots...
-    assert body.index("const uint32_t facts = count_rows") < body.index("DELETE FROM bot_player_facts")
-    # ...taken by iterating real rows from the same tables and player key the
-    # llm-memory-state listing reads, never a folded COUNT(*)
-    assert '"SELECT bot FROM %s WHERE player=\'%u\'"' in body
-    assert '"SELECT bot FROM %s"' in body
-    assert "do { ++counted; } while (result->NextRow());" in body
-    # a lost busy race is retried, never silently zeroed
-    assert "for (int attempt = 0; attempt < 3; ++attempt)" in body
-    assert "SELECT COUNT(*) FROM %s WHERE player" not in body
-
-
-# ---- bounded stages + the world-start DB precondition (round 4: row -09) -----
+# bounded stages + the world-start DB precondition -----
 #
 # The recorded row LV-server-db-09 session: world-start drove a native boot
 # into a STOPPED db lane and never answered its 900s window, and stack-up-bot
@@ -494,7 +463,7 @@ def test_a_stage_timeout_answers_typed_naming_the_refusing_component():
         in relay
 
 
-# ---- unsealed-generation preparation routing (round 5: the never/pre-partially-
+# unsealed-generation preparation routing ( the never/pre-partially-
 # initialized install) ----
 #
 # The gate's re-run on the row -09 lane (install-after-uninstall, so the
@@ -539,7 +508,7 @@ def test_a_bare_stack_up_bot_resolves_the_documented_default_profile():
     assert 'DEFAULT_BOT_PROFILE = "mobile-balanced-b100-v1"' in stackup
 
 
-# ---- F1-10 (lanes item 12): the account-expansion relay op -------------------
+# the account-expansion relay op -------------------
 #
 # tbc/wotlk account rows are born with the seed's expansion default (0)
 # and the core evaluates expansion gating per account row, so a flavor
@@ -564,7 +533,7 @@ def test_set_account_addon_is_gmlevel_shaped_with_the_expansion_domain():
     # before a console command exists
     assert "username.empty() || username.size() > 16 || expansion < 0 || expansion > 2" in body
     assert 'return std::isalnum(c);' in body
-    # R3-1 (round 3): the verb carries the RESOLVED numeric account id —
+    # the verb carries the RESOLVED numeric account id —
     # ExtractAccountId's numeric branch reinterprets a digit-string
     # argument as an ACCOUNT ID, so the raw username never enters the CLI
     # string (a digits-named guest was rejected forever on an expansion
@@ -619,7 +588,7 @@ def test_android_create_account_chains_the_flavor_expansion_write():
     # the create still runs first, unchanged
     assert "WorldNative.createAccountNative(username, password," in create
     # the expansion write is chained on the accepted shapes: a successful
-    # create AND (R2-1, review round 2) the password-proven ACCOUNT_EXISTS
+    # create AND (R2-1) the password-proven ACCOUNT_EXISTS
     # retry leg
     assert "ServerRuntimeContract.shouldWriteExpansion(rc, accountExists) && identityProven" in create
     assert "val addonRc = if (ServerRuntimeContract.shouldWriteExpansion(rc, accountExists) && identityProven) {" in create
@@ -629,7 +598,7 @@ def test_android_create_account_chains_the_flavor_expansion_write():
     # selection is :ui-local), and the ACCOUNT_EXISTS leg is gated by the
     # PASSWORD PROOF (the retry-vs-collision discriminator — a mismatched
     # credential is a collision and is refused without any addon write).
-    # R2-2 (review round 2): the expansion comes from the BOOT lane (pinned
+    # the expansion comes from the BOOT lane (pinned
     # by the start leg from its own snapshot) — a Home switch after start
     # must never re-lane the write.
     assert (
@@ -665,23 +634,6 @@ def test_desktop_provision_chains_the_flavor_expansion_write():
     assert 'code = ServerRuntimeContract.errorName(addon.toLong())' in leg
 
 
-def test_rp_host_account_op_chains_the_expansion_write():
-    host = RP_HOST_KT.read_text(encoding="utf-8")
-    op = host.split('"account" -> {')[1].split('"chat" ->')[0]
-    assert "val addon = if (created == 0) {" in op
-    assert "WorldNative.setAccountAddonNative(" in op
-    assert (
-        "(backend.bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion" in op
-    ), "the harness account op must consume the pinned BOOT lane (R2r3-3)"
-    # the answer is honest about the chained write: a fresh create whose
-    # expansion write refused is NOT ok; an existing account (created 10)
-    # keeps the historical adopt verdict
-    assert '.put("ok", created == 10 || (created == 0 && addon == 0))' in op
-    assert '.put("addon", addon)' in op
-    # gm rides after the expansion write, same as the backend's order
-    assert op.index("setAccountAddonNative") < op.index("setAccountGmLevelNative")
-
-
 def test_both_conf_emissions_resolve_through_the_active_flavor_seam():
     """R5-2 (code-red round 1): the PocketRealm.TimeframeStage conf of a
     booting world must resolve through TimeframeStages.confValue - the
@@ -693,7 +645,7 @@ def test_both_conf_emissions_resolve_through_the_active_flavor_seam():
     desktop_twin = (
         ROOT / "desktop/src/main/kotlin/com/pocketrealm/server/ServerRuntimeFiles.kt"
     ).read_text(encoding="utf-8")
-    # R2-1/R4-2 (android-core review round 2): the ANDROID twin runs in
+    # the ANDROID twin runs in
     # :world, where the ActiveFlavor holder's selection never crosses the
     # process boundary — its conf must resolve through the PERSISTED
     # Settings machine (worldLaneFlavor, the D62 form), not the bare
@@ -706,7 +658,7 @@ def test_both_conf_emissions_resolve_through_the_active_flavor_seam():
         "android twin's TimeframeStage conf must resolve through the "
         "persisted-selection machine (worldLaneFlavor + confValueFor)"
     )
-    # R1-r3-1 (desktop-twin round 3): the desktop start pins bootLane at
+    # the desktop start pins bootLane at
     # the transition and its conf resolves through confValueFor on THAT
     # lane — the single-process rationale held only while the holder could
     # never race a start; the stage leg now binds the boot lane like the

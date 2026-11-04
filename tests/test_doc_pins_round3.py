@@ -72,41 +72,6 @@ def test_naming_doc_cited_tests_exist():
         )
 
 
-def test_llm_timeout_docs_state_the_shipped_constants():
-    """R6-3: the guides must state the SAME numbers the shipped constants
-    carry — a user reading 300 would believe a 350 s override clamps down
-    when it actually passes through (<=360)."""
-    policy = (
-        ROOT / "android/app/src/main/java/com/pocketrealm/server/LlmRuntimePolicy.kt"
-    ).read_text(encoding="utf-8")
-    registry = (
-        ROOT / "android/app/src/main/java/com/pocketrealm/llm/LlmModelRegistry.kt"
-    ).read_text(encoding="utf-8")
-    embedded_default = re.search(
-        r"MEASURED_COLD_START_TIMEOUT_SEC\s*=\s*(\d+)", registry)
-    max_clamp = re.search(r"MAX_GENERATION_TIMEOUT_SEC\s*=\s*(\d+)", policy)
-    min_clamp = re.search(r"MIN_GENERATION_TIMEOUT_SEC\s*=\s*(\d+)", policy)
-    assert embedded_default and max_clamp and min_clamp
-    embedded = embedded_default.group(1)
-    low, high = min_clamp.group(1), max_clamp.group(1)
-
-    for doc in ("docs/llm-settings-guide.md", "docs/llm-runtime-submenu.md"):
-        text = (ROOT / doc).read_text(encoding="utf-8")
-        assert f"clamped {low}-{high} s" in text or doc.endswith("settings-guide.md"), (
-            f"{doc}: the clamp band drifted from the shipped constants"
-        )
-        # the embedded-lane wall is 360, never the stale 300
-        assert "wall 300 s" not in text, (
-            f"{doc}: still states the stale 300 s embedded cold-start wall "
-            f"(shipped: {embedded} s)"
-        )
-    submenu = (ROOT / "docs/llm-runtime-submenu.md").read_text(encoding="utf-8")
-    assert f"LLMGenerationTimeout = {embedded}" in submenu, (
-        "the sample conf's generation timeout drifted from the registry constant"
-    )
-    assert f"clamped {low}-{high} s" in submenu
-
-
 def test_acid_selection_records_name_the_intree_files():
     """R1-1 (review round 1): correction C5 was corrected IN FACT at S4 —
     the pinned tbc/wotlk DB repos ship in-tree ACID/acid_<expansion>.sql

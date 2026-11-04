@@ -8,7 +8,7 @@ import kotlin.io.path.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** W6-N4 code-red round-6 batched-minor pins (R2N4R2-2, R3-R1-3):
+/** W6-N4 round-6 batched-minor pins (R2N4R2-2, R3-R1-3):
  *  the malformed-relay args gate refuses with a NON-NULL actionable
  *  detail (never the FFI's null-detail INTERNAL), and the extracted
  *  FakeStack realm-list fixture stays pinned to the owning registry's

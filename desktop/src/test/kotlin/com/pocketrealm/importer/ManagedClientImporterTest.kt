@@ -18,7 +18,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * DESK-34/63/97: the desktop folder-lane import pipeline end to end —
+ * the desktop folder-lane import pipeline end to end —
  * scan → inventory → copy/digest-verify into the staging generation →
  * re-hash pass → publish through the generation store (atomic per-flavor
  * pointer) → the fail-closed ManagedClientStore reader accepts the
@@ -152,8 +152,8 @@ class ManagedClientImporterTest {
             fail("a launcher-only selection must be rejected")
         } catch (expected: ImportRejected) {
             assertTrue(
-                "the rejection must carry the VAL-01 launcher-only copy: ${expected.message}",
-                (expected.message ?: "").contains("VAL-01") && "launcher-only" in (expected.message ?: ""),
+                "the rejection must carry the installer/launcher copy: ${expected.message}",
+                (expected.message ?: "").contains("installer or launcher folder"),
             )
         }
         // Nothing was copied: no staging generation and no pointer survives.
@@ -165,15 +165,15 @@ class ManagedClientImporterTest {
     @Test
     fun aWrongBuildClientIsRejectedWithTheVal03Copy() {
         val roots = DesktopStorageRoots(folder.newFolder("roots")).also { it.ensureDirectories() }
-        val source = materializeClient(folder.newFolder("client"), build = 6005)
+        val source = materializeClient(folder.newFolder("client"), build = 4222)
         val importer = injectedImporter(roots)
         try {
             runBlocking { importer.run(source) }
             fail("a non-qualified client must be rejected")
         } catch (expected: ImportRejected) {
             val message = expected.message ?: ""
-            assertTrue("must carry VAL-03: $message", "VAL-03" in message)
-            assertTrue("must name the detected build: $message", "1.12.1.6005" in message)
+            assertTrue("must carry the version refusal: $message", "Unsupported game version" in message)
+            assertTrue("must name the detected build: $message", "1.12.1.4222" in message)
         }
     }
 

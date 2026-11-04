@@ -125,7 +125,7 @@ BANNED_STRINGS = (
     "classicmangos",
     "classiccharacters",
     "classiclogs",
-    # R2UI-3 (android-ui-tests review round 2): the per-flavor expansion MPQ
+    # the per-flavor expansion MPQ
     # names join the banned set (expansion.mpq / lichking.mpq outside
     # their owning client-shape and addon-asset tables).
     "expansion.mpq",
@@ -377,17 +377,11 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     # retirement.
     # S4/S8 (desktop lane): the Windows desktop test lane mirrors the vanilla
     # server stack with hard-coded classic* DB names and build-5875 auth
-    # fixtures. Found when the desktop module entered SCAN_ROOTS (round 5).
-    # Pruned (wave verification round 2): the AuthGate, DesktopRuntimeBackend,
+    # fixtures. Found when the desktop module entered SCAN_ROOTS.
+    # Pruned (wave verification ): the AuthGate, DesktopRuntimeBackend,
     # RpHost and server/ServerRuntimeFiles entries went stale when their
     # literals were routed through ClientFlavors (DESK-93/94 flavor routing) —
     # the sweep's own staleness gate demanded their retirement.
-    {
-        "path": "desktop/src/main/kotlin/com/pocketrealm/desktop/RpWowClient.kt",
-        "literals": ("5875",),
-        "reason": "desktop test client pins the 5875 auth/world frame layout",
-        "retires": "S8 retires: per-flavor desktop auth fixtures",
-    },
     {
         "path": "desktop/src/main/kotlin/com/pocketrealm/desktop/Win32AutoLogin.kt",
         "literals": ("8606", "12340"),
@@ -523,12 +517,6 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "path": "android/app/src/main/java/com/pocketrealm/ingame/WowVanillaSettingsCatalog.kt",
         "literals": ("5875",),
         "reason": "stock settings manifest pinned to the build-5875 WTF tree",
-        "retires": "S7 retires: per-flavor client datasets and UX copy",
-    },
-    {
-        "path": "android/app/src/main/java/com/pocketrealm/ui/FirstRunTutorial.kt",
-        "literals": ("5875",),
-        "reason": "UX copy names the client the user must supply (1.12.1 build 5875)",
         "retires": "S7 retires: per-flavor client datasets and UX copy",
     },
     {
@@ -687,32 +675,6 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "synthetic vanilla test fixture",
         "retires": "S5 retires: per-flavor fixtures",
     },
-    # Retire with S4/S5 (per-flavor routing, then client qualification): the
-    # device probe harnesses open the vanilla realmd datadir and forge
-    # build-5875 auth packets against it.
-    {
-        "path": "tools/rp_harness/probe_whisper_dump.py",
-        "literals": ("5875", "classicrealmd"),
-        "reason": "device probe harness: probes the vanilla realmd datadir, forges build-5875 auth packets",
-        "retires": "S4 retires: per-flavor ledger routing; S5 retires: client identity qualification",
-    },
-    {
-        "path": "tools/rp_harness/probe_whisper_hunt.py",
-        "literals": ("5875", "classicrealmd"),
-        "reason": "device probe harness: probes the vanilla realmd datadir, forges build-5875 auth packets",
-        "retires": "S4 retires: per-flavor ledger routing; S5 retires: client identity qualification",
-    },
-    {
-        "path": "tools/rp_harness/probe_whisper_hunt2.py",
-        "literals": ("5875", "classicrealmd"),
-        "reason": "device probe harness: probes the vanilla realmd datadir, forges build-5875 auth packets",
-        "retires": "S4 retires: per-flavor ledger routing; S5 retires: client identity qualification",
-    },
-    # tools/rp_harness/probe_world_auth.py: the W4.2 3x3 auth-matrix
-    # instrument now derives every per-flavor identity (build/db/frame)
-    # from schemas/flavor.json - it carries NO banned literal and needs
-    # no allowlist entry (the former build-5875 probe entry went stale
-    # with the rewrite and was removed, per the stale-entry rule).
     # v2 git-tracked sweep: trees newly covered, allowlisted by class.
     {
         "path_prefix": "docs/",
@@ -917,7 +879,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "reason": "the round-3 UTF-16 gate-coverage tests construct banned flavor literals by design to prove both gates sweep encoded text",
         "retires": "never (owning-table test)",
     },
-    # ---- code-red round 1 (R1-1/R3-1): the sweep now covers UNTRACKED
+    # the sweep now covers UNTRACKED
     # commit-candidate files (--cached --others --exclude-standard), which
     # surfaced the wave's not-yet-committed surfaces. Every entry below is
     # triaged to the same standard as the tracked set: owning table,
@@ -1253,7 +1215,7 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
 
     # ------------------------------------------------------------------
-    # The §4.6 lane tokens
+    # The lane tokens
     # (realmbuilds-adjacent builds 6005/6141, the per-flavor addon
     # interface numbers 11200/20400/30300, the expansion MPQ names) joined
     # the banned set; these owning surfaces legitimately carry them.
@@ -1300,20 +1262,38 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "android/app/src/main/assets/addons/android-port/AndroidPort/Core.lua",
-        "literals": ("11200",),
-        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "literals": ("11200", "20400", "30300"),
+        "reason": "owning surface: the shared add-on's client detection names "
+                  "every supported interface number (level cap + secure branch)",
         "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {
-        "path": "android/app/src/main/assets/addons/android-port/AndroidPort/FrameMover.lua",
+        "path": "android/app/src/main/java/com/pocketrealm/addons/AndroidPortPackage.kt",
         "literals": ("11200",),
-        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "reason": "owning surface: the toc projection declares the vanilla "
+                  "master interface the per-version projection rewrites",
         "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {
-        "path": "android/app/src/main/assets/addons/android-port/AndroidPort/Hud.lua",
-        "literals": ("11200",),
-        "reason": "owning surface (see ALLOWLIST_CORE family note)",
+        "path": "android/app/src/test/java/com/pocketrealm/addons/AndroidPortTocProjectionTest.kt",
+        "literals": ("11200", "20400", "30300"),
+        "reason": "owning surface: the per-version toc projection test pins "
+                  "each client's interface number",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "android/app/src/test/java/com/pocketrealm/addons/AndroidPortDefaultInstallTest.kt",
+        "literals": ("20400", "30300"),
+        "reason": "owning surface: the default-install test pins the interface "
+                  "numbers the per-flavor rows name",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
+        "path": "tests/android_port/wowmock.lua",
+        "literals": ("20400", "30300", "5875"),
+        "reason": "owning surface: the mocked client's GetBuildInfo returns each "
+                  "flavor's own interface and build numbers so the addon's client "
+                  "detect runs exactly as it does in game",
         "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {
@@ -1337,6 +1317,13 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {
+        "path": "android/app/src/main/assets/addons/catalog-wotlk.json",
+        "literals": ("30300",),
+        "reason": "owning surface: the wotlk per-flavor catalog's own research data - "
+                  "rows name the 3.3.5 interface line their .toc declares",
+        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
+    },
+    {
         "path": "android/app/src/main/java/com/pocketrealm/addons/AddonArchiveValidator.kt",
         "literals": ("11200",),
         "reason": "owning surface (see ALLOWLIST_CORE family note)",
@@ -1344,12 +1331,6 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     },
     {
         "path": "android/app/src/main/java/com/pocketrealm/addons/AddonRepository.kt",
-        "literals": ("11200",),
-        "reason": "owning surface (see ALLOWLIST_CORE family note)",
-        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
-    },
-    {
-        "path": "android/app/src/main/java/com/pocketrealm/addons/AddonRuntimeProjector.kt",
         "literals": ("11200",),
         "reason": "owning surface (see ALLOWLIST_CORE family note)",
         "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
@@ -1509,18 +1490,6 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
         "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
     {
-        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopClientIdentityGateTest.kt",
-        "literals": ("6005",),
-        "reason": "owning surface (see ALLOWLIST_CORE family note)",
-        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
-    },
-    {
-        "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopClientSelectionStateTest.kt",
-        "literals": ("6005",),
-        "reason": "owning surface (see ALLOWLIST_CORE family note)",
-        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
-    },
-    {
         "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopRuntimeBackendTest.kt",
         "literals": ("6005", "6141",),
         "reason": "owning surface (see ALLOWLIST_CORE family note)",
@@ -1529,18 +1498,6 @@ ALLOWLIST: tuple[dict[str, object], ...] = (
     {
         "path": "desktop/src/test/kotlin/com/pocketrealm/desktop/DesktopTunnelBackendTest.kt",
         "literals": ("6005", "6141",),
-        "reason": "owning surface (see ALLOWLIST_CORE family note)",
-        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
-    },
-    {
-        "path": "desktop/src/test/kotlin/com/pocketrealm/importer/ManagedClientImporterArchiveTest.kt",
-        "literals": ("6005",),
-        "reason": "owning surface (see ALLOWLIST_CORE family note)",
-        "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
-    },
-    {
-        "path": "desktop/src/test/kotlin/com/pocketrealm/importer/ManagedClientImporterTest.kt",
-        "literals": ("6005",),
         "reason": "owning surface (see ALLOWLIST_CORE family note)",
         "retires": "W3.4/W4.4 retires: per-flavor lane surfaces",
     },
@@ -1844,7 +1801,7 @@ def _journal_schema_findings(root: Path) -> list[dict[str, object]]:
 
 # ---------------------------------------------------------------------------
 # W6-N5 multiplayer privacy rules (NOSTR-IROH-BUILD-PLAN.md ruling 3 + the
-# addr= correction; COMPLETION-PLAN.md §1 rule 7). See the module docstring's
+# addr= correction; COMPLETION-PLAN.md rule 7). See the module docstring's
 # "multiplayer privacy scope" note for the posture: no exemption mechanism,
 # comment-masked matching, fail-closed on a vanished surface.
 # ---------------------------------------------------------------------------
@@ -1872,6 +1829,9 @@ PRIVACY_PAYLOAD_SURFACES: tuple[str, ...] = (
     "android/app/src/main/java/com/pocketrealm/discovery/iroh/PortMux.kt",
     "android/app/src/main/java/com/pocketrealm/discovery/iroh/RealmListRewrite.kt",
     "desktop/src/main/kotlin/com/pocketrealm/desktop/nostr/NostrListingPublisher.kt",
+    # the Android host's listing heartbeat (builds the published content
+    # and attaches the host's join descriptor).
+    "android/app/src/main/java/com/pocketrealm/discovery/nostr/HostListingPublisher.kt",
     "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/RealmStatusPayload.kt",
     "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/RealmStatusPage.kt",
 )
@@ -1890,6 +1850,9 @@ PRIVACY_RECORD_LANES: tuple[str, ...] = (
     # its first live catch: the join-lane refusal ladder — the descriptor
     # lane's decision table (loopback-ownership copy only; clean on arrival).
     "desktop/src/main/kotlin/com/pocketrealm/desktop/iroh/IrohJoinGuards.kt",
+    # the Android host's descriptor producer (relay canonization + the
+    # node id/home relay pair the listing carries) and its dial targets.
+    "android/app/src/main/java/com/pocketrealm/discovery/iroh/HostGatewayPolicy.kt",
 )
 
 #: the on-disk membership pin's reviewed carve-out — files living in a
@@ -1909,6 +1872,29 @@ PRIVACY_NON_PAYLOAD_CARVEOUTS: frozenset[str] = frozenset({
     "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/TunnelChildRecords.kt",
     "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/TunnelOrphanSweep.kt",
     "desktop/src/main/kotlin/com/pocketrealm/desktop/realmstatus/Win32JobObject.kt",
+    # android internet join: the joiner-side transport client (binds the
+    # loopback auth/world listeners and dials the listing's relay); it
+    # publishes nothing, the listing it reads is built elsewhere.
+    "android/app/src/main/java/com/pocketrealm/discovery/iroh/InternetJoinGateway.kt",
+    # android internet host: the accept-side transport server (pipes joiner
+    # streams to the hosting session's realm ports); it publishes nothing —
+    # its descriptor comes from HostGatewayPolicy (a descriptor lane).
+    "android/app/src/main/java/com/pocketrealm/discovery/iroh/InternetHostGateway.kt",
+    # self sign-up: the tunnel-only request/reply frame (account name +
+    # SRP salt/verifier) and the gateway process's stdio relay of it —
+    # point-to-point over the iroh connection, never published.
+    "android/app/src/main/java/com/pocketrealm/discovery/iroh/SignupProtocol.kt",
+    "gateway/src/main/kotlin/com/pocketrealm/gateway/SignupChannel.kt",
+    # the joiner's hello (a per-host hashed device token), the gateway's
+    # admission/peer-event stdio lines, and the host's read of the account
+    # name on the realm lane — point-to-point over the iroh connection or
+    # the local process pipe, never published.
+    "android/app/src/main/java/com/pocketrealm/discovery/iroh/JoinAdmission.kt",
+    # the unlisted game's invite code: an ENCODING of the iroh join
+    # descriptor (node id + relay url — both already published in the
+    # listing's join field) shared host-to-friend out of band; it carries
+    # no address and no secret, and never enters a published payload.
+    "android/app/src/main/java/com/pocketrealm/discovery/iroh/InviteCode.kt",
 })
 # RealmListRewrite sits in both tables by role: it is a payload module (an
 # address literal in its output builder would be a leak) whose ONE loopback
@@ -1995,7 +1981,7 @@ def _privacy_dotless_int_is_address(digits: str) -> bool:
 # Dotted-hex address ("0x7f.0x0.0.1"): the span carries a dot and a 0x
 # prefix ONCE, and every dot-chunk is hex after its optional 0x strip — the
 # Kotlin fence's isHexAddressHost rule (the prefix need not repeat).
-# R5-N5-r2-1: ONE sentence-final period admitted (judged on the stripped
+# ONE sentence-final period admitted (judged on the stripped
 # span — see the dotted-hex leg).
 _PRIVACY_HEX_SPAN_RE = re.compile(r"(?<![\w.])[0-9a-fA-FxX.]+(?![\w.])")
 # Dotless-hex address ("0x7f000001"): an 0x-prefixed run of >=8 hex digits
@@ -2159,7 +2145,7 @@ def _privacy_ip_legs(code: str) -> list[str]:
         if "." not in lowered or "0x" not in lowered:
             continue
         # the same ONE sentence-final period the IPv4 legs
-        # R5-N5-r2-1: the same ONE sentence-final period the IPv4 legs
+        # admit — judge the span with it stripped ("0x7f.0x0.0.1." is the
         # same pointer as "0x7f.0x0.0.1"); a second period stays a refusal
         # (the stripped form still ends in a dot → an empty chunk fails).
         if lowered.endswith("."):

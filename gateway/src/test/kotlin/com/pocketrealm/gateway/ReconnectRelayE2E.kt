@@ -46,7 +46,7 @@ import kotlin.test.assertTrue
  * device day (its record stands). The desktop approximations above
  * are recorded as approximations in the wave evidence.
  *
- * LIVE-LEG DURABILITY (code-red round 1, R4-3/R4-4/R6-N4-r1-1): the
+ * LIVE-LEG DURABILITY: the
  * offline gate is a real JUnit ASSUMPTION (an unreachable relay ABORTS
  * the leg as skipped — never a red), the leg retries ONCE on any
  * ready/proof failure (the pass/fail rides live relay conditions), and
@@ -103,7 +103,7 @@ class ReconnectRelayE2E {
      * joiner redials the ORIGINAL listing descriptor, both game lanes
      * byte-verified on BOTH sides of the network change. Real N0 relay
      * leg; see the class doc for the approximation record. ONE bounded
-     * retry (R4-4): a failing attempt archives its payloads, then the
+     * retry: a failing attempt archives its payloads, then the
      * whole leg re-runs on fresh processes; the second failure is the
      * one that surfaces. */
     @Test
@@ -190,7 +190,7 @@ class ReconnectRelayE2E {
                 !join1.isAlive() || join1.sawErrorLine(),
                 "the joiner must go loud (loss line or exit) when the host re-dials",
             )
-            // R2-N4-r6 (round-6 minor): the DIAL_FAILED exit is asserted
+            // the DIAL_FAILED exit is asserted
             // UNCONDITIONALLY — a joiner that emitted the loss line but
             // lingered must still exit with the loud lane's code before
             // the leg proceeds.

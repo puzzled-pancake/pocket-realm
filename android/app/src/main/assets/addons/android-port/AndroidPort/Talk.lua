@@ -30,12 +30,12 @@ local function OpenComposer(name)
         ChatFrame_OpenChat(prefixed, DEFAULT_CHAT_FRAME)
         return true
     end
-    local edit = getglobal("ChatFrame1EditBox")
-    if edit and edit.SetText and edit.IsShown then
+    -- 1.12 through 3.3.5a share one edit box named ChatFrameEditBox.
+    local edit = getglobal("ChatFrameEditBox") or getglobal("ChatFrame1EditBox")
+    if edit and edit.SetText and edit.Show then
+        edit:Show()
         edit:SetText(prefixed)
-        if not edit:IsShown() and type(ChatEdit_ToggleInputFocus) == "function" then
-            ChatEdit_ToggleInputFocus()
-        end
+        if edit.SetFocus then edit:SetFocus() end
         return true
     end
     return false

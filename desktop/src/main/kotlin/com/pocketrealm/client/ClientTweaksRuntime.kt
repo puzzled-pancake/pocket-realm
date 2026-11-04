@@ -31,7 +31,7 @@ internal fun managedSoundChannelsConfigLine(
 } else ""
 
 /**
- * DESK-58: the world conf's PocketRealm.NearbyInteract knob verdict — the
+ * the world conf's PocketRealm.NearbyInteract knob verdict — the
  * AUTHORIZED-layout EFFECTIVE resolution of the requested tweaks over the
  * user's actual client executable, never the raw requested consent. A
  * requested patch set on a non-build-5875 layout resolves to pristine (the

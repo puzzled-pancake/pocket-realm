@@ -20,7 +20,7 @@ class RealmEndpoint private constructor(
     val isPrivateOrLinkLocal: Boolean get() = !isLoopback
 
     /** True for a CGNAT 100.64/10 address — the numeric tunnel-adapter form
-     * (design-tunnel §4.4.1). Only the JOIN lane and the advertised-address
+     * (design-tunnel). Only the JOIN lane and the advertised-address
      * type accept it; the bind path never does. */
     val isCgnatTunnel: Boolean
         get() = isCgnat(address.split('.').map { it.toInt() }.toIntArray())
@@ -37,7 +37,7 @@ class RealmEndpoint private constructor(
         val LOCAL = RealmEndpoint(LOOPBACK_ADDRESS)
 
         /**
-         * The raw conf bind value for "all interfaces" (design-tunnel §4.4.2:
+         * The raw conf bind value for "all interfaces" (design-tunnel:
          * tunnel hosting binds the wildcard so the advertised tunnel address
          * is actually reachable). Deliberately NOT constructible as a
          * [RealmEndpoint] — the typed launch/bind path stays strict
@@ -54,7 +54,16 @@ class RealmEndpoint private constructor(
         }
 
         /**
-         * Design-tunnel §4.4.3 (endpoint model v2): the JOIN side accepts the
+         * The HOST bind grammar: a strict private/link-local interface
+         * address (LAN players) or loopback (the online host — the game
+         * binds 127.0.0.1 and the internet gateway forwards to it, so
+         * hosting needs no Wi-Fi or LAN at all).
+         */
+        fun parseHostBind(raw: String): RealmEndpoint =
+            if (raw == LOOPBACK_ADDRESS) LOCAL else parseLan(raw)
+
+        /**
+         * Design-tunnel (endpoint model v2): the JOIN side accepts the
          * same widened grammar the host side advertises — a private,
          * link-local, OR tunnel (CGNAT 100.64/10) canonical numeric IPv4. The
          * bind path ([parseLan]) stays unchanged; a CGNAT address can never
@@ -75,7 +84,7 @@ class RealmEndpoint private constructor(
 
         /** True when the octets sit in the CGNAT shared range 100.64/10 —
          * the numeric form tailnet/tunnel adapters carry (design-tunnel
-         * §4.4.1: the one widening the shared security review bounds;
+         * the one widening the shared security review bounds;
          * hostnames stay out of v1). */
         internal fun isCgnat(o: IntArray): Boolean = o[0] == 100 && o[1] in 64..127
 
@@ -108,19 +117,19 @@ class RealmEndpoint private constructor(
 }
 
 /**
- * The ADVERTISED realm address (design-tunnel §4.4.1, endpoint model v2):
+ * The ADVERTISED realm address (design-tunnel, endpoint model v2):
  * what the realmlist row and the friend's realmlist.wtf carry, as opposed
  * to the [RealmEndpoint] the servers BIND. The bind endpoint keeps today's
  * strict grammar exactly; this type is the one widening, and in v1 it is
  * numeric-only: canonical IPv4 in the loopback, private (RFC1918),
  * link-local, or CGNAT (100.64/10) ranges. Hostnames (MagicDNS/ts.net) and
  * public IPv4 (the UPnP lane) stay out until their own reviewed steps —
- * numeric form only, per remote-accounts §12.7's "literal tunnel IPs in v1".
+ * numeric form only, per remote-accounts 's "literal tunnel IPs in v1".
  *
  * Keeping the value canonical digits-and-dots also keeps the realmlist
  * UPDATE's injection guard trivially closed (the desktop seam interpolates;
  * the typed parse is that guard, and the projection seam re-checks length
- * against the varchar(32) column, design-tunnel §5).
+ * against the varchar(32) column, design-tunnel).
  */
 class AdvertisedAddress private constructor(
     val value: String,
@@ -168,7 +177,7 @@ data class RuntimeLaunchSpec(
     val includeClient: Boolean,
     val allowLanPlayers: Boolean = false,
     /**
-     * Design-tunnel §4.4.1 (endpoint model v2): the optional ADVERTISED
+     * Design-tunnel (endpoint model v2): the optional ADVERTISED
      * address the realmlist row carries, split from the [endpoint] the
      * servers bind. Null everywhere by default (LOCAL/LAN behave
      * byte-identically to schema 1); only LAN_HOST may advertise, and the
@@ -188,15 +197,32 @@ data class RuntimeLaunchSpec(
                 require(!allowLanPlayers) { "local mode cannot authorize LAN exposure" }
             }
             RuntimeMode.LAN_JOIN -> {
-                require(endpoint.isPrivateOrLinkLocal) { "LAN join requires a private endpoint" }
+                // Loopback is the in-app internet join: the client dials the
+                // local iroh gateway's listeners, never a local server.
+                require(endpoint.isPrivateOrLinkLocal || endpoint.isLoopback) {
+                    "LAN join requires a private endpoint"
+                }
                 require(includeClient) { "LAN join is client-only and requires the client" }
                 require(!allowLanPlayers) { "LAN join cannot authorize server exposure" }
             }
             RuntimeMode.LAN_HOST -> {
-                require(endpoint.isPrivateOrLinkLocal) {
+                // Loopback binds the online host (the internet gateway
+                // forwards to it); a private interface binds LAN players.
+                require(endpoint.isPrivateOrLinkLocal || endpoint.isLoopback) {
                     "LAN hosting requires an exact private interface endpoint"
                 }
-                require(allowLanPlayers) { "LAN hosting requires explicit allowLanPlayers authorization" }
+                if (endpoint.isLoopback) {
+                    require(!allowLanPlayers) {
+                        "loopback hosting cannot authorize LAN exposure"
+                    }
+                    require(advertisedAddress == null) {
+                        "loopback hosting cannot advertise an override address"
+                    }
+                } else {
+                    require(allowLanPlayers) {
+                        "LAN hosting requires explicit allowLanPlayers authorization"
+                    }
+                }
             }
         }
     }
@@ -206,7 +232,7 @@ data class RuntimeLaunchSpec(
     val requiresServer: Boolean get() = mode != RuntimeMode.LAN_JOIN
 
     /**
-     * Design-tunnel §5: the address the realmlist row must carry — the
+     * Design-tunnel: the address the realmlist row must carry — the
      * explicit advertisement when set, else the bind endpoint (today's
      * behavior). This is what the projection seam writes.
      */
@@ -216,7 +242,7 @@ data class RuntimeLaunchSpec(
     /**
      * True when the advertisement diverges from the bind endpoint: the
      * friend can only resolve the advertised value (a tunnel address), so
-     * the servers must bind the wildcard (design-tunnel §5's conflict rule
+     * the servers must bind the wildcard (design-tunnel 's conflict rule
      * — one realm entry for everyone, and it resolves only inside the
      * tunnel).
      */
@@ -253,7 +279,7 @@ data class RuntimeLaunchSpec(
         )
 
         /**
-         * The JOIN target (design-tunnel §4.4.3): a private/link-local LAN
+         * The JOIN target (design-tunnel): a private/link-local LAN
          * host, or — schema-2 widening — the host's numeric tunnel address
          * (CGNAT 100.64/10). Public IPv4 and hostnames stay refused.
          */
@@ -262,14 +288,29 @@ data class RuntimeLaunchSpec(
             includeClient = true, allowLanPlayers = false,
         )
 
+        /**
+         * The internet join: client-only against the in-app iroh gateway's
+         * loopback listeners (the gateway rewrites the realm list to them).
+         */
+        fun internetJoin(profileId: String) = RuntimeLaunchSpec(
+            RuntimeMode.LAN_JOIN, profileId, RealmEndpoint.LOCAL,
+            includeClient = true, allowLanPlayers = false,
+        )
+
+        /**
+         * The host factory: a private interface address is today's LAN host
+         * (LAN players authorized); the loopback literal is the ONLINE host
+         * (the game binds 127.0.0.1, the internet gateway forwards to it,
+         * and no LAN exposure exists to authorize).
+         */
         fun lanHost(
             profileId: String,
             address: String,
             includeClient: Boolean = false,
             advertised: String? = null,
         ) = RuntimeLaunchSpec(
-            RuntimeMode.LAN_HOST, profileId, RealmEndpoint.parseLan(address), includeClient,
-            allowLanPlayers = true,
+            RuntimeMode.LAN_HOST, profileId, RealmEndpoint.parseHostBind(address), includeClient,
+            allowLanPlayers = address != RealmEndpoint.LOOPBACK_ADDRESS,
             advertisedAddress = advertised?.let { AdvertisedAddress.parse(it) },
         )
 
@@ -287,8 +328,8 @@ data class RuntimeLaunchSpec(
             val actual = buildSet { value.keys().forEachRemaining(::add) }
             // "advertisedAddress" is OPTIONAL (schema 2's one addition):
             // exactly the base eight, or base eight + the advertised key —
-            // anything else (unknown keys, advertised without its base
-            // shape) still refuses.
+            // anything else (unknown keys, advertised without its
+            // base shape) still refuses.
             require(actual == allowed || actual == allowed - "advertisedAddress") {
                 "launch spec schema mismatch"
             }
@@ -304,8 +345,11 @@ data class RuntimeLaunchSpec(
                     }
                     RealmEndpoint.LOCAL
                 }
-                RuntimeMode.LAN_JOIN -> RealmEndpoint.parseJoinTarget(value.getString("endpoint"))
-                RuntimeMode.LAN_HOST -> RealmEndpoint.parseLan(value.getString("endpoint"))
+                RuntimeMode.LAN_JOIN -> value.getString("endpoint").let { raw ->
+                    if (raw == RealmEndpoint.LOOPBACK_ADDRESS) RealmEndpoint.LOCAL
+                    else RealmEndpoint.parseJoinTarget(raw)
+                }
+                RuntimeMode.LAN_HOST -> RealmEndpoint.parseHostBind(value.getString("endpoint"))
             }
             val advertised = when {
                 !value.has("advertisedAddress") || value.isNull("advertisedAddress") -> null
@@ -357,7 +401,7 @@ object LanInterfacePolicy {
 }
 
 /**
- * The tunnel-adapter lane (design-tunnel §4.4.4): an explicit NAME-PREFIX
+ * The tunnel-adapter lane (design-tunnel): an explicit NAME-PREFIX
  * allowlist — Tailscale, ZeroTier — never a relaxation of the LAN filter,
  * which keeps excluding point-to-point/virtual adapters so LAN hosting
  * keeps its existing guarantee. Tunnel adapters are exactly the adapters
@@ -397,13 +441,13 @@ object TunnelInterfacePolicy {
     }.getOrDefault(emptyList())
 
     /** True when [advertised] is the current address of a tunnel adapter —
-     * the mode-aware watch/preflight predicate (design-tunnel §10). */
+     * the mode-aware watch/preflight predicate (design-tunnel). */
     fun isCurrentTunnelInterface(advertised: AdvertisedAddress): Boolean =
         available().any { it.value == advertised.value }
 }
 
 /**
- * Design-tunnel §10 (the mode/predicate reconciliation design-lan §2.4
+ * Design-tunnel (the mode/predicate reconciliation design-lan
  * owns the table for): WHICH interface-loss leg a hosting session's health
  * monitor runs, keyed by the session's ADVERTISED address. Plain LAN
  * hosting watches the private LAN endpoint exactly as design-lan
@@ -411,8 +455,8 @@ object TunnelInterfacePolicy {
  * physical-LAN churn never kills a tunnel realm whose path never touched
  * the LAN); a loopback advertisement (the documented cloudflared recipe)
  * has no interface to lose — its loss signal is the upstream forwarder's
- * health, so the monitor runs NO interface leg. Shared so both platforms'
- * monitors decide identically.
+ * health, so the monitor runs NO interface leg. Shared so
+ * both platforms' monitors decide identically.
  */
 sealed class InterfaceWatch {
     /** No interface leg: loopback advertisement (cloudflared) — or a
@@ -429,7 +473,14 @@ sealed class InterfaceWatch {
     data class Tunnel(val advertised: AdvertisedAddress) : InterfaceWatch()
 
     companion object {
-        fun forSession(advertisedRaw: String?): InterfaceWatch {
+        /**
+         * @param bindAddress the session's BIND endpoint address (the
+         * snapshot's realm endpoint): a loopback bind is the online host —
+         * the internet gateway carries the players, so there is no physical
+         * interface to lose and the monitor runs NO interface leg.
+         */
+        fun forSession(bindAddress: String?, advertisedRaw: String?): InterfaceWatch {
+            if (bindAddress == RealmEndpoint.LOOPBACK_ADDRESS) return None
             if (advertisedRaw.isNullOrBlank()) return Lan
             val advertised = runCatching { AdvertisedAddress.parse(advertisedRaw) }.getOrNull()
                 ?: return None
@@ -437,4 +488,20 @@ sealed class InterfaceWatch {
             return Tunnel(advertised)
         }
     }
+}
+
+/**
+ * The online host's endpoint choice (shared by both platforms): the game
+ * binds loopback unless LAN players are switched on AND a private interface
+ * exists — a phone on mobile data, or with its interface down, hosts online
+ * regardless. LAN players with no interface also fall back to loopback
+ * (there is nothing to expose).
+ */
+object HostOnlineEndpointPolicy {
+    fun selectAddress(lanPlayers: Boolean, available: List<RealmEndpoint>): String =
+        if (lanPlayers) {
+            available.firstOrNull()?.address ?: RealmEndpoint.LOOPBACK_ADDRESS
+        } else {
+            RealmEndpoint.LOOPBACK_ADDRESS
+        }
 }

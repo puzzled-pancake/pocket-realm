@@ -42,7 +42,7 @@ class R2ProvisionCollisionHoleTest {
 
     @Test
     fun `the pure decision still converges a retry - the seam gates it behind the authorization`() {
-        // R3-1 fix (android-core review round 3, serious): the verifier lane's
+        // R3-1 fix: the verifier lane's
         // decision is the CONJUNCTIVE verifierExpansionWrite — the
         // seam OR-ed the gated leg with the authorization-blind
         // shouldWriteExpansion, making the gate a no-op. The (rc, exists)
@@ -63,7 +63,7 @@ class R2ProvisionCollisionHoleTest {
             source,
             "override fun createAccountVerifier(",
         )
-        // BEHAVIORAL (R3-2, review round 3): the seam's exact expression,
+        // BEHAVIORAL: the seam's exact expression,
         // evaluated — an unauthorized ACCOUNT_EXISTS (the collision input)
         // must NOT order the addon write, and the accepted verdict must be
         // false; the authorized retry must converge.
@@ -99,7 +99,7 @@ class R2ProvisionCollisionHoleTest {
             locateSource("android/app/src/main/java/com/pocketrealm/server/WorldRuntimeService.kt"),
             "override fun createAccountVerifier(",
         )
-        // The retry-aware write is there (round 1's contract, still held),
+        // The retry-aware write is there,
         // routed through the conjunctive verifier decision:
         assertTrue(
             "(bootLane\n" +

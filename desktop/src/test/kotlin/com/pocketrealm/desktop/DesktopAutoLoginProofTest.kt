@@ -13,7 +13,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-57: the desktop auto-login credential lifecycle — the disposition
+ * the desktop auto-login credential lifecycle — the disposition
  * table (the world's READ-ONLY answer × stored identity × live world
  * owner → the shared AutoLoginCredentialProof verdict). The proof never
  * provisions: a stored join-friend credential can never mint a phantom

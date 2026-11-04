@@ -26,7 +26,7 @@ class SafClientScannerTest {
     @Test fun wrongBuildIsRejected() {
         val result = scanner.scan(fixture(6005))
         assertFalse(result.supported)
-        assertTrue(result.failures.any { it.startsWith("VAL-03") })
+        assertTrue(result.failures.any { it.startsWith("Unsupported game version") })
     }
 
     @Test fun launcherOnlySelectionIsRejected() {
@@ -36,14 +36,14 @@ class SafClientScannerTest {
         )
         val result = scanner.scan(access)
         assertFalse(result.supported)
-        assertTrue(result.failures.any { it.contains("launcher-only") })
+        assertTrue(result.failures.any { it.contains("installer or launcher folder") })
     }
 
     @Test fun corruptMpqHeaderIsRejected() {
         val access = fixture(5875, corruptMpq = "base.mpq")
         val result = scanner.scan(access)
         assertFalse(result.supported)
-        assertTrue(result.failures.any { it.contains("invalid MPQ header") })
+        assertTrue(result.failures.any { it.contains("not a valid MPQ") })
     }
 
     private fun fixture(build: Int, corruptMpq: String? = null): FakeAccess {
@@ -90,7 +90,7 @@ class SafClientScannerTest {
         override fun read(documentId: String, maxBytes: Int, rejectTruncation: Boolean): ByteArray {
             readCount++
             val bytes = requireNotNull(content[documentId])
-            if (rejectTruncation && bytes.size > maxBytes) error("VAL-02: selected executable exceeds fast-scan limit")
+            if (rejectTruncation && bytes.size > maxBytes) error("WoW.exe is too large to scan")
             return bytes.copyOfRange(0, minOf(maxBytes, bytes.size))
         }
     }

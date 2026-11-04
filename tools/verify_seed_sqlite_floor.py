@@ -271,7 +271,7 @@ def verify_apk(apk: Path, floors: tuple[str, ...],
     seeds = apk_seed_assets(apk)
     baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
     baseline_digests = baseline["transcript_digests"]
-    # Review round 2 (R2-4): the lockfile leg is only ever skipped EXPLICITLY.
+    # Review the lockfile leg is only ever skipped EXPLICITLY.
     # An APK whose reported ABI is outside LOCKFILES is a lane this tool has
     # no pin for — refuse loud instead of silently running baseline-only;
     # a missing-aapt arm (abi None) proceeds but the summary and the PASS

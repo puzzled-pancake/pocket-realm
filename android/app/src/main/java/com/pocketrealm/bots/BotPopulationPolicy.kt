@@ -40,7 +40,7 @@ object BotPopulationPolicy {
     const val MAX_SUPPORTED_TARGET = 10_000
 
     /** Highest population offered as a curated built-in experience preset. */
-    const val MAX_BUILT_IN_TARGET = 600
+    const val MAX_BUILT_IN_TARGET = 1_000
 
     /** Upper bound for an auto-provisioned account pool. */
     const val MAX_ACCOUNTS = 2_000

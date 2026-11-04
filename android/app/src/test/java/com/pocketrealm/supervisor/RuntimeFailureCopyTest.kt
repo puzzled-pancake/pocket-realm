@@ -78,7 +78,7 @@ class RuntimeFailureCopyTest {
     }
 
     // ------------------------------------------------------------------
-    // D9 (design-lan §7): the LAN-aware entries.
+    // the LAN-aware entries.
     // ------------------------------------------------------------------
 
     @Test fun `lan host interface loss stop reason maps to the restart copy`() {
@@ -163,7 +163,7 @@ class RuntimeFailureCopyTest {
     }
 
     @Test fun `missing staged overlay refusal maps to the re-prepare copy`() {
-        // Design-timeframe §4.3's fail-closed family: the shared plan's
+        // Design-timeframe 's fail-closed family: the shared plan's
         // unstaged refusal, wrapped by the start-leg's loud prefix, must
         // never reach the card as raw engineer detail.
         val human = RuntimeFailureCopy.humanize(

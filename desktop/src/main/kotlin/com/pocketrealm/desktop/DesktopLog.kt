@@ -13,7 +13,7 @@ import org.json.JSONObject
  * explicit (level, message) pair; this sink is where they land on Windows.
  * Thread-safe and non-blocking per the ABI contract (synchronized append).
  *
- * DESK-110: every line is also a typed event in a bounded in-memory ring
+ * every line is also a typed event in a bounded in-memory ring
  * (the Android AppLog contract: 800 entries, stable `kind`, snapshot()/
  * exportJson()) so the Diagnostics screen and the support bundle's
  * logs.json survive even when the file write failed, and logs stay

@@ -77,7 +77,7 @@ internal class InGameSettingsEditor(private val context: Context) {
     }
 
     /**
-     * W3.3: the ACTIVE flavor's catalog lookups. The editor was wired to
+     * the ACTIVE flavor's catalog lookups. The editor was wired to
      * the vanilla catalogs at every call site; each now resolves the active
      * flavor's authored catalog (vanilla/tbc/wotlk) through
      * [WowFlavorCatalogs], so a tbc/wotlk lane's queued entries, reconcile
@@ -105,7 +105,7 @@ internal class InGameSettingsEditor(private val context: Context) {
     private suspend fun <T> underLease(block: suspend (File) -> T): T? {
         val leased = withContext(Dispatchers.IO) {
             runCatching {
-                // GAP-3 (owner census UIUX-3): this UI-process facade resolves
+                // this UI-process facade resolves
                 // the ACTIVE lane through the [ActiveFlavor] machine — the
                 // same in-memory selection the Home switcher seeds — so a
                 // second qualified flavor routes the lease to the selected
@@ -408,7 +408,7 @@ internal class InGameSettingsEditor(private val context: Context) {
         SavedVariablesCodec.Value.Nil -> "nil"
     }
 
-    private fun stableClientRoot(): File = File(context.noBackupFilesDir, "client")
+    private fun stableClientRoot(): File = com.pocketrealm.storage.StorageRoots.get(context).client
 
     private fun <V> mutateMap(
         map: Map<String, V>,

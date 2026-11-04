@@ -93,7 +93,7 @@ class DurableRuntimeSupervisor(
             requestedProfile = spec.profileId,
             runtimeMode = spec.mode,
             realmEndpoint = spec.endpoint,
-            // Design-tunnel §5: the session's live advertisement rides the
+            // Design-tunnel: the session's live advertisement rides the
             // snapshot, so the monitor and the UI read what the projection
             // actually wrote — never re-derived from settings.
             advertisedAddress = spec.advertisedAddress?.value,
@@ -117,7 +117,7 @@ class DurableRuntimeSupervisor(
             }
             if (component == RuntimeComponent.DATABASE) {
                 val projected = runCatching {
-                    // Design-tunnel §4.4.2: the row carries the spec's
+                    // Design-tunnel: the row carries the spec's
                     // ADVERTISED address (endpoint address when no override
                     // is set — byte-identical to the pre-split behavior).
                     backend.projectRealmAdvertisement(
@@ -201,7 +201,7 @@ class DurableRuntimeSupervisor(
 
     /**
      * Companion mode: a journaled RUNNING <-> PAUSED transition that
-     * pauses world ticking and switches the LLM runtime profile. Pause is a
+     * pauses world ticking. Pause is a
      * pause, never a stop - the world process stays alive so save/stop still
      * work from PAUSED and resume needs no reconfiguration.
      */
@@ -602,7 +602,7 @@ class DurableRuntimeSupervisor(
     // decisions survive like every other supervisor transition.
     // ------------------------------------------------------------------
 
-    /** §3/§5: the approval leg — inserts the friend-derived (s, v) with no
+    /** The approval leg — inserts the friend-derived (s, v) with no
      * password input. Journal: friend-account-provisioned-verifier. */
     suspend fun provisionFriendAccount(
         username: String,
@@ -633,15 +633,37 @@ class DurableRuntimeSupervisor(
         result
     }
 
-    /** §9: the shared moderation surface. Journal: friend-banned. */
+    /** the shared moderation surface. Journal: friend-banned. */
     suspend fun banFriendAccount(username: String, duration: String, reason: String): ModerationResult =
         moderateFriend("ban", username) { backend.banFriendAccount(username, duration, reason) }
 
-    /** §9: revoke. Journal: friend-unbanned. */
+    /** revoke. Journal: friend-unbanned. */
     suspend fun unbanFriendAccount(username: String): ModerationResult =
         moderateFriend("unban", username) { backend.unbanFriendAccount(username) }
 
-    /** §10: per-friend gmlevel 0..3. Journal: friend-gm-changed. */
+    /** Character transfer out (LAN screen). Journal: character-exported. */
+    suspend fun exportCharacter(characterName: String): CharacterTransferResult =
+        characterTransfer("character-exported") { backend.exportCharacter(characterName) }
+
+    /** Character transfer in. Journal: character-imported. */
+    suspend fun importCharacter(dumpText: String, account: String, newName: String): CharacterTransferResult =
+        characterTransfer("character-imported") { backend.importCharacter(dumpText, account, newName) }
+
+    private suspend fun characterTransfer(
+        action: String,
+        verb: suspend () -> CharacterTransferResult,
+    ): CharacterTransferResult {
+        val phase = _state.value.phase
+        if (phase !in setOf(RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.CLIENT_FAILED)) {
+            return CharacterTransferResult(false, "Start the realm first - transfers run inside the live world.")
+        }
+        val result = runCatching { verb() }
+            .getOrElse { CharacterTransferResult(false, it.message ?: it.javaClass.simpleName) }
+        publish(_state.value.copy(lastDurableAction = if (result.ok) action else "$action-failed"))
+        return result
+    }
+
+    /** per-friend gmlevel 0..3. Journal: friend-gm-changed. */
     suspend fun setFriendGmLevel(username: String, level: Int): Boolean {
         if (username.length !in 1..16 || !username.all { it.isLetterOrDigit() && it.code < 128 } || level !in 0..3) {
             return false
@@ -875,8 +897,8 @@ class DurableRuntimeSupervisor(
      * Absorbs a server service observed FAILED before its start retry: the
      * graceful stop verb runs under the claim this start just took (the
      * service's requireOwner gate checks it), and the native stop() legally
-     * retires FAILED to STOPPED - the supervisor owns these services'
-     * lifecycles, so a Start following our own committed dirty-stop recovery
+     * retires FAILED to STOPPED - the supervisor owns these
+     * services' lifecycles, so a Start following our own committed dirty-stop recovery
      * must not wait for a process recycle. Only FAILED is absorbable: any
      * live state keeps the typed start refusal, exactly like every other
      * never-kill-an-unverified-owner law.
@@ -1322,7 +1344,9 @@ class DurableRuntimeSupervisor(
         val profile = checkNotNull(snapshot.requestedProfile)
         return when (snapshot.runtimeMode) {
             RuntimeMode.LOCAL -> RuntimeLaunchSpec.local(profile, includeClient)
-            RuntimeMode.LAN_JOIN -> RuntimeLaunchSpec.lanJoin(profile, snapshot.realmEndpoint.address)
+            RuntimeMode.LAN_JOIN ->
+                if (snapshot.realmEndpoint.isLoopback) RuntimeLaunchSpec.internetJoin(profile)
+                else RuntimeLaunchSpec.lanJoin(profile, snapshot.realmEndpoint.address)
             RuntimeMode.LAN_HOST -> RuntimeLaunchSpec.lanHost(profile, snapshot.realmEndpoint.address, includeClient)
         }
     }
@@ -1354,8 +1378,8 @@ class DurableRuntimeSupervisor(
         // out the whole start before its close.
         private const val CLOSE_QUIESCE_TIMEOUT_MS = 90_000L
         private const val CLOSE_QUIESCE_POLL_MS = 50L
-        // A stale DATABASE ownership claim may be released (automatically or
-        // consented-and-killed) only while the engine observably has no live
+        // A stale DATABASE ownership claim may be released (automatically
+        // or consented-and-killed) only while the engine observably has no live
         // generation; a live one belongs to the engine-ordered stop lanes.
         private val ENDED_DATABASE_STATES = setOf(ComponentLifecycle.STOPPED, ComponentLifecycle.FAILED)
         // fix (a) observed states in which a never-started stage holds

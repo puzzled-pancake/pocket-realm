@@ -93,6 +93,48 @@ class SyntheticClientArchivesTest {
         }
     }
 
+    /**
+     * The pipeline's exact sequence on ONE source instance — inventory(),
+     * open() for every file in inventory order, then inventory() again for
+     * the source-changed check. Enumerating the member SevenZFile in
+     * inventory() exhausted it, so the first open() hit end-of-archive and
+     * rejected a healthy entry with "An archive entry could not be read"
+     * (the RP6 owner-session 7z failure: Data/AccountBilling.url).
+     */
+    @Test
+    fun sevenZipSourceServesCopyAndReInventoryOnOneInstance() {
+        val target = SyntheticClientArchives.uniqueFile(folder.newFolder(), "client", ".7z")
+        SyntheticClientArchives.sevenZip(target, SyntheticClientArchives.clientEntries())
+        val listed = listSevenZipEntries(target)
+        val files = listed.filterNot { it.directory }.map { raw ->
+            ImportSourceEntry(
+                key = raw.name,
+                relativePath = raw.name,
+                directory = false,
+                size = raw.size,
+                lastModified = 0L,
+                attributes = "file",
+            )
+        }
+        assertTrue(files.isNotEmpty())
+        val classified = ImportExtractionPolicy.Classified(
+            files,
+            excluded = emptyList(),
+            fileCount = files.size,
+            totalBytes = files.sumOf { it.size },
+        )
+        SevenZipArchiveSource(target, classified).use { source ->
+            val inventory = source.inventory()
+            assertEquals(files.size, inventory.entries.size)
+            inventory.entries.filterNot { it.directory }.forEach { entry ->
+                source.open(entry).use { input ->
+                    assertEquals(entry.size, input.readBytes().size.toLong())
+                }
+            }
+            assertEquals(inventory.fingerprint, source.inventory().fingerprint)
+        }
+    }
+
     @Test
     fun signatureStubsCarryExactMagicBytes() {
         assertTrue(

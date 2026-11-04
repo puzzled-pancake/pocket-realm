@@ -12,7 +12,7 @@ class SafClientScannerMessageTest {
 
     @Test
     fun launcherOnlyRejectionKeepsVal01PrefixAndPinnedPhrase() {
-        assertTrue(VAL01_LAUNCHER_ONLY_SELECTION.startsWith("VAL-01: "))
-        assertTrue(VAL01_LAUNCHER_ONLY_SELECTION.contains("launcher-only"))
+        assertTrue(VAL01_LAUNCHER_ONLY_SELECTION.startsWith("This looks like an installer or launcher folder"))
+        assertTrue(VAL01_LAUNCHER_ONLY_SELECTION.contains("WoW.exe"))
     }
 }

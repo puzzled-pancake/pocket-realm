@@ -1,0 +1,9 @@
+10-25 16:09:48.137 30676 30710 I PR/PublicListing: realm listing identity generated (never displayed)
+10-25 16:09:49.469 30676 30713 I PR/InternetHost: internet host ready (node [redacted]… via usw1-1.relay.n0.iroh.link)
+10-25 16:09:49.859 30676  7843 I PR/PublicListing: relay open: wss://relay.damus.io
+10-25 16:09:50.152 30676  7860 I PR/PublicListing: relay nip-11: wss://relay.damus.io supports [1, 2, 4, 9, 11, 28, 40, 45, 59, 70]
+10-25 16:09:50.725 30676  7845 I PR/PublicListing: relay open: wss://relay.primal.net
+10-25 16:09:50.725 30676  7844 I PR/PublicListing: relay open: wss://nos.lol
+10-25 16:09:51.874 30676  7860 I PR/PublicListing: relay nip-11: wss://relay.primal.net supports [1, 2, 4, 9, 11, 28, 40, 45, 70]
+10-25 16:09:52.258 30676  7863 I PR/PublicListing: relay nip-11: wss://nos.lol supports [1, 2, 4, 9, 11, 28, 40, 45, 70]
+10-25 16:09:54.529 30676  7846 I PR/PublicListing: relay failed: wss://relay.nostr.band (failed to connect to relay.nostr.band/95.216.33.150 (port 443) from [local address redacted] after 5000ms)

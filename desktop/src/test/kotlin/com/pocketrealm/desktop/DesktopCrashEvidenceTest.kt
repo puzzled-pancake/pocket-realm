@@ -8,7 +8,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-107/126: the client-crash evidence scan — the client's own Errors/
+ * the client-crash evidence scan — the client's own Errors/
  * crash texts (5-row cap, newest first) and the WER LocalDumps minidumps,
  * both best effort.
  */

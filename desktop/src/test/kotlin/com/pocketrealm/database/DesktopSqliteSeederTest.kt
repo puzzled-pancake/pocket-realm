@@ -235,7 +235,7 @@ class DesktopSqliteSeederTest {
             "the stamped seal must prove current",
             DesktopSqliteSeals.migrationSealCurrent(migrationMarker, identity),
         )
-        // The generation marker carries the revision record (DESK-98)
+        // The generation marker carries the revision record
         // whose digest matches the stamped marker's bytes.
         val record = DesktopSqliteSeals.revisionRecord(
             DesktopSqliteSealMarkers.generationMarkerFile(datadir).readText(),

@@ -77,15 +77,6 @@ data class BotProfile(
     val villageRingMinYd: Int = VILLAGE_RING_DEFAULT_MIN_YD,
     val villageRingMaxYd: Int = VILLAGE_RING_DEFAULT_MAX_YD,
     val admission: BotAdmissionLimits,
-    /**
-     * Per-preset AI speech overrides. Deliberately NOT part of
-     * [playerbotConfig] or the identity digests: the values ride the
-     * appended LLM conf block (see ServerRuntimeFiles), the merge-order
-     * contract keeps the base conf free of LLM keys, and the frozen
-     * adv/legacy identities must not shift. Defaults everywhere = follow
-     * the model's tuned profiles.
-     */
-    val llmSpeech: BotLlmSpeech = BotLlmSpeech(),
 ) {
     init {
         require(id.matches(Regex("[a-z0-9][a-z0-9._-]{2,63}")))
@@ -127,16 +118,27 @@ data class BotProfile(
     }
 
     /**
-     * Emit only the keys below. Network command/LLM egress and
-     * battleground/arena/guild growth stay disabled by design.
+     * Emit only the keys below. Bots answer battleground and arena queues
+     * (they fill a match the player queues for; they never queue on their
+     * own), and the arena lanes form bot arena teams. Network command
+     * egress and guild growth stay disabled by design.
      * Auction-house automation remains disabled; the core BUILD_AHBOT target is excluded.
      */
-    fun playerbotConfig(lane: ClientFlavor): String = playerbotConfigText(lane)
+    fun playerbotConfig(lane: ClientFlavor): String = playerbotConfigText(lane, queueFeatures = true)
+
+    /**
+     * The preset-identity digest input: the vanilla emission exactly as the
+     * adv3/usr5 identities were minted (battleground/arena queue answering
+     * off), so turning those server features on never renames a saved
+     * preset.
+     */
+    internal fun identityConfigText(): String =
+        playerbotConfigText(com.pocketrealm.client.ClientFlavors.VANILLA, queueFeatures = false)
 
     /** The emission body (extracted for length/complexity). The length
      * IS the conf's own shape - a config template, not logic. */
     @Suppress("LongMethod", "CyclomaticComplexMethod")
-    private fun playerbotConfigText(lane: ClientFlavor): String = """
+    private fun playerbotConfigText(lane: ClientFlavor, queueFeatures: Boolean): String = """
         AiPlayerbot.Enabled = 1
         AiPlayerbot.RandomBotAutologin = 1
         AiPlayerbot.RandomBotLoginAtStartup = ${if (loginAtStartup) 1 else 0}
@@ -188,13 +190,13 @@ data class BotProfile(
         AiPlayerbot.AllowMultiAccountAltBots = 0
         AiPlayerbot.AllowGuildBots = 0
         AiPlayerbot.RandomBotJoinLfg = 0
-        AiPlayerbot.RandomBotJoinBG = 0
+        AiPlayerbot.RandomBotJoinBG = ${if (queueFeatures) 1 else 0}
         AiPlayerbot.RandomBotAutoJoinBG = 0
         AiPlayerbot.PreQuests = 0
         AiPlayerbot.RandomGearUpgradeEnabled = 0
         AiPlayerbot.RandomBotFormGuild = 0
         AiPlayerbot.RandomBotGuildCount = 0
-        AiPlayerbot.RandomBotArenaTeamCount = 0
+        AiPlayerbot.RandomBotArenaTeamCount = ${if (queueFeatures) flavorBotArenaTeams(lane) else 0}
         AiPlayerbot.ShouldQueryAHListingsOutsideOfAH = 0
         AiPlayerbot.BotCheckAllAuctionListings = 0
         AiPlayerbot.AsyncBotLogin = 0
@@ -223,6 +225,15 @@ data class BotProfile(
  * This mirrors D86's "resolve the pinned boot lane" law for the engine/
  * verifier/logon/overlay paths; the bot-emission call site was missed. */
 private fun flavorBotMaxLevel(lane: ClientFlavor): Int = lane.botMaxLevel
+
+/** Bot arena teams for the lanes whose client has arenas (TBC onward);
+ * vanilla has none. */
+private fun flavorBotArenaTeams(lane: ClientFlavor): Int =
+    if (lane.flavorId == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) 0 else BOT_ARENA_TEAMS
+
+/** The upstream playerbots default: enough teams for 2v2/3v3/5v5
+ * queues to pop. */
+private const val BOT_ARENA_TEAMS = 20
 
 /** The LANE's random-bot spawn maps
  * (schemas/flavor.json bot_policy.random_maps), conf-formatted. */
@@ -668,6 +679,7 @@ object BotProfiles {
      */
     val LAUNCH_DAY_700 = BotProfile(
         id = "mobile-launchday-b700-v1",
+        userSelectable = false,
         displayName = "Legacy Realm · 700 bots",
         summary = "Retained high-population profile from earlier versions.",
         selectedTarget = 700,
@@ -820,6 +832,7 @@ object BotProfiles {
     /** Passive cooling / weaker devices. Light AI everywhere. */
     val LOW_POWER_80 = BotProfile(
         id = "preset-low-power-b80-v1",
+        userSelectable = false,
         displayName = "Low Power · 80 bots",
         summary = "Light AI load for passive cooling and weaker devices.",
         selectedTarget = 80,
@@ -855,7 +868,7 @@ object BotProfiles {
             5 * 60_000L, 10_000L),
         passiveDelayMs = 3_000,
         loginPreferNearPlayer = true,
-        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
+    )
 
     /**
      * Benchmark twin: the LOW_POWER_80 retune candidate
@@ -905,6 +918,7 @@ object BotProfiles {
     /** Smarter/faster bots over population. Very high foreground priority. */
     val LIVELY_160 = BotProfile(
         id = "preset-lively-b160-v1",
+        userSelectable = false,
         displayName = "Lively · 160 bots",
         summary = "Fast, very active bots in a smaller realm.",
         selectedTarget = 160,
@@ -940,11 +954,12 @@ object BotProfiles {
             5 * 60_000L, 10_000L),
         passiveDelayMs = 3_000,
         loginPreferNearPlayer = true,
-        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
+    )
 
     /** Responsive, populated realm. Strong quest/group behaviour. */
     val BUSY_WORLD_240 = BotProfile(
         id = "preset-busy-world-b240-v1",
+        userSelectable = false,
         displayName = "Busy World · 240 bots",
         summary = "Responsive bots with strong quest and group behaviour.",
         selectedTarget = 240,
@@ -980,7 +995,7 @@ object BotProfiles {
             5 * 60_000L, 10_000L),
         passiveDelayMs = 3_000,
         loginPreferNearPlayer = true,
-        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
+    )
 
     /**
      * Recommended default. A populated Vanilla realm where bots around humans
@@ -990,6 +1005,7 @@ object BotProfiles {
      */
     val ALIVE_REALM_320 = BotProfile(
         id = "preset-alive-realm-b320-v1",
+        userSelectable = false,
         displayName = "Alive Realm · 320 bots",
         summary = "Recommended populated realm with fast AI around players and groups.",
         selectedTarget = 320,
@@ -1026,7 +1042,7 @@ object BotProfiles {
             5 * 60_000L, 10_000L),
         passiveDelayMs = 3_000,
         loginPreferNearPlayer = true,
-        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
+    )
 
     /**
      * Benchmark twin: the ALIVE_REALM_320 retune candidate
@@ -1084,6 +1100,7 @@ object BotProfiles {
      */
     val CROWDED_REALM_400 = BotProfile(
         id = "preset-crowded-realm-b400-v1",
+        userSelectable = false,
         displayName = "Crowded Realm · 400 bots",
         summary = "Larger persistent population with fast nearby bots.",
         selectedTarget = 400,
@@ -1121,11 +1138,12 @@ object BotProfiles {
             5 * 60_000L, 10_000L),
         passiveDelayMs = 3_000,
         loginPreferNearPlayer = true,
-        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
+    )
 
     /** High population; foreground fast, background reduced. */
     val FULL_REALM_500 = BotProfile(
         id = "preset-full-realm-b500-v1",
+        userSelectable = false,
         displayName = "Full Realm · 500 bots",
         summary = "High population with responsive foreground and light background AI.",
         selectedTarget = 500,
@@ -1163,7 +1181,7 @@ object BotProfiles {
             5 * 60_000L, 10_000L),
         passiveDelayMs = 3_000,
         loginPreferNearPlayer = true,
-        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
+    )
 
     /**
      * Largest curated built-in. Population/locality focused: humans and their
@@ -1172,6 +1190,7 @@ object BotProfiles {
      */
     val MASSIVE_REALM_600 = BotProfile(
         id = "preset-massive-realm-b600-v1",
+        userSelectable = false,
         displayName = "Massive Realm · 600 bots",
         summary = "Largest built-in realm; human and nearby bots get priority AI.",
         selectedTarget = 600,
@@ -1209,7 +1228,94 @@ object BotProfiles {
             5 * 60_000L, 10_000L),
         passiveDelayMs = 3_000,
         loginPreferNearPlayer = true,
-        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
+    )
+
+    /**
+     * The three presets the Bots page offers. They follow the upstream
+     * playerbots defaults (1 s AI pass, 10% of distant bots active, no
+     * combat limiter, bots invite and group, quests on) and keep only the
+     * near-player locality that makes a single-player realm feel busy.
+     */
+    private fun realmPreset(
+        id: String,
+        displayName: String,
+        summary: String,
+        target: Int,
+        accountPrefix: String,
+        updateIntervalMs: Int,
+        activeBotPercent: Int,
+    ) = BotProfile(
+        id = id,
+        displayName = displayName,
+        summary = summary,
+        selectedTarget = target,
+        minimumOnline = minOf(100, target),
+        maximumOnline = target,
+        initialTarget = minOf(150, target),
+        startupIncreaseStep = 100,
+        startupRampIntervalMs = 20_000,
+        activationBatchSize = 16,
+        maximumAltBots = 2,
+        generationBatchSize = 10,
+        generationYieldMs = 50,
+        accountPrefix = accountPrefix,
+        accountCount = BotPopulationPolicy.allocatedAccounts(target),
+        loginBatchSize = 10,
+        maintenanceBatchSize = 32,
+        randomBotUpdateIntervalMs = updateIntervalMs,
+        iterationsPerTick = 20,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 20,
+        nearPlayerTeleportRadius = 300,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 43_200,
+        syncLevelWithPlayers = false,
+        randomBotMaxLevelChance = 0.15f,
+        randomizeMinIntervalSeconds = 21_600,
+        randomizeMaxIntervalSeconds = 86_400,
+        limitCombatActivity = false,
+        activeBotPercent = activeBotPercent,
+        autoDoQuests = true,
+        allowBotChat = false,
+        allowPlayerInvites = true,
+        groupNearby = true,
+        wanderWhenIdle = true,
+        enableOffSpecStrategies = true,
+        admission = BotAdmissionLimits(300, 1_536, 2_048, 4 * 60_000L, 50, 50,
+            3 * 60_000L, 10_000L),
+        passiveDelayMs = 4_000,
+        loginPreferNearPlayer = true,
+    )
+
+    val LIGHT_200 = realmPreset(
+        id = "preset-light-b200-v2",
+        displayName = "Light · 200 bots",
+        summary = "A quieter world for older or hotter devices.",
+        target = 200,
+        accountPrefix = "PRLT200",
+        updateIntervalMs = 1_000,
+        activeBotPercent = 10,
+    )
+
+    val STANDARD_500 = realmPreset(
+        id = "preset-standard-b500-v2",
+        displayName = "Standard · 500 bots",
+        summary = "A full realm with playerbots' standard settings.",
+        target = 500,
+        accountPrefix = "PRST500",
+        updateIntervalMs = 1_000,
+        activeBotPercent = 10,
+    )
+
+    val MASSIVE_1000 = realmPreset(
+        id = "preset-massive-b1000-v2",
+        displayName = "Massive · 1000 bots",
+        summary = "A crowded realm for the fastest devices.",
+        target = 1000,
+        accountPrefix = "PRMS1K",
+        updateIntervalMs = 1_500,
+        activeBotPercent = 8,
+    )
 
     /** Headless benchmark twins of the measured mobile tiers. Identical
      * to their sources except AiPlayerbot.RandomBotLoginWithPlayer = 0:
@@ -1429,6 +1535,7 @@ object BotProfiles {
         CROWDED_400, BUSY_600, LAUNCH_DAY_700,
         LOW_POWER_80, LIVELY_160, BUSY_WORLD_240, ALIVE_REALM_320,
         CROWDED_REALM_400, FULL_REALM_500, MASSIVE_REALM_600,
+        LIGHT_200, STANDARD_500, MASSIVE_1000,
         BENCH_AUTOLOGIN_50, BENCH_AUTOLOGIN_100, BENCH_AUTOLOGIN_160,
         BENCH_ACTIVE_600,
         BENCH_FORCED_1000,
@@ -1449,17 +1556,17 @@ object BotProfiles {
         CROWDED_400, BUSY_600, LAUNCH_DAY_700,
     )
 
-    /** Experience presets shown by the Bots destination, in display order. */
-    val experiencePresets = listOf(
+    /** The presets shown on the Bots page, in display order. */
+    val experiencePresets = listOf(LIGHT_200, STANDARD_500, MASSIVE_1000)
+
+    /** Earlier built-ins: still launchable for saved selections, no longer shown. */
+    val legacySelectablePresets = listOf(
         LOW_POWER_80, LIVELY_160, BUSY_WORLD_240, ALIVE_REALM_320,
-        CROWDED_REALM_400, FULL_REALM_500, MASSIVE_REALM_600,
+        CROWDED_REALM_400, FULL_REALM_500, MASSIVE_REALM_600, LAUNCH_DAY_700,
     )
 
-    /** Retained legacy built-ins that remain launchable but are no longer featured. */
-    val legacySelectablePresets = listOf(LAUNCH_DAY_700)
-
-    /** Fresh-install default: a genuinely populated realm. */
-    val defaultProfile: BotProfile get() = ALIVE_REALM_320
+    /** Fresh-install default. */
+    val defaultProfile: BotProfile get() = STANDARD_500
 
     fun find(id: String): BotProfile? = profiles[id]
         ?: BotCustomPresets.lookupProfile(id)
@@ -1672,7 +1779,7 @@ object BotProfiles {
                 // the digest is lane-independent by construction: the
  // canonical text pins the vanilla emission (-—
                 // the emission itself takes the world start's lane)
-                append(profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)).append('|')
+                append(profile.identityConfigText()).append('|')
                 append(profile.admission)
             }
         }

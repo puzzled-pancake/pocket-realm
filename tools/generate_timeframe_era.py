@@ -5,10 +5,6 @@ The manifests are the single source of record. This script derives every
 generated consumer artifact from them, hash-pins each against its sources,
 and `check` verifies the whole chain (used by tools/check_timeframes.py):
 
-  era       → native/patches/playerbots/PlayerbotLlmEraStages.generated.h
-              (the per-stage chat era-term classes the truth core selects
-              from PocketRealm.TimeframeStage) + the pin JSON
-              schemas/timeframes/generated-era-classes-pin.json
   overlays  → schemas/timeframes/<flavor>/overlays/<stage>.sql (the
               reversible marker scaffolding per stage) +
               schemas/timeframes/overlay-pins.json + the shared Kotlin
@@ -29,28 +25,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TIMEFRAMES = ROOT / "schemas" / "timeframes"
-ERA_HEADER = ROOT / "native/patches/playerbots/PlayerbotLlmEraStages.generated.h"
-ERA_PIN = TIMEFRAMES / "generated-era-classes-pin.json"
 OVERLAY_PINS = TIMEFRAMES / "overlay-pins.json"
 OVERLAY_CATALOG = (
     ROOT / "android/app/src/main/java/com/pocketrealm/client/"
     "GeneratedTimeframeOverlayCatalog.kt"
 )
 FLAVOR_IDS = ("vanilla", "tbc", "wotlk")
-
-HEADER_BANNER = """\
-// GENERATED FILE - from schemas/timeframes/<flavor>.json by
-// tools/generate_timeframe_era.py. Regenerate with:
-//   python tools/generate_timeframe_era.py era
-// schemas/timeframes/generated-era-classes-pin.json binds this file's
-// sha256 to the source manifests; tools/check_timeframes.py fails loud on
-// drift. The per-stage era classes follow design section 5: the world
-// resolves its class set from PocketRealm.TimeframeStage; every stage
-// whose manifest carries no curated delta resolves to its flavor's
-// grounded baseline (W3.1: vanilla, tbc and wotlk each carry their own
-// grounded baseline - three distinct per-flavor sets). DO NOT EDIT.
-"""
-
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -76,13 +56,9 @@ def all_stages(manifests: dict[str, dict]) -> list[dict]:
     return stages
 
 
-def cpp_string(text: str) -> str:
-    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-
 # --- era --------------------------------------------------------------------
 
-# The curated per-stage delta schema (design §5):
+# The curated per-stage delta schema (design):
 #   delta_from_flavor_final: {
 #     "always_ban_add": ["term", ...],
 #     "sense_phrases_add": [["needle", negatable-bool], ...],
@@ -225,194 +201,6 @@ def manifests_baseline(flavor: str) -> dict:
             baseline = manifests_baseline("vanilla")
         _BASELINE_CACHE[flavor] = baseline
     return _BASELINE_CACHE[flavor]
-
-
-FLAVOR_MANIFEST = ROOT / "schemas" / "flavor.json"
-
-
-def prompt_identities() -> dict[str, str]:
-    """The per-flavor prompt-pack identity world titles (W3.2): flavor.json's
-    `llm.prompt_identity` per flavor, fail-loud when missing or empty (an
-    identity-less flavor would silently render the vanilla title — the exact
-    drift the generated selector exists to prevent)."""
-    data = json.loads(FLAVOR_MANIFEST.read_text(encoding="utf-8"))
-    identities: dict[str, str] = {}
-    for flavor in FLAVOR_IDS:
-        block = data.get("flavors")
-        entry = next(
-            (f for f in block if f.get("id") == flavor), None
-        ) if isinstance(block, list) else None
-        title = (entry or {}).get("llm", {}).get("prompt_identity")
-        if not isinstance(title, str) or not title:
-            raise ValueError(
-                f"schemas/flavor.json: flavor {flavor!r} carries no llm."
-                "prompt_identity — the generated ExpansionTitleFor selector "
-                "refuses to guess (a missing identity would silently render "
-                "the vanilla title on that lane)"
-            )
-        identities[flavor] = title
-    return identities
-
-
-def flavor_of_stage(stage_id: str) -> str:
-    """The flavor slug of a stage id ("tbc-2.4.3" -> "tbc")."""
-    return stage_id.split("-", 1)[0]
-
-
-def render_era_header(manifests: dict[str, dict]) -> str:
-    stages = all_stages(manifests)
-    set_names, bindings = era_sets(stages)
-    default = manifests["vanilla"]["default_stage"]
-    out: list[str] = [HEADER_BANNER]
-    out.append("#ifndef _PlayerbotLlmEraStages_generated_h")
-    out.append("#define _PlayerbotLlmEraStages_generated_h")
-    out.append("")
-    out.append("#include <string>")
-    out.append("#include <utility>")
-    out.append("#include <vector>")
-    out.append("")
-    out.append("namespace pocketllm {")
-    out.append("namespace erastages {")
-    out.append("")
-    out.append("// The registered stage ids, timeline order (schemas/timeframes).")
-    out.append("inline std::vector<std::string> const& RegisteredStages()")
-    out.append("{")
-    out.append("    static std::vector<std::string> const stages = {")
-    for stage in stages:
-        out.append(f"        {cpp_string(stage['id'])},")
-    out.append("    };")
-    out.append("    return stages;")
-    out.append("}")
-    out.append("")
-    out.append("// The DEFAULT stage: the shipped qualified lane's final patch")
-    out.append("// (design section 1). An unset/unknown stage resolves here.")
-    out.append("inline std::string const& DefaultStage()")
-    out.append("{")
-    out.append(f"    static std::string const stage({cpp_string(default)});")
-    out.append("    return stage;")
-    out.append("}")
-    out.append("")
-    out.append("inline bool IsDefaultStage(std::string const& stage)")
-    out.append("{")
-    out.append("    return stage.empty() || stage == DefaultStage();")
-    out.append("}")
-    out.append("")
-    out.append("// The patch label of one stage (\"vanilla-1.5\" -> \"1.5\"), or an")
-    out.append("// empty string for an unregistered stage. Drives the stage-era")
-    out.append("// instruction line (EraStageLine).")
-    out.append("inline std::string PatchLabel(std::string const& stage)")
-    out.append("{")
-    for stage in stages:
-        label = stage["id"].split("-", 1)[1]
-        out.append(f"    if (stage == {cpp_string(stage['id'])}) return {cpp_string(label)};")
-    out.append("    return std::string();")
-    out.append("}")
-    out.append("")
-    for name in set_names:
-        binding = next(b for b in bindings if b["set"] == name)
-        out.append(f"inline std::vector<std::string> const& {name}_AlwaysBan()")
-        out.append("{")
-        out.append(f"    static std::vector<std::string> const terms = {{")
-        for term in binding["always"]:
-            out.append(f"        {cpp_string(term)},")
-        out.append("    };")
-        out.append("    return terms;")
-        out.append("}")
-        out.append("")
-        out.append(f"inline std::vector<std::pair<std::string, bool>> const& {name}_Senses()")
-        out.append("{")
-        out.append("    static std::vector<std::pair<std::string, bool>> const phrases = {")
-        for needle, flag in binding["senses"]:
-            out.append(f"        {{ {cpp_string(needle)}, {'true' if flag else 'false'} }},")
-        out.append("    };")
-        out.append("    return phrases;")
-        out.append("}")
-        out.append("")
-    out.append("// The per-stage era class resolution (design section 5). An")
-    out.append("// unregistered stage falls open to the grounded default - the")
-    out.append("// settings layer never persists one, and the conf consumer")
-    out.append("// double-guards.")
-    out.append("inline std::vector<std::string> const& AlwaysBanTermsFor(std::string const& stage)")
-    out.append("{")
-    for binding in bindings:
-        out.append(
-            f"    if (stage == {cpp_string(binding['stage'])}) return {binding['set']}_AlwaysBan();"
-        )
-    out.append(f"    return {bindings[0]['set']}_AlwaysBan();")
-    out.append("}")
-    out.append("")
-    out.append(
-        "inline std::vector<std::pair<std::string, bool>> const& SensePhrasesFor("
-        "std::string const& stage)"
-    )
-    out.append("{")
-    for binding in bindings:
-        out.append(
-            f"    if (stage == {cpp_string(binding['stage'])}) return {binding['set']}_Senses();"
-        )
-    out.append(f"    return {bindings[0]['set']}_Senses();")
-    out.append("}")
-    out.append("")
-    out.append("// The per-flavor prompt-pack identity world title (W3.2),")
-    out.append("// resolved from the stage's flavor. The trained renderers")
-    out.append("// (SysmForCard) speak the ACTIVE flavor's world; the default")
-    out.append("// stage's output stays byte-identical to the frozen trained")
-    out.append("// wording (\"World of Warcraft: Classic\"). The titles are")
-    out.append("// data in schemas/flavor.json llm.prompt_identity - a")
-    out.append("// flavor without one fails the generator loud.")
-    out.append("inline std::string ExpansionTitleFor(std::string const& stage)")
-    out.append("{")
-    identities = prompt_identities()
-    emitted: list[str] = []
-    for binding in bindings:
-        flavor = flavor_of_stage(binding["stage"])
-        if flavor in emitted:
-            continue
-        emitted.append(flavor)
-        out.append(
-            f"    if (stage.rfind({cpp_string(flavor + '-')}, 0) == 0) "
-            f"return {cpp_string(identities[flavor])};"
-        )
-    out.append(f"    return {cpp_string(identities['vanilla'])};")
-    out.append("}")
-    out.append("")
-    out.append("} // namespace erastages")
-    out.append("} // namespace pocketllm")
-    out.append("")
-    out.append("#endif // _PlayerbotLlmEraStages_generated_h")
-    return "\n".join(out)
-
-
-def cmd_era(check_only: bool) -> int:
-    manifests = load_manifests()
-    header = render_era_header(manifests).encode("utf-8")
-    manifest_digests = {
-        f"{flavor}.json": sha256_file(TIMEFRAMES / f"{flavor}.json") for flavor in FLAVOR_IDS
-    }
-    pin = {
-        "schema": 1,
-        "generator": "tools/generate_timeframe_era.py era",
-        "header": ERA_HEADER.relative_to(ROOT).as_posix(),
-        "header_sha256": sha256_bytes(header),
-        "source_manifests_sha256": manifest_digests,
-    }
-    if check_only:
-        errors: list[str] = []
-        if not ERA_HEADER.is_file() or ERA_HEADER.read_bytes() != header:
-            errors.append(f"{ERA_HEADER.name} is stale - regenerate (era)")
-        current_pin = (
-            json.loads(ERA_PIN.read_text(encoding="utf-8")) if ERA_PIN.is_file() else None
-        )
-        if current_pin != pin:
-            errors.append(f"{ERA_PIN.name} is stale - regenerate (era)")
-        for error in errors:
-            print(f"ERROR {error}")
-        return 1 if errors else 0
-    ERA_HEADER.write_bytes(header)
-    ERA_PIN.write_text(json.dumps(pin, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"wrote {ERA_HEADER.relative_to(ROOT)} ({len(header)} bytes)")
-    print(f"wrote {ERA_PIN.relative_to(ROOT)}")
-    return 0
 
 
 # --- overlays ----------------------------------------------------------------
@@ -590,11 +378,11 @@ def cmd_overlays(check_only: bool) -> int:
 
 
 def cmd_check() -> int:
-    failures = cmd_era(check_only=True) + cmd_overlays(check_only=True)
+    failures = cmd_overlays(check_only=True)
     if failures:
         print(f"generate_timeframe_era check: {failures} error(s)")
         return 1
-    print("generate_timeframe_era check: OK (era header + overlays match their pins)")
+    print("generate_timeframe_era check: OK (overlays match their pins)")
     return 0
 
 
@@ -602,13 +390,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("era", "overlays", "check"),
-        help="era: generate the native era header + pin; overlays: generate the "
-        "per-stage overlay SQL + pins + Kotlin catalog; check: verify all of it",
+        choices=("overlays", "check"),
+        help="overlays: generate the per-stage overlay SQL + pins + Kotlin "
+        "catalog; check: verify all of it",
     )
     args = parser.parse_args()
-    if args.command == "era":
-        return cmd_era(check_only=False)
     if args.command == "overlays":
         return cmd_overlays(check_only=False)
     return cmd_check()

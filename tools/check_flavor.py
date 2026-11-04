@@ -369,7 +369,7 @@ def _check_flavor(flavor: dict, index: int, errors: list[str],
                             "non-vanilla flavors (record any exception in docs/DECISIONS-PORT.md)",
                         )
     # wine.vanilla_tweaks carries no rule here: vanilla-client UX parity is
-    # owned by port plan S7.
+    # owned by.
 
     if isinstance(flavor.get("addon_interfaces"), list):
         if not flavor["addon_interfaces"] or not all(
@@ -435,7 +435,7 @@ def _check_flavor(flavor: dict, index: int, errors: list[str],
             )
         # The registration-completeness rule
         # applies to QUALIFIED flavors too — the list is the build registry
-        # of record (D6), so a doctored qualified flavor naming a FOREIGN
+        # of record, so a doctored qualified flavor naming a FOREIGN
         # registered build (another lane's) must refuse exactly as the
         # unqualified branch does; [] stays legal with its note (the
         # qualified flag, not this list, gates import).
@@ -450,7 +450,7 @@ def _check_flavor(flavor: dict, index: int, errors: list[str],
                     "qualified flavor is a doctored registry",
                 )
     else:
-        # S5.1 identity registration (lanes item 13): an unqualified flavor may
+        # S5.1 identity registration: an unqualified flavor may
         # record the census-measured genuine-client identity, but only as a
         # COMPLETE registration — every identity datum present and mutually
         # consistent. The pre-S5.1 rule was an absolute null ban; the

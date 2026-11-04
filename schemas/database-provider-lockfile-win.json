@@ -7,7 +7,7 @@
       "vanilla"
     ],
     "decision": "D60",
-    "note": "this shared document + the mariadb-provider staging root are VANILLA-lane inputs: the staged migration manifest is the vanilla ledger golden (migration_manifest_sha256); non-vanilla lanes must not write or re-key it until W1.3 defines per-flavor provider staging"
+    "note": "this shared document + the mariadb-provider staging root are VANILLA-lane inputs: the staged migration manifest is the vanilla ledger golden (migration_manifest_sha256); non-vanilla lanes write their own lane-scoped document (database-provider-lockfile-win-<flavor>.json, the W4 D72 retirement) and never re-key this one"
   },
   "provider": {
     "id": "mariadb-11.5.2-windows-x86_64",

@@ -12,7 +12,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The invite store (design-remote-accounts §5): the state machine, the open
+ * The invite store (design-remote-accounts): the state machine, the open
  * cap, single-use tokens, the 15-minute decision window, the read-only poll
  * with its one-time accountId reveal, the audit trail, and the storage
  * secrecy rule — the raw token and the submitted (s, v) verifier never
@@ -344,7 +344,7 @@ class FriendInviteStoreTest {
 }
 
 // ---------------------------------------------------------------------------
-// R4-1 (android-core review round 2): the friend-access audit's bounded
+// the friend-access audit's bounded
 // persistence — every refused submission appends a row, so a sustained
 // bad-submission spray against the LAN-exposed port must not convert
 // attacker traffic into unbounded host-disk growth (the same discipline

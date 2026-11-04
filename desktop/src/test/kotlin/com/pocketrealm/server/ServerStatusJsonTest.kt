@@ -9,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * DESK-127: the desktop JVM twin of the Android ServerStatusJson — the
+ * the desktop JVM twin of the Android ServerStatusJson — the
  * shared ABI's statusNative telemetry indices rendered into status JSON
  * (the desktop previously discarded 3..). Pure JVM: the status arrays are
  * constructed by hand, no DLL lane involved.

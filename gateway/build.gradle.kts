@@ -22,7 +22,7 @@ plugins {
 }
 
 group = "com.pocketrealm"
-version = "0.110.0"
+version = "0.111.0"
 
 // W6-N4 code-red R4-r3-1: the -Ppocket.seat whole-build redirect is
 // applied HERE (build-script body — always executed, configuration-cache
@@ -71,8 +71,11 @@ sharedCoreSources.include(
     "discovery/iroh/AuthStreamFilter.kt",
     "discovery/iroh/GatewayContract.kt",
     "discovery/iroh/IrohJoinDescriptor.kt",
+    "discovery/iroh/InviteCode.kt",
+    "discovery/iroh/JoinAdmission.kt",
     "discovery/iroh/PortMux.kt",
     "discovery/iroh/RealmListRewrite.kt",
+    "discovery/iroh/SignupProtocol.kt",
     "discovery/nostr/NostrJson.kt",
 )
 sourceSets.main {

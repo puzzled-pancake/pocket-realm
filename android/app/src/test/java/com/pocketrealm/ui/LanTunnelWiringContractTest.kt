@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Design-tunnel §4/§5/§10 + design-remote-accounts: the ANDROID wiring
+ * Design-tunnel / / + design-remote-accounts: the ANDROID wiring
  * contract for the tunnel host / join-over-tunnel / invite lanes. The
  * services and screens need a live Android context (the device lane drives
  * the binder), so the cross-file wiring is pinned as a source-contract test
@@ -44,78 +44,72 @@ class LanTunnelWiringContractTest {
 
     @Test
     fun theJoinPaneTakesTheWidenedTunnelGrammarNotTheBindGrammar() {
-        val lan = mainSource("ui/LanScreen.kt")
+        val bridge = mainSource("onlineplay/JoinBridge.kt")
         assertTrue(
-            "the Join pane validates through parseJoinTarget (CGNAT tunnel addresses join)",
-            "RealmEndpoint.parseJoinTarget(lanAddress)" in lan,
+            "the join address validates through parseJoinTarget (CGNAT tunnel addresses join)",
+            "RealmEndpoint.parseJoinTarget(raw.trim())" in bridge,
         )
-        assertTrue(
-            "the LAN bind grammar must not gate the join field",
-            !("RealmEndpoint.parseLan(lanAddress)" in lan),
-        )
-        // Design-remote-accounts §6: the friend-request card reaches the
+        // Design-remote-accounts: the friend-request card reaches the
         // host's PRIVATE LAN listener only, so its host field validates the
         // LAN grammar (a tunnel address green-lit here could only fail at
-        // connect time) and carries the desktop twin's honesty note.
+        // connect time) and carries the LAN-only honesty note.
+        val advanced = mainSource("ui/online/DirectJoinAdvanced.kt")
         assertTrue(
             "the friend-request host field validates the LAN grammar",
-            "RealmEndpoint.parseLan(hostAddress" in lan,
+            "RealmEndpoint.parseLan(hostAddress" in advanced,
         )
         assertTrue(
             "the friend-request card carries the LAN-only honesty note",
-            "friend-request-lan-only-note" in lan,
+            "friend-request-lan-only-note" in advanced,
         )
     }
 
     @Test
     fun theJoinPaneCarriesTheProbeWithModeAwareFailureCopy() {
-        val lan = mainSource("ui/LanScreen.kt")
-        assertTrue("the D6 probe ships on Android", "LanJoinProbe.probe(" in lan)
-        assertTrue(
-            "the tunnel-shaped failure uses the shared mode-aware hint (§5)",
-            "TunnelInvite.joinFailureHint(" in lan,
-        )
+        val bridge = mainSource("onlineplay/JoinBridge.kt")
+        assertTrue("the reachability probe ships on Android", "LanJoinProbe.probe(" in bridge)
         assertTrue(
             "the LAN failure keeps the humanized firewall copy",
-            "RuntimeFailureCopy.humanize(LanJoinProbe.unreachableDetail(" in lan,
+            "RuntimeFailureCopy.humanize(LanJoinProbe.unreachableDetail(" in bridge,
         )
     }
 
     @Test
     fun theHostPaneShipsTheAdvertisedTunnelAddressLane() {
-        val lan = mainSource("ui/LanScreen.kt")
+        val advanced = mainSource("ui/online/HostAdvanced.kt")
         assertTrue(
             "the advertise field exists (the desktop TunnelAdvertisedField twin)",
-            "tunnel-advertised-address" in lan,
+            "tunnel-advertised-address" in advanced,
         )
         assertTrue(
             "tunnel-adapter quick-picks render from the shared allowlist lane (§4.4.4)",
-            "TunnelInterfacePolicy.available()" in lan,
+            "TunnelInterfacePolicy.available()" in advanced,
         )
         assertTrue(
-            "the start validates the stored advertisement before launching",
-            "AdvertisedAddress.parse(advertised)" in lan,
+            "the advertised value validates for display through the shared grammar",
+            "AdvertisedAddress.parse(tunnelAdvertisedAddress.trim())" in advanced,
         )
+        val tab = mainSource("ui/online/HostTab.kt")
         assertTrue(
             "the host start carries the advertised address",
-            "RealmService.hostLan(context, selection.profile.id, includeClient = false, advertised = advertised)" in lan,
+            "snapshot.tunnelAdvertisedAddress.trim()" in tab,
         )
         assertTrue(
             "hosting status shows the live advertisement",
-            "running.advertisedAddress" in lan,
+            "advertisedAddress = (realmState as? com.pocketrealm.realm.RealmState.Running)?.advertisedAddress" in tab,
         )
     }
 
     @Test
     fun theFriendAccessCardRendersTheSharedAddressBlockOnlyInvite() {
-        val lan = mainSource("ui/LanScreen.kt")
+        val advanced = mainSource("ui/online/HostAdvanced.kt")
         assertTrue(
             "the invite artifact comes from the SHARED composer",
-            "TunnelInvite.inviteText(" in lan,
+            "TunnelInvite.inviteText(" in advanced,
         )
         assertTrue(
             "the artifact is copyable",
-            "friend-invite-copy" in lan,
+            "friend-invite-copy" in advanced,
         )
     }
 
@@ -131,8 +125,8 @@ class LanTunnelWiringContractTest {
             "RealmEndpoint.parseJoinTarget(address)" in service,
         )
         assertTrue(
-            "the interface-loss watch is mode-keyed (§10: tunnel churn ≠ LAN churn)",
-            "InterfaceWatch.forSession(snapshot.advertisedAddress)" in service,
+            "the interface-loss watch is mode-keyed and bind-aware (a loopback online host never stops)",
+            "InterfaceWatch.forSession(snapshot.realmEndpoint.address, snapshot.advertisedAddress)" in service,
         )
         assertTrue(
             "the tunnel loss leg names the tunnel stop reason",

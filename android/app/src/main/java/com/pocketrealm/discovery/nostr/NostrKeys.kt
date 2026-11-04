@@ -59,15 +59,15 @@ class NostrPrivateKey private constructor(
         /** Parses a 32-byte hex secret key; fails loud (VAL-NOSTR-KEY) on
          * anything that is not a valid BIP-340 secret key. */
         fun fromHex(hex: String): NostrPrivateKey =
-            fromBytesOrNull(Hex.decode(hex, "VAL-NOSTR-KEY"))
+            fromBytesOrNull(Hex.decode(hex, "nostr key"))
                 ?: throw IllegalArgumentException(
-                    "VAL-NOSTR-KEY: not a valid BIP-340 secret key (out of range or zero)",
+                    "not a valid BIP-340 secret key (out of range or zero)",
                 )
 
         fun fromBytes(bytes: ByteArray): NostrPrivateKey =
             fromBytesOrNull(bytes)
                 ?: throw IllegalArgumentException(
-                    "VAL-NOSTR-KEY: not a valid BIP-340 secret key (must be 32 bytes, in range, non-zero)",
+                    "not a valid BIP-340 secret key (must be 32 bytes, in range, non-zero)",
                 )
 
         private fun fromBytesOrNull(bytes: ByteArray): NostrPrivateKey? = try {

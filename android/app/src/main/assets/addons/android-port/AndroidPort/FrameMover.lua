@@ -1,8 +1,8 @@
--- Android Port frame mover: clean-room Interface 11200 layout journal for
--- curated stock frames plus journaled panels. Bag and bank frames are
--- re-anchored by the stock UI whenever they open, so only their scale is
--- journaled (scaleOnly) and the stock anchor sweep is wrapped so journaled
--- layout survives bag open and close.
+-- Android Port frame mover: clean-room layout journal for curated stock
+-- frames plus journaled panels, one tree for every supported client. Bag and
+-- bank frames are re-anchored by the stock UI whenever they open, so only
+-- their scale is journaled (scaleOnly) and the stock anchor sweep is wrapped
+-- so journaled layout survives bag open and close.
 AndroidPort.FrameMover = AndroidPort.FrameMover or {}
 local Mover = AndroidPort.FrameMover
 Mover.ready = Mover.ready or false
@@ -193,7 +193,9 @@ end
 
 -- Stock frames can re-anchor themselves when shown; chain our re-apply after
 -- the stock OnShow. The original runs synchronously first so the stock
--- handler still sees the correct global this.
+-- handler still sees the correct global this. On the 2.0+ clients a frame
+-- shown mid-combat cannot be repositioned until combat ends, so the re-apply
+-- defers itself rather than fighting the lockdown.
 function Mover:ChainOnShow(name, frame)
     if not frame or not frame.SetScript then return false end
     if self.chainedOnShow == nil then self.chainedOnShow = {} end
@@ -205,8 +207,15 @@ function Mover:ChainOnShow(name, frame)
         local anchors = AndroidPortDB and AndroidPortDB.frameAnchors
         local saved = type(anchors) == "table" and anchors[name] or nil
         if saved and saved.points then
-            local target = LiveFrame(name)
-            if target then pcall(function() Mover:ApplySavedFrame(target, saved) end) end
+            local apply = function()
+                local target = LiveFrame(name)
+                if target then pcall(function() Mover:ApplySavedFrame(target, saved) end) end
+            end
+            if AndroidPort and AndroidPort:InCombat() then
+                AndroidPort:DeferCombat(apply)
+            else
+                apply()
+            end
         end
     end)
     return true
@@ -299,7 +308,13 @@ end
 function Mover:InstallStockHooks()
     if self.hooksInstalled then return true end
     self.hooksInstalled = true
-    if type(updateContainerFrameAnchors) == "function" then
+    if type(updateContainerFrameAnchors) ~= "function" then return true end
+    -- The 2.0+ clients run this sweep from UIParent_ManageFramePositions;
+    -- replacing the global would taint that secure path, so they get a
+    -- post-hook. 1.12 has no hooksecurefunc and no taint.
+    if hooksecurefunc then
+        hooksecurefunc("updateContainerFrameAnchors", function() Mover:ReassertContainers() end)
+    else
         Mover.stockContainerAnchors = updateContainerFrameAnchors
         updateContainerFrameAnchors = function()
             Mover.stockContainerAnchors()
@@ -315,6 +330,15 @@ end
 function Mover:ResetUI()
     local db = AndroidPortDB
     if type(db) ~= "table" then return false end
+    -- Restoring stock layout moves stock frames, which combat locks on the
+    -- 2.0+ clients; wait combat out instead of half-resetting.
+    if AndroidPort and AndroidPort:InCombat() then
+        AndroidPort:DeferCombat(function() Mover:ResetUI() end)
+        if AndroidPort.Print then
+            AndroidPort:Print("layout restore waits until combat ends")
+        end
+        return false
+    end
     local released = db.panelReleases
     if type(released) == "table" and type(UIPanelWindows) == "table" then
         for name, info in pairs(released) do
@@ -352,7 +376,7 @@ function Mover:Initialize()
             -- freed frame faults the client.
             local frame = host:LiveFrame(spec.name)
             if frame and HasFrameLayoutMethods(frame) and
-                (not frame.IsProtected or not frame:IsProtected()) then
+                (not frame.IsProtected or not frame:IsProtected() or host:IsOwnFrame(frame)) then
                 local key = "frame:" .. spec.name
                 local candidate = host.addonIconCandidates[key]
                 if not candidate or candidate.frame ~= frame then

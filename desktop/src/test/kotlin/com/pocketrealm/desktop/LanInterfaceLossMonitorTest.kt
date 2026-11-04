@@ -10,7 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * D2 (design-lan §2.4): the interface-loss monitor's tick decisions — the
+ * the interface-loss monitor's tick decisions — the
  * session-anchored grace window, the LAN_HOST-only scope, and the verbatim
  * Android log lines. The monitor THREAD is trivial; the decisions are what
  * the pins guard.
@@ -110,6 +110,30 @@ class LanInterfaceLossMonitorTest {
         )
         assertFalse("a local session runs no liveness leg", lan.tickOnce(local, 0L))
         assertTrue(logs.isEmpty())
+    }
+
+    /** The online host binds loopback: the internet gateway carries the
+     * players, so even a dead interface probe (the phone left Wi-Fi) never
+     * opens a loss window — the session keeps hosting. */
+    @Test
+    fun `a loopback online host is never stopped on interface loss`() {
+        val logs = mutableListOf<String>()
+        val lan = monitor(live = false, logs = logs)
+        val onlineHost = RuntimeSnapshot(
+            sessionId = "session-online",
+            requestedProfile = "local",
+            runtimeMode = RuntimeMode.LAN_HOST,
+            phase = RuntimePhase.RUNNING,
+            clean = false,
+            lastDurableAction = "client-window-ready",
+            realmEndpoint = RealmEndpoint.LOCAL,
+        )
+        // Far past the grace window, with the interface probe reporting
+        // dead: still no stop, no loss log.
+        val start = 0L
+        assertFalse(lan.tickOnce(onlineHost, start))
+        assertFalse(lan.tickOnce(onlineHost, start + 60_000_000_000L))
+        assertTrue("a loopback host logs no interface loss: $logs", logs.isEmpty())
     }
 
     @Test

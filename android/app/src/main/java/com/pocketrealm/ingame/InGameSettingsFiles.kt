@@ -57,7 +57,7 @@ internal interface WtfLayout {
     val characterCacheFiles: Set<String>
 
     /**
-     * R2-5: whether the single-file uvar route EXISTS on this layout —
+     * whether the single-file uvar route EXISTS on this layout —
      * vanilla only; the tbc/wotlk layouts write per-addon SavedVariables
      * directories and their catalogs carry no uvar entries, so editors
      * consult this BEFORE reaching [accountSavedVariables] (whose fail-loud
@@ -250,8 +250,8 @@ internal object InGameSettingsFiles {
         "the WTF layout resolves the active flavor's file routes"
 
     /**
-     * The layout for [flavor]: vanilla byte-frozen, tbc/wotlk per H4-5/C8
-     * (W3.3). Unknown flavor ids fail loud — never a silent vanilla pick.
+     * The layout for [flavor]: vanilla byte-frozen, tbc/wotlk per H4-5/C8.
+     * Unknown flavor ids fail loud — never a silent vanilla pick.
      */
     fun layoutFor(flavor: ClientFlavor): WtfLayout =
         when (flavor.flavorId) {
@@ -265,7 +265,7 @@ internal object InGameSettingsFiles {
      * The ACTIVE flavor's layout. The boot-lane call sites (the launch
      * delivery) run under the exactly-one-qualified law today, so the live
      * resolution equals the booting flavor; when a second flavor qualifies
-     * (W4), the start paths thread their start snapshot through
+     * , the start paths thread their start snapshot through
      * [layoutFor] explicitly (the D71/D72 boot-lane-binding law).
      */
     fun activeLayout(): WtfLayout = layoutFor(ActiveFlavor.resolve(WTF_LAYOUT_LANE))

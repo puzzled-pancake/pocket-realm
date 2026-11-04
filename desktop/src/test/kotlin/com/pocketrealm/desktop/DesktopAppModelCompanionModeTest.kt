@@ -8,7 +8,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-117: the DesktopAppModel companion-mode wrapper over the shared
+ * the DesktopAppModel companion-mode wrapper over the shared
  * supervisor's journaled RUNNING→PAUSED phase operation (the Android
  * RealmService "companion-mode" op). The phase guards come from the shared
  * DurableRuntimeSupervisor; these legs pin the model's delegation honestly

@@ -33,9 +33,9 @@ class FriendRequestFlowSourceIpPinTest {
 
     @Test
     fun `friend-request rows never interpolate the source address`() {
-        val lanScreen = androidFile("ui/LanScreen.kt").readText()
-        val playersScreen = desktopFile("desktop/ui/PlayersScreen.kt").readText()
-        for ((name, text) in listOf("LanScreen.kt" to lanScreen, "PlayersScreen.kt" to playersScreen)) {
+        val directJoinAdvanced = androidFile("ui/online/DirectJoinAdvanced.kt").readText()
+        val playersScreen = desktopFile("desktop/ui/PlayersAdvanced.kt").readText()
+        for ((name, text) in listOf("DirectJoinAdvanced.kt" to directJoinAdvanced, "PlayersAdvanced.kt" to playersScreen)) {
             assertTrue(
                 "$name interpolates sourceIp into the friend-request row " +
                     "(plan §1 rule 7: peer addresses are never displayed)",
@@ -73,7 +73,7 @@ class FriendRequestFlowSourceIpPinTest {
             "lastLogonIp" !in rosterJson,
         )
         // the display: the Friends card copy never interpolates it
-        val playersScreen = desktopFile("desktop/ui/PlayersScreen.kt").readText()
+        val playersScreen = desktopFile("desktop/ui/PlayersAdvanced.kt").readText()
         assertTrue(
             "PlayersScreen.kt still references lastLogonIp (plan §1 rule 7)",
             "lastLogonIp" !in playersScreen,

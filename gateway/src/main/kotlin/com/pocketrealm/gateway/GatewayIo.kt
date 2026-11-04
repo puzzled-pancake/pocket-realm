@@ -21,13 +21,19 @@ internal object GatewayIo {
      * iroh → socket: copy until the iroh stream ends, then half-close the
      * socket so the client sees a clean end of that direction.
      */
-    internal suspend fun pumpIrohToSocket(bi: BiStream, socket: Socket) {
+    internal suspend fun pumpIrohToSocket(
+        bi: BiStream,
+        socket: Socket,
+        /** Sees each chunk before it is written (the host's logon peek). */
+        onChunk: ((ByteArray) -> Unit)? = null,
+    ) {
         val input = bi.recv()
         val output = socket.getOutputStream()
         val buffer = ByteArray(CHUNK)
         while (true) {
             val chunk = input.read(CHUNK.toUInt())
             if (chunk.isEmpty()) break
+            onChunk?.invoke(chunk)
             output.write(chunk)
             output.flush()
         }

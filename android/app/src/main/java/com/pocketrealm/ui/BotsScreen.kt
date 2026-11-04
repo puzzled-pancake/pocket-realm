@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -75,7 +76,6 @@ import com.pocketrealm.bots.BotBehaviorPreset
 import com.pocketrealm.bots.BotAdvancedSettings
 import com.pocketrealm.bots.BotCustomConfiguration
 import com.pocketrealm.bots.BotCustomPresets
-import com.pocketrealm.bots.BotLlmSpeech
 import com.pocketrealm.bots.BotPresetStore
 import com.pocketrealm.bots.BotPlaystylePreset
 import com.pocketrealm.bots.BotPopulationPolicy
@@ -99,14 +99,12 @@ private sealed interface EditorTarget {
 
 /**
  * Editor section tabs. Accounts and adaptation settings live behind
- * Population's per-tab "Advanced tuning" disclosure, and the AI tab holds
- * the per-preset speech overrides for the playerbot LLM.
+ * Population's per-tab "Advanced tuning" disclosure.
  */
 private enum class EditorSection(val label: String) {
     BASICS("Basics"),
     POPULATION("Population"),
     BEHAVIOUR("Behaviour"),
-    AI("AI"),
 }
 
 private val EditorSectionSaver = Saver<EditorSection, String>(
@@ -115,14 +113,13 @@ private val EditorSectionSaver = Saver<EditorSection, String>(
 )
 
 /**
- * Dedicated Bots destination: presets rail | tabbed editor in
- * landscape, editor with a preset bottom sheet in portrait. All Playerbots
- * configuration lives here; Settings keeps only general concerns. The four
- * tabs are pure views over one working configuration — switching never
- * changes values.
+ * The bot panel shown in Settings: the three built-in presets, the user's
+ * saved presets, and a collapsible editor. It does not scroll on its own;
+ * the host page scrolls. The editor tabs are views over one working
+ * configuration, so switching tabs never changes values.
  */
 @Composable
-fun BotsScreen() {
+fun BotsScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val settings = remember(context) { Settings(context) }
     val snapshotState: Settings.Snapshot? by settings.flow.collectAsState(initial = null)
@@ -200,13 +197,11 @@ fun BotsScreen() {
         ),
     ) { mutableStateOf(BotCustomConfiguration.fromProfile(BotProfiles.defaultProfile)) }
     var presetNameDraft by rememberSaveable { mutableStateOf("") }
-    var search by rememberSaveable { mutableStateOf("") }
     var nameRequest by remember { mutableStateOf<NameRequest?>(null) }
     var deleteRequest by remember { mutableStateOf<String?>(null) }
     var section by rememberSaveable(stateSaver = EditorSectionSaver) {
         mutableStateOf(EditorSection.BASICS)
     }
-    var presetSheetOpen by remember { mutableStateOf(false) }
     // The preset id, not the object, survives process death while the system
     // file picker is open; the callback re-resolves it against the store.
     var pendingExportId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -371,71 +366,7 @@ fun BotsScreen() {
         }
     }
 
-    // One preset list, shared by the landscape rail and the portrait sheet;
-    // onClose dismisses the sheet (null on the rail, which never closes).
-    val presetList: @Composable (Modifier, (() -> Unit)?) -> Unit = { listModifier, onClose ->
-        PresetList(
-            presets = presets,
-            selectedSavedId = (target as? EditorTarget.Saved)?.presetId,
-            selectedBuiltinId = (target as? EditorTarget.BuiltIn)?.profileId,
-            search = search,
-            onSearch = { search = it },
-            onSelectBuiltIn = { profile -> selectBuiltIn(profile); onClose?.invoke() },
-            onSelectSaved = { preset -> selectSaved(preset); onClose?.invoke() },
-            onNew = { startNewDraft(); onClose?.invoke() },
-            onImport = { importLauncher.launch(arrayOf("application/json", "text/*")) },
-            onExport = { preset ->
-                pendingExportId = preset.id
-                exportLauncher.launch("${preset.name}.botpreset.json")
-            },
-            onToggleFavorite = { id, favorite ->
-                scope.launch {
-                    runCatching { store.setFavorite(id, favorite) }
-                        .onFailure { actionError = it.message ?: "Could not update the preset" }
-                }
-            },
-            onDuplicate = { id ->
-                val source = presets.firstOrNull { it.id == id } ?: return@PresetList
-                nameRequest = NameRequest(
-                    title = "Duplicate “${source.name}”",
-                    initial = "${source.name} copy",
-                ) { name ->
-                    scope.launch {
-                        runCatching { store.duplicate(id, name.trim()) }
-                            .onFailure {
-                                actionError = it.message ?: "Could not duplicate the preset"
-                            }
-                    }
-                }
-            },
-            onRename = { id ->
-                val source = presets.firstOrNull { it.id == id } ?: return@PresetList
-                nameRequest = NameRequest(
-                    title = "Rename preset",
-                    initial = source.name,
-                ) { name ->
-                    scope.launch {
-                        runCatching { store.rename(id, name.trim()) }
-                            .onFailure { actionError = it.message ?: "Could not rename the preset" }
-                    }
-                }
-            },
-            onDelete = { id -> deleteRequest = id },
-            listModifier = listModifier,
-        )
-    }
-    val presetsPane: @Composable (Modifier) -> Unit = { modifier ->
-        Card(modifier = modifier.testTag("bots-presets-pane")) {
-            Column(
-                Modifier.fillMaxSize().padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text("PRESETS", style = MaterialTheme.typography.labelMedium)
-                presetList(Modifier.weight(1f), null)
-            }
-        }
-    }
-    val editorPane: @Composable (Modifier, (@Composable () -> Unit)?) -> Unit = { modifier, presetSelector ->
+    val editorPane: @Composable (Modifier) -> Unit = { modifier ->
         val applied = when (val t = target) {
             is EditorTarget.Saved -> snapshot.botSavedPresetId == t.presetId
             is EditorTarget.BuiltIn ->
@@ -482,45 +413,128 @@ fun BotsScreen() {
                 }
             },
             onWorking = { working = it },
-            presetSelector = presetSelector,
             modifier = modifier,
         )
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= 600.dp
-        when {
-            wide -> Row(
-                Modifier.fillMaxSize().padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                presetsPane(Modifier.weight(0.9f).fillMaxHeight())
-                editorPane(Modifier.weight(1.7f).fillMaxHeight(), null)
-            }
-            else -> Column(
-                // No outer verticalScroll: the editor scrolls internally, and a
-                // scrollable parent would hand the preset sheet's LazyColumn an
-                // infinite height constraint (crash on narrow screens).
-                Modifier.fillMaxSize().padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                editorPane(Modifier.weight(1f).fillMaxWidth()) {
-                    PresetSelectorBar(label = titleFor(target, working)) { presetSheetOpen = true }
+    val appliedBuiltinId = snapshot.botProfileId.takeIf { snapshot.botSavedPresetId == null }
+    val inUseName = currentSavedPreset?.name
+        ?: BotProfiles.find(snapshot.botProfileId)?.displayName
+        ?: BotProfiles.defaultProfile.displayName
+    var customizing by rememberSaveable { mutableStateOf(false) }
+
+    fun useBuiltIn(profile: com.pocketrealm.bots.BotProfile) {
+        selectBuiltIn(profile)
+        scope.launch {
+            runCatching {
+                settings.update {
+                    it.copy(
+                        botProfileId = profile.id,
+                        botPopulationTarget = profile.selectedTarget,
+                        botSavedPresetId = null,
+                        botAdvancedEnabled = false,
+                        botAdvanced = BotAdvancedSettings.fromProfile(profile),
+                    )
                 }
-            }
+            }.onFailure { actionError = it.message ?: "The selection could not be applied" }
+        }
+    }
+    fun useSaved(preset: BotPresetStore.SavedPreset) {
+        selectSaved(preset)
+        scope.launch {
+            runCatching {
+                settings.update { it.copy(botSavedPresetId = preset.id, botAdvancedEnabled = false) }
+            }.onFailure { actionError = it.message ?: "The selection could not be applied" }
         }
     }
 
-    if (presetSheetOpen) {
-        PresetPickerSheet(onDismiss = { presetSheetOpen = false }) {
-            Column(
-                Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text("PRESETS", style = MaterialTheme.typography.labelMedium)
-                presetList(Modifier.heightIn(max = 420.dp)) { presetSheetOpen = false }
+    Column(
+        modifier.fillMaxWidth().testTag("bots-panel"),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            BotProfiles.experiencePresets.forEach { profile ->
+                PresetCard(
+                    profile = profile,
+                    recommended = profile == BotProfiles.defaultProfile,
+                    inUse = appliedBuiltinId == profile.id,
+                    onClick = { useBuiltIn(profile) },
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
             }
         }
+        Text(
+            if (running) "In use: $inUseName · changes apply when the realm next starts"
+            else "In use: $inUseName",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.testTag("bots-in-use"),
+        )
+        if (presets.isNotEmpty()) {
+            Text("My presets", style = MaterialTheme.typography.labelLarge)
+            presets.sortedWith(
+                compareByDescending<BotPresetStore.SavedPreset> { it.favorite }
+                    .thenBy { it.name.lowercase() },
+            ).forEach { preset ->
+                SavedPresetRow(
+                    preset = preset,
+                    selected = snapshot.botSavedPresetId == preset.id,
+                    onSelect = { useSaved(preset) },
+                    onToggleFavorite = { favorite ->
+                        scope.launch {
+                            runCatching { store.setFavorite(preset.id, favorite) }
+                                .onFailure { actionError = it.message ?: "Could not update the preset" }
+                        }
+                    },
+                    onRename = {
+                        nameRequest = NameRequest("Rename preset", preset.name) { name ->
+                            scope.launch {
+                                runCatching { store.rename(preset.id, name.trim()) }
+                                    .onFailure { actionError = it.message ?: "Could not rename the preset" }
+                            }
+                        }
+                    },
+                    onDuplicate = {
+                        nameRequest = NameRequest("Duplicate “${preset.name}”", "${preset.name} copy") { name ->
+                            scope.launch {
+                                runCatching { store.duplicate(preset.id, name.trim()) }
+                                    .onFailure { actionError = it.message ?: "Could not duplicate the preset" }
+                            }
+                        }
+                    },
+                    onExport = {
+                        pendingExportId = preset.id
+                        exportLauncher.launch("${preset.name}.botpreset.json")
+                    },
+                    onDelete = { deleteRequest = preset.id },
+                )
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedButton(
+                onClick = { customizing = !customizing },
+                modifier = Modifier.testTag("bots-customize"),
+            ) { Text(if (customizing) "Hide settings" else "Customize") }
+            OutlinedButton(
+                onClick = { startNewDraft(); customizing = true },
+                modifier = Modifier.testTag("preset-new"),
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Text(" New preset")
+            }
+            TextButton(
+                onClick = { importLauncher.launch(arrayOf("application/json", "text/*")) },
+                modifier = Modifier.testTag("preset-import"),
+            ) { Text("Import") }
+        }
+        if (customizing) editorPane(Modifier.fillMaxWidth())
     }
 
     nameRequest?.let { request ->
@@ -621,127 +635,6 @@ private fun targetIsStale(
     EditorTarget.NewDraft, null -> false
 }
 
-// ---------------------------------------------------------------------
-// Presets list (rail on wide screens, bottom sheet on narrow ones)
-// ---------------------------------------------------------------------
-
-@Composable
-private fun PresetList(
-    presets: List<BotPresetStore.SavedPreset>,
-    selectedSavedId: String?,
-    selectedBuiltinId: String?,
-    search: String,
-    onSearch: (String) -> Unit,
-    onSelectBuiltIn: (com.pocketrealm.bots.BotProfile) -> Unit,
-    onSelectSaved: (BotPresetStore.SavedPreset) -> Unit,
-    onNew: () -> Unit,
-    onImport: () -> Unit,
-    onExport: (BotPresetStore.SavedPreset) -> Unit,
-    onToggleFavorite: (String, Boolean) -> Unit,
-    onDuplicate: (String) -> Unit,
-    onRename: (String) -> Unit,
-    onDelete: (String) -> Unit,
-    listModifier: Modifier = Modifier,
-) {
-    // Memoized outside the LazyColumn scope: remember() is @Composable and
-    // cannot run inside the LazyListScope DSL below.
-    val visible = remember(presets, search) {
-        presets
-            .filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
-            .sortedWith(compareByDescending<BotPresetStore.SavedPreset> { it.favorite }.thenBy { it.name.lowercase() })
-    }
-    LazyColumn(listModifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        item {
-            Text("Recommended", style = MaterialTheme.typography.labelSmall)
-            PresetChip(
-                label = "★ ${BotProfiles.ALIVE_REALM_320.displayName}",
-                summary = BotProfiles.ALIVE_REALM_320.summary,
-                selected = selectedBuiltinId == BotProfiles.ALIVE_REALM_320.id,
-                tag = "preset-builtin-320",
-                onClick = { onSelectBuiltIn(BotProfiles.ALIVE_REALM_320) },
-            )
-        }
-        item {
-            Text("Built-in", style = MaterialTheme.typography.labelSmall)
-        }
-        items(BotProfiles.experiencePresets.filter { it != BotProfiles.ALIVE_REALM_320 }, key = { it.id }) { preset ->
-            PresetChip(
-                label = preset.displayName,
-                summary = preset.summary,
-                selected = selectedBuiltinId == preset.id,
-                tag = "preset-builtin-${preset.id}",
-                onClick = { onSelectBuiltIn(preset) },
-            )
-        }
-        items(BotProfiles.legacySelectablePresets, key = { it.id }) { preset ->
-            PresetChip(
-                label = preset.displayName,
-                summary = "Retained legacy profile; custom presets can exceed 700.",
-                selected = selectedBuiltinId == preset.id,
-                tag = "preset-builtin-${preset.id}",
-                onClick = { onSelectBuiltIn(preset) },
-            )
-        }
-        if (presets.isNotEmpty()) {
-            item {
-                HorizontalDivider(Modifier.padding(vertical = 6.dp))
-                Text("My presets", style = MaterialTheme.typography.labelSmall)
-                if (presets.size > 6) {
-                    OutlinedTextField(
-                        value = search,
-                        onValueChange = onSearch,
-                        singleLine = true,
-                        label = { Text("Search") },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                            .testTag("preset-search"),
-                    )
-                }
-            }
-        }
-        items(visible, key = { it.id }) { preset ->
-            SavedPresetRow(
-                preset = preset,
-                selected = selectedSavedId == preset.id,
-                onSelect = { onSelectSaved(preset) },
-                onToggleFavorite = { onToggleFavorite(preset.id, it) },
-                onRename = { onRename(preset.id) },
-                onDuplicate = { onDuplicate(preset.id) },
-                onExport = { onExport(preset) },
-                onDelete = { onDelete(preset.id) },
-            )
-        }
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedButton(
-                    onClick = onNew,
-                    modifier = Modifier.weight(1f).testTag("preset-new"),
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                    Text("  New")
-                }
-                OutlinedButton(
-                    onClick = onImport,
-                    modifier = Modifier.weight(1f).testTag("preset-import"),
-                ) { Text("Import") }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PresetPickerSheet(
-    onDismiss: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        content()
-    }
-}
-
 @Composable
 private fun SavedPresetRow(
     preset: BotPresetStore.SavedPreset,
@@ -790,7 +683,6 @@ private fun SavedPresetRow(
                 )
                 Text(
                     "${preset.configuration.selectedTarget} bots · " +
-                        "revision ${preset.revision.revision} · " +
                         "${preset.configuration.activeBotPercent}% active",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -826,19 +718,45 @@ private fun SavedPresetRow(
 }
 
 @Composable
-private fun PresetChip(
-    label: String,
-    summary: String,
-    selected: Boolean,
-    tag: String,
+private fun PresetCard(
+    profile: com.pocketrealm.bots.BotProfile,
+    recommended: Boolean,
+    inUse: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    FilterChip(
-        selected = selected,
+    Surface(
         onClick = onClick,
-        label = { Text(label) },
-        modifier = Modifier.fillMaxWidth().testTag(tag),
-    )
+        shape = MaterialTheme.shapes.medium,
+        color = if (inUse) MaterialTheme.colorScheme.secondaryContainer
+        else MaterialTheme.colorScheme.surfaceVariant,
+        modifier = modifier.testTag("preset-builtin-${profile.id}"),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                profile.displayName.substringBefore(" · "),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                "${profile.selectedTarget} bots",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                profile.summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (inUse || recommended) {
+                Text(
+                    if (inUse) "In use" else "Recommended",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -859,11 +777,10 @@ private fun EditorPane(
     onSave: () -> Unit,
     onReset: () -> Unit,
     onWorking: (BotCustomConfiguration) -> Unit,
-    presetSelector: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Card(modifier = modifier.testTag("bots-config-pane")) {
-        Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxWidth()) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -883,7 +800,6 @@ private fun EditorPane(
                     )
                 }
             }
-            presetSelector?.invoke()
             SectionTabs(section, onSection)
             // key(section) disposes the previous tab's scroll state so each
             // section starts at the top and its scroll position is saved.
@@ -896,29 +812,10 @@ private fun EditorPane(
                     savedPreset = savedPreset,
                     applied = applied,
                     onWorking = onWorking,
-                    modifier = Modifier.weight(1f),
                 )
             }
             EditorActionBar(target, dirty, onApply, onSave, onReset)
         }
-    }
-}
-
-@Composable
-private fun PresetSelectorBar(label: String, onOpen: () -> Unit) {
-    OutlinedButton(
-        onClick = onOpen,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)
-            .testTag("bots-preset-selector"),
-    ) {
-        Text(
-            "Preset: $label",
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Text("Change", style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -954,7 +851,7 @@ private fun SectionContent(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
+        modifier.fillMaxWidth().padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         when (section) {
@@ -972,8 +869,7 @@ private fun SectionContent(
                 NearbySection(working, onWorking)
                 AdvancedDisclosure(
                     title = "Advanced tuning",
-                    support = "Startup pacing, teleport limits, the account pool and the " +
-                        "adaptive load-shedding floors. The defaults suit every normal realm.",
+                    support = "Startup pacing, teleport limits, accounts and load limits.",
                     tag = "bots-population-advanced",
                 ) {
                     PopulationAdvancedSection(working, onWorking)
@@ -987,14 +883,11 @@ private fun SectionContent(
                 LevelingSection(working, onWorking)
                 AdvancedDisclosure(
                     title = "Advanced tuning",
-                    support = "Login lifecycle and the rerandomize cadence for background bots.",
+                    support = "Login and re-roll timing for distant bots.",
                     tag = "bots-behaviour-advanced",
                 ) {
                     BehaviourAdvancedSection(working, onWorking)
                 }
-            }
-            EditorSection.AI -> {
-                AiSection(working, onWorking)
             }
         }
     }
@@ -1056,14 +949,14 @@ private fun BasicsContent(
     )
     if (target != null && !applied) {
         Text(
-            "Preview — press Apply before starting the realm to use this configuration",
+            "Not in use yet. Press Apply to use it.",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.tertiary,
             modifier = Modifier.testTag("result-not-applied"),
         )
     }
     Text(
-        "~${working.estimatedActiveBots()} normally active · human groups highest priority",
+        "About ${working.estimatedActiveBots()} active at a time; bots near you always are",
         style = MaterialTheme.typography.bodySmall,
     )
     HorizontalDivider()
@@ -1083,14 +976,6 @@ private fun BasicsContent(
             "${working.accountCount * BotPopulationPolicy.CHARACTERS_PER_BOT_ACCOUNT})",
     )
     ResultRow("Adaptive", "On · p99 ${working.admission.maxWorldP99Ms} ms floor")
-    if (running) {
-        HorizontalDivider()
-        Text(
-            "Realm is running — a changed configuration applies on the next start. The running realm keeps its launch snapshot.",
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.testTag("result-running-note"),
-        )
-    }
     savedPreset?.let {
         Text(
             "Selected preset: ${it.name} · revision ${it.revision.revision}",
@@ -1130,11 +1015,7 @@ private fun BasicsContent(
 
     SectionHeader("ACTIVITY")
     Text(
-        "Activity controls how much CPU the bot AI spends thinking, not how bots " +
-            "behave: the AI update interval, the work per wake, and the share of " +
-            "background bots kept fully active. Smart is the most responsive and " +
-            "uses the most battery; Light suits cooler, longer sessions. Bots near " +
-            "you or in your group are always fully active regardless of this setting.",
+        "How often the bot AI thinks. Bots near you or in your group are always fully active.",
         style = MaterialTheme.typography.bodySmall,
     )
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1166,13 +1047,8 @@ private fun BasicsContent(
 
     SectionHeader("PLAYSTYLE")
     Text(
-        "Playstyle controls how random bots behave around you and each other: " +
-            "whether they quest and level on their own, form their own groups, wander " +
-            "when idle, use off-spec talent strategies, talk without a player present, " +
-            "invite you to groups, and match their level to nearby players. It does not " +
-            "change combat roles (tank/heal/damage) — LAN Co-op here means group-ready " +
-            "behaviour for several humans, not networking. Individual switches for every " +
-            "one of these behaviours live in the Behaviour tab.",
+        "How bots behave around you: questing, grouping, wandering and inviting. " +
+            "The Behaviour tab has a switch for each.",
         style = MaterialTheme.typography.bodySmall,
     )
     // Exclusive selection: the first matching non-custom preset wins, so
@@ -1201,13 +1077,6 @@ private fun BasicsContent(
             modifier = Modifier.fillMaxWidth().testTag("playstyle-custom"),
         )
     }
-
-    Text(
-        "Every advanced tunable lives in the Population and Behaviour tabs behind " +
-            "their Advanced tuning switches, and per-preset AI speech lives in the AI " +
-            "tab; switching tabs never changes values.",
-        style = MaterialTheme.typography.bodySmall,
-    )
 }
 
 @Composable
@@ -1409,9 +1278,11 @@ private fun TemperamentSection(
         SwitchRow("Limit background combat work", working.limitCombatActivity, "bots-limit-combat") { value ->
             onWorking(working.copy(limitCombatActivity = value))
         }
+        SwitchRow("Bots speak on their own", working.allowBotChat, "bots-chat") { value ->
+            onWorking(working.copy(allowBotChat = value))
+        }
         Text(
-            "Whether bots may start conversations on their own is on the AI tab; " +
-                "login lifecycle is behind this tab's Advanced tuning switch.",
+            "Speaking on their own lets bots chat without being spoken to.",
             style = MaterialTheme.typography.bodySmall,
         )
     }
@@ -1472,300 +1343,6 @@ private fun LevelingSection(
         Stepper("Max-level bot chance (%)", (working.randomBotMaxLevelChance * 100).roundToInt(), 0..100, step = 5) { value ->
             onWorking(working.copy(randomBotMaxLevelChance = value / 100f))
         }
-    }
-}
-
-/** AI-tab reply-length chip values; 0 = the model's tuned default. */
-@Suppress("MagicNumber")
-private val AI_REPLY_TOKEN_CHOICES = listOf(0, 48, 96, 150, 200, 300)
-
-/** AI-tab bot-to-bot chip values paired with labels; -1 = model default. */
-@Suppress("MagicNumber")
-private val AI_BOT_TO_BOT_CHOICES = listOf(
-    -1 to "Model default",
-    0 to "Off",
-    5 to "Low",
-    10 to "Medium",
-    20 to "Chatty",
-)
-
-@Composable
-private fun AiSection(
-    working: BotCustomConfiguration,
-    onWorking: (BotCustomConfiguration) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionHeader("AI SPEECH - THIS PRESET")
-        Text(
-            "Per-preset overrides for the playerbot LLM. The engine, the model and " +
-                "the global switches live in Settings → AI bot LLM; every value here " +
-                "follows that model's tuned profile until you change it, and is " +
-                "written into this preset's bot conf at the next realm start.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        SwitchRow("Bots speak on their own", working.allowBotChat, "bots-chat") { value ->
-            onWorking(working.copy(allowBotChat = value))
-        }
-        Text(
-            "Lets bots start conversations without a player addressing them " +
-                "(requires the AI bot LLM feature to be enabled).",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        AiReplyLengthControls(working, onWorking)
-        AiBotToBotControls(working, onWorking)
-        AiMemoryControls(working, onWorking)
-        AiPackDeltasControls(working, onWorking)
-        AiRpDialsControls(working, onWorking)
-    }
-}
-
-/** AI-tab RP dial chip values; -1 = follow the global default (50). */
-@Suppress("MagicNumber")
-private val AI_RP_DIAL_CHOICES = listOf(-1, 0, 25, 50, 75, 100)
-
-private fun aiRpDialLabel(value: Int): String =
-    if (value < 0) "Default" else "$value"
-
-@Composable
-private fun AiPackDeltasControls(
-    working: BotCustomConfiguration,
-    onWorking: (BotCustomConfiguration) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionHeader("ROLEPLAY SEASONING — THIS PRESET")
-        Text(
-            "Per-block overrides for the prompt pack. On follows the block, " +
-                "Off silences it for this preset, Default follows the global " +
-                "pack from Settings → AI bot LLM. Applies at the next realm start.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        BotLlmSpeech.PACK_DELTA_IDS.sorted().forEach { id ->
-            val state = working.llmSpeech.packDeltas[id]
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    id,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                FilterChip(
-                    selected = state == true,
-                    onClick = {
-                        val next = working.llmSpeech.packDeltas.toMutableMap()
-                        next[id] = true
-                        onWorking(working.copy(llmSpeech = working.llmSpeech.copy(packDeltas = next)))
-                    },
-                    label = { Text("On") },
-                    modifier = Modifier.testTag("bots-rp-pack-$id-on"),
-                )
-                FilterChip(
-                    selected = state == false,
-                    onClick = {
-                        val next = working.llmSpeech.packDeltas.toMutableMap()
-                        next[id] = false
-                        onWorking(working.copy(llmSpeech = working.llmSpeech.copy(packDeltas = next)))
-                    },
-                    label = { Text("Off") },
-                    modifier = Modifier.testTag("bots-rp-pack-$id-off"),
-                )
-                FilterChip(
-                    selected = state == null,
-                    onClick = {
-                        val next = working.llmSpeech.packDeltas.toMutableMap()
-                        next.remove(id)
-                        onWorking(working.copy(llmSpeech = working.llmSpeech.copy(packDeltas = next)))
-                    },
-                    label = { Text("Default") },
-                    modifier = Modifier.testTag("bots-rp-pack-$id-default"),
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun AiRpDialsControls(
-    working: BotCustomConfiguration,
-    onWorking: (BotCustomConfiguration) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionHeader("ROLEPLAY DIALS — THIS PRESET")
-        Text(
-            "How this preset's bots carry themselves. Default (50) follows " +
-                "the global behavior; 0 minimizes the trait, 100 maximizes " +
-                "it. These dials are live: each rides this preset's conf " +
-                "block (the LLMRp dial keys) and changes bot behavior at " +
-                "the next realm start.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        AiRpDialRow("Initiative — opens conversation", working.llmSpeech.initiative, "bots-rp-initiative") { value ->
-            onWorking(working.copy(llmSpeech = working.llmSpeech.copy(initiative = value)))
-        }
-        AiRpDialRow("Volatility — mood shifts", working.llmSpeech.volatility, "bots-rp-volatility") { value ->
-            onWorking(working.copy(llmSpeech = working.llmSpeech.copy(volatility = value)))
-        }
-        AiRpDialRow("Reactivity — event eagerness", working.llmSpeech.reactivity, "bots-rp-reactivity") { value ->
-            onWorking(working.copy(llmSpeech = working.llmSpeech.copy(reactivity = value)))
-        }
-        AiRpDialRow("Long-form — taste for long tellings", working.llmSpeech.longForm, "bots-rp-longform") { value ->
-            onWorking(working.copy(llmSpeech = working.llmSpeech.copy(longForm = value)))
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun AiRpDialRow(
-    label: String,
-    value: Int,
-    tag: String,
-    onChange: (Int) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("$label — current: ${aiRpDialLabel(value)}", style = MaterialTheme.typography.bodyMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            AI_RP_DIAL_CHOICES.forEach { choice ->
-                FilterChip(
-                    selected = value == choice,
-                    onClick = { onChange(BotLlmSpeech.normalizeDial(choice)) },
-                    label = { Text(aiRpDialLabel(choice)) },
-                    modifier = Modifier.testTag("$tag-$choice"),
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun AiReplyLengthControls(
-    working: BotCustomConfiguration,
-    onWorking: (BotCustomConfiguration) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionHeader("REPLY LENGTH")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            AI_REPLY_TOKEN_CHOICES.forEach { tokens ->
-                FilterChip(
-                    selected = working.llmSpeech.replyTokens == tokens,
-                    onClick = {
-                        onWorking(
-                            working.copy(
-                                llmSpeech = working.llmSpeech.copy(
-                                    replyTokens = if (tokens == 0) 0
-                                    else tokens.coerceIn(
-                                        BotLlmSpeech.MIN_REPLY_TOKENS,
-                                        BotLlmSpeech.MAX_REPLY_TOKENS,
-                                    ),
-                                ),
-                            ),
-                        )
-                    },
-                    label = { Text(if (tokens == 0) "Model default" else "$tokens") },
-                    modifier = Modifier.testTag("bots-llm-reply-$tokens"),
-                )
-            }
-        }
-        Text(
-            "Caps every reply in tokens. Shorter keeps chat snappy; longer suits " +
-                "storytelling. The model default is tuned per model.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun AiBotToBotControls(
-    working: BotCustomConfiguration,
-    onWorking: (BotCustomConfiguration) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionHeader("BOT-TO-BOT CHAT")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            AI_BOT_TO_BOT_CHOICES.forEach { (chance, label) ->
-                FilterChip(
-                    selected = working.llmSpeech.botToBotChatChance == chance,
-                    onClick = {
-                        onWorking(
-                            working.copy(llmSpeech = working.llmSpeech.copy(botToBotChatChance = chance)),
-                        )
-                    },
-                    label = { Text(label) },
-                    modifier = Modifier.testTag("bots-llm-b2b-$chance"),
-                )
-            }
-        }
-        Text(
-            "How often nearby bots strike up conversations with each other when you " +
-                "walk up. Medium is the tuned default for the full models.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
-}
-
-@Composable
-private fun AiMemoryControls(
-    working: BotCustomConfiguration,
-    onWorking: (BotCustomConfiguration) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionHeader("MEMORY")
-        Stepper(
-            "Memory facts cap",
-            working.llmSpeech.factsCap,
-            0..BotLlmSpeech.MAX_FACTS_CAP,
-            step = 2,
-        ) { value ->
-            // Below-floor positives route by direction (see
-            // BotLlmSpeech.routeStepper): up from 0 snaps to the floor,
-            // down into the gap lands on 0 - both buttons stay live.
-            onWorking(
-                working.copy(
-                    llmSpeech = BotLlmSpeech.normalize(
-                        replyTokens = working.llmSpeech.replyTokens,
-                        botToBotChatChance = working.llmSpeech.botToBotChatChance,
-                        factsCap = BotLlmSpeech.routeStepper(
-                            value, working.llmSpeech.factsCap, BotLlmSpeech.MIN_FACTS_CAP,
-                        ),
-                        memoriesTail = working.llmSpeech.memoriesTail,
-                        packDeltas = working.llmSpeech.packDeltas,
-                        initiative = working.llmSpeech.initiative,
-                        volatility = working.llmSpeech.volatility,
-                        reactivity = working.llmSpeech.reactivity,
-                        longForm = working.llmSpeech.longForm,
-                    ),
-                ),
-            )
-        }
-        Stepper(
-            "Memories carried into prompts",
-            working.llmSpeech.memoriesTail,
-            0..BotLlmSpeech.MAX_MEMORIES_TAIL,
-        ) { value ->
-            onWorking(
-                working.copy(
-                    llmSpeech = BotLlmSpeech.normalize(
-                        replyTokens = working.llmSpeech.replyTokens,
-                        botToBotChatChance = working.llmSpeech.botToBotChatChance,
-                        factsCap = working.llmSpeech.factsCap,
-                        memoriesTail = BotLlmSpeech.routeStepper(
-                            value, working.llmSpeech.memoriesTail, BotLlmSpeech.MIN_MEMORIES_TAIL,
-                        ),
-                        packDeltas = working.llmSpeech.packDeltas,
-                        initiative = working.llmSpeech.initiative,
-                        volatility = working.llmSpeech.volatility,
-                        reactivity = working.llmSpeech.reactivity,
-                        longForm = working.llmSpeech.longForm,
-                    ),
-                ),
-            )
-        }
-        Text(
-            "0 follows the model's tuned depth. More facts and memories make bots " +
-                "remember further back at the cost of prompt space.",
-            style = MaterialTheme.typography.bodySmall,
-        )
     }
 }
 
@@ -1886,10 +1463,8 @@ private fun CustomPopulationEditor(
             isError = error != null,
             supportingText = {
                 Text(
-                    error ?: "Valid range ${BotPopulationPolicy.MIN_CUSTOM_TARGET}.." +
-                        "${BotPopulationPolicy.MAX_SUPPORTED_TARGET}; " +
-                        "${BotPopulationPolicy.allocatedAccounts(working.selectedTarget)} accounts " +
-                        "auto-provisioned",
+                    error ?: "${BotPopulationPolicy.MIN_CUSTOM_TARGET} to " +
+                        "${BotPopulationPolicy.MAX_SUPPORTED_TARGET} bots",
                 )
             },
             singleLine = true,

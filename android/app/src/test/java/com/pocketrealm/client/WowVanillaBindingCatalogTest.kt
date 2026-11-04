@@ -56,7 +56,7 @@ class WowVanillaBindingCatalogTest {
             WowBindingCategory.MULTI_ACTION_BARS to 48,
             WowBindingCategory.RAID_MARKERS to 9,
         )
-        // G3-10: the shared enum may APPEND per-flavor categories (the
+        // the shared enum may APPEND per-flavor categories (the
         // wotlk totem-bar/vehicle entries) after the vanilla set, so this
         // pins the vanilla catalog's categories exactly — every vanilla
         // category exists with its pinned count, and any appended category

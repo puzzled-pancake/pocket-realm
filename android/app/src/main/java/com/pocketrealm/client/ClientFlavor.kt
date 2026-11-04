@@ -6,16 +6,13 @@ package com.pocketrealm.client
  * This registry mirrors `schemas/flavor.json` (schema 2). Every client-identity
  * gate — import scanners, managed stores, runtime authorization — must resolve
  * through [ClientFlavors] instead of comparing against a hard-coded id, so that
- * qualifying a new flavor (stage S5) is a data change here, not a
- * code sweep.
+ * adding a new flavor is a data change here, not a code sweep.
  *
  * A flavor with [ClientFlavor.qualified] == false is declared but disabled:
- * its data is informational, import rejects it, and no runtime lane may
- * authorize it. All three lanes are qualified since the flip (owner
- * default, completion-plan §4 W4.4 / decision D86): with several qualified
- * flavors an ABSENT active selection refuses loud
- * ([com.pocketrealm.client.ActiveFlavorState.resolve]) — the Home flavor
- * cards own the first pick, and the pick persists in settings.
+ * its data is informational, import rejects it, and no runtime route may
+ * authorize it. With several supported flavors, an ABSENT active selection
+ * refuses loud ([com.pocketrealm.client.ActiveFlavorState.resolve]) — the
+ * Home flavor cards own the first pick, and the pick persists in settings.
  */
 data class ClientFlavor(
     /** Flavor slug matching schemas/flavor.json: "vanilla", "tbc", "wotlk". */
@@ -83,47 +80,27 @@ data class ClientFlavor(
     /**
      * Correction C7: whether the shipped client image is large-address-aware.
      * Vanilla false (the LAA tweak patch exists because the 5875 exe is not),
-     * WotLK false (register §0 C7: 3.3.5a is NOT LAA — 2 GB VA), TBC false
+     * WotLK false (register C7: 3.3.5a is NOT LAA — 2 GB VA), TBC false
      * (measured at S5.1 from the staged 8606 exe's PE characteristics — no
      * 0x0020 LAA bit).
      */
     val largeAddressAware: Boolean?,
     /**
-     * W3.2 (D15(5) retirement): the lore-corpus asset this flavor's LLM lane
-     * loads — the manifest's `llm.lore_cards` binding. The decision
-     * binds every flavor to the ONE shared corpus asset (no per-flavor
-     * jsonl); the per-flavor era filtering is the native load-time lint
-     * against the active stage's ban lists (PlayerbotLlmTruthCore
-     * EraLintCards), so the FILE name is shared while the FILTER is
-     * flavor-routed. ServerRuntimeFiles resolves its staged-file name
-     * through this field instead of a duplicated const.
-     */
-    val loreCardsFile: String,
-    /**
-     * W3.2: the prompt-pack identity line's world title per flavor (the
-     * manifest's `llm.prompt_identity`): "World of Warcraft: Classic" /
-     * "…: The Burning Crusade" / "…: Wrath of the Lich King". Consumed by
-     * the LlmPromptPack editor preview and (via the generated
-     * ExpansionTitleFor selector) the native trained renderer; the vanilla
-     * output stays byte-identical (trained-output freeze).
-     */
-    val promptIdentity: String,
-    /**
-     * W3.6 (D15(4) retirement): the graphics routes the flavor's client is
-     * validated for — the manifest's `wine.graphics_routes`. Vanilla ships
-     * the DXVK + Legacy OpenGL (Gladio) + Mesa VirGL lanes; tbc/wotlk ship
-     * DXVK ONLY (decision D3: the GL lanes are validated against vanilla's
-     * GL usage, never the later clients' D3D9). Consumed by
+     * The graphics routes the flavor's client is validated for — the
+     * manifest's `wine.graphics_routes`. Vanilla ships the DXVK + Legacy
+     * OpenGL (Gladio) + Mesa VirGL routes; tbc/wotlk ship DXVK ONLY (the
+     * GL routes are validated against vanilla's GL usage, never the later
+     * clients' D3D9). Consumed by
      * ClientRuntimeContract.requireFlavorGraphicsRoute at the prepare gate
-     * with the honest per-flavor refusal copy.
+     * with the per-flavor refusal copy.
      */
     val graphicsRoutes: Set<String>,
     /**
-     * W3.6: whether the vanilla-tweaks feature set is available for the
-     * flavor — the manifest's `wine.vanilla_tweaks` (true for the 1.12.1
-     * lane, false for tbc/wotlk; the tweak set is validated against the
-     * 1.12.1 client only). Surfaces render the honest "not available for
-     * this flavor" copy from ClientRuntimeContract.flavorTweaksCopy.
+     * Whether the vanilla-tweaks feature set is available for the flavor —
+     * the manifest's `wine.vanilla_tweaks` (true for the 1.12.1 client,
+     * false for tbc/wotlk; the tweak set is validated against the 1.12.1
+     * client only). Surfaces render the "not available for this game
+     * version" copy from ClientRuntimeContract.flavorTweaksCopy.
      */
     val vanillaTweaksEnabled: Boolean,
 ) {
@@ -137,7 +114,7 @@ data class ClientFlavor(
     val isQualified: Boolean get() = qualified
 
     /**
-     * F1-10 (lanes item 12): the account-side expansion level the core's
+     * the account-side expansion level the core's
      * `account set addon` console verb writes — the `account.expansion`
      * column value the core's expansion gating reads per account row
      * (0 = classic, 1 = tbc, 2 = wotlk). Resolved from [serverFamily]
@@ -155,7 +132,7 @@ data class ClientFlavor(
 }
 
 object ClientFlavors {
-    /** Vanilla 1.12.1 build 5875 — the shipped, fully qualified lane. */
+    /** Vanilla 1.12.1 build 5875 — the shipped, fully supported version. */
     val VANILLA: ClientFlavor = ClientFlavor(
         flavorId = "vanilla",
         serverFamily = "classic",
@@ -189,19 +166,13 @@ object ClientFlavors {
         knownExeMd5 = null,
         knownExeSizeBytes = 4775986L,
         largeAddressAware = false,
-        loreCardsFile = "lore_cards_v112.jsonl",
-        promptIdentity = "World of Warcraft: Classic",
         graphicsRoutes = setOf("dxvk", "opengl", "virgl"),
         vanillaTweaksEnabled = true,
     )
 
     /**
-     * TBC 2.4.3 build 8606 — qualified at the W4 flip (owner default,
-     * completion-plan §4 W4.4 / decision D86). GATED: the flip commits only
-     * when the W4.1 desktop end-to-end, the W4.2 3×3 auth matrix, and the
-     * W4.3 friend-arc evidence are green (D86's flip-gate paragraph).
-     * Storage budgets are the measured values (the manifest's
-     * storage.note carries the measurement provenance).
+     * TBC 2.4.3 build 8606 — supported. Storage budgets are the measured values
+     * (the manifest's storage.note carries the measurement provenance).
      */
     val TBC: ClientFlavor = ClientFlavor(
         flavorId = "tbc",
@@ -238,19 +209,13 @@ object ClientFlavors {
         knownExeMd5 = "57c5c03097103e15f9abe2803aebdc3c",
         knownExeSizeBytes = 8272528L,
         largeAddressAware = false,
-        loreCardsFile = "lore_cards_v112.jsonl",
-        promptIdentity = "World of Warcraft: The Burning Crusade",
         graphicsRoutes = setOf("dxvk"),
         vanillaTweaksEnabled = false,
     )
 
     /**
-     * WotLK 3.3.5a build 12340 — qualified at the W4 flip (owner default,
-     * completion-plan §4 W4.4 / decision D86). GATED: the flip commits only
-     * when the W4.1 desktop end-to-end, the W4.2 3×3 auth matrix, and the
-     * W4.3 friend-arc evidence are green (D86's flip-gate paragraph).
-     * Storage budgets are the measured values (the manifest's
-     * storage.note carries the measurement provenance).
+     * WotLK 3.3.5a build 12340 — supported. Storage budgets are the measured values
+     * (the manifest's storage.note carries the measurement provenance).
      */
     val WOTLK: ClientFlavor = ClientFlavor(
         flavorId = "wotlk",
@@ -295,8 +260,6 @@ object ClientFlavors {
         knownExeMd5 = "45892bdedd0ad70aed4ccd22d9fb5984",
         knownExeSizeBytes = 7704216L,
         largeAddressAware = false,
-        loreCardsFile = "lore_cards_v112.jsonl",
-        promptIdentity = "World of Warcraft: Wrath of the Lich King",
         graphicsRoutes = setOf("dxvk"),
         vanillaTweaksEnabled = false,
     )
@@ -304,7 +267,7 @@ object ClientFlavors {
     val ALL: List<ClientFlavor> = listOf(VANILLA, TBC, WOTLK)
 
     /**
-     * Correction C3 (register §0): `SMSG_AUTH_CHALLENGE` = 0x1EC in ALL THREE
+     * Correction C3 (register): `SMSG_AUTH_CHALLENGE` = 0x1EC in ALL THREE
      * branches — ONE shared constant, never per-flavor. The wire harnesses
      * (desktop RpWowClient, rp_harness probes) assert this value and fail
      * loud on any other; per-branch SRP6 frame LAYOUTS are the per-flavor
@@ -337,7 +300,23 @@ object ClientFlavors {
     fun isManagedClientId(clientId: String?): Boolean =
         clientId != null && byClientId(clientId)?.qualified == true
 
-    /** Qualified flavor matching a PE version resource, or null (import rejection). */
+    /** Qualified flavor matching a PE version resource, or null (import
+     * rejection). Besides the exact resource, a sibling build of the same
+     * major.minor line that the flavor's realm accepts (vanilla 1.12.2
+     * build 6005, 1.12.3 build 6141) resolves to that flavor. */
     fun qualifiedByVersionResource(version: String): ClientFlavor? =
-        byVersionResource(version)?.takeIf { it.qualified }
+        byVersionResource(version)?.takeIf { it.qualified } ?: acceptedSiblingBuild(version)
+
+    private fun acceptedSiblingBuild(version: String): ClientFlavor? {
+        val parts = version.split('.')
+        val build = parts.getOrNull(VERSION_BUILD_INDEX)?.toIntOrNull() ?: return null
+        if (parts.size != VERSION_PARTS) return null
+        return qualified().firstOrNull { flavor ->
+            flavor.versionResource.split('.').take(2) == parts.take(2) &&
+                build.toString() in flavor.realmdAcceptedBuilds.split(' ')
+        }
+    }
+
+    private const val VERSION_PARTS = 4
+    private const val VERSION_BUILD_INDEX = 3
 }

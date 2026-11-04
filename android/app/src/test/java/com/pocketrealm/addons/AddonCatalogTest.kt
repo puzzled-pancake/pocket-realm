@@ -12,7 +12,7 @@ class AddonCatalogTest {
             File("src/main/assets"),
             File("app/src/main/assets"),
             File("android/app/src/main/assets"),
-            // Desktop JVM lane (DESK-39): gradlew -p desktop runs from the
+            // Desktop JVM lane: gradlew -p desktop runs from the
             // desktop/ module, so the shared asset tree sits one level up.
             File("../android/app/src/main/assets"),
         ).first { it.isDirectory }

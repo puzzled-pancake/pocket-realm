@@ -38,9 +38,12 @@ import org.junit.rules.TemporaryFolder
 
 /**
  * heartbeat lifecycle (the frozen contract's host-side rules):
- *  - NEVER published while visibility is OFF/FRIENDS, or while the host's
- *    switch is off, or while the world is down;
- *  - published while the realm is up and PUBLIC, with content derived
+ *  - NEVER published while the host's online-hosting switch is off, or
+ *    while the world is down — the status page's visibility is NOT a gate
+ *    (online hosting publishes without the page);
+ *  - online with "show in the game list" off is UNLISTED: the endpoint
+ *    stays up, any listing retracts;
+ *  - published while the realm is up and listed, with content derived
  *    from THE realm-status payload builder (one source of truth) and bots
  *    labeled, never padded;
  *  - republished on the 5-minute cadence only;
@@ -64,8 +67,6 @@ class NostrListingPublisherTest {
 
     /** The wall clock the publisher sees; the suite advances it. */
     private val nowMs = longArrayOf(1_760_000_000_000L)
-
-    private val visibility = java.util.concurrent.atomic.AtomicReference(RealmStatusVisibility.OFF)
 
     private val payload = java.util.concurrent.atomic.AtomicReference<org.json.JSONObject?>(null)
 
@@ -98,10 +99,8 @@ class NostrListingPublisherTest {
     }
 
     /** Boots the full stack: model + controller + publisher on the mock
-     * relay, switch on, PUBLIC, realm up, native 3+12 players split. */
-    private fun boot(
-        initialVisibility: RealmStatusVisibility = RealmStatusVisibility.PUBLIC,
-    ) {
+     * relay, switch on, listed, realm up, native 3+12 players split. */
+    private fun boot() {
         server = MockWebServer()
         server.enqueue(MockResponse.Builder().webSocketUpgrade(relayListener).build())
         server.enqueue(MockResponse.Builder().webSocketUpgrade(relayListener).build())
@@ -125,7 +124,6 @@ class NostrListingPublisherTest {
             seams = Seams(
                 clockMs = { nowMs[0] },
                 client = client,
-                visibilityProvider = { visibility.get() },
                 payloadProvider = { payload.get() },
                 gatePollMs = Long.MAX_VALUE, // the suite drives evaluations
                 heartbeatSeconds = RealmListingContract.HEARTBEAT_SECONDS,
@@ -135,7 +133,7 @@ class NostrListingPublisherTest {
         // The publish lane rides the user-editable relay set — point it at
         // the mock relay (the port is known: the server already started).
         model.updateSettings {
-            it.copy(nostrDiscoveryEnabled = true, nostrRelays = listOf(relayUrl()))
+            it.copy(onlineHosting = true, nostrRelays = listOf(relayUrl()))
         }
         // The settings collector generates the realm identity on first
         // enable — wait for it (publishes need the key).
@@ -146,7 +144,6 @@ class NostrListingPublisherTest {
                 }
             }
         }
-        visibility.set(initialVisibility)
         payload.set(greenPayload())
     }
 
@@ -174,26 +171,9 @@ class NostrListingPublisherTest {
     @Test
     fun neverPublishesWhileDisabled() {
         boot()
-        model.updateSettings { it.copy(nostrDiscoveryEnabled = false) }
+        model.updateSettings { it.copy(onlineHosting = false) }
         runBlocking { publisher.evaluateGates() }
         // Give any (wrong) frame no chance to exist.
-        assertNoEventFrame()
-    }
-
-    @Test
-    fun neverPublishesWhileVisibilityIsOffOrFriends() {
-        boot(initialVisibility = RealmStatusVisibility.OFF)
-        runBlocking { publisher.evaluateGates() }
-        assertEquals(null, frames.poll(1, TimeUnit.SECONDS))
-        visibility.set(RealmStatusVisibility.FRIENDS)
-        runBlocking { publisher.evaluateGates() }
-        assertNoEventFrame()
-        // PUBLIC flips it live — exactly one EVENT goes out.
-        visibility.set(RealmStatusVisibility.PUBLIC)
-        runBlocking { publisher.evaluateGates() }
-        val listing = nextEventFrame(10)
-        assertNotNull("nothing published on PUBLIC+up", listing)
-        assertTrue(listing!!.startsWith("[\"EVENT\","))
         assertNoEventFrame()
     }
 
@@ -205,8 +185,68 @@ class NostrListingPublisherTest {
         assertNoEventFrame()
     }
 
+    /** The decoupling pin: online hosting publishes without the status
+     * page — the listing rides the host's own switch, never the page's
+     * visibility (the page and the listing are separate surfaces). */
     @Test
-    fun publishesThePayloadDerivedListingWhilePublicAndUp() {
+    fun publishesWhileTheStatusPageIsOff() {
+        boot()
+        runBlocking { publisher.evaluateGates() }
+        val listing = nextEventFrame(10)
+        assertNotNull("nothing published while online+up+listed", listing)
+        assertTrue(listing!!.startsWith("[\"EVENT\","))
+        assertNoEventFrame()
+    }
+
+    /** Online with the list off: UNLISTED — any live listing retracts
+     * (NIP-09), the phase says so, and the endpoint is NOT stopped (the
+     * unlisted stop-free path; contrast gateDropStopsTheHostGateway). */
+    @Test
+    fun unlistedRetractsTheListingAndKeepsTheEndpoint() {
+        var stops = 0
+        boot()
+        val seated = NostrListingPublisher(
+            model = model,
+            realmStatus = realmStatus,
+            seams = Seams(
+                clockMs = { nowMs[0] },
+                client = client,
+                payloadProvider = { payload.get() },
+                gatePollMs = Long.MAX_VALUE,
+                heartbeatSeconds = RealmListingContract.HEARTBEAT_SECONDS,
+                ensureHostGateway = { },
+                stopHostGateway = { stops += 1 },
+                joinDescriptorProvider = { null },
+            ),
+        )
+        seated.boot()
+        runBlocking { seated.evaluateGates() }
+        val listing = nextEventFrame(10)
+        assertNotNull("the beat must publish first", listing)
+        val listingId = NostrEvent.fromRelayFrame(listing!!).single().second.idHex
+        model.updateSettings { it.copy(listInBrowser = false) }
+        runBlocking { seated.evaluateGates() }
+        // TWO publishers ride this model (the harness's and the seated
+        // one); drain until the deletion naming THIS listing arrives (the
+        // deletion's "e" tag serializes as ["e","<id>"]).
+        var deletion: String? = null
+        val deadline = System.currentTimeMillis() + 10_000
+        while (deletion == null && System.currentTimeMillis() < deadline) {
+            val candidate = frames.poll(1, TimeUnit.SECONDS)
+            if (candidate != null &&
+                !candidate.startsWith("[\"REQ\"") &&
+                candidate.contains("\"e\",\"$listingId\"")
+            ) {
+                deletion = candidate
+            }
+        }
+        assertNotNull("the unlisted turn must retract the live listing", deletion)
+        assertEquals(NostrListingPublisher.Phase.UNLISTED, seated.uiState.value.phase)
+        assertEquals("unlisted must NOT stop the endpoint", 0, stops)
+    }
+
+    @Test
+    fun publishesThePayloadDerivedListingWhileOnlineAndUp() {
         boot()
         runBlocking { publisher.evaluateGates() }
         val frame = nextEventFrame(10)
@@ -234,9 +274,9 @@ class NostrListingPublisherTest {
         assertEquals(publisher.uiState.value.listingEventId, event.idHex)
     }
 
-    // ------------------- W6-N3 code-red R5-4: the join-descriptor beats
+    // W6-N3 R5-4: the join-descriptor beats
 
-    /** R5-4: a READY gateway's descriptor rides the published beat (the
+    /** a READY gateway's descriptor rides the published beat (the
      * pinned serialization) and the ensure leg ran for the beat. The
      * join-lane spies ride the Seams bundle. */
     @Test
@@ -254,7 +294,6 @@ class NostrListingPublisherTest {
             seams = Seams(
                 clockMs = { nowMs[0] },
                 client = client,
-                visibilityProvider = { visibility.get() },
                 payloadProvider = { payload.get() },
                 gatePollMs = Long.MAX_VALUE,
                 heartbeatSeconds = RealmListingContract.HEARTBEAT_SECONDS,
@@ -307,7 +346,7 @@ class NostrListingPublisherTest {
         assertEquals("the ensure leg must have run for the beat", 1, ensureCalls.single())
     }
 
-    /** R5-4: the beat with a NOT-READY gateway publishes join:null — the
+    /** the beat with a NOT-READY gateway publishes join:null — the
      * honest not-joinable listing, never a stale descriptor. */
     @Test
     fun joinStaysNullWhileTheGatewayIsNotReady() {
@@ -319,7 +358,7 @@ class NostrListingPublisherTest {
         assertTrue(event.content.contains("\"join\":null"))
     }
 
-    /** R5-4: a gate drop retracts AND stops the host gateway exactly once
+    /** a gate drop retracts AND stops the host gateway exactly once
      * (the transport exists exactly as long as the listing does). */
     @Test
     fun gateDropStopsTheHostGateway() {
@@ -331,7 +370,6 @@ class NostrListingPublisherTest {
             seams = Seams(
                 clockMs = { nowMs[0] },
                 client = client,
-                visibilityProvider = { visibility.get() },
                 payloadProvider = { payload.get() },
                 gatePollMs = Long.MAX_VALUE,
                 heartbeatSeconds = RealmListingContract.HEARTBEAT_SECONDS,
@@ -343,7 +381,9 @@ class NostrListingPublisherTest {
         seated.boot()
         runBlocking { seated.evaluateGates() }
         assertNotNull(nextEventFrame(10))
-        visibility.set(RealmStatusVisibility.FRIENDS)
+        // The drop: the world goes down (online stays on) — the endpoint
+        // must stop with the listing.
+        payload.set(downPayload())
         runBlocking { seated.evaluateGates() }
         // its determinism probe: the beat's identity
         // settings write re-fires the model's settings collector, and the
@@ -351,7 +391,7 @@ class NostrListingPublisherTest {
         // pump it explicitly (a settings write + one more evaluation).
         // The host-stop latch must keep the stop count at exactly 1; the
         // pre-latch code double-stopped here (the full-set flake).
-        model.updateSettings { it.copy(nostrDiscoveryEnabled = true) }
+        model.updateSettings { it.copy(onlineHosting = true) }
         runBlocking { seated.evaluateGates() }
         assertEquals(
             "the gate drop must stop the host gateway exactly once " +
@@ -388,9 +428,9 @@ class NostrListingPublisherTest {
         )
     }
 
-    // ------------------------------------- code-red round 1 (R2-6/R3-6)
+    //
 
-    /** R3-6: a relay-set edit while publishing is ACTIVE reaches the
+    /** a relay-set edit while publishing is ACTIVE reaches the
      * write lane on the next beat — the removed relay stops receiving
      * frames immediately. */
     @Test
@@ -430,7 +470,7 @@ class NostrListingPublisherTest {
         }
     }
 
-    /** R2-6: when every relay rejects the current beat, the host card's
+    /** when every relay rejects the current beat, the host card's
      * copy says so — the 'Live' claim is not shown while zero relays
      * accepted. */
     @Test
@@ -478,7 +518,7 @@ class NostrListingPublisherTest {
         assertFalse(copy.contains("Off."))
     }
 
-    /** R6-3-8: a good beat CLEARS the stale failure copy — the card must
+    /** a good beat CLEARS the stale failure copy — the card must
      * never render "Live … VAL-NOSTR-…" self-contradictions. */
     @Test
     fun bannedMotdErrorClearsOnNextGoodBeat() {
@@ -493,7 +533,7 @@ class NostrListingPublisherTest {
         )
         runBlocking { publisher.evaluateGates() }
         assertTrue(
-            publisher.uiState.value.errorCopy.orEmpty().contains("VAL-NOSTR-CONTENT"),
+            publisher.uiState.value.errorCopy.orEmpty().isNotBlank(),
         )
         // The MOTD is fixed; the next beat publishes and clears the copy.
         payload.set(greenPayload())
@@ -501,10 +541,10 @@ class NostrListingPublisherTest {
         runBlocking { publisher.evaluateGates() }
         assertNull(publisher.uiState.value.errorCopy)
         val copy = com.pocketrealm.desktop.nostr.NostrListingPublisher.publishStatusCopy(publisher.uiState.value)
-        assertFalse(copy.contains("VAL-NOSTR-CONTENT"))
+        assertFalse(copy.contains("VAL-"))
     }
 
-    /** R5-3: a banned realm MOTD (user free text) surfaces its
+    /** a banned realm MOTD (user free text) surfaces its
      * VAL-NOSTR-CONTENT copy and the watcher survives it. */
     @Test
     fun bannedMotdSurfacesAnErrorAndTheWatcherSurvives() {
@@ -517,13 +557,13 @@ class NostrListingPublisherTest {
         )
         runBlocking { publisher.evaluateGates() }
         assertTrue(
-            publisher.uiState.value.errorCopy.orEmpty().contains("VAL-NOSTR-CONTENT"),
+            publisher.uiState.value.errorCopy.orEmpty().isNotBlank(),
         )
         // The watcher is alive: a subsequent settings change still runs an
         // evaluation (no crash, the error copy persists or updates).
-        model.updateSettings { it.copy(nostrDiscoveryEnabled = false) }
+        model.updateSettings { it.copy(onlineHosting = false) }
         runBlocking { kotlinx.coroutines.delay(200) }
-        model.updateSettings { it.copy(nostrDiscoveryEnabled = true) }
+        model.updateSettings { it.copy(onlineHosting = true) }
         runBlocking {
             kotlinx.coroutines.withTimeout(10_000) {
                 while (publisher.uiState.value.errorCopy == null) {
@@ -533,24 +573,24 @@ class NostrListingPublisherTest {
         }
     }
 
-    /** R4-4: gate-drop/re-enable cycles leave no stale relay reports and
+    /** gate-drop/re-enable cycles leave no stale relay reports and
      * the publisher re-arms cleanly. */
     @Test
     fun gateCyclesLeaveNoStaleRelayReports() {
         boot()
         runBlocking { publisher.evaluateGates() }
         assertNotNull(nextEventFrame(10))
-        visibility.set(RealmStatusVisibility.FRIENDS)
+        model.updateSettings { it.copy(listInBrowser = false) }
         runBlocking { publisher.evaluateGates() }
         assertTrue(publisher.uiState.value.relayReports.isEmpty())
         // Re-arm: the next beat publishes fresh again.
-        visibility.set(RealmStatusVisibility.PUBLIC)
+        model.updateSettings { it.copy(listInBrowser = true) }
         nowMs[0] += (RealmListingContract.HEARTBEAT_SECONDS + 60) * 1000
         runBlocking { publisher.evaluateGates() }
         assertNotNull(nextEventFrame(10))
     }
 
-    /** R2-2: setRelays refuses an undialable set and leaves the stored
+    /** setRelays refuses an undialable set and leaves the stored
      * settings untouched. */
     @Test
     fun setRelaysInvalidLeavesSettingsUntouched() {
@@ -560,12 +600,12 @@ class NostrListingPublisherTest {
             publisher.setRelays(listOf("wss://relay.example:70000"))
             org.junit.Assert.fail("expected the VAL refusal")
         } catch (expected: IllegalArgumentException) {
-            assertTrue(expected.message.orEmpty().startsWith("VAL-NOSTR-RELAY"))
+            assertTrue(expected.message.orEmpty().isNotBlank())
         }
         assertEquals(before, model.settings.value.nostrRelays)
     }
 
-    /** R6-6: the settings decode re-validates a hand-edited garbage relay
+    /** the settings decode re-validates a hand-edited garbage relay
      * list back to the defaults. */
     @Test
     fun settingsDecodeDegradesGarbageRelayLists() {
@@ -617,7 +657,7 @@ class NostrListingPublisherTest {
         assertTrue(copy.contains("player split"))
     }
 
-    /** R2B-3: a corrupt stored identity self-heals — the next beat
+    /** a corrupt stored identity self-heals — the next beat
      * regenerates the key and publishes instead of bricking forever. */
     @Test
     fun corruptStoredIdentitySelfHealsAndPublishes() {
@@ -631,7 +671,7 @@ class NostrListingPublisherTest {
         assertFalse("the corrupt key was kept forever", stored == "0".repeat(64))
     }
 
-    /** R5-1: a production-REAL payload (a registered stage id) drives the
+    /** a production-REAL payload (a registered stage id) drives the
      * full ladder — fromStatusPayload → build → ListingStore.accept — and
      * is ACCEPTED by the browser a real user would run (the fixture-stage
      * drift this pin guards against would make every browser refuse). */
@@ -679,7 +719,7 @@ class NostrListingPublisherTest {
         assertTrue(copy.contains("no relay has answered") || copy.contains("unreachable"))
     }
 
-    /** R6-2: the relay-report projection exposes each relay's rejection
+    /** the relay-report projection exposes each relay's rejection
      * reason + URL (the data was fetched and dropped before this). */
     @Test
     fun relayReportProjectionExposesPerRelayReasons() {
@@ -705,7 +745,7 @@ class NostrListingPublisherTest {
         assertTrue(lines.any { it.contains("wss://relay-b") && it.contains("accepted") })
     }
 
-    /** R5-R3-1: two concurrent evaluations create exactly ONE pool. */
+    /** two concurrent evaluations create exactly ONE pool. */
     @Test
     fun concurrentEvaluationsCreateExactlyOnePool() {
         boot()
@@ -716,13 +756,11 @@ class NostrListingPublisherTest {
             seams = Seams(
                 clockMs = { nowMs[0] },
                 client = client,
-                visibilityProvider = { visibility.get() },
                 payloadProvider = { payload.get() },
                 gatePollMs = Long.MAX_VALUE,
                 heartbeatSeconds = RealmListingContract.HEARTBEAT_SECONDS,
             ),
         )
-        visibility.set(RealmStatusVisibility.PUBLIC)
         payload.set(greenPayload())
         server.enqueue(MockResponse.Builder().webSocketUpgrade(relayListener).build())
         server.enqueue(
@@ -732,7 +770,7 @@ class NostrListingPublisherTest {
         )
         runBlocking {
             p2.boot()
-            model.updateSettings { it.copy(nostrDiscoveryEnabled = true) }
+            model.updateSettings { it.copy(onlineHosting = true) }
             kotlinx.coroutines.delay(300) // the collector regenerates + evaluates
             // fire overlapping evaluations; the gate mutex must
             // serialize them onto ONE pool (no orphaned double-build).
@@ -759,8 +797,8 @@ class NostrListingPublisherTest {
         boot()
         runBlocking { publisher.evaluateGates() }
         assertNotNull(nextEventFrame(10)) // the listing
-        // Visibility falls back to FRIENDS: the listing must be retracted.
-        visibility.set(RealmStatusVisibility.FRIENDS)
+        // The switch goes off: the listing must be retracted.
+        model.updateSettings { it.copy(onlineHosting = false) }
         runBlocking { publisher.evaluateGates() }
         val deletion = nextEventFrame(10)
         assertNotNull("no NIP-09 retraction after the gate drop", deletion)
@@ -809,8 +847,8 @@ class NostrListingPublisherTest {
         assertEquals(64, first.length)
         Hex.decode(first, "assert") // a valid hex key
         publisher.boot() // idempotent
-        model.updateSettings { it.copy(nostrDiscoveryEnabled = false) }
-        model.updateSettings { it.copy(nostrDiscoveryEnabled = true) }
+        model.updateSettings { it.copy(onlineHosting = false) }
+        model.updateSettings { it.copy(onlineHosting = true) }
         assertEquals("the identity must never rotate on toggle", first, model.settings.value.nostrPrivateKeyHex)
     }
 

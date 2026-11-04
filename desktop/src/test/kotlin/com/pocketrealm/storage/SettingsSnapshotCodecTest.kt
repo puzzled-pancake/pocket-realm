@@ -12,7 +12,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * DESK-133/134: the desktop Settings twin's shipped defaults and codec
+ * the desktop Settings twin's shipped defaults and codec
  * contract — the AutoLoginTimings JVM twin clamps like the Android
  * original, the timing surface round-trips through the persisted JSON,
  * and the DESK-134 defaults alignment (default bot profile, auto-login
@@ -197,7 +197,7 @@ class SettingsSnapshotCodecTest {
         )
     }
 
-    /** DESK-84: the input safe-mode gate persists and defaults to off. */
+    /** the input safe-mode gate persists and defaults to off. */
     @Test
     fun inputSafeModeRoundTripsThroughTheSnapshotCodec() {
         val on = Settings.Snapshot(inputSafeMode = true)
@@ -348,7 +348,7 @@ class SettingsSnapshotCodecTest {
         )
     }
 
-    // ---- design-timeframe §4.1: the persisted content-patch stage --------
+    // design-timeframe: the persisted content-patch stage --------
 
     @Test
     fun timeframeStageShipsEmptyAndRoundTripsThroughTheCodec() {
@@ -409,7 +409,7 @@ class SettingsSnapshotCodecTest {
         )
     }
 
-    // ---- R1-1 (desktop-twin round 1): the flavor pick persists ----------
+    // R1-1: the flavor pick persists ----------
 
     @Test
     fun flavorSelectionRoundTripsThroughThePersistedJson() {

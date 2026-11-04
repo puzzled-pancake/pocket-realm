@@ -11,11 +11,11 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * R1-2 (code-red round 1): the world-start runtime-lane identity gate —
+ * the world-start runtime-lane identity gate —
  * a non-vanilla boot passes ONLY when that lane's own runtime is present
  * (the dev -PrpFlavor lane root); a vanilla boot always passes; and the
  * refusal (runtime absent) names both lanes and the staging remedy.
- * R3-3 (code-red round 2): presence is not identity — the staged DLL's
+ * presence is not identity — the staged DLL's
  * bytes must match the lane lockfile's artifact pin (size + sha256), so a
  * stale or partial rebuild refuses loud.
  */
@@ -41,7 +41,7 @@ class RuntimeLaneGateTest {
 
     @Test
     fun sqliteProviderOnATbcLaneRefusesWithTheLaneScopeCopy() {
-        // R3-6-2 (W4 code-red round 6): the SQLite provider ships only the
+        // the SQLite provider ships only the
         // vanilla classic* datadir — a tbc pick on SQLite must refuse loud
         // naming the MariaDB remedy, not die late on 'tbcrealmd is not
         // seeded'.
@@ -111,7 +111,7 @@ class RuntimeLaneGateTest {
         }
     }
 
-    /** R3-3: a staged DLL whose bytes disagree with the lane lockfile pin
+    /** a staged DLL whose bytes disagree with the lane lockfile pin
      * refuses loud (a stale rebuild cannot boot unnoticed). */
     @Test
     fun aStagedDllDisagreeingWithTheLanePinRefusesLoud() {
@@ -151,7 +151,7 @@ class RuntimeLaneGateTest {
         }
     }
 
-    /** R3-3: a DLL at the lane path with NO lane lockfile beside it refuses
+    /** a DLL at the lane path with NO lane lockfile beside it refuses
      * loud — presence alone never proved lane identity, and now cannot. */
     @Test
     fun aLaneRuntimeWithoutItsLaneLockfileRefusesLoud() {
@@ -178,7 +178,7 @@ class RuntimeLaneGateTest {
         }
     }
 
-    /** R3-W4-2: the gate covers BOTH lane DLLs — a staged realmd DLL
+    /** the gate covers BOTH lane DLLs — a staged realmd DLL
      * whose bytes disagree with the lane lockfile's realmd row refuses
      * exactly like a stale world DLL (a partial rebuild cannot boot the
      * realmd half unnoticed). */
@@ -222,7 +222,7 @@ class RuntimeLaneGateTest {
         }
     }
 
-    /** R3-3: a lockfile with no pin row at the DLL's path refuses loud. */
+    /** a lockfile with no pin row at the DLL's path refuses loud. */
     @Test
     fun aLaneLockfileWithoutTheRuntimePinRowRefusesLoud() {
         val fakeRepo = folder.newFolder("pinless-lockfile-repo")

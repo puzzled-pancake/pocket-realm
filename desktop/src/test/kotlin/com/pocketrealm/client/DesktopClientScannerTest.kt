@@ -10,7 +10,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-52/68: the desktop folder scanner's identity gates — the desktop
+ * the desktop folder scanner's identity gates — the desktop
  * pins of the VAL copy the Android JVM suite pins for SafClientScanner
  * (SafClientScannerMessageTest), driven over the SHARED ClientPeIdentity
  * parse with the synthetic-PE fixtures (no Blizzard bytes committed).
@@ -45,7 +45,7 @@ class DesktopClientScannerTest {
         assertEquals(ClientFlavors.VANILLA.versionResource, scan.version)
         assertEquals(ClientFlavors.VANILLA.build, scan.build)
         assertTrue("the accepted-build warning must ride along: ${scan.warnings}",
-            scan.warnings.any { it.startsWith("VAL-03") })
+            scan.warnings.any { it.startsWith("Build ") })
     }
 
     @Test
@@ -56,7 +56,7 @@ class DesktopClientScannerTest {
         assertFalse(scan.supported)
         assertTrue(
             "must carry the plain VAL-01 copy: ${scan.failures}",
-            scan.failures.any { it == "VAL-01: direct WoW.exe is absent" },
+            scan.failures.any { it == "WoW.exe was not found in the selected folder" },
         )
     }
 
@@ -67,19 +67,19 @@ class DesktopClientScannerTest {
         val scan = scanner.scan(root)
         assertFalse(scan.supported)
         assertTrue(
-            "must carry the launcher-only VAL-01 copy: ${scan.failures}",
+            "must carry the installer/launcher copy: ${scan.failures}",
             scan.failures.any { it == DESKTOP_VAL01_LAUNCHER_ONLY_SELECTION },
         )
         assertTrue(
-            "the pinned wording must keep the VAL-01 prefix and the launcher-only phrase",
-            DESKTOP_VAL01_LAUNCHER_ONLY_SELECTION.startsWith("VAL-01: ") &&
-                "launcher-only" in DESKTOP_VAL01_LAUNCHER_ONLY_SELECTION,
+            "the wording must keep the installer/launcher phrasing",
+            DESKTOP_VAL01_LAUNCHER_ONLY_SELECTION.startsWith("This looks like an installer or launcher folder") &&
+                "WoW.exe" in DESKTOP_VAL01_LAUNCHER_ONLY_SELECTION,
         )
     }
 
     @Test
     fun oversizedWowExeRefusesWithTheVal02SizeCopy() {
-        // R6-7 (W4 code-red round 3): the charter's negative-matrix
+        // the charter's negative-matrix
         // "oversized -> VAL codes" leg — a WoW.exe whose size exceeds the
         // 32 MiB fast-scan cap must refuse with the exact VAL-02 size
         // copy, on the size check alone (the synthetic PE bytes are
@@ -93,7 +93,7 @@ class DesktopClientScannerTest {
         assertTrue(
             "must carry the exact VAL-02 size copy: \${scan.failures}",
             scan.failures.any {
-                it == "VAL-02: selected executable exceeds fast-scan limit"
+                it == "WoW.exe is too large to scan"
             },
         )
     }
@@ -166,23 +166,23 @@ class DesktopClientScannerTest {
         assertFalse(scan.supported)
         assertTrue(
             "must carry the PE-refusal copy: ${scan.failures}",
-            scan.failures.any { it.contains("VAL-02") && it.contains("not a PE executable") },
+            scan.failures.any { it.contains("not a valid Windows executable") },
         )
     }
 
     @Test
     fun wrongBuildClientRefusesWithTheVal03ExpectedDetectedCopy() {
-        val root = materializeClient(folder.newFolder("client"), build = 6005)
+        val root = materializeClient(folder.newFolder("client"), build = 4222)
         val scan = scanner.scan(root)
         assertFalse("a non-qualified build must refuse", scan.supported)
-        val failure = scan.failures.firstOrNull { it.startsWith("VAL-03") }
+        val failure = scan.failures.firstOrNull { it.startsWith("Unsupported game version") }
         assertTrue("must carry the expected/detected copy: ${scan.failures}", failure != null)
         assertTrue(
             "must name the expected qualified version: $failure",
             ClientFlavors.VANILLA.versionResource in failure!!,
         )
-        assertTrue("must name the detected version: $failure", "1.12.1.6005" in failure)
-        assertTrue("must say no qualified flavor matched: $failure", "no qualified flavor matches" in failure)
+        assertTrue("must name the detected version: $failure", "1.12.1.4222" in failure)
+        assertTrue("must say no qualified flavor matched: $failure", "not a supported version" in failure)
     }
 
     @Test
@@ -193,7 +193,7 @@ class DesktopClientScannerTest {
         assertFalse(scan.supported)
         assertTrue(
             "must carry the Data-refusal copy: ${scan.failures}",
-            scan.failures.any { it == "VAL-04: Data directory is absent" },
+            scan.failures.any { it == "The Data folder is missing" },
         )
     }
 
@@ -205,22 +205,22 @@ class DesktopClientScannerTest {
         val qualified = scanner.scan(root)
         assertTrue(
             "missing base MPQs must be named: ${qualified.failures}",
-            qualified.failures.any { it.startsWith("VAL-04: missing base MPQ set") && "base.mpq" in it },
+            qualified.failures.any { it.startsWith("Missing game data files") && "base.mpq" in it },
         )
         // ...while a foreign client (VAL-03 already failed) never compares
         // the qualified MPQ union (the Android scanner's noted invariant):
         // with Data present but its MPQs gone, only VAL-03 remains.
-        val foreign = materializeClient(folder.newFolder("foreign"), build = 6005)
+        val foreign = materializeClient(folder.newFolder("foreign"), build = 4222)
         File(foreign, "Data").listFiles().orEmpty().forEach { it.delete() }
         val foreignScan = scanner.scan(foreign)
         assertEquals(
             "the foreign client must fail VAL-03 only: ${foreignScan.failures}",
             1,
-            foreignScan.failures.count { it.startsWith("VAL-0") },
+            foreignScan.failures.count { it.startsWith("Unsupported game version") },
         )
         assertTrue(
             "the single failure is the VAL-03 identity refusal: ${foreignScan.failures}",
-            foreignScan.failures.single { it.startsWith("VAL-0") }.startsWith("VAL-03"),
+            foreignScan.failures.single { it.startsWith("Unsupported game version") }.startsWith("Unsupported game version"),
         )
     }
 
@@ -232,7 +232,7 @@ class DesktopClientScannerTest {
         assertTrue(scan.supported)
         assertTrue(
             "unrecognized root DLLs must warn: ${scan.warnings}",
-            scan.warnings.any { it.startsWith("VAL-10") && "evil.dll" in it },
+            scan.warnings.any { it.startsWith("Extra files kept alongside the client") && "evil.dll" in it },
         )
         assertTrue("the standard DLLs never warn: ${scan.warnings}",
             scan.warnings.none { "fmod.dll" in it })
@@ -244,7 +244,7 @@ class DesktopClientScannerTest {
         assertFalse(scan.supported)
         assertTrue(
             "the unreadable selection must refuse: ${scan.failures}",
-            scan.failures.single().contains("VAL-01"),
+            scan.failures.single().contains("not a readable directory"),
         )
     }
 }

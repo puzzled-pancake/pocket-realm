@@ -26,7 +26,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * DESK-6/18/37/100: the desktop snapshot lane over a temp-root seeded
+ * the desktop snapshot lane over a temp-root seeded
  * datadir — the SHARED DatabaseSnapshotStore through the backend's
  * create/list/verify/retainNewest verbs (all gated on the same
  * runtimes-at-rest proof as recovery), and the app model's transactional
@@ -165,7 +165,7 @@ class DesktopSnapshotsRestoreTest {
         }.orEmpty().toList()
 
     /** The dev lane's roots with the SQLITE provider SELECTED: the shipped
-     * default flipped to MariaDB (D19), and these legs pin the SQLite arm —
+     * default flipped to MariaDB, and these legs pin the SQLite arm —
      * an explicit selection keeps them on that lane regardless of the
      * default (the backup verbs are provider-aware now: a MARIADB selection
      * over these roots would refuse as an uninitialized MariaDB datadir,

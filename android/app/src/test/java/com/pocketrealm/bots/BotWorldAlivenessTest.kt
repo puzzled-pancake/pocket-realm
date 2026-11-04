@@ -1,6 +1,5 @@
 package com.pocketrealm.bots
 
-import com.pocketrealm.server.ChatterPowerMonitor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -22,9 +21,8 @@ import org.junit.Before
  * in; the field is either 0 (off) or a village of 3-5 on a ring inside
  * say range (the native ListenRange.Say = 25 yd).
  *
- * Street life rides the already-quiet-gated Chatter ambient lane as a
- * per-preset rung cap on the staged power file — never the legacy
- * masterless-say capacity (RandomBotSayWithoutMaster stays 0 everywhere).
+ * The catalog never opens the legacy masterless-say capacity
+ * (RandomBotSayWithoutMaster stays 0 on every catalog profile).
  */
 class BotWorldAlivenessTest {
     /** flip fixture: the sole-qualified degrade is retired; machinery
@@ -43,7 +41,7 @@ class BotWorldAlivenessTest {
 
     @Test
     fun everyExperiencePresetEnablesTheRangeAndMapLoginCriteria() {
-        assertEquals(7, BotProfiles.experiencePresets.size)
+        assertEquals(3, BotProfiles.experiencePresets.size)
         for (profile in BotProfiles.experiencePresets) {
             assertTrue("experience preset ${profile.id} must prefer near-player logins", profile.loginPreferNearPlayer)
             assertTrue(
@@ -58,7 +56,9 @@ class BotWorldAlivenessTest {
     fun nonExperiencePresetsEmitNoLoginCriteriaLineAndNoVillageKeys() {
         // byte-identity law: anything that is not an experience preset
         // must not grow a single new line (the adv digest hashes this text)
-        val nonExperience = BotProfiles.ids() - BotProfiles.experiencePresets.map { it.id }.toSet()
+        val nonExperience = BotProfiles.ids() -
+            (BotProfiles.experiencePresets + BotProfiles.legacySelectablePresets)
+                .filter { it.loginPreferNearPlayer }.map { it.id }.toSet()
         assertTrue("catalog must have non-experience profiles", nonExperience.size >= 10)
         for (id in nonExperience) {
             val conf = BotProfiles.find(id)!!.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
@@ -105,8 +105,8 @@ class BotWorldAlivenessTest {
 
     @Test
     fun randomBotSayWithoutMasterStaysZeroOnEveryCatalogProfile() {
-        // negative pin: street life rides the Chatter queue, never the
-        // bare masterless bot->Say path (un-arbitrated mechanic-speak)
+        // negative pin: the catalog never opens the bare masterless
+        // bot->Say path (un-arbitrated mechanic-speak)
         for (id in BotProfiles.ids()) {
             assertTrue(
                 "$id must keep RandomBotSayWithoutMaster = 0",
@@ -115,54 +115,6 @@ class BotWorldAlivenessTest {
                 ).contains("AiPlayerbot.RandomBotSayWithoutMaster = 0"),
             )
         }
-    }
-
-    @Test
-    fun experiencePresetsCarryANonOffChatterRungEveryoneElseFollows() {
-        for (profile in BotProfiles.experiencePresets) {
-            assertEquals(
-                "experience preset ${profile.id} stages the Chatter ambient lane",
-                BotLlmSpeech.CHATTER_RUNG_NORMAL,
-                profile.llmSpeech.chatterRung,
-            )
-        }
-        val nonExperience = BotProfiles.ids() - BotProfiles.experiencePresets.map { it.id }.toSet()
-        for (id in nonExperience) {
-            assertEquals(
-                "$id must follow the computed ambience rung",
-                BotLlmSpeech.CHATTER_RUNG_FOLLOW,
-                BotProfiles.find(id)!!.llmSpeech.chatterRung,
-            )
-        }
-    }
-
-    @Test
-    fun chatterRungFieldLawAndNormalize() {
-        // the sentinel follows; 0..4 are the rungs; anything above clamps
-        // into the band, negatives normalize to the sentinel
-        assertEquals(BotLlmSpeech.CHATTER_RUNG_FOLLOW, BotLlmSpeech.normalize(0, -1, 0, 0).chatterRung)
-        assertEquals(0, BotLlmSpeech.normalize(0, -1, 0, 0, chatterRung = 0).chatterRung)
-        assertEquals(4, BotLlmSpeech.normalize(0, -1, 0, 0, chatterRung = 99).chatterRung)
-        assertEquals(-1, BotLlmSpeech.normalize(0, -1, 0, 0, chatterRung = -7).chatterRung)
-        // isDefault covers the new knob
-        assertTrue(BotLlmSpeech().isDefault())
-        assertFalse(BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_OFF).isDefault())
-        // constructor rejects out-of-band values
-        assertThrows { BotLlmSpeech(chatterRung = 5) }
-    }
-
-    @Test
-    fun rungCapOnlyLowersTheComputedRung() {
-        // the cap applies min(), never max() — the master toggle and the
-        // courtesy dim win
-        val normal = ChatterPowerMonitor.RUNG_NORMAL
-        val constrained = ChatterPowerMonitor.RUNG_CONSTRAINED
-        assertEquals(normal, ChatterPowerMonitor.applyRungCap(normal, -1))
-        assertEquals(normal, ChatterPowerMonitor.applyRungCap(normal, normal))
-        assertEquals(constrained, ChatterPowerMonitor.applyRungCap(normal, constrained))
-        assertEquals(constrained, ChatterPowerMonitor.applyRungCap(constrained, normal))
-        assertEquals(ChatterPowerMonitor.RUNG_OFF, ChatterPowerMonitor.applyRungCap(normal, 0))
-        assertEquals(normal, ChatterPowerMonitor.applyRungCap(normal, 99))
     }
 
     private fun assertThrows(block: () -> Unit) {

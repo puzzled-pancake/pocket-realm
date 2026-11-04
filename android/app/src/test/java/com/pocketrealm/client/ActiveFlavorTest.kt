@@ -122,13 +122,13 @@ class ActiveFlavorTest {
             listOf(testFlavor("vanilla", qualified = true))
         }
         val chips = ActiveFlavor.switcherChips()
-        assertEquals(listOf("vanilla", "tbc", "wotlk"), chips.map { it.flavor.flavorId })
+        assertEquals(listOf("vanilla", "tbc", "wotlk"), chips.map { it.game.flavorId })
         assertEquals(listOf("Vanilla", "TBC", "WotLK"), chips.map { it.label })
         // The sole qualified lane is selected by default; the declared-but-
         // disabled flavors render present but unselectable.
-        assertTrue(chips.single { it.flavor.flavorId == "vanilla" }.selected)
-        assertFalse(chips.single { it.flavor.flavorId == "tbc" }.selectable)
-        assertFalse(chips.single { it.flavor.flavorId == "wotlk" }.selectable)
+        assertTrue(chips.single { it.game.flavorId == "vanilla" }.selected)
+        assertFalse(chips.single { it.game.flavorId == "tbc" }.selectable)
+        assertFalse(chips.single { it.game.flavorId == "wotlk" }.selectable)
     }
 
     @Test
@@ -140,7 +140,7 @@ class ActiveFlavorTest {
         ActiveFlavor.select("tbc")
         assertEquals("tbc", ActiveFlavor.selectedId)
         assertEquals(tbc, ActiveFlavor.resolve(TEST_LANE))
-        val tbcChip = ActiveFlavor.switcherChips().single { it.flavor.flavorId == "tbc" }
+        val tbcChip = ActiveFlavor.switcherChips().single { it.game.flavorId == "tbc" }
         assertTrue(tbcChip.selected)
         assertTrue(tbcChip.selectable)
 
@@ -200,8 +200,6 @@ internal fun testFlavor(
     knownExeMd5 = null,
     knownExeSizeBytes = null,
     largeAddressAware = false,
-    loreCardsFile = "lore_cards_v112.jsonl",
-    promptIdentity = "World of Warcraft: Classic",
     graphicsRoutes = setOf("dxvk", "opengl", "virgl"),
     vanillaTweaksEnabled = true,
 )

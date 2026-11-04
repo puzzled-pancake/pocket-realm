@@ -86,7 +86,7 @@ MEMBERS = (
     ("syswow64", "./syswow64/d3d9.dll", 0x014C),
 )
 
-# The vendored box64-gladio-eaa2a8d glibc client (R2-1, W5 code-red round 1).
+# The vendored box64-gladio-eaa2a8d glibc client (R2-1, W5).
 # The ARM Gladio BUILD lane is retired ((7)) — these are the exact reviewed
 # bytes the retired lane last produced (2026-09-30, provenance copied to
 # native/prebuilt-renderers/box64-gladio-eaa2a8d/BUILD_PROVENANCE.json), now

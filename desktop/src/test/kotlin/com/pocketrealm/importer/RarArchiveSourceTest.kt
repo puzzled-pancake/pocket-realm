@@ -10,7 +10,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-35/64: the desktop RAR lane's refusal gates. The fixtures are crafted
+ * the desktop RAR lane's refusal gates. The fixtures are crafted
  * RAR4 block sequences (marker + MAIN_HEAD with the pinned flag bits) — a RAR
  * ARCHIVER cannot exist in this repo (the unrar license forbids it and the
  * synthetic-archive fixtures only generate zip/7z/Inno), but the refusal

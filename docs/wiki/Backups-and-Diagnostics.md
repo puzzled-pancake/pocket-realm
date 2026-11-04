@@ -55,4 +55,4 @@ When reporting a problem, include:
 
 The capability screen records hardware and process facts such as Android version, supported processor types, memory, storage availability, graphics support, and the app's native library location.
 
-Its experiment buttons are for technical qualification. A normal player does not need to run them unless a tester or maintainer gives a specific instruction.
+Its experiment buttons are for technical testing. A normal player does not need to run them unless a tester or maintainer gives a specific instruction.

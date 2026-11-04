@@ -1,10 +1,57 @@
--- Android Port (installed folder: AndroidPort): clean-room Pocket Realm core for Interface 11200.
+-- Android Port (installed folder: AndroidPort): clean-room Pocket Realm core.
+-- One shared tree runs on every supported client: the 2.0+ clients protect
+-- the action APIs from add-on code, so those paths branch on AP.SECURE and
+-- ride Blizzard's secure templates instead of direct calls.
 AndroidPort = AndroidPort or {}
 local AP = AndroidPort
 
 AP.VERSION = "0.6.1"
 AP.BINDING_SCHEMA = 5
 AP.keys = { "1", "2", "3", "4", "5", "6", "7", "8" }
+
+-- GetBuildInfo returns the toc number as its fourth value on the 2.0+
+-- clients and nothing there on 1.12, which is exactly the branch needed.
+local _, _, _, apTocVersion = GetBuildInfo()
+AP.INTERFACE = tonumber(apTocVersion) or 11200
+AP.SECURE = AP.INTERFACE >= 20000
+AP.MAX_PLAYER_LEVEL = 60
+if AP.INTERFACE == 20400 then
+    AP.MAX_PLAYER_LEVEL = 70
+elseif AP.INTERFACE == 30300 then
+    AP.MAX_PLAYER_LEVEL = 80
+end
+
+-- The 1.12 client has no combat-lockdown concept; every guard below must
+-- read false there so the vanilla behaviour is untouched.
+function AP:InCombat()
+    if InCombatLockdown then return InCombatLockdown() end
+    return false
+end
+
+-- Work that touches protected frames or secure attributes must wait out a
+-- combat lockdown; queue it and run it the moment combat ends.
+AP.combatQueue = AP.combatQueue or {}
+function AP:DeferCombat(action)
+    if not self:InCombat() then
+        action()
+        return true
+    end
+    tinsert(self.combatQueue, action)
+    return false
+end
+
+local combatQueueFrame = getglobal("AndroidPortCombatQueue")
+if not combatQueueFrame then
+    combatQueueFrame = CreateFrame("Frame", "AndroidPortCombatQueue", UIParent)
+end
+combatQueueFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+combatQueueFrame:SetScript("OnEvent", function()
+    local queue = AP.combatQueue
+    AP.combatQueue = {}
+    for _, action in ipairs(queue) do
+        pcall(action)
+    end
+end)
 
 BINDING_HEADER_ANDROID_PORT = "Android Port"
 for slot = 1, 40 do
@@ -80,6 +127,8 @@ function AP:GetLayout()
     return layout
 end
 
+local CONTROL_LAYOUTS = { star = "Star", forever = "WoW Forever" }
+
 function AP:InitializeDatabase()
     AndroidPortDB = AndroidPortDB or {}
     AndroidPortCharacterDB = AndroidPortCharacterDB or {}
@@ -136,6 +185,37 @@ function AP:InitializeDatabase()
     if bagsModule then
         bagsModule.mode = AndroidPortDB.bags.mode
     end
+    -- Control layout: "star" (two action stars, one page at a time) or
+    -- "forever" (four stacked sets with fixed base-set face jobs). The app
+    -- projects its chosen layout as AndroidPort.HOST_LAYOUT; a new app
+    -- choice wins once, after which /ap layout may change it in game.
+    local hostLayout = AP.HOST_LAYOUT
+    if CONTROL_LAYOUTS[hostLayout] and AndroidPortDB.hostLayout ~= hostLayout then
+        AndroidPortDB.hostLayout = hostLayout
+        AndroidPortDB.layout = hostLayout
+    end
+    if not CONTROL_LAYOUTS[AndroidPortDB.layout] then
+        AndroidPortDB.layout = "star"
+    end
+end
+
+function AP:GetControlLayout()
+    local db = AndroidPortDB
+    if type(db) == "table" and CONTROL_LAYOUTS[db.layout] then return db.layout end
+    if CONTROL_LAYOUTS[self.HOST_LAYOUT] then return self.HOST_LAYOUT end
+    return "star"
+end
+
+function AP:SetControlLayout(name)
+    if not CONTROL_LAYOUTS[name] or type(AndroidPortDB) ~= "table" then return false end
+    AndroidPortDB.layout = name
+    if self.ActionBars and self.ActionBars.ready then
+        if self.ActionBars:ApplyControlLayout() == false and self:InCombat() then
+            Print("layout changes once combat ends")
+        end
+    end
+    Print(CONTROL_LAYOUTS[name] .. " layout selected")
+    return true
 end
 
 local anchorPoints = {
@@ -289,6 +369,15 @@ function AP:RestoreAddonIcon(candidate)
     return true
 end
 
+-- The action clusters hold secure buttons on the 2.0+ clients, which makes
+-- them protected; moving a protected frame is legal outside combat, and
+-- Move UI closes itself the moment combat starts.
+function AP:IsOwnFrame(frame)
+    local name = frame and frame.GetName and frame:GetName()
+    return type(name) == "string" and string.find(name, "AndroidPort", 1, true) == 1 and
+        not self:InCombat()
+end
+
 -- One movable-target predicate: curated and swept window candidates are
 -- vetted by name resolution and frame capability; icon candidates keep the
 -- conservative icon filter.
@@ -297,7 +386,7 @@ function AP:CanMoveCandidate(candidate)
     if not frame then return false end
     if candidate.curated or candidate.window then
         return HasMoverMethods(frame) and
-            (not frame.IsProtected or not frame:IsProtected())
+            (not frame.IsProtected or not frame:IsProtected() or self:IsOwnFrame(frame))
     end
     return self:IsSafeAddonIconFrame(frame, candidate and candidate.registered)
 end
@@ -568,6 +657,9 @@ function AP:FinishMoveUI(silent)
     end
     if self.moveUiInstructions then self.moveUiInstructions:Hide() end
     self.moveUiInstructions = nil
+    if self.ActionBars and self.ActionBars.ResumeOverrideKeys then
+        self.ActionBars:ResumeOverrideKeys()
+    end
     if not silent then Print("layout saved; move mode closed") end
     return true
 end
@@ -750,6 +842,15 @@ end
 
 function AP:ToggleMoveUI()
     if self:FinishMoveUI(false) then return end
+    -- Stock frames are combat-locked on the 2.0+ clients; refuse politely
+    -- instead of fighting the lockdown (a no-op on 1.12).
+    if self:InCombat() then
+        Print("Move UI waits until combat ends")
+        return
+    end
+    if self.ActionBars and self.ActionBars.SuspendOverrideKeys then
+        self.ActionBars:SuspendOverrideKeys()
+    end
     self:RefreshAddonIcons()
     self.moveUiActive = true
     for _, candidate in pairs(self.addonIconCandidates) do
@@ -833,20 +934,27 @@ function AP:ApplyBindings()
     for page, modifier in ipairs(modifiers) do
         for _, key in ipairs(self.keys) do
             local chord = modifier .. key
-            local owned = self:BindingCommand(slot)
-            local current = GetBindingAction(chord)
-            local oldIndex = tonumber(key) + (page - 1) * 10
-            local oldOwned = self:BindingCommand(oldIndex)
-            local mayClaim = db.bindingSchema == nil or current == owned or
-                (db.bindingSchema == 1 and current == oldOwned)
-            if db.bindingBackup[chord] == nil then
-                db.bindingBackup[chord] = GetBindingAction(chord) or ""
-                mayClaim = true
+            -- On the 2.0+ clients the 32 controller chords never claim the
+            -- player's binding set: they ride owner-scoped override
+            -- bindings that click the secure action buttons directly, so a
+            -- hardware key press reaches UseAction through Blizzard's own
+            -- secure path.
+            if not AP.SECURE then
+                local owned = self:BindingCommand(slot)
+                local current = GetBindingAction(chord)
+                local oldIndex = tonumber(key) + (page - 1) * 10
+                local oldOwned = self:BindingCommand(oldIndex)
+                local mayClaim = db.bindingSchema == nil or current == owned or
+                    (db.bindingSchema == 1 and current == oldOwned)
+                if db.bindingBackup[chord] == nil then
+                    db.bindingBackup[chord] = GetBindingAction(chord) or ""
+                    mayClaim = true
+                end
+                -- On a later schema migration, keep any binding the player has
+                -- changed since installation. Only untouched prior ownership is
+                -- eligible for remapping.
+                if mayClaim then SetBinding(chord, owned) end
             end
-            -- On a later schema migration, keep any binding the player has
-            -- changed since installation. Only untouched prior ownership is
-            -- eligible for remapping.
-            if mayClaim then SetBinding(chord, owned) end
             slot = slot + 1
         end
     end
@@ -885,11 +993,23 @@ function AP:ApplyBindings()
     end
     SaveBindings(GetCurrentBindingSet())
     db.bindingSchema = self.BINDING_SCHEMA
+    if self.ActionBars and self.ActionBars.ApplyOverrideBindings then
+        self.ActionBars:ApplyOverrideBindings()
+    end
 end
 
 function AP:RestoreBindings()
     local db = self:GetBindingJournal()
     if not db or not db.bindingBackup then return end
+    -- Key bindings are combat-protected on the 2.0+ clients; wait combat
+    -- out instead of failing partway through the restore.
+    if self:InCombat() then
+        self:DeferCombat(function() AP:RestoreBindings() end)
+        return
+    end
+    if self.ActionBars and self.ActionBars.ClearOverrideBindings then
+        self.ActionBars:ClearOverrideBindings()
+    end
     for key, command in pairs(db.bindingBackup) do
         local owned
         if key == "F12" then
@@ -928,6 +1048,7 @@ function AndroidPort_Action(slot, state)
         return
     end
     if slot >= 1 and slot <= 8 and AP.Radial and AP.Radial:Activate(slot) then return end
+    if AP.ActionBars and AP.ActionBars:RunFixed(slot) then return end
     if AP.ActionBars then AP.ActionBars:UseSlot(slot) end
 end
 
@@ -967,12 +1088,27 @@ SlashCmdList["ANDROIDPORT"] = function(message)
         if AP.Hud then AP.Hud:ToggleChat() end
     elseif message == "radial" then
         AndroidPort_ToggleRadial()
+    elseif verb == "layout" and CONTROL_LAYOUTS[moduleName] then
+        AP:SetControlLayout(moduleName)
+    elseif message == "layout" then
+        AP:SetControlLayout(AP:GetControlLayout() == "forever" and "star" or "forever")
     elseif message == "bags" then
         if AP.Bags then
             AP.Bags:SetEnabled(not (AndroidPortDB and AndroidPortDB.bags and AndroidPortDB.bags.enabled))
         end
     else
-        Print("/ap radial opens the menu (Talk on the seventh slot opens the whisper composer without name typing); /ap chat toggles the minimal chat; /ap bags toggles the all-in-one bag window; /ap restore restores pre-install key bindings; /ap resetui restores the stock frame layout; /ap off <bars|radial|mover|hud|bags|talk> disables one module (reloadui to apply) — /ap on re-enables it")
+        Print("/ap radial opens the menu; /ap layout forever|star picks the WoW Forever or star controls (Talk on the seventh slot opens the whisper composer without name typing); /ap chat toggles the minimal chat; /ap bags toggles the all-in-one bag window; /ap restore restores pre-install key bindings; /ap resetui restores the stock frame layout; /ap off <bars|radial|mover|hud|bags|talk> disables one module (reloadui to apply) — /ap on re-enables it")
+    end
+end
+
+function AP:EnterWorld()
+    local barsOn = AP:IsModuleEnabled("bars")
+    local radialOn = AP:IsModuleEnabled("radial")
+    if AP:InitializeModules()
+        and (not barsOn or (AP.ActionBars and AP.ActionBars.ready))
+        and (not radialOn or (AP.Radial and AP.Radial.ready))
+        and (not barsOn or (AP.ActionBars and AP.ActionBars:Refresh())) then
+        AP:ApplyBindings()
     end
 end
 
@@ -980,6 +1116,7 @@ local events = CreateFrame("Frame", "AndroidPortEvents", UIParent)
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("PLAYER_LOGOUT")
+events:RegisterEvent("PLAYER_REGEN_DISABLED")
 function AP:InitializeModules()
     self:InitializeDatabase()
     self:RefreshAddonIcons()
@@ -1020,14 +1157,13 @@ events:SetScript("OnEvent", function()
     elseif event == "ADDON_LOADED" then
         AP:RefreshAddonIcons()
     elseif event == "PLAYER_ENTERING_WORLD" then
-        local barsOn = AP:IsModuleEnabled("bars")
-        local radialOn = AP:IsModuleEnabled("radial")
-        if AP:InitializeModules()
-            and (not barsOn or (AP.ActionBars and AP.ActionBars.ready))
-            and (not radialOn or (AP.Radial and AP.Radial.ready))
-            and (not barsOn or (AP.ActionBars and AP.ActionBars:Refresh())) then
-            AP:ApplyBindings()
-        end
+        -- A reload mid-fight on a 2.0+ client cannot create, place or bind
+        -- secure frames; the whole start-up waits for combat to end.
+        AP:DeferCombat(function() AP:EnterWorld() end)
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        -- Stock and cluster frames lock with combat on the 2.0+ clients;
+        -- an open Move UI saves and closes instead of fighting the lock.
+        if AP.SECURE then AP:FinishMoveUI(false) end
     elseif event == "PLAYER_LOGOUT" then
         AP:FinishMoveUI(true)
     end

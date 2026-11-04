@@ -121,7 +121,7 @@ class RuntimeSnapshotJournalCodecTest {
         }
     }
 
-    // ---- design-tunnel §5: the optional advertised-address field --------
+    // design-tunnel: the optional advertised-address field --------
 
     @Test fun tunnelAdvertisedJournalRoundTripsAtTheExistingSchemaPair() {
         val advertised = currentReleaseSnapshot().copy(

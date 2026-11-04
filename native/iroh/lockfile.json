@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "source": "iroh-ffi v1.1.0 (n0-computer/iroh-ffi 5e451092db), built by scripts/iroh_n2_android_build.sh",
+  "bindings": {
+    "path": "android/app/src/iroh/kotlin/computer/iroh/iroh_ffi.kt",
+    "bytes": 576551,
+    "sha256": "1fb1111d4606b57374bef7374173cacca039df05f2f9b54902938eef86501d12"
+  },
+  "libs": {
+    "arm64-v8a": {
+      "file": "libiroh_ffi.so",
+      "bytes": 13217584,
+      "sha256": "2d47c9dc26e1e025d197127f18d5507d4825a034dfa0bd1c15ff475c43db2105"
+    },
+    "x86_64": {
+      "file": "libiroh_ffi.so",
+      "bytes": 14744032,
+      "sha256": "91f2a90e07f62afbb48fe4f03e9ab11ca7224c1e30b7cca770a47e2309775170"
+    }
+  }
+}

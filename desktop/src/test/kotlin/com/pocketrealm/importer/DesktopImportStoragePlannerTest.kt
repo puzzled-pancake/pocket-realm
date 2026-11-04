@@ -16,7 +16,7 @@ import kotlin.math.ceil
 import org.junit.Before
 
 /**
- * DESK-3/66: the desktop storage planner twin. The [calculate] pins mirror
+ * the desktop storage planner twin. The [calculate] pins mirror
  * the shared android ImportStoragePlannerTest formulas verbatim (same owner
  * set, same 20%-margin-vs-2GiB-floor rule, same fail-closed verdicts); the
  * instance leg pins the named substitution — `File.getUsableSpace` on the
@@ -151,7 +151,7 @@ class DesktopImportStoragePlannerTest {
     }
     @Test
     fun planCountsBothProvidersDatadirsAndTheRealSnapshotStore() {
-        // R4-r2-1 (desktop-twin round 2): the shipped-default MariaDB
+        // the shipped-default MariaDB
         // datadir and the real snapshot store contribute their bytes —
         // measuring only the sqlite datadir under-counted the durable
         // state on the shipped lane (and maxOf(same, same) was a no-op).

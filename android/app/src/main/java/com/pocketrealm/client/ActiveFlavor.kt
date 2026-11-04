@@ -1,28 +1,28 @@
 package com.pocketrealm.client
 
 /**
- * The multi-flavor active-lane state machine — the lift of the former
- * single-qualified fail-loud sites (import storage budgets, import size
+ * The multi-flavor active-version state machine — the lift of the former
+ * single-supported fail-loud sites (import storage budgets, import size
  * limits, bot population policy, prepared-server-data resolution) to
  * per-flavor state.
  *
- * The machine holds a QUALIFIED-FLAVOR LIST (resolved live from
+ * The machine holds a SUPPORTED-FLAVOR LIST (resolved live from
  * [ClientFlavors.qualified]) plus an ACTIVE flavor selection. Resolution is
- * fail-loud exactly where the single-qualified sites were, and stays honest
- * for genuinely ambiguous states:
+ * fail-loud exactly where the single-supported sites were, and never
+ * silently guesses for genuinely ambiguous states:
  *
- * - no selection + exactly one qualified flavor -> that flavor (today's
- *   registry state; byte-identical to the old `qualified().single()`);
- * - no selection + several qualified flavors -> loud ("expected exactly one
+ * - no selection + exactly one supported flavor -> that flavor (today's
+ *   registry state; identical to the old `qualified().single()`);
+ * - no selection + several supported flavors -> loud ("expected exactly one
  *   qualified flavor, found N — <lane>"), never a silent VANILLA default;
- * - a selection that is not qualified -> loud (a stale or declared-but-
- *   disabled pick never silently downgrades to another lane);
- * - zero qualified flavors -> loud.
+ * - a selection that is not supported -> loud (a stale or declared-but-
+ *   disabled pick never silently downgrades to another flavor);
+ * - zero supported flavors -> loud.
  *
- * A flavor with [ClientFlavor.qualified] == false is declared but disabled
- * (port plan stages S2–S8); the Home flavor switcher renders it as a
- * present-but-not-selectable chip, and [select] refuses it — qualifying a
- * flavor is a data change in [ClientFlavors], never a UI flag.
+ * A flavor with [ClientFlavor.qualified] == false is declared but disabled;
+ * the Home flavor switcher renders it as a present-but-not-selectable chip,
+ * and [select] refuses it — supporting a flavor is a data change in
+ * [ClientFlavors], never a UI flag.
  */
 data class ActiveFlavorState(val selectedFlavorId: String? = null) {
 
@@ -133,7 +133,7 @@ object ActiveFlavor {
         val displayed = displayedId
         return ClientFlavors.ALL.map { flavor ->
             FlavorChip(
-                flavor = flavor,
+                game = flavor,
                 selected = displayed == flavor.flavorId,
                 selectable = flavor.flavorId in qualifiedIds,
             )
@@ -149,16 +149,16 @@ object ActiveFlavor {
 
 /** One Home flavor-switcher chip (pure; pinned by ActiveFlavorTest). */
 data class FlavorChip(
-    val flavor: ClientFlavor,
+    val game: ClientFlavor,
     val selected: Boolean,
     val selectable: Boolean,
 ) {
     /** Switcher label — the short expansion name players know. */
     val label: String
-        get() = when (flavor.flavorId) {
+        get() = when (game.flavorId) {
             ClientFlavors.VANILLA.flavorId -> "Vanilla"
             ClientFlavors.TBC.flavorId -> "TBC"
             ClientFlavors.WOTLK.flavorId -> "WotLK"
-            else -> flavor.expansion
+            else -> game.expansion
         }
 }

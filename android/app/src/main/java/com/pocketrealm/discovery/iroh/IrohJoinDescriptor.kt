@@ -250,7 +250,7 @@ data class IrohJoinDescriptor(
                 label.startsWith("-") || label.endsWith("-")
 
         private fun descriptorRefusal(reason: String): Nothing =
-            throw IllegalArgumentException("VAL-IROH-JOIN: $reason")
+            throw IllegalArgumentException("$reason")
 
         private fun isLowerHex(c: Char): Boolean =
             (c in '0'..'9') || (c in 'a'..'f')

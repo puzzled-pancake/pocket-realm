@@ -106,9 +106,24 @@ data class StoragePlan(
     val workingMarginBytes: Long,
     val requiredBytes: Long,
     val allocatableBytes: Long,
+    val contentOnRemovable: Boolean = false,
+    val contentVolumeRequiredBytes: Long = 0L,
+    val contentVolumeAllocatableBytes: Long = 0L,
 ) {
-    val canProceed: Boolean get() = allocatableBytes >= requiredBytes
-    val lowHeadroom: Boolean get() = allocatableBytes < requiredBytes + 2L * ImportLimits.GIB
+    val canProceed: Boolean get() = allocatableBytes >= requiredBytes &&
+        (!contentOnRemovable || contentVolumeAllocatableBytes >= contentVolumeRequiredBytes)
+    val lowHeadroom: Boolean get() =
+        allocatableBytes < requiredBytes + 2L * ImportLimits.GIB ||
+            (contentOnRemovable &&
+                contentVolumeAllocatableBytes < contentVolumeRequiredBytes + 2L * ImportLimits.GIB)
+
+    fun preflightMessage(): String =
+        if (!contentOnRemovable) {
+            "STORAGE_PREFLIGHT: need=$requiredBytes allocatable=$allocatableBytes"
+        } else {
+            "STORAGE_PREFLIGHT: internal(need=$requiredBytes allocatable=$allocatableBytes) " +
+                "sdcard(need=$contentVolumeRequiredBytes allocatable=$contentVolumeAllocatableBytes)"
+        }
 }
 
 enum class ImportSourceKind { TREE, ARCHIVE }

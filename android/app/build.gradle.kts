@@ -300,18 +300,6 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
                 if (abi == "arm64-v8a") {
                     add(File(nativeBuildRoot, "xserver-winlator-build/libvortekrenderer.so"))
                     add(File(nativeBuildRoot, "xserver-winlator-build/libvirglrenderer.so"))
-                    // Vendored llama.cpp runtime staged alongside the world
-                    // runtime it links into (in-process LLM backend). The
-                    // staging root follows the provider selection: under
-                    // -PsqliteProvider the APK packages the SIBLING staging's
-                    // llama closure, so the gate must validate the sibling
-                    // bytes, not the MariaDB-root ones.
-                    val llamaRealmRoot = if (isSqliteProvider) "realm-staging-sqlite" else "realm-staging"
-                    for (name in listOf("libllama.so", "libllama-common.so", "libggml.so",
-                            "libggml-base.so", "libggml-cpu.so")) {
-                        add(File(repoRoot,
-                            "native/.build-o09-$abi/$llamaRealmRoot/jniLibs/$abi/$name"))
-                    }
                 }
             }
             // The glibc access(2) shim belongs only to the x86_64 direct-Wine
@@ -396,27 +384,6 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
             check((artifact["size"] as Number).toLong() == patcher.length() &&
                 artifact["sha256"] == sha256(patcher)) {
                 "vanilla-tweaks artifact differs from its pinned size/SHA-256"
-            }
-        }
-        if (abi == "arm64-v8a" && selectedLane == "full") {
-            // The vendored llama.cpp shared libraries must byte-match the
-            // pinned kai build in native/llm/prebuilt before they ride the
-            // realm staging dir into the APK.
-            val llamaLock = File(repoRoot, "native/llm/lockfile-arm64-v8a.json")
-            check(llamaLock.isFile) { "Missing vendored llama lockfile: $llamaLock" }
-            val llamaRecord = JsonSlurper().parse(llamaLock) as Map<*, *>
-            check(llamaRecord["abi"] == "arm64-v8a") { "Vendored llama lockfile ABI mismatch" }
-            val llamaLibs = llamaRecord["libs"] as Map<*, *>
-            check(llamaLibs.size == 5) { "Unexpected vendored llama lib set: ${llamaLibs.keys}" }
-            val llamaRealmRoot = if (isSqliteProvider) "realm-staging-sqlite" else "realm-staging"
-            for ((name, metaAny) in llamaLibs) {
-                val meta = metaAny as Map<*, *>
-                val staged = File(repoRoot,
-                    "native/.build-o09-$abi/$llamaRealmRoot/jniLibs/$abi/$name")
-                check((meta["bytes"] as Number).toLong() == staged.length() &&
-                    meta["sha256"] == sha256(staged)) {
-                    "Vendored llama library $name differs from its pinned size/SHA-256"
-                }
             }
         }
         if (abi == "arm64-v8a" && selectedLane == "full") {
@@ -691,8 +658,8 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
 
 /**
  * Build-time staleness fence for the staged realm runtime. Guards against
- * packaging a stale libpocket_world_runtime.so (one missing the world-chat,
- * reset-state and llm-memory-state JNI ops) that would pass a gate which
+ * packaging a stale libpocket_world_runtime.so (one missing the world-chat
+ * or character export/import JNI ops) that would pass a gate which
  * compares the staging bytes only against the lockfile the same stale lane
  * wrote. The fence verifies:
  *
@@ -1543,8 +1510,8 @@ android {
         // other on-device emulators ship.
         targetSdk = (project.findProperty("pocketTargetSdk") as String?)?.toInt() ?: 27
         // Bump-on-release discipline (update manifests compare codes).
-        versionCode = 9
-        versionName = "0.110.0"
+        versionCode = 10
+        versionName = "0.111.0"
         // Two-APK distribution: the default build is the stable
         // MariaDB-provider APK; -PsqliteProvider builds the experimental
         // SQLite-provider APK with a visible versionName suffix so the two
@@ -1620,8 +1587,8 @@ android {
         }
         create("pkgExperiment") {
             initWith(getByName("debug"))
-            // The pocketrealm-llm library publishes only debug/release; all
-            // custom lanes resolve their library dependency against debug.
+            // Library dependencies publish only debug/release; all custom
+            // lanes resolve them against debug.
             matchingFallbacks += listOf("debug")
             // Packaging qualification variant.
             isJniDebuggable = true
@@ -1661,23 +1628,6 @@ android {
             // staged .so exactly as hashed by the Wine/MariaDB/realm manifests.
             keepDebugSymbols += "**/*.so"
         }
-        // The :pocketrealm-llm module ships the embedded llama-server runtime
-        // for the AI bot LLM feature. The database qualification lane must
-        // stay free of the llama/Hexagon closure (the same separation the
-        // staged-jniLibs discipline enforces for the app's own llama libs).
-        // The module's DSP skels/build-info assets are excluded at the module
-        // level for non-full / non-arm64 lanes (packaging.resources does not
-        // govern the asset merger). The :llm feature itself degrades
-        // gracefully in those lanes (HexagonProbe reports the libs missing).
-        if (pocketLane == "database") {
-            jniLibs.excludes += listOf(
-                "**/libllamaserver.so",
-                "**/libllama-server-impl.so",
-                "**/libmtmd.so",
-                "**/libggmlhex.so",
-                "**/libllmexec.so",
-            )
-        }
     }
 
     sourceSets {
@@ -1705,12 +1655,14 @@ android {
                 // debug lane compiles byte-identical without it. AGP 9's
                 // source-directory API is the `directories` mutable set (the
                 // old srcDir() is a deprecation-error on this lane).
+                // The bindings and libiroh_ffi.so now ride the main source
+                // set (src/iroh/kotlin + stageNativeLibs).
                 kotlin.directories.add("E:/pocket_realm_complete/spikes/iroh-n2/android-spike")
-                kotlin.directories.add("E:/pocket_realm_toolchain/tmp/iroh-ffi-n2-target/bindgen-kotlin")
-                jniLibs.directories.add("E:/pocket_realm_toolchain/tmp/iroh-ffi-n2-target/jniLibs")
             }
         }
         getByName("main") {
+            // uniffi-generated iroh bindings (pinned by native/iroh/lockfile.json).
+            kotlin.directories.add("src/iroh/kotlin")
             // Deterministic staged native closure (see stageNativeLibs task).
             // Never references ../../../native — staged inside the module.
             val stagedJniDir = if (pocketLane == "full") {
@@ -2153,6 +2105,21 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     }
 
     into(stagedLib)
+    // iroh transport for the internet join (prebuilt from iroh-ffi v1.1.0,
+    // pinned by native/iroh/lockfile.json). Optional: without the staged
+    // file the join reports itself unavailable instead of failing the build;
+    // a present file must match its pin.
+    val irohLib = File(repoRoot, "native/iroh/prebuilt/$pocketAbi/libiroh_ffi.so")
+    if (irohLib.isFile) {
+        val irohLock = JsonSlurper().parse(File(repoRoot, "native/iroh/lockfile.json")) as Map<*, *>
+        val pin = (irohLock["libs"] as Map<*, *>)[pocketAbi] as? Map<*, *>
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(irohLib.readBytes()).joinToString("") { "%02x".format(it) }
+        check(pin != null && (pin["bytes"] as Number).toLong() == irohLib.length() && pin["sha256"] == digest) {
+            "native/iroh/prebuilt/$pocketAbi/libiroh_ffi.so differs from native/iroh/lockfile.json"
+        }
+        from(irohLib)
+    }
     // Real realm facade — large APK-native .so, loaded by SONAME.
     if (pocketLane == "full") {
     from(File(rtBuild, "libpocketrealm.so"))
@@ -2580,7 +2547,6 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":pocketrealm-llm"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -2620,15 +2586,11 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    // iroh spike (DEBUG-only, opt-in via -PpocketIrohSpike) JNA for the
-    // uniffi-generated computer.iroh bindings staged from the E:-resident NDK
-    // build. The @aar classifier is REQUIRED — the plain JAR ships no
-    // android-x86-64 libjnidispatch.so (first emulator attempt died on
-    // UnsatisfiedLinkError for exactly that path). Without the property the
-    // debug lane is byte-identical to before.
-    if (providers.gradleProperty("pocketIrohSpike").isPresent) {
-        debugImplementation("net.java.dev.jna:jna:5.15.0@aar")
-    }
+    // JNA for the uniffi-generated computer.iroh bindings (src/iroh/kotlin)
+    // behind the in-app internet join. The @aar classifier is REQUIRED — the
+    // plain JAR ships no android libjnidispatch.so (the N2 spike's emulator
+    // attempt died on UnsatisfiedLinkError for exactly that path).
+    implementation("net.java.dev.jna:jna:5.15.0@aar")
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)

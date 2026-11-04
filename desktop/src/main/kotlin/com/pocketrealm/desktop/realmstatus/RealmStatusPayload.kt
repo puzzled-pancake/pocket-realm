@@ -3,46 +3,46 @@ package com.pocketrealm.desktop.realmstatus
 import org.json.JSONObject
 
 /**
- * Realm-status browser (design realm-status-browser.md §7): the
+ * Realm-status browser (design realm-status-browser.md): the
  * `GET /api/status.json` payload contract, schema 3.
  *
  * The builder is a PURE function of one captured input bundle — the
- * caller snapshots the supervisor state ONCE at request entry (§4's
+ * caller snapshots the supervisor state ONCE at request entry (the
  * one-snapshot rule) and hands the values in, so a torn render can never
  * mix pre-stop and post-stop facts by construction.
  *
  * The fail-closed rules the contract pins (each asserted by the suite):
  *  - PUBLIC trim: `supervisor.phase/mode/clean`, `world.generation`,
  *    `players.botTarget`, `uptime.startedAtWallMs` are null and the
- *    timestamps go minute-coarse (§7's "null in PUBLIC" set);
+ * timestamps go minute-coarse (the "null in PUBLIC" set);
  *  - degraded status: `supervisor.realmOnline` is null (an unreadable
- *    upstream is not evidence of offline, §6.4), uptime 0, and the
- *    players block fail-closes to nulls — never a 0-split (§3.3);
+ * upstream is not evidence of offline), uptime 0, and the
+ * players block fail-closes to nulls — never a 0-split ;
  *  - world down: the zeros are STRUCTURAL (`players.source` =
- *    "world-down", §7) — no world means no players by construction;
+ * "world-down") — no world means no players by construction;
  *  - the split publishes non-null numbers only when `players.source` is
  *    "native" (a clean bot-status lane AND a passing cross-check);
- *  - `players.botsLabeled` is always true (convergence §5 Tier 3);
- *  - the advertised address follows the TWO-case rule (§7): the FRIENDS
+ * `players.botsLabeled` is always true (convergence Tier 3);
+ * the advertised address follows the TWO-case rule : the FRIENDS
  *    tunnel lane only, null in plain-LAN FRIENDS and always null in PUBLIC.
  */
 object RealmStatusPayload {
 
-    /** The round-3 contract version (§7). */
+    /** The round-3 contract version. */
     const val SCHEMA = 3
 
-    /** The join hint copied verbatim into every PUBLIC payload (§7). */
+    /** The join hint copied verbatim into every PUBLIC payload. */
     const val PUBLIC_JOIN_HINT: String =
         "This page is read-only. Joining is by friend invitation from the host only."
 
     /** The FRIENDS join pointer — address-block-only family, address-free
-     * in the payload (§7; the LAN address appears only in the page's own
+     * in the payload ( the LAN address appears only in the page's own
      * join section, never here). */
     const val FRIENDS_JOIN_HINT: String =
         "Joining is by friend invitation from the host: ask the host for an " +
             "invite — the app's invite block carries everything except your login."
 
-    /** The MOTD clamp (§6.3): control characters stripped, hard cap at 280
+    /** The MOTD clamp: control characters stripped, hard cap at 280
      * characters. Runs at the settings WRITE path and re-runs here (and at
      * the render) as defense in depth — the payload never trusts a stored
      * value it did not clamp itself. */
@@ -53,7 +53,7 @@ object RealmStatusPayload {
         return if (cleaned.length <= MOTD_MAX_LENGTH) cleaned else cleaned.take(MOTD_MAX_LENGTH)
     }
 
-    /** `players.source` (§7): the fail-closed lane label. */
+    /** `players.source`: the fail-closed lane label. */
     enum class PlayerSource(val wire: String) {
         NATIVE("native"),
         DEGRADED("degraded"),
@@ -61,10 +61,10 @@ object RealmStatusPayload {
         WORLD_DOWN("world-down"),
     }
 
-    /** `supervisor.statusSource` (§6.4). */
+    /** `supervisor.statusSource`. */
     enum class StatusSource(val wire: String) { LIVE("live"), DEGRADED("degraded") }
 
-    /** `public.tunnelState` (§5.4). */
+    /** `public.tunnelState`. */
     enum class TunnelState(val wire: String) {
         LIVE("live"),
         STARTING("starting"),
@@ -72,14 +72,14 @@ object RealmStatusPayload {
         BINARY_MISSING("binary-missing"),
     }
 
-    /** `join.kind` (§7) — keyed on the ADVERTISEMENT axis only. */
+    /** `join.kind` — keyed on the ADVERTISEMENT axis only. */
     enum class JoinKind(val wire: String) {
         TUNNEL_INVITE("tunnel-invite"),
         LAN_INVITE("lan-invite"),
         NONE("none"),
     }
 
-    /** The world-data counts block (§7; `PreparedDataStore`'s manifest counts). */
+    /** The world-data counts block ( `PreparedDataStore`'s manifest counts). */
     data class WorldCounts(
         val dbc: Int,
         val maps: Int,
@@ -88,10 +88,10 @@ object RealmStatusPayload {
         val mmapTiles: Int,
     )
 
-    /** The rates block (§7). */
+    /** The rates block. */
     data class Rates(val xpKill: Double?, val xpQuest: Double?, val xpHonor: Double?, val source: String) {
         companion object {
-            /** The app writes no Rate.* keys → engine defaults (§7). */
+            /** The app writes no Rate.* keys → engine defaults. */
             fun engineDefault() =
                 Rates(xpKill = 1.0, xpQuest = 1.0, xpHonor = 1.0, source = "engine-default")
 
@@ -100,7 +100,7 @@ object RealmStatusPayload {
         }
     }
 
-    /** The players block's inputs (§3.3/§7). [humansOnline]/[botsOnline]/
+    /** The players block's inputs. [humansOnline]/[botsOnline]/
      * [totalOnline] are null unless [source] is NATIVE; [botTarget] is the
      * conf-resolved launch target (null in PUBLIC); [characterNames] the
      * consent-gated roster (empty = absent from the payload). */
@@ -114,7 +114,7 @@ object RealmStatusPayload {
         val characterNames: List<String> = emptyList(),
     )
 
-    /** Everything one render needs, captured ONCE (§4's one-snapshot rule). */
+    /** Everything one render needs, captured ONCE (one-snapshot rule). */
     data class Inputs(
         val visibility: RealmStatusVisibility,
         val generatedAtWallMs: Long,
@@ -145,13 +145,13 @@ object RealmStatusPayload {
 
     /** Builds the schema-3 payload JSON from one captured input bundle. */
     @Suppress("LongMethod", "CyclomaticComplexMethod", "MaxLineLength")
-    // one reviewed contract literal over the §7 field table — the exact
+    // one reviewed contract literal over the field table — the exact
     // ServerRuntimeFiles.worldConfig reviewed-literal precedent (golden-pinned)
     fun build(inputs: Inputs): JSONObject {
         val publicMode = inputs.visibility == RealmStatusVisibility.PUBLIC
         val degraded = inputs.statusSource == StatusSource.DEGRADED
-        // §7: uptime rides the world component's start; minute-coarse in
-        // PUBLIC; 0 when down or degraded (§6.4's never-a-stale-snapshot).
+        // uptime rides the world component's start; minute-coarse in
+        // PUBLIC; 0 when down or degraded (the never-a-stale-snapshot).
         val uptimeSeconds = when {
             degraded || !inputs.worldRunning || inputs.worldStartedAtWallMs == null -> 0L
             else -> ((inputs.generatedAtWallMs - inputs.worldStartedAtWallMs) / MS_PER_SECOND)
@@ -160,7 +160,7 @@ object RealmStatusPayload {
         val coarseUptime =
             if (publicMode) uptimeSeconds - (uptimeSeconds % SECONDS_PER_MINUTE) else uptimeSeconds
 
-        // The liveness signal (§7): null when degraded — no false offline
+        // The liveness signal : null when degraded — no false offline
         // claim of either polarity; down is a REAL offline (phase carries it).
         val realmOnline: Boolean? = when {
             degraded -> null
@@ -222,7 +222,7 @@ object RealmStatusPayload {
                     .put("clean", if (publicMode) JSONObject.NULL else (inputs.clean ?: JSONObject.NULL))
                     .put("realmOnline", realmOnline ?: JSONObject.NULL)
                     .put("statusSource", inputs.statusSource.wire)
-                    // §7's two-case rule: the FRIENDS tunnel lane only; the
+                    // 's two-case rule: the FRIENDS tunnel lane only; the
                     // plain-LAN FRIENDS lane and PUBLIC are null, always.
                     .put(
                         "advertisedAddress",
@@ -241,7 +241,7 @@ object RealmStatusPayload {
             .put(
                 "public",
                 JSONObject()
-                    // §5.4: the URL rides a LIVE tunnel only — never a stale one.
+                    // the URL rides a LIVE tunnel only — never a stale one.
                     .put(
                         "url",
                         if (inputs.tunnelState == TunnelState.LIVE) {
@@ -256,7 +256,7 @@ object RealmStatusPayload {
             .put("privacy", JSONObject().put("characterNamesInPublic", inputs.characterNamesInPublic))
     }
 
-    /** The trycloudflare share-URL shape gate (§5.5). The SAME rule gates
+    /** The trycloudflare share-URL shape gate. The SAME rule gates
      * the payload, the page's copy button, and the tunnel URL parse — a
      * parse deviation renders the failure block, never the attribute. */
     val TRYCLOUDFLARE_SHAPE: Regex = Regex("^https://[a-z0-9-]+\\.trycloudflare\\.com$")
@@ -266,19 +266,19 @@ object RealmStatusPayload {
 
     private fun advertisedOrNull(inputs: Inputs, publicMode: Boolean): String? =
         when {
-            // §7's two-case rule: PUBLIC is null always; only the FRIENDS
+            // 's two-case rule: PUBLIC is null always; only the FRIENDS
             // tunnel lane carries the frozen advertisement.
             publicMode || inputs.visibility != RealmStatusVisibility.FRIENDS -> null
             else -> inputs.advertisedAddress?.takeIf { it.isNotBlank() }
         }
 
-    /** The players block (§3.3/§7): numbers only for a clean NATIVE split
+    /** The players block: numbers only for a clean NATIVE split
      * or the STRUCTURAL world-down zeros (no world means no players by
-     * construction — §7 labels those `world-down`, never a fake "native");
+     * construction — labels those `world-down`, never a fake "native");
      * every degraded/failed lane publishes NULLS, never a 0-split. Bots
      * are always labeled; the roster rides only when consented + provided. */
     @Suppress("CyclomaticComplexMethod")
-    // the publish ladder IS the §3.3 contract: native split | structural
+    // the publish ladder IS the contract: native split | structural
     // world-down zeros | nulls for every degraded/failed lane
     private fun playersJson(players: Players, publicMode: Boolean): JSONObject {
         val splitLive = players.source == PlayerSource.NATIVE &&
@@ -297,7 +297,7 @@ object RealmStatusPayload {
             .put("crossCheckOk", players.crossCheckOk)
             .put("botsLabeled", true)
             .put("botTarget", if (publicMode) JSONObject.NULL else (players.botTarget ?: JSONObject.NULL))
-            // §3.4/§7: the roster is ABSENT unless the consent toggle rides
+            // /: the roster is ABSENT unless the consent toggle rides
             // — no key at all in the default payload, never a null member.
             .also { payload ->
                 if (players.characterNames.isNotEmpty()) {
@@ -316,7 +316,7 @@ object RealmStatusPayload {
             .put("mmapTiles", counts.mmapTiles)
     }
 
-    /** PUBLIC timestamps are minute-coarse (§7). */
+    /** PUBLIC timestamps are minute-coarse. */
     fun minuteCoarse(wallMs: Long): Long = wallMs - (wallMs % MS_PER_MINUTE)
 
     private fun RealmStatusVisibility.wireName(): String = name.lowercase()

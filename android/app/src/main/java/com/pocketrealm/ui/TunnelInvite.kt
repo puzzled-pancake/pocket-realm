@@ -6,15 +6,15 @@ import com.pocketrealm.supervisor.RealmEndpoint
 import com.pocketrealm.supervisor.RuntimeLaunchSpec
 
 /**
- * Design-tunnel §4/§5/§6: the tunnel-host lane's PURE logic — the invite
+ * Design-tunnel / /: the tunnel-host lane's PURE logic — the invite
  * artifact text, the tunnel-kind guidance copy, and the mode-aware join
  * validation — kept out of the composables so the contract is unit-pinned
  * without a UI. SHARED between the desktop app and the Android app
  * (desktop/shared-sources.json): both platforms render the same invite,
  * apply the same join grammar, and show the same mode-aware failure copy.
  *
- * The invite hard rule (design-lan §4.2, superseding design-tunnel's
- * round-1 §6; design-remote-accounts §4.1 demands the same split): the
+ * The invite hard rule (design-lan, superseding design-tunnel's
+ * round-1; design-remote-accounts demands the same split): the
  * artifact is ADDRESS BLOCK ONLY — a working username+password never
  * travels inside a pasted invite, because the paste lands in an
  * uncontrolled channel's permanent archive. The credential is its own
@@ -29,7 +29,7 @@ object TunnelInvite {
      *  second flavor qualifies, forcing the invite to carry its lane) —
      *  never a hard-coded vanilla identity in multi-flavor surface copy. */
     private fun clientRequirementLine(): String {
-        // R3-2 (android-core review round 2): the last live
+        // the last live
         // `qualified().single()` in the slice — List.single() throws
         // NoSuchElementException inside the Compose model at a
         // multi-qualified flip (a crash, not an actionable error), and it
@@ -39,12 +39,12 @@ object TunnelInvite {
         // loud with the machine's message.
  // Flip: with no pick yet under several qualified flavors the
         // resolver refuses loud — the invite line renders the honest
-        // first-pick copy instead of crashing composition (there IS no
-        // honest invite before a lane exists).
+        // first-pick copy instead of crashing composition (there is no
+        // correct invite before a game version is picked).
         val flavor = ActiveFlavor.displayedId?.let { laneId ->
             com.pocketrealm.client.ClientFlavors.ALL.first { it.flavorId == laneId }
-        } ?: return "2) Client: pick a game flavor on Home first — " +
-            "the invite then names that lane's client requirement."
+        } ?: return "2) Client: pick a game version on Home first — " +
+            "the invite then names its client requirement."
         val version = flavor.versionResource.substringBeforeLast('.')
         return "2) Client: WoW $version build ${flavor.build} exactly " +
             "(the realm rejects other builds)."
@@ -64,9 +64,9 @@ object TunnelInvite {
 
     /**
      * Classify an advertised address: CGNAT 100.64/10 reads as Tailscale
-     * (the design's recommended default, §4.1); loopback reads as the
-     * cloudflared recipe (§4.3); private RFC1918 as ZeroTier's default
-     * managed range (§4.2). Purely presentational — any numeric address
+     * (the design's recommended default); loopback reads as the
+     * cloudflared recipe ; private RFC1918 as ZeroTier's default
+     * managed range . Purely presentational — any numeric address
      * works with any tunnel; the copy is the best guess.
      */
     fun tunnelKindFor(advertised: AdvertisedAddress): TunnelKind = when {
@@ -76,9 +76,9 @@ object TunnelInvite {
     }
 
     /**
-     * The §6 invite artifact: one text block, one copy button, rendered
+     * The invite artifact: one text block, one copy button, rendered
      * from live state. Carries the advertised address (never the host's
-     * LAN IP while tunnel mode is on, §5) and the pinned client build —
+     * LAN IP while tunnel mode is on) and the pinned client build —
      * and NEVER a credential. [realmName] is the display name (the flavor
      * realm's name is what the friend sees in-game; the app seeds one
      * realm row).
@@ -111,9 +111,9 @@ object TunnelInvite {
                 // The loopback lane's honest app note: the advertised
                 // address is each player's OWN local forwarder target, so
                 // the app's Join pane — which takes private/link-local or
-                // CGNAT addresses, never 127.0.0.1 — cannot join this lane.
+                // CGNAT addresses, never 127.0.0.1 — cannot join this way.
                 append(
-                    "   This lane plays through the client's realmlist only: the app's Join " +
+                    "   This option plays through the client's realmlist only: the app's Join " +
                         "pane takes LAN or tunnel (CGNAT) addresses, not a 127.0.0.1 forwarder. " +
                         "The host sets your guest login up on their side of the app.",
                 )
@@ -151,14 +151,14 @@ object TunnelInvite {
         append(
             "   …or, if you use the Pocket Realm app: paste $lanAddress into the Join pane. " +
                 "(This address only resolves on the host's shared network — over the " +
-                "internet the host needs a tunnel lane. On this network the app's " +
+                "internet the host needs a tunnel. On this network the app's " +
                 "request-a-login card reaches the host — as long as the host has " +
                 "Friend access switched on.)",
         )
     }
 
     /**
-     * The §4.4.3 mode-aware join-field validation: the JOIN grammar is the
+     * The mode-aware join-field validation: the JOIN grammar is the
      * widened v2 one (private/link-local LAN host, or the host's numeric
      * tunnel address). Returns the parse error message, or null when the
      * draft is a valid join target — the same shape the LAN field's
@@ -170,7 +170,7 @@ object TunnelInvite {
         runCatching { RealmEndpoint.parseJoinTarget(raw) }.exceptionOrNull()?.message
 
     /**
-     * The §5 mode-aware probe copy for a failed join: in tunnel mode the
+     * The mode-aware probe copy for a failed join: in tunnel mode the
      * realm address only resolves inside the host's tunnel — the D6
      * correction ("both devices are on the same network" is wrong there).
      * [advertised] null = plain LAN join, the design-lan copy.

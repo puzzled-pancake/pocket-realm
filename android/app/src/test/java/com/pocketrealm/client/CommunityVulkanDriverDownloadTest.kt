@@ -102,7 +102,7 @@ class CommunityVulkanDriverDownloadTest {
             )
             val failed = outcome as CommunityVulkanDriverDownload.Outcome.Failed
             assertTrue(failed.reason.contains("claims 64 bytes"))
-            assertTrue(failed.reason.contains("pinned driver is 65 bytes"))
+            assertTrue(failed.reason.contains("release file is 65 bytes"))
         }
     }
 

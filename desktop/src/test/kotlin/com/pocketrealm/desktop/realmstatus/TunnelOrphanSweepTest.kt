@@ -136,7 +136,7 @@ class TunnelOrphanSweepTest {
         putSpawnRecord(records, pid = 5001L, binary = "cloudflared", startUnixSeconds = 900_000L)
         // After a reboot the OS handed pid 5001 to a DIFFERENT page-tunnel
         // invocation (same shape, different start time — the exact reuse
-        // hazard §5.3's start-time leg exists for): the triple match must
+        // hazard 's start-time leg exists for): the triple match must
         // fail, so the child is never killed under the stale record — at
         // most it surfaces the lost-record gate.
         val outcome = sweep(

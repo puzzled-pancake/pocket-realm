@@ -5,7 +5,7 @@ import com.pocketrealm.supervisor.RealmEndpoint
 import java.io.File
 
 /**
- * DESK-50: the app-owned Config.wtf overlay at the native client launch —
+ * the app-owned Config.wtf overlay at the native client launch —
  * the desktop twin of the Android prepare path's enforcement
  * (ManagedConfigPolicy over the user's `WTF/Config.wtf` through the shared
  * [ConfigWtfCodec]).

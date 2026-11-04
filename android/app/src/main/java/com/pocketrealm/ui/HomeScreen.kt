@@ -12,12 +12,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -292,7 +293,7 @@ fun HomeScreen(
     if (repairFailure != null && confirmOrphanStop) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { confirmOrphanStop = false },
-            title = { androidx.compose.material3.Text("Force stop realm") },
+            title = { androidx.compose.material3.Text("Force stop realm", maxLines = 1, softWrap = false) },
             text = {
                 androidx.compose.material3.Text(
                     if (repairFailure.dbOwnedByDeadSession) {
@@ -442,7 +443,7 @@ fun HomeScreen(
             FlavorSwitcherCard(
                 chips = flavorChips,
                 onSelect = { chip ->
-                    ActiveFlavor.select(chip.flavor.flavorId)
+                    ActiveFlavor.select(chip.game.flavorId)
                     flavorChips = ActiveFlavor.switcherChips()
                     // The pick must outlive this process: :supervisor (a
                     // separate process) reads the persisted key when it
@@ -450,9 +451,9 @@ fun HomeScreen(
                     // rides the same tap.
                     scope.launch {
                         runCatching {
-                            settings.update { it.copy(selectedFlavorId = chip.flavor.flavorId) }
+                            settings.update { it.copy(selectedFlavorId = chip.game.flavorId) }
                         }.onFailure {
-                            AppLog.w("Home", "flavor selection was not persisted: ${it.message}")
+                            AppLog.w("Home", "version selection was not persisted: ${it.message}")
                         }
                     }
                 },
@@ -461,7 +462,10 @@ fun HomeScreen(
         }
         if (landscape) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 flavorSwitcher(Modifier.fillMaxWidth())
@@ -594,31 +598,34 @@ private fun FlavorSwitcherCard(
     modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = modifier.testTag("flavor-switcher"),
+        modifier = modifier.testTag("version-switcher"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(
-                "Game flavor",
-                style = MaterialTheme.typography.labelMedium,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Game version",
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                )
                 chips.forEach { chip ->
-                    AssistChip(
+                    FilterChip(
                         onClick = { onSelect(chip) },
+                        selected = chip.selected,
                         enabled = chip.selectable,
-                        label = { Text(chip.label) },
-                        modifier = Modifier.testTag("flavor-chip-${chip.flavor.flavorId}"),
+                        label = { Text(chip.label, maxLines = 1) },
+                        modifier = Modifier.testTag("version-chip-${chip.game.flavorId}"),
                     )
                 }
             }
             Text(
-                "Switching the flavor re-targets imports, prepared world data and " +
-                    "bot populations on that lane. Unqualified flavors stay off until " +
-                    "their client is qualified.",
+                "Each version has its own game files, world and bots.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -671,17 +678,27 @@ private fun RealmControlCard(
         val textArea: @Composable (Modifier) -> Unit = { m ->
             Column(m, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Realm", style = MaterialTheme.typography.labelMedium)
-                    Text(statusText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Realm", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    Text(
+                        statusText,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
                 // Preset display names already carry their bot count.
-                Text(presetLabel, style = MaterialTheme.typography.bodySmall)
                 Text(
-                    "Starts at ${botProfile.initialTarget} → target ${botProfile.selectedTarget} · " +
-                        "Adaptive AI on",
+                    presetLabel,
                     style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(detailText, style = MaterialTheme.typography.labelSmall)
+                if (!canLaunchGame && (state is RealmState.Idle || state is RealmState.Failed)) Text(
+                    "Start the realm, create your account, then start the game.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
                 if (firstStartHint) {
                     Text(
                         "First start is building the databases and preparing the " +
@@ -716,19 +733,14 @@ private fun RealmControlCard(
                                 enabled = actions.startRealm,
                                 modifier = (if (fillRow) Modifier.weight(1f) else Modifier)
                                     .testTag("realm-primary-action"),
-                            ) { Text(if (allowLanPlayers) "Host realm" else "Start realm") }
+                            ) { Text(if (allowLanPlayers) "Host realm" else "Start realm", maxLines = 1, softWrap = false) }
                             OutlinedButton(
                                 onClick = onStartAll,
                                 enabled = actions.startRealmAndGame,
                                 modifier = (if (fillRow) Modifier.weight(1f) else Modifier)
                                     .testTag("realm-start-all"),
-                            ) { Text("Realm + game") }
+                            ) { Text("Realm + game", maxLines = 1, softWrap = false) }
                         }
-                        if (!canLaunchGame) Text(
-                            "Start the realm, create your account, then start the game.",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.widthIn(max = 260.dp),
-                        )
                         // UNVERIFIED_ORPHAN repair: distinct, consented force
                         // stop of the leftover stack the automatic lanes
                         // refuse to touch. Shown for that failure only.
@@ -737,7 +749,7 @@ private fun RealmControlCard(
                                 onClick = forceStop,
                                 modifier = (if (fillRow) Modifier.fillMaxWidth() else Modifier)
                                     .testTag("realm-force-stop-orphan"),
-                            ) { Text("Force stop realm") }
+                            ) { Text("Force stop realm", maxLines = 1, softWrap = false) }
                         }
                     }
                 }
@@ -749,28 +761,28 @@ private fun RealmControlCard(
                                 enabled = actions.launchClient,
                                 modifier = (if (fillRow) Modifier.weight(1f) else Modifier)
                                     .testTag("retry-client"),
-                            ) { Text(if (clientRetryPending) "Retrying game..." else "Retry game") }
+                            ) { Text(if (clientRetryPending) "Retrying game..." else "Retry game", maxLines = 1, softWrap = false) }
                         } else if (state.clientState == ClientLaunchState.NOT_STARTED) {
                             Button(
                                 onClick = onRetryGame,
                                 enabled = actions.launchClient,
                                 modifier = (if (fillRow) Modifier.weight(1f) else Modifier)
                                     .testTag("start-client"),
-                            ) { Text(if (clientRetryPending) "Starting game..." else "Start game") }
+                            ) { Text(if (clientRetryPending) "Starting game..." else "Start game", maxLines = 1, softWrap = false) }
                         } else {
                             Button(
                                 onClick = { onEnterGame?.invoke() },
                                 enabled = onEnterGame != null,
                                 modifier = (if (fillRow) Modifier.weight(1f) else Modifier)
                                     .testTag("enter-fullscreen-client"),
-                            ) { Text(if (onEnterGame == null) "Preparing game..." else "Enter game") }
+                            ) { Text(if (onEnterGame == null) "Preparing game..." else "Enter game", maxLines = 1, softWrap = false) }
                         }
                         OutlinedButton(
                             onClick = onSaveExit,
                             modifier = (if (fillRow) Modifier.weight(1f) else Modifier)
                                 .testTag("save-exit"),
                         ) {
-                            Text(if (state.mode == RuntimeMode.LAN_JOIN) "Exit client" else "Save & exit")
+                            Text(if (state.mode == RuntimeMode.LAN_JOIN) "Exit client" else "Save & exit", maxLines = 1, softWrap = false)
                         }
                     }
                 }
@@ -781,7 +793,7 @@ private fun RealmControlCard(
                         modifier = (if (fillRow) Modifier.fillMaxWidth() else Modifier)
                             .testTag("realm-primary-action"),
                     ) {
-                        Text(contextualWorkingLabel(state))
+                        Text(contextualWorkingLabel(state), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -831,7 +843,7 @@ private fun CurrentSetupCard(
             "Auto (${if (ArmRendererAuto.isAdrenoGpu()) "Turnip" else "System Vortek"} / DXVK)"
         "dxvk" -> {
             val dxvk = RendererPackageCatalog.find(settings.selectedDxvkPackageId())?.dxvkVersion
-                ?: "pinned"
+                ?: "default"
             val driverId = settings.effectiveVulkanDriverId()
             val userVulkanLabel by produceState<String?>(null, context, driverId) {
                 if (UserVulkanDriver.isUserId(driverId)) {
@@ -886,16 +898,18 @@ private fun CurrentSetupCard(
                     "Active setup",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 OutlinedButton(
                     onClick = onOpenBots,
                     modifier = Modifier.testTag("setup-open-bots"),
-                ) { Text("Bots") }
+                ) { Text("Bots", maxLines = 1, softWrap = false) }
                 OutlinedButton(
                     onClick = onOpenSettings,
                     modifier = Modifier.testTag("setup-open-graphics"),
-                ) { Text("Graphics") }
+                ) { Text("Graphics", maxLines = 1, softWrap = false) }
             }
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
@@ -950,20 +964,39 @@ private fun AccountCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Local account", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text(
+                    "Local account",
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
                 storedAccount?.let {
-                    Text("Saved: $it", style = MaterialTheme.typography.labelMedium)
-                    OutlinedButton(onClick = onClear, enabled = !operationPending) { Text("Clear") }
+                    Text(
+                        "Saved: $it",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    OutlinedButton(onClick = onClear, enabled = !operationPending) { Text("Clear", maxLines = 1, softWrap = false) }
                 }
             }
-            if (landscape) {
+            // With a saved account the creation form folds away; it opens
+            // on demand (or while an operation is in flight).
+            var formOpen by rememberSaveable(storedAccount) { mutableStateOf(storedAccount == null) }
+            if (!formOpen && !operationPending) {
+                OutlinedButton(
+                    onClick = { formOpen = true },
+                    modifier = Modifier.fillMaxWidth().testTag("account-open-form"),
+                ) { Text("Create another account", maxLines = 1, softWrap = false) }
+            } else if (landscape) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AccountFields(username, onUsername, password, onPassword, !operationPending, Modifier.weight(1f))
                 }
             } else {
                 AccountFields(username, onUsername, password, onPassword, !operationPending, Modifier.fillMaxWidth())
             }
-            Row(
+            if (formOpen || operationPending) Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -979,6 +1012,7 @@ private fun AccountCard(
                 Text(
                     if (gmAccount) "Administrator" else "Player",
                     style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
                 Button(
@@ -992,13 +1026,13 @@ private fun AccountCard(
                         password = password,
                     ),
                     modifier = Modifier.testTag("account-create"),
-                ) { Text("Create & remember") }
+                ) { Text("Create & remember", maxLines = 1, softWrap = false) }
             }
-            Text(
+            if (formOpen || operationPending) Text(
                 if (gmAccount) {
-                    "Administrator accounts can use privileged realm commands; choose this only for local maintenance."
+                    "Administrators can use realm commands. Use this only to manage your own realm."
                 } else {
-                    "Player accounts have normal gameplay permissions and are the recommended choice."
+                    "A normal player account. Recommended."
                 },
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -1041,9 +1075,9 @@ private fun AccountFields(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             isError = usernameError != null,
             supportingText = {
-                // The realm stores logins uppercase (AccountMgr
-                // normalizes) — say so before the login screen surprises.
-                Text(usernameError ?: "Stored uppercase — any case works when you log in")
+                // The realm stores logins uppercase
+                // (AccountMgr normalizes) — say so before the login screen surprises.
+                Text(usernameError ?: "Any letter case works at login", maxLines = 1, overflow = TextOverflow.Ellipsis)
             },
             modifier = Modifier.weight(1f).testTag("account-username"),
         )
@@ -1055,7 +1089,7 @@ private fun AccountFields(
             label = { Text("Password") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             isError = passwordError != null,
-            supportingText = { Text(passwordError ?: "1–16 letters or numbers") },
+            supportingText = { Text(passwordError ?: "1–16 letters or numbers", maxLines = 1, overflow = TextOverflow.Ellipsis) },
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.weight(1f).testTag("account-password"),
         )
@@ -1078,11 +1112,11 @@ private fun realmStatus(state: RealmState): Pair<String, String> = when (state) 
     } else when (state.mode) {
         RuntimeMode.LOCAL -> "Realm online" to "The world and loopback-only services are ready."
         RuntimeMode.LAN_HOST -> "LAN realm online" to
-            // Design-tunnel §5: the subtitle displays the LIVE advertised
+            // Design-tunnel: the subtitle displays the LIVE advertised
             // address, whichever mode is active (the tunnel address when a
             // tunnel host is up — never the LAN IP then).
             "Hosting on ${state.endpointAddress}" +
-                state.advertisedAddress?.let { " — advertising $it (tunnel)" }.orEmpty() +
+                state.advertisedAddress?.let { " — advertising $it (private bridge)" }.orEmpty() +
                 "; manage LAN in the LAN destination."
         RuntimeMode.LAN_JOIN -> "LAN client online" to
             "Client-only session for ${state.endpointAddress}; manage it in the LAN destination."

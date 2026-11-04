@@ -19,7 +19,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * Design-tunnel §4.4.2/§5 (bind/advertise split) and §9.3 (host ban verb):
+ * Design-tunnel / (bind/advertise split) and (host ban verb):
  *
  *  - the ADVERTISED address lands in the one realmlist row even when it
  *    diverges from the bind endpoint (a tailnet 100.64/10 address), the
@@ -105,7 +105,7 @@ class DesktopTunnelBackendTest {
         return realmd
     }
 
-    // ---- design-tunnel §4.4.2/§5: the advertise projection ---------------
+    // design-tunnel /: the advertise projection ---------------
 
     @Test
     fun tunnelAdvertisementWritesTheAdvertisedRowNotTheBindEndpoint() {
@@ -192,13 +192,13 @@ class DesktopTunnelBackendTest {
     @Test
     fun advertisedValueTypeCoversTheTunnelRanges() {
         // The type the settings field validates for display and the launch
-        // spec carries (design-tunnel §4.4.1 v1 grammar: numeric only).
+        // spec carries (design-tunnel v1 grammar: numeric only).
         assertEquals("100.64.12.34", AdvertisedAddress.parse("100.64.12.34").value)
         assertTrue(AdvertisedAddress.parse("100.64.12.34").isCgnatTunnel)
         assertFalse(AdvertisedAddress.parse("192.168.1.50").isCgnatTunnel)
     }
 
-    // ---- design-tunnel §9.3: the timed-suspension host verb --------------
+    // design-tunnel: the timed-suspension host verb --------------
     // (The permanent ban/unban lane is DesktopGuestBans — design-lan D5b;
     // this pins the tunnel design's duration-presets form on the same
     // store, so the host has one moderation lane, not two.)

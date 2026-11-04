@@ -1,5 +1,6 @@
 package com.pocketrealm.importer
 
+import com.pocketrealm.storage.StorageRoots
 import android.content.Context
 import android.net.Uri
 import android.system.Os
@@ -37,18 +38,18 @@ class ManagedClientImporter(
     ): ImportResult = withContext(Dispatchers.IO) {
         val started = android.os.SystemClock.elapsedRealtime()
         val importLease = ClientGenerationLease.acquireImportOperation(
-            File(context.noBackupFilesDir, "client"),
+            StorageRoots.get(context).client,
         )
         try {
         val scanner = SafClientScanner(context.contentResolver).scan(treeUri)
         if (!scanner.supported || !ClientFlavors.isManagedClientId(scanner.clientId)) {
             throw ImportRejected(scanner.failures.joinToString("; ").ifBlank { "unsupported client selection" })
         }
-        val source = SafTreeSource(context.contentResolver, treeUri, limits)
+        val source = SafTreeSource(context.contentResolver, treeUri, limits, rootDocumentId = scanner.clientRootDocumentId)
         val inventory = source.inventory()
         val storage = storagePlanner.plan(inventory.totalBytes)
         if (!storage.canProceed) {
-            throw ImportRejected("STORAGE_PREFLIGHT: need=${storage.requiredBytes} allocatable=${storage.allocatableBytes}")
+            throw ImportRejected(storage.preflightMessage())
         }
         val importId = journal.beginOrResume(treeUri, inventory)
         recoverAndFinish(importId, inventory, storage, scanner, onDataStageTick)?.let { return@withContext it }
@@ -65,7 +66,10 @@ class ManagedClientImporter(
             if (prepareData) dataStore.prepare(importId, published.root, onDataStageTick)
             journal.complete(importId, published.id)
             recordBenchmark(importId)
-            ImportResult(importId, published.id, inventory, storage, scanner.warnings)
+            val skipped = source.skipped.takeIf { it.isNotEmpty() }?.let { list ->
+                listOf("${list.size} non-client entries skipped (for example ${list.first().relativePath}: ${list.first().reason})")
+            }.orEmpty()
+            ImportResult(importId, published.id, inventory, storage, scanner.warnings + skipped)
         } catch (error: Throwable) {
             if (error !is ImportInterrupted && error !is kotlinx.coroutines.CancellationException &&
                 journal.latest().phase != ImportPhase.FAILED) journal.fail(importId, error.message ?: error.javaClass.simpleName)
@@ -97,9 +101,9 @@ class ManagedClientImporter(
     ): ImportResult = withContext(Dispatchers.IO) {
         val started = android.os.SystemClock.elapsedRealtime()
         val importLease = ClientGenerationLease.acquireImportOperation(
-            File(context.noBackupFilesDir, "client"),
+            StorageRoots.get(context).client,
         )
-        val stagedStore = StagedArchiveStore(File(File(context.noBackupFilesDir, "client"), "incoming"))
+        val stagedStore = StagedArchiveStore(File(StorageRoots.get(context).client, "incoming"))
         try {
             stagedStore.reconcile(activeImportIds = journal.activeImportIds())
             val staging = journal.beginStagingOrResume(archiveUri, expectedBytes)
@@ -117,7 +121,7 @@ class ManagedClientImporter(
                         partial, expectedBytes, resumeFrom,
                         {
                             context.contentResolver.openInputStream(archiveUri)
-                                ?: throw ImportRejected("VAL-13: selected archive is unreadable")
+                                ?: throw ImportRejected("The selected archive could not be read")
                         },
                         { journal.touchStaging(importId, it) },
                         { coroutineContext.ensureActive() },
@@ -150,7 +154,7 @@ class ManagedClientImporter(
                 if (quick is ArchiveQuickCheck.Verdict.Reject) throw ImportRejected(quick.failure)
                 if (rawEntries != null && rawEntries.any { it.encrypted }) {
                     throw ImportRejected(
-                        "VAL-13: the archive is password-protected — Pocket Realm cannot open encrypted archives; " +
+                        "This archive is password-protected — Pocket Realm cannot open encrypted archives; " +
                             "re-pack it without a password (or extract on a PC and import the folder)",
                     )
                 }
@@ -172,10 +176,7 @@ class ManagedClientImporter(
                         // storage message instead of a raw IOException.
                         val preflight = storagePlanner.plan(0L, expectedBytes, expectedBytes)
                         if (!preflight.canProceed) {
-                            throw ImportRejected(
-                                "STORAGE_PREFLIGHT: need=${preflight.requiredBytes} " +
-                                    "allocatable=${preflight.allocatableBytes}",
-                            )
+                            throw ImportRejected(preflight.preflightMessage())
                         }
                         ScratchArchiveExtractor.extract(
                             stagedFile, format, scratch, limits,
@@ -267,7 +268,7 @@ class ManagedClientImporter(
                     val scratchBytes = if (installerReader != null) expectedBytes else 0L
                     val storage = storagePlanner.plan(inventory.totalBytes, expectedBytes, scratchBytes)
                     if (!storage.canProceed) {
-                        throw ImportRejected("STORAGE_PREFLIGHT: need=${storage.requiredBytes} allocatable=${storage.allocatableBytes}")
+                        throw ImportRejected(storage.preflightMessage())
                     }
                     val earlyScan = detection?.scan
                         ?: com.pocketrealm.client.SafClientScanner.Result(
@@ -608,6 +609,22 @@ class ManagedClientImporter(
     fun status(): ImportStatus = journal.latest().copy(activeGeneration = generations.activeGeneration())
 
     /**
+     * Builds the server's world data for the active client after a
+     * join-only import skipped it. Resumable like the import's own data
+     * stage: finished stages are kept.
+     */
+    suspend fun prepareActiveServerData(onDataStageTick: () -> Unit = {}) = withContext(Dispatchers.IO) {
+        val importLease = ClientGenerationLease.acquireImportOperation(StorageRoots.get(context).client)
+        try {
+            val active = checkNotNull(generations.activeGeneration()) { "Import the game files first." }
+            dataStore.prepare(active, generations.generation(active), onDataStageTick)
+            Unit
+        } finally {
+            importLease.close()
+        }
+    }
+
+    /**
      * Records a run-level failure the importer's own catches did not journal
      * (staging-level rejections historically left the row mid-flight with no
      * last_error, so a resumed session had no post-mortem at all). Safe to
@@ -673,7 +690,7 @@ class ManagedClientImporter(
                 dataMs = if (firstStageStart > 0L) (completedAt - firstStageStart).coerceAtLeast(0L) else 0L,
                 stageDurationsJson = durations.toString(),
                 mmapMaps = stages.firstOrNull { it.stage == DataStage.MMAPS }?.total ?: 0,
-                mmapThreads = DataPreparationStore.MMAP_THREADS,
+                mmapThreads = mmapThreadCount(device.cores),
                 createdAtMs = completedAt,
             ))
         }.onFailure { android.util.Log.w("ImportBenchmark", "benchmark recording failed", it) }

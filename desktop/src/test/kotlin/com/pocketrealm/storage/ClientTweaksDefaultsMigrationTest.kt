@@ -11,7 +11,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-13: the desktop twin of the Android `ClientTweaksDefaultsMigrationTest`
+ * the desktop twin of the Android `ClientTweaksDefaultsMigrationTest`
  * over the pure-JVM migration ([Settings.clientTweaksDefaultsMigration] — the
  * DataStore migration shell is android-side) plus the desktop codec/store
  * wiring legs: the fromJson migration trigger, the write-path stamp, and the

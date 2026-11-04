@@ -11,7 +11,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The shared friend-access verbs (design-remote-accounts §5/§9/§12): the
+ * The shared friend-access verbs (design-remote-accounts /): the
  * supervisor's provision/ban/gm verbs route to the backend overrides,
  * publish durable journal actions either way, and the [FriendAccessController]
  * approval + moderation flow lands the audit rows.
@@ -218,7 +218,7 @@ class FriendAccessHubTest {
 
     @Test
     fun onRuntimeChangedAfterCloseNeverRebindsTheProvisioningSocket() = runTest {
-        // The torn-teardown pin (design-remote-accounts §6): close() is
+        // The torn-teardown pin (design-remote-accounts): close is
         // terminal. A watcher body already inside onRuntimeChanged when the
         // owner tears down (a coroutine cancel cannot interrupt a body with
         // no suspension points) must not re-bind the provisioning socket

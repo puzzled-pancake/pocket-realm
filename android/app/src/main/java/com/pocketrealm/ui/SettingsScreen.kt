@@ -76,6 +76,8 @@ import com.pocketrealm.client.UserVulkanDriverValidator
 import com.pocketrealm.server.NearbyInteractPolicy
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.update.AppUpdateCoordinator
+import com.pocketrealm.storage.ContentVolume
+import com.pocketrealm.storage.ContentVolumeSetting
 import com.pocketrealm.storage.StorageRoots
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
 import com.pocketrealm.supervisor.UserAccountStore
@@ -86,31 +88,56 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.roundToInt
 
-/**
+/*
  * General application/server settings. Bot world configuration lives in the
  * dedicated Bots destination; LAN host/join lives in the LAN destination.
  */
-private const val BACKUP_AWAIT_TIMEOUT_MINUTES = 10L
-private const val BACKUP_AWAIT_TIMEOUT_MS = BACKUP_AWAIT_TIMEOUT_MINUTES * 60_000L
 
 private const val MIB = 1024L * 1024
 
-/** Stage chips per row in the World-timeframe card (design-timeframe §6). */
+/** Stage chips per row in the World-timeframe card (design-timeframe ). */
 private const val TIMEFRAME_CHIP_ROW = 3
 
+/**
+ * Settings is a short hub of categories; each category page shows only its
+ * own cards, so the long tail of expert options sits one tap deeper.
+ */
+enum class SettingsCategory(val slug: String, val title: String, val summary: String) {
+    WORLD("world", "Bots & world", "Bot population, presets and the world timeline"),
+    GRAPHICS(
+        "graphics", "Graphics & display",
+        "Renderer, Vulkan driver, DXVK, resolution, frame-rate limit, interface scale",
+    ),
+    GAME(
+        "game", "Game client",
+        "Sound, auto-login, client tweaks, in-game options, nearby use, input safe mode",
+    ),
+    DATA("data", "Storage & realm data", "Where game files live, realm backup and import"),
+    APP("app", "App & support", "Updates, setup guide, game files, device report, diagnostics, logs"),
+    ;
+
+    companion object {
+        fun fromSlug(slug: String?): SettingsCategory? = entries.firstOrNull { it.slug == slug }
+    }
+}
+
 @Composable
-// onLlm joins the sibling navigation params; the list is one
+// The category pair joins the sibling navigation params; the list is
 // longer than the default cap by design.
 @Suppress("LongParameterList")
 fun SettingsScreen(
     contentPadding: PaddingValues = PaddingValues(),
-    onBots: (() -> Unit)? = null,
+    category: SettingsCategory? = null,
+    onOpenCategory: (SettingsCategory) -> Unit = {},
     onClientSetup: (() -> Unit)? = null,
     onCapability: (() -> Unit)? = null,
     onDiagnostics: (() -> Unit)? = null,
     onInGameSettings: (() -> Unit)? = null,
-    onLlm: (() -> Unit)? = null,
 ) {
+    if (category == null) {
+        SettingsHub(contentPadding, onOpenCategory)
+        return
+    }
     val context = LocalContext.current
     val settings = remember(context) { Settings(context) }
     val snap by settings.flow.collectAsState(initial = Settings.Snapshot())
@@ -136,208 +163,6 @@ fun SettingsScreen(
         ClientDisplayProfile.availableForPhysical(physicalDisplay.first, physicalDisplay.second)
     }
 
-    val supervisor = remember(context) { RuntimeSupervisorClient(context) }
-    val roots = remember(context) { StorageRoots.get(context) }
-    var realmDataBusy by remember { mutableStateOf(false) }
-    var exportIncludesAccount by remember { mutableStateOf(false) }
-    var realmDataStatus by remember { mutableStateOf("Realm characters live in the stopped-realm database snapshots.") }
-    var pendingImport by remember { mutableStateOf<Pair<Uri, RealmDataArchive.ArchiveInfo>?>(null) }
-
-    suspend fun awaitBackupCompletion(): Boolean {
-        // Bounded: the deadline below stops a backup whose phase never
-        // settles from spinning this coroutine forever with a busy status
-        // line.
-        val deadline = System.currentTimeMillis() + BACKUP_AWAIT_TIMEOUT_MS
-        while (true) {
-            val status = runCatching { supervisor.backupStatus() }.getOrNull() ?: return false
-            realmDataStatus = "${status.optString("kind")}: ${status.optString("phase")}"
-            if (status.optString("phase") == "COMPLETE") return true
-            if (status.optString("phase") == "FAILED") return false
-            if (System.currentTimeMillis() >= deadline) {
-                realmDataStatus = "Backup did not settle within $BACKUP_AWAIT_TIMEOUT_MINUTES minutes."
-                return false
-            }
-            delay(500)
-        }
-    }
-
-    suspend fun exportRealmCharacters(target: Uri) {
-        realmDataBusy = true
-        try {
-            val name = "manual-export-${System.currentTimeMillis()}"
-            val accepted = runCatching { supervisor.createBackup(name) }
-            if (accepted.getOrNull()?.optBoolean("ok") != true) {
-                realmDataStatus = accepted.fold(
-                    { it.optString("error").ifBlank { "backup rejected" } },
-                    { "backup failed: ${it.javaClass.simpleName}" },
-                )
-                return
-            }
-            if (!awaitBackupCompletion()) return
-            val snapshotId = runCatching { supervisor.listBackups() }.getOrNull()
-                ?.optJSONArray("backups")?.optJSONObject(0)?.optString("snapshotId")
-            if (snapshotId.isNullOrBlank()) {
-                realmDataStatus = "snapshot not found after backup"
-                return
-            }
-            val snapshotDir = java.io.File(roots.databaseSnapshots, snapshotId)
-            // Credentials are excluded by default: an exported ZIP
-            // travels wherever the user sends it; re-entering a password on
-            // import is cheap, un-leaking a credentials file is not.
-            val accountFile = if (exportIncludesAccount) {
-                java.io.File(context.noBackupFilesDir, "user-account/account.json").takeIf { it.isFile }
-            } else {
-                null
-            }
-            withContext(Dispatchers.IO) {
-                val output = context.contentResolver.openOutputStream(target)
-                    ?: throw IllegalStateException("could not open export target")
-                output.use { stream ->
-                    RealmDataArchive.writeArchive(
-                        stream, snapshotDir, accountFile,
-                        RealmDataArchive.meta(
-                            snapshotId, System.currentTimeMillis(),
-                            BuildConfig.VERSION_NAME, Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
-                        ),
-                    )
-                }
-            }
-            realmDataStatus = "Characters exported (snapshot $snapshotId)."
-        } catch (failure: Throwable) {
-            realmDataStatus = "Export failed: ${failure.message ?: failure.javaClass.simpleName}"
-        } finally {
-            realmDataBusy = false
-        }
-    }
-
-    suspend fun inspectRealmArchive(source: Uri) {
-        val info = withContext(Dispatchers.IO) {
-            runCatching {
-                context.contentResolver.openInputStream(source)?.use { input -> RealmDataArchive.inspect(input) }
-            }.getOrNull()
-        }
-        if (info == null) {
-            realmDataStatus = "Could not read the selected archive."
-            return
-        }
-        if (info.snapshotId.isBlank()) {
-            realmDataStatus = "Archive has no snapshot id."
-            return
-        }
-        pendingImport = source to info
-    }
-
-    /**
-     * Atomic write of the archive's imported credentials record, byte-form
-     * of the UserAccountStore.writeLocked discipline (temp + fd.sync +
-     * chmod + rename + directory fsync — the desktop twin's
-     * writeImportedAccount). Writing the bytes directly over the live
-     * account.json would leave a torn record that the next
-     * loadOrQuarantine quarantines, silently discarding the previously
-     * saved auto-login account. Returns false (writing nothing) when the
-     * record is invalid — an invalid record rejects ONLY this leg, never
-     * the database import.
-     */
-    suspend fun writeImportedAccount(bytes: ByteArray): Boolean = withContext(Dispatchers.IO) {
-        if (!RealmDataArchive.isValidAccountRecord(bytes)) return@withContext false
-        val directory = java.io.File(context.noBackupFilesDir, "user-account")
-        directory.mkdirs()
-        android.system.Os.chmod(directory.absolutePath,
-            android.system.OsConstants.S_IRUSR or android.system.OsConstants.S_IWUSR or
-                android.system.OsConstants.S_IXUSR)
-        val accountFile = java.io.File(directory, "account.json")
-        val temp = java.io.File(directory, ".user-account.${android.os.Process.myPid()}.tmp")
-        java.io.FileOutputStream(temp).use { stream ->
-            stream.write(bytes)
-            stream.fd.sync()
-        }
-        android.system.Os.chmod(temp.absolutePath,
-            android.system.OsConstants.S_IRUSR or android.system.OsConstants.S_IWUSR)
-        android.system.Os.rename(temp.absolutePath, accountFile.absolutePath)
-        val descriptor = android.system.Os.open(
-            directory.absolutePath, android.system.OsConstants.O_RDONLY, 0)
-        try { android.system.Os.fsync(descriptor) } finally { android.system.Os.close(descriptor) }
-        true
-    }
-
-    suspend fun restoreRealmCharacters(source: Uri, info: RealmDataArchive.ArchiveInfo) {
-        realmDataBusy = true
-        try {
-            // The id names the extraction root, and it comes out of the
-            // ARCHIVE — so the snapshot store's validId gate must run HERE,
-            // before target.mkdirs(): an id like "../x" would otherwise walk
-            // File(roots.databaseSnapshots, id) and the mkdirs/extract behind
-            // it out of the snapshots tree, because the store's own refusal
-            // fires only at restore time, after the write (the desktop gate
-            // in DesktopAppModel.importRealmArchive, mirrored).
-            if (!RealmDataArchive.validSnapshotId(info.snapshotId)) {
-                realmDataStatus = "Archive has an invalid snapshot id."
-                return
-            }
-            val target = java.io.File(roots.databaseSnapshots, info.snapshotId)
-            if (target.exists()) {
-                realmDataStatus = "Snapshot ${info.snapshotId} already exists on this device."
-                return
-            }
-            val accountBytes = try {
-                withContext(Dispatchers.IO) {
-                    check(target.mkdirs()) { "could not create snapshot directory" }
-                    val input = context.contentResolver.openInputStream(source)
-                        ?: throw IllegalStateException("could not open archive")
-                    input.use { stream -> RealmDataArchive.extractSnapshot(stream, target).second }
-                }
-            } catch (failure: Throwable) {
-                // A half-extracted tree is not a published snapshot.
-                withContext(Dispatchers.IO) { target.deleteRecursively() }
-                throw failure
-            }
-            val accepted = runCatching { supervisor.restoreBackup(info.snapshotId) }
-            if (accepted.getOrNull()?.optBoolean("ok") != true) {
-                // The extract existed only to feed this restore — a refusal
-                // must not leave the imported tree published in the
-                // snapshots root.
-                withContext(Dispatchers.IO) { target.deleteRecursively() }
-                realmDataStatus = accepted.fold(
-                    { it.optString("error").ifBlank { "restore rejected" } },
-                    { "restore failed: ${it.javaClass.simpleName}" },
-                )
-                return
-            }
-            if (!awaitBackupCompletion()) return
-            // The archive's account bytes are user-picked input: they must
-            // pass the store's own decode (RealmDataArchive.isValidAccountRecord)
-            // before they may replace this device's saved auto-login record.
-            // An invalid record rejects ONLY this leg — the database import
-            // above stays — and so does the leg's own IO failure: folded into
-            // the note, never thrown past the committed restore above as an
-            // "Import failed" (the desktop twin's importedAccountNote).
-            val accountNote = accountBytes?.let { bytes ->
-                runCatching { writeImportedAccount(bytes) }.fold(
-                    { written ->
-                        if (written) " Saved login replaced from the archive."
-                        else " The archive's saved login was invalid and was not restored."
-                    },
-                    { failure ->
-                        " Characters restored, but the saved login could not be written: " +
-                            (failure.message ?: failure.javaClass.simpleName)
-                    },
-                )
-            }.orEmpty()
-            realmDataStatus = "Realm data imported.$accountNote"
-        } catch (failure: Throwable) {
-            realmDataStatus = "Import failed: ${failure.message ?: failure.javaClass.simpleName}"
-        } finally {
-            realmDataBusy = false
-        }
-    }
-
-    val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        if (uri != null) scope.launch { exportRealmCharacters(uri) }
-    }
-    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch { inspectRealmArchive(uri) }
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -346,7 +171,7 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        SettingCard("ARM client runtime") {
+        if (category == SettingsCategory.GRAPHICS) SettingCard("ARM client runtime") {
             var showExperimentalRenderers by rememberSaveable { mutableStateOf(false) }
             val experimentalSelected =
                 snap.armRendererId == ArmClientRenderer.LEGACY_GLADIO.id ||
@@ -403,17 +228,17 @@ fun SettingsScreen(
                 Text("  Experimental renderers", style = MaterialTheme.typography.titleSmall)
             }
             Text(
-                "Legacy OpenGL and Mesa VirGL are very experimental, unqualified lanes kept " +
+                "Legacy OpenGL and Mesa VirGL are very experimental and kept " +
                     "only for device testing. They are never chosen automatically; selecting " +
                     "one is an exact manual choice with no fallback.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            // the per-flavor graphics-route honest copy — on a
-            // non-vanilla lane the GL routes are refused at launch; the
-            // renderer surface states it at selection time.
- // Flip: several qualified flavors with no pick yet refuses
-            // loud at the resolver — a render-time card renders the honest
-            // first-pick copy instead of crashing composition.
+            // Per-game-version graphics-route notice — on TBC/WotLK the GL
+            // routes are refused at launch; the renderer surface states
+            // that at selection time.
+            // With several game versions available and no pick yet, the
+            // resolver throws — a render-time card shows the first-pick
+            // hint instead of crashing composition.
             val settingsLaneFlavorId = remember {
                 com.pocketrealm.client.ActiveFlavor.displayedId
             }
@@ -428,7 +253,7 @@ fun SettingsScreen(
                     glRouteCopy,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.testTag("renderer-flavor-copy"),
+                    modifier = Modifier.testTag("renderer-version-copy"),
                 )
             }
             if (showExperimentalRenderers || experimentalSelected) {
@@ -463,9 +288,9 @@ fun SettingsScreen(
                 }
             }
             // The section's whole operation state lives OUTSIDE both the
-            // renderer conditional and the lane-toggle conditional:
+            // renderer conditional and the toggle conditional:
             // import/download coroutines run on the screen scope and keep
-            // writing their results while the renderer or lane is switched
+            // writing their results while the renderer is switched
             // and switched back, so the state they captured must survive
             // those disposals instead of resetting and silently dropping
             // final notices and list refreshes.
@@ -489,6 +314,24 @@ fun SettingsScreen(
             if (snap.selectedArmRendererId() == "dxvk" ||
                 snap.selectedArmRendererId() == ArmClientRendererCatalog.AUTO_ID) {
             HorizontalDivider()
+            // The driver/DXVK lists are expert choices: Auto picks both, so
+            // they fold behind one switch. The current choice and every
+            // selection notice stay visible below the fold.
+            var showDriverOptions by rememberSaveable { mutableStateOf(false) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = showDriverOptions || userImportInProgress || communityDownloadId != null,
+                    onCheckedChange = { showDriverOptions = it },
+                    modifier = Modifier.testTag("renderer-driver-options"),
+                )
+                Text("  Vulkan driver & DXVK options", style = MaterialTheme.typography.titleSmall)
+            }
+            Text(
+                "Auto picks the driver and DXVK version for this GPU. Open to choose a " +
+                    "driver, import your own, or pick an exact DXVK version.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (showDriverOptions || userImportInProgress || communityDownloadId != null) {
             Text("Vulkan driver", style = MaterialTheme.typography.titleSmall)
             Text(
                 "Auto follows the GPU vendor like Winlator. Manual drivers stay exact; nothing is substituted at launch.",
@@ -956,6 +799,7 @@ fun SettingsScreen(
                     )
                 }
             }
+            }
             if (snap.selectedVulkanDriverId() == VulkanDriverCatalog.SYSTEM_DEFAULT) {
                 systemVulkanProbe?.exceptionOrNull()?.let { failure ->
                     Text(
@@ -969,7 +813,7 @@ fun SettingsScreen(
                 Text(notice, color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
             }
-            Text("The exact driver and DXVK package receive an isolated prefix and shader cache on the next launch.",
+            Text("The selected driver and DXVK package get their own prefix and shader cache on the next launch.",
                 style = MaterialTheme.typography.labelMedium)
             } else if (snap.selectedArmRendererId() == "legacy-gladio") {
                 Text(
@@ -985,10 +829,10 @@ fun SettingsScreen(
             }
         }
 
-        SettingCard("Display") {
+        if (category == SettingsCategory.GRAPHICS) SettingCard("Display") {
             Text("Resolution", style = MaterialTheme.typography.titleSmall)
             Text(
-                "This changes WoW's real 3D/X desktop workload. Lower resolution improves performance; the final image is scaled to the panel.",
+                "Lower resolution improves performance; the final image is scaled to fit the screen.",
                 style = MaterialTheme.typography.bodySmall,
             )
             availableDisplays.forEach { profile ->
@@ -1047,9 +891,9 @@ fun SettingsScreen(
             Text(
                 if (snap.selectedArmRendererId() == "dxvk" ||
                     snap.selectedArmRendererId() == ArmClientRendererCatalog.AUTO_ID) {
-                    "Sets both WoW's maxFPS and DXVK's D3D9 limiter. It is a maximum, not a performance promise."
+                    "Sets WoW's maxFPS and DXVK's frame limiter."
                 } else {
-                    "Sets WoW's maxFPS. The experimental OpenGL route does not load DXVK's limiter."
+                    "Sets WoW's maxFPS. The OpenGL route does not use DXVK's limiter."
                 },
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -1081,230 +925,51 @@ fun SettingsScreen(
             Text("Applies on the next game launch.", style = MaterialTheme.typography.labelMedium)
         }
 
-        SettingCard("Bots") {
+        if (category == SettingsCategory.GAME) SettingCard("In-Game Settings") {
             Text(
-                "Bot population, presets, behaviour, scheduling and custom realms are configured in the dedicated Bots destination.",
+                "Change the game's own graphics, sound, interface, and key-binding " +
+                    "options here; they apply before the client starts and stay in sync " +
+                    "with changes made in game.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            onBots?.let { action ->
+            onInGameSettings?.let { action ->
                 OutlinedButton(
                     onClick = action,
-                    modifier = Modifier.fillMaxWidth().testTag("settings-open-bots"),
-                ) { Text("Configure in Bots →") }
+                    modifier = Modifier.fillMaxWidth().testTag("settings-open-ingame"),
+                ) { Text("Open In-Game Settings →") }
             }
         }
 
-        SettingCard("AI bot chat (experimental)") {
-            var showExperimentalLlm by rememberSaveable { mutableStateOf(false) }
+        if (category == SettingsCategory.GAME) SettingCard("Sound") {
+            val audioSupported = remember {
+                ClientAudioPolicy.isSupported(
+                    ClientRuntimeSelector.selectForAbis(Build.SUPPORTED_ABIS.asList()).provider,
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(
-                    checked = showExperimentalLlm || snap.llmEnabled,
-                    onCheckedChange = { reveal ->
-                        showExperimentalLlm = reveal
-                        if (!reveal) {
-                            scope.launch { settings.update { it.copy(llmEnabled = false) } }
+                    checked = audioSupported && snap.audioMode == Settings.AudioMode.ON,
+                    enabled = audioSupported,
+                    onCheckedChange = { on ->
+                        scope.launch {
+                            settings.update {
+                                it.copy(audioMode = if (on) Settings.AudioMode.ON else Settings.AudioMode.OFF)
+                            }
                         }
                     },
-                    modifier = Modifier.testTag("experimental-llm"),
+                    modifier = Modifier.testTag("audio-mode"),
                 )
-                Text("  Experimental AI bot chat",
-                    style = MaterialTheme.typography.titleSmall)
+                Text("  Enable game audio", style = MaterialTheme.typography.bodyMedium)
             }
-            Text(
-                "Letting bots speak through a language model is an experimental, " +
-                    "power-hungry feature and stays off unless you turn it on here. " +
-                    "Turning this switch off also silences bot chat.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            if (showExperimentalLlm || snap.llmEnabled) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = snap.llmEnabled,
-                        onCheckedChange = { enabled ->
-                            scope.launch { settings.update { it.copy(llmEnabled = enabled) } }
-                        },
-                        modifier = Modifier.testTag("llm-simple-enabled"),
-                    )
-                    Text("  Let bots talk with an AI",
-                        style = MaterialTheme.typography.bodyMedium)
-                }
-                Text(
-                    "Playerbots speak through the on-device language model (or your own " +
-                        "OpenAI-compatible server; configured in the LLM submenu). Off keeps " +
-                        "bots silent. The switch applies at the next realm start; authored " +
-                        "banter and ambient chatter have their own switches in the submenu.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                onLlm?.let { action ->
-                    OutlinedButton(
-                        onClick = action,
-                        modifier = Modifier.fillMaxWidth().testTag("settings-open-llm"),
-                    ) { Text("Configure AI bot LLM →") }
-                }
-            }
-        }
-
-        HorizontalDivider()
-        SettingCard("Input safe mode") {
-            androidx.compose.foundation.layout.Row(
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            ) {
-                Switch(
-                    checked = snap.inputSafeMode,
-                    onCheckedChange = { enabled ->
-                        scope.launch { settings.update { it.copy(inputSafeMode = enabled) } }
-                    },
-                    modifier = Modifier.testTag("input-safe-mode"),
-                )
-                Text("  Disable project addons and the touch overlay",
-                    style = MaterialTheme.typography.bodyMedium)
-            }
-            Text("Realm and character data are not changed.",
+            Text(if (audioSupported) {
+                "On by default for ARM64 devices. Changes take effect on the next client launch through the provider-matched Android ALSA backend."
+            } else {
+                "Audio is unavailable on this device. Your preference is kept for supported devices."
+            },
                 style = MaterialTheme.typography.bodySmall)
         }
 
-        SettingCard("World debug logs") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
-                    checked = snap.worldDebugLogs,
-                    onCheckedChange = { enabled ->
-                        scope.launch { settings.update { it.copy(worldDebugLogs = enabled) } }
-                    },
-                    modifier = Modifier.testTag("world-debug-logs"),
-                )
-                Text("  Verbose world-server log", style = MaterialTheme.typography.bodyMedium)
-            }
-            Text(
-                "Raises the world log level to verbose when the realm next starts and can " +
-                    "grow world.log very large. Keep it off unless investigating a problem.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-
-        // Design-timeframe §6: the per-flavor content-patch knob, wired to
-        // the shared TimeframeStages core — the qualified flavor's ordered
-        // stages, default = final patch, applies at the next realm start.
-        SettingCard("World timeframe") {
-            // resolve through the ActiveFlavor machine — the
-            // documented fail-loud resolver; never a silent VANILLA
- // Fallback at the multi-qualified flip — with no
-            // pick yet under several qualified flavors the resolver refuses
-            // loud — this render lane surfaces the first-pick copy instead
-            // of crashing composition (operation gates keep the refusal).
-            val flavorId = remember {
-                com.pocketrealm.client.ActiveFlavor.displayedId
-            }
-            if (flavorId == null) {
-                Text(
-                    "Pick a game flavor on Home first — the timeline follows that lane.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                return@SettingCard
-            }
-            val stages = remember(flavorId) {
-                com.pocketrealm.client.TimeframeStages.stagesFor(flavorId)
-            }
-            val selectedId = com.pocketrealm.client.TimeframeStages
-                .resolveStored(snap.timeframeStage)
-                .ifEmpty { com.pocketrealm.client.TimeframeStages.defaultStageId(flavorId) }
-            val selected = requireNotNull(
-                com.pocketrealm.client.TimeframeStages.byId(flavorId, selectedId),
-            ) { "resolved stage $selectedId must be registered for $flavorId" }
-            stages.chunked(TIMEFRAME_CHIP_ROW).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    row.forEach { stage ->
-                        FilterChip(
-                            selected = stage.id == selectedId,
-                            onClick = {
-                                // The final patch persists as "" (the
-                                // default): existing-world behavior is the
-                                // stored state too, not a special case.
-                                scope.launch {
-                                    settings.update {
-                                        it.copy(
-                                            timeframeStage =
-                                                if (stage.isFinal) "" else stage.id,
-                                        )
-                                    }
-                                }
-                            },
-                            label = { Text(stage.id.removePrefix("$flavorId-")) },
-                            modifier = Modifier.testTag("timeframe-stage-${stage.id}"),
-                        )
-                    }
-                }
-            }
-            Text(
-                "The game client stays at its fixed version; this gates world content only. " +
-                    "Applies when the realm next starts.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            if (!selected.isFinal) {
-                // Design §11.4 honesty: the present-tense "later content
-                // closes" claim is only true once the stage's availability
-                // data is measured. Until the measured per-stage sets land,
-                // no build gates anything — asserting closure would promise
-                // a restriction the shipped data does not enforce. A stage
-                // with no staged overlay for its flavor refuses the world
-                // start outright, so its copy must say that instead.
-                val overlayStaged =
-                    com.pocketrealm.client.GeneratedTimeframeOverlayCatalog
-                        .overlaySql(selected.id) != null
-                val measured = com.pocketrealm.client.TimeframeStages
-                    .eventGating(selected).measured
-                Text(
-                    if (!overlayStaged) {
-                        com.pocketrealm.client.TimeframeStages
-                            .unstagedOverlayNotice(selected)
-                    } else if (measured) {
-                        "${selected.title}: later content closes; items, levels, and spells your " +
-                            "characters already have stay."
-                    } else {
-                        "${selected.title}: this stage's content availability is not measured " +
-                            "yet, so nothing closes yet — the world still runs the current " +
-                            "release's content and the choice is only recorded for the realm " +
-                            "(the AI guides speak the era's wording). The measured per-stage " +
-                            "data ships in a later update."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-
-        SettingCard("Nearby use / open") {
-            Text(
-                "L1 chooses the nearest eligible corpse, chest, or ordinary usable loot object and opens it as one realm action. " +
-                    "Select+L1 remains the precise pointer-based fallback.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            LabeledSlider(
-                label = "Repeated-press guard",
-                valueText = { "${it.roundToInt()} ms" },
-                value = snap.nearbyInteractTriggerGuardMs.toFloat(),
-                range = NearbyInteractPolicy.MIN_TRIGGER_GUARD_MS.toFloat()..
-                    NearbyInteractPolicy.MAX_TRIGGER_GUARD_MS.toFloat(),
-                steps = (NearbyInteractPolicy.MAX_TRIGGER_GUARD_MS -
-                    NearbyInteractPolicy.MIN_TRIGGER_GUARD_MS) /
-                    NearbyInteractPolicy.TRIGGER_GUARD_STEP_MS - 1,
-                tag = "nearby-interact-trigger-guard",
-            ) { raw ->
-                val stepped = (raw / NearbyInteractPolicy.TRIGGER_GUARD_STEP_MS)
-                    .roundToInt() * NearbyInteractPolicy.TRIGGER_GUARD_STEP_MS
-                scope.launch {
-                    settings.update {
-                        it.copy(nearbyInteractTriggerGuardMs =
-                            NearbyInteractPolicy.normalizeTriggerGuardMs(stepped))
-                    }
-                }
-            }
-            Text(
-                "Filters accidental duplicate presses; it does not split selection and opening into two actions. Applies when the realm next starts.",
-                style = MaterialTheme.typography.labelMedium,
-            )
-        }
-
-        HorizontalDivider()
-        SettingCard("Auto-login") {
+        if (category == SettingsCategory.GAME) SettingCard("Auto-login") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(
                     checked = snap.autoLoginOnLaunch,
@@ -1370,35 +1035,34 @@ fun SettingsScreen(
             }
         }
 
-        HorizontalDivider()
-        // the tweaks card is FLAVOR-AWARE — vanilla_tweaks is a
-        // vanilla-only feature (the manifest's wine.vanilla_tweaks); on a
-        // tbc/wotlk lane the honest "not available" copy renders instead of
-        // the toggles (the wave's own ClientRuntimeContract.flavorTweaksCopy).
- // Flip: no pick yet under several qualified flavors renders the
-        // first-pick copy instead of crashing composition (the operation
-        // gates keep the loud refusal).
+        // The tweaks card is version-aware — vanilla_tweaks is a
+        // vanilla-only feature (the manifest's wine.vanilla_tweaks); on
+        // TBC/WotLK the "not available" copy renders instead of the
+        // toggles (ClientRuntimeContract.flavorTweaksCopy).
+        // With no game version picked yet, the first-pick copy renders
+        // instead of crashing composition (the operation gates keep the
+        // loud refusal).
         val activeSettingsFlavorId = remember {
             com.pocketrealm.client.ActiveFlavor.displayedId
         }
         val tweaksUnavailable = when {
             activeSettingsFlavorId == null ->
-                "Pick a game flavor on Home first — tweaks follow that lane."
+                "Pick a game version on Home first — tweaks follow it."
             else -> com.pocketrealm.client.ClientRuntimeContract.flavorTweaksCopy(
                 com.pocketrealm.client.ClientFlavors.ALL.first {
                     it.flavorId == activeSettingsFlavorId
                 },
             )
         }
-        SettingCard("Client tweaks") {
+        if (category == SettingsCategory.GAME) SettingCard("Client tweaks") {
             Text(
                 tweaksUnavailable
-                    ?: "Optional quality-of-life patches applied on the next launch. Any genuine 1.12.1 build 5875 client can run; if its exact byte layout is not qualified for patches, that launch safely uses pristine Vanilla instead.",
+                    ?: "Optional quality-of-life patches applied on the next launch. Any genuine 1.12.1 build 5875 client can run; if its exact file layout does not support patches, that launch safely uses the original Vanilla client instead.",
                 style = MaterialTheme.typography.bodySmall,
             )
             if (tweaksUnavailable != null) {
                 Text(
-                    "Switch the flavor back to Vanilla on Home to use the tweak set.",
+                    "Switch back to Vanilla on Home to use the tweaks.",
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.testTag("tweaks-unavailable"),
                 )
@@ -1428,89 +1092,193 @@ fun SettingsScreen(
             )
         }
 
-        HorizontalDivider()
-        SettingCard("In-Game Settings") {
+        if (category == SettingsCategory.GAME) SettingCard("Nearby use / open") {
             Text(
-                "Change the game's own graphics, sound, interface, and key-binding " +
-                    "options here; they apply before the client starts and stay in sync " +
-                    "with changes made in game.",
+                "L1 chooses the nearest eligible corpse, chest, or ordinary usable loot object and opens it as one realm action. " +
+                    "Select+L1 remains the precise pointer-based fallback.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            onInGameSettings?.let { action ->
-                OutlinedButton(
-                    onClick = action,
-                    modifier = Modifier.fillMaxWidth().testTag("settings-open-ingame"),
-                ) { Text("Open In-Game Settings →") }
+            LabeledSlider(
+                label = "Repeated-press guard",
+                valueText = { "${it.roundToInt()} ms" },
+                value = snap.nearbyInteractTriggerGuardMs.toFloat(),
+                range = NearbyInteractPolicy.MIN_TRIGGER_GUARD_MS.toFloat()..
+                    NearbyInteractPolicy.MAX_TRIGGER_GUARD_MS.toFloat(),
+                steps = (NearbyInteractPolicy.MAX_TRIGGER_GUARD_MS -
+                    NearbyInteractPolicy.MIN_TRIGGER_GUARD_MS) /
+                    NearbyInteractPolicy.TRIGGER_GUARD_STEP_MS - 1,
+                tag = "nearby-interact-trigger-guard",
+            ) { raw ->
+                val stepped = (raw / NearbyInteractPolicy.TRIGGER_GUARD_STEP_MS)
+                    .roundToInt() * NearbyInteractPolicy.TRIGGER_GUARD_STEP_MS
+                scope.launch {
+                    settings.update {
+                        it.copy(nearbyInteractTriggerGuardMs =
+                            NearbyInteractPolicy.normalizeTriggerGuardMs(stepped))
+                    }
+                }
             }
+            Text(
+                "Filters accidental duplicate presses; it does not split selection and opening into two actions. Applies when the realm next starts.",
+                style = MaterialTheme.typography.labelMedium,
+            )
         }
 
-        HorizontalDivider()
-        SettingCard("Sound") {
-            val audioSupported = remember {
-                ClientAudioPolicy.isSupported(
-                    ClientRuntimeSelector.selectForAbis(Build.SUPPORTED_ABIS.asList()).provider,
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        if (category == SettingsCategory.GAME) SettingCard("Input safe mode") {
+            androidx.compose.foundation.layout.Row(
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
                 Switch(
-                    checked = audioSupported && snap.audioMode == Settings.AudioMode.ON,
-                    enabled = audioSupported,
-                    onCheckedChange = { on ->
-                        scope.launch {
-                            settings.update {
-                                it.copy(audioMode = if (on) Settings.AudioMode.ON else Settings.AudioMode.OFF)
-                            }
-                        }
+                    checked = snap.inputSafeMode,
+                    onCheckedChange = { enabled ->
+                        scope.launch { settings.update { it.copy(inputSafeMode = enabled) } }
                     },
-                    modifier = Modifier.testTag("audio-mode"),
+                    modifier = Modifier.testTag("input-safe-mode"),
                 )
-                Text("  Enable game audio", style = MaterialTheme.typography.bodyMedium)
+                Text("  Disable project addons and the touch overlay",
+                    style = MaterialTheme.typography.bodyMedium)
             }
-            Text(if (audioSupported) {
-                "On by default for ARM64 devices. Changes take effect on the next client launch through the provider-matched Android ALSA backend."
-            } else {
-                "Audio is unavailable on this device. Your preference is kept for supported devices."
-            },
+            Text("Realm and character data are not changed.",
                 style = MaterialTheme.typography.bodySmall)
         }
 
-        HorizontalDivider()
-        SettingCard("Setup") {
-            onClientSetup?.let { action ->
-                OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
-                    Text("Game files and import")
-                }
+        if (category == SettingsCategory.WORLD) SettingCard("Bots") {
+            BotsScreen()
+        }
+
+        // The per-game-version content-patch knob, wired to the shared
+        // TimeframeStages core — the active version's ordered stages,
+        // default = final patch, applies at the next realm start.
+        if (category == SettingsCategory.WORLD) SettingCard("World timeframe") {
+            // Resolve through the ActiveFlavor machine — the documented
+            // fail-loud resolver; never a silent VANILLA fallback. With no
+            // pick yet the resolver throws — this render path shows the
+            // first-pick hint instead of crashing composition (operation
+            // gates keep the refusal).
+            val flavorId = remember {
+                com.pocketrealm.client.ActiveFlavor.displayedId
             }
-            OutlinedButton(
-                onClick = { TutorialReplayRequests.bump() },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Show first-run setup guide")
+            if (flavorId == null) {
+                Text(
+                    "Pick a game version on Home first — the timeline follows it.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                return@SettingCard
             }
-            onCapability?.let { action ->
-                OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
-                    Text("Device capability report")
-                }
+            val stages = remember(flavorId) {
+                com.pocketrealm.client.TimeframeStages.stagesFor(flavorId)
             }
-            onDiagnostics?.let { action ->
-                OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
-                    Text("Diagnostics and logs")
+            val selectedId = com.pocketrealm.client.TimeframeStages
+                .resolveStored(snap.timeframeStage)
+                .ifEmpty { com.pocketrealm.client.TimeframeStages.defaultStageId(flavorId) }
+            val selected = requireNotNull(
+                com.pocketrealm.client.TimeframeStages.byId(flavorId, selectedId),
+            ) { "resolved stage $selectedId must be registered for $flavorId" }
+            stages.chunked(TIMEFRAME_CHIP_ROW).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    row.forEach { stage ->
+                        FilterChip(
+                            selected = stage.id == selectedId,
+                            onClick = {
+                                // The final patch persists as "" (the
+                                // default): existing-world behavior is the
+                                // stored state too, not a special case.
+                                scope.launch {
+                                    settings.update {
+                                        it.copy(
+                                            timeframeStage =
+                                                if (stage.isFinal) "" else stage.id,
+                                        )
+                                    }
+                                }
+                            },
+                            label = { Text(stage.id.removePrefix("$flavorId-")) },
+                            modifier = Modifier.testTag("timeframe-stage-${stage.id}"),
+                        )
+                    }
                 }
             }
             Text(
-                "Setup covers the game-files import for your flavor's WoW " +
-                    "client and the server's world data, a report of what this " +
-                    "device's hardware can run, diagnostics with logs for " +
-                    "investigating problems, and the first-run setup guide, " +
-                    "which you can replay anytime. Start here on a new install. " +
-                    "Character backups and restores live in the Realm data " +
-                    "section below.",
+                "The game client stays at its fixed version; this gates world content only. " +
+                    "Applies when the realm next starts.",
                 style = MaterialTheme.typography.bodySmall,
+            )
+            if (!selected.isFinal) {
+                // The present-tense "later content closes" claim is only
+                // true once the stage's availability data is measured.
+                // Until the measured per-stage sets land, no build gates
+                // anything — asserting closure would promise a restriction
+                // the shipped data does not enforce. A stage with no staged
+                // overlay for its game version refuses the world start
+                // outright, so its copy must say that instead.
+                val overlayStaged =
+                    com.pocketrealm.client.GeneratedTimeframeOverlayCatalog
+                        .overlaySql(selected.id) != null
+                val measured = com.pocketrealm.client.TimeframeStages
+                    .eventGating(selected).measured
+                Text(
+                    if (!overlayStaged) {
+                        com.pocketrealm.client.TimeframeStages
+                            .unstagedOverlayNotice(selected)
+                    } else if (measured) {
+                        "${selected.title}: later content closes; items, levels, and spells your " +
+                            "characters already have stay."
+                    } else {
+                        "${selected.title}: this stage's content availability is not measured " +
+                            "yet, so nothing closes yet — the world still runs the current " +
+                            "release's content and the choice is only recorded for the realm. " +
+                            "The measured per-stage data ships in a later update."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+
+        if (category == SettingsCategory.DATA) SettingCard("Realm data") {
+            RealmDataControls()
+        }
+
+        if (category == SettingsCategory.DATA) SettingCard("Client storage") {
+            var contentVolume by remember { mutableStateOf(ContentVolumeSetting.read(context)) }
+            val removablePresent = remember { ContentVolumeSetting.removableDir(context) != null }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().testTag("settings-content-volume"),
+            ) {
+                Checkbox(
+                    checked = contentVolume == ContentVolume.REMOVABLE,
+                    onCheckedChange = { onSd ->
+                        val next = if (onSd) ContentVolume.REMOVABLE else ContentVolume.INTERNAL
+                        ContentVolumeSetting.write(context, next)
+                        StorageRoots.reset()
+                        contentVolume = next
+                    },
+                    enabled = removablePresent || contentVolume == ContentVolume.REMOVABLE,
+                )
+                Text(
+                    if (removablePresent) {
+                        "Imported clients and prepared data live on the SD card"
+                    } else {
+                        "Imported clients and prepared data live on the SD card (no SD card detected)"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Text(
+                if (contentVolume == ContentVolume.REMOVABLE) {
+                    "Client archives, extracted clients, and prepared server data are stored on the " +
+                        "SD card. The realm database and runtime stay on internal storage. Clients " +
+                        "imported while this was off stay on internal storage and are not visible " +
+                        "until you switch back and re-import; a running realm must be stopped first."
+                } else {
+                    "Everything is stored on internal storage (default). Turning this on applies to " +
+                        "new imports only."
+                },
+                style = MaterialTheme.typography.labelSmall,
             )
         }
 
-        HorizontalDivider()
-        SettingCard("App updates") {
+        if (category == SettingsCategory.APP) SettingCard("App updates") {
             var updateStatus by remember { mutableStateOf<String?>(null) }
             var availableUpdate by remember {
                 mutableStateOf<AppUpdateCoordinator.UpdateManifest?>(null)
@@ -1652,78 +1420,57 @@ fun SettingsScreen(
             }
         }
 
-        HorizontalDivider()
-        SettingCard("Realm data") {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Checkbox(
-                    checked = exportIncludesAccount,
-                    onCheckedChange = { exportIncludesAccount = it },
-                )
-                Text(
-                    "Include login credentials in the export (PLAIN TEXT)",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+        if (category == SettingsCategory.APP) SettingCard("Setup") {
+            onClientSetup?.let { action ->
+                OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
+                    Text("Game files and import")
+                }
             }
             OutlinedButton(
-                onClick = {
-                    exportPicker.launch(
-                        "pocket-realm-characters-" +
-                            java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
-                                .format(java.util.Date()) + ".zip",
-                    )
-                },
-                enabled = !realmDataBusy,
-                modifier = Modifier.fillMaxWidth().testTag("settings-realm-export"),
-            ) { Text(if (realmDataBusy) "Working…" else "Back up realm characters") }
-            OutlinedButton(
-                onClick = { importPicker.launch(arrayOf("application/zip", "application/octet-stream")) },
-                enabled = !realmDataBusy,
-                modifier = Modifier.fillMaxWidth().testTag("settings-realm-import"),
-            ) { Text("Import realm data") }
+                onClick = { TutorialReplayRequests.bump() },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Show first-run setup guide")
+            }
+            onCapability?.let { action ->
+                OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
+                    Text("Device capability report")
+                }
+            }
+            onDiagnostics?.let { action ->
+                OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
+                    Text("Diagnostics and logs")
+                }
+            }
             Text(
-                realmDataStatus,
+                "Setup covers the game-files import for your game version's WoW " +
+                    "client and the server's world data, a report of what this " +
+                    "device's hardware can run, diagnostics with logs for " +
+                    "investigating problems, and the first-run setup guide, " +
+                    "which you can replay anytime. Start here on a new install. " +
+                    "Character backups and restores live in Storage & realm data.",
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.testTag("settings-realm-data-status"),
-            )
-            Text(
-                "Exports the realm database (characters, bot accounts, login credentials) as one " +
-                    "file you choose. Importing replaces the current realm database; archives from a " +
-                    "different app build are rejected by the database seals.",
-                style = MaterialTheme.typography.labelSmall,
             )
         }
-    }
 
-    pendingImport?.let { (source, info) ->
-        AlertDialog(
-            onDismissRequest = { pendingImport = null },
-            title = { Text("Import realm data?") },
-            text = {
-                Text(
-                    "Characters from snapshot ${info.snapshotId} (from app ${info.appVersionName}, " +
-                        "created " + java.text.SimpleDateFormat("d MMM yyyy HH:mm", java.util.Locale.US)
-                            .format(java.util.Date(info.createdAtMs)) + ") will replace the current " +
-                        "realm database. The realm stops during the restore. If the archive carries " +
-                        "saved login credentials, they also replace this device's saved auto-login " +
-                        "account.",
+        if (category == SettingsCategory.APP) SettingCard("World debug logs") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = snap.worldDebugLogs,
+                    onCheckedChange = { enabled ->
+                        scope.launch { settings.update { it.copy(worldDebugLogs = enabled) } }
+                    },
+                    modifier = Modifier.testTag("world-debug-logs"),
                 )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val pending = pendingImport
-                    pendingImport = null
-                    pending?.let { (uri, archiveInfo) ->
-                        scope.launch { restoreRealmCharacters(uri, archiveInfo) }
-                    }
-                }) { Text("Import") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingImport = null }) { Text("Cancel") }
-            },
-        )
+                Text("  Verbose world-server log", style = MaterialTheme.typography.bodyMedium)
+            }
+            Text(
+                "Raises the world log level to verbose when the realm next starts and can " +
+                    "grow world.log very large. Keep it off unless investigating a problem.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
     }
 }
 
@@ -1903,6 +1650,50 @@ private fun LabeledSlider(
         steps = steps,
         modifier = Modifier.fillMaxWidth().testTag(tag),
     )
+}
+
+/** The Settings landing page: one tappable row per [SettingsCategory]. */
+@Composable
+private fun SettingsHub(contentPadding: PaddingValues, onOpenCategory: (SettingsCategory) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(contentPadding)
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SettingsCategory.entries.forEach { category ->
+            Card(
+                onClick = { onOpenCategory(category) },
+                modifier = Modifier.fillMaxWidth().testTag("settings-category-${category.slug}"),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            category.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            category.summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text("›", style = MaterialTheme.typography.titleLarge)
+                }
+            }
+        }
+        Text(
+            "Pocket Realm ${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable

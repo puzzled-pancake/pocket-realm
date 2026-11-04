@@ -9,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * W3.3: the flavor-routed catalog resolver — each flavor's authored catalog
+ * the flavor-routed catalog resolver — each flavor's authored catalog
  * answers its own lookups, the vanilla catalog answers only the vanilla
  * lane, and an unknown flavor id fails loud. (The editors route through
  * this resolver; the source pins below keep the vanilla references out of
@@ -94,7 +94,7 @@ class WowFlavorCatalogsTest {
         }
     }
 
-    /** W6-N5 round 3 (R6-N5-r3-1): the per-lane binding REFERENCE is
+    /** the per-lane binding REFERENCE is
      * non-empty on every qualified lane — the tbc/wotlk catalogs author
      * their captured action IDs (only the stock-default KEY data is
      * deliberately empty) — so documentation claiming the reference

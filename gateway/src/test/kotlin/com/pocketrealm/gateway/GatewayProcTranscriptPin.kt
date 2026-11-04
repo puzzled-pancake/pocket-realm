@@ -7,7 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * W6-N4 code-red round 4, R5-r4-N4-1's proposed pin: GatewayProc's
+ * W6-N4 R5-r4-N4-1's proposed pin: GatewayProc's
  * await lanes destructively poll the line queue — the evidence
  * archivers must read the NON-consuming transcript, so a red relay-leg
  * run archives every launched process's verbatim PR_GATEWAY lines even

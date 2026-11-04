@@ -2,19 +2,19 @@
   "schema": 1,
   "generator": "tools/generate_conf_matrix.py --kotlin-catalog",
   "catalog": "android/app/src/main/java/com/pocketrealm/server/GeneratedBotConfKeyCatalog.kt",
-  "catalog_sha256": "788f234b90beadf6b8bf5df8ce0bb9fe6230df988810664b98b72f39733d24e4",
+  "catalog_sha256": "847f1136146b81261060c2fe00969ee7866d380bac0e95a11ba076cc18189f95",
   "source_matrices": {
     "tbc": {
       "matrix": "schemas/conf-matrix-tbc.json",
       "key_count": 1292,
       "excluded_families": [],
-      "code_read_key_count": 139
+      "code_read_key_count": 52
     },
     "vanilla": {
       "matrix": "schemas/conf-matrix-vanilla.json",
       "key_count": 4423,
       "excluded_families": [],
-      "code_read_key_count": 127
+      "code_read_key_count": 40
     },
     "wotlk": {
       "matrix": "schemas/conf-matrix-wotlk.json",
@@ -22,7 +22,7 @@
       "excluded_families": [
         "VoiceChat"
       ],
-      "code_read_key_count": 139
+      "code_read_key_count": 52
     }
   }
 }

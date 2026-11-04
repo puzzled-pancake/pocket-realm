@@ -16,7 +16,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * DESK-97: the desktop ARCHIVE lane end to end — the shared
+ * the desktop ARCHIVE lane end to end — the shared
  * StagedArchive/ArchiveFormatSniffer/InnoSetupReader stack driven from a
  * picked file: sniff → quick check → detection (desktop ArchiveClientScanner
  * over the shared identity parse) → Inno scratch extraction → the same
@@ -132,15 +132,15 @@ class ManagedClientImporterArchiveTest {
         val roots = roots()
         val archive = zipOf(
             "wrong-build.zip",
-            SyntheticClientArchives.clientEntries(wrapper = null, build = 6005),
+            SyntheticClientArchives.clientEntries(wrapper = null, build = 4222),
         )
         try {
             runBlocking { injectedImporter(roots).runArchive(archive) }
             fail("a non-qualified archive must be rejected")
         } catch (expected: ImportRejected) {
             val message = expected.message ?: ""
-            assertTrue("must carry VAL-03: $message", "VAL-03" in message)
-            assertTrue("must name the detected version: $message", "1.12.1.6005" in message)
+            assertTrue("must carry the version refusal: $message", "Unsupported game version" in message)
+            assertTrue("must name the detected version: $message", "1.12.1.4222" in message)
         }
         assertEquals("the rejection must not publish a pointer", null, ClientGenerationStore(roots).activeGeneration())
     }
@@ -157,7 +157,7 @@ class ManagedClientImporterArchiveTest {
         } catch (expected: ImportRejected) {
             assertTrue(
                 "must carry the VAL-13 password copy: ${expected.message}",
-                (expected.message ?: "").startsWith("VAL-13: the archive is password-protected"),
+                (expected.message ?: "").startsWith("This archive is password-protected"),
             )
         }
     }
@@ -178,7 +178,7 @@ class ManagedClientImporterArchiveTest {
         } catch (expected: ImportRejected) {
             assertTrue(
                 "must carry the archive VAL-01 copy: ${expected.message}",
-                "VAL-01: no WoW.exe anywhere in the archive" in (expected.message ?: ""),
+                "WoW.exe was not found anywhere in the archive" in (expected.message ?: ""),
             )
         }
     }
@@ -186,7 +186,7 @@ class ManagedClientImporterArchiveTest {
     @Test
     fun anUnreadableRarStubIsRefusedWithTheVal13Copy() {
         val roots = roots()
-        // DESK-35/64: the RAR lane is real now (junrar twin); a stub that
+        // the RAR lane is real now (junrar twin); a stub that
         // carries only the RAR5 signature has no parseable headers, so the
         // walk refuses as VAL-13 unreadable before anything is staged.
         val archive = folder.newFile("client.rar")
@@ -201,7 +201,7 @@ class ManagedClientImporterArchiveTest {
             fail("an unreadable RAR archive must be refused honestly")
         } catch (expected: ImportRejected) {
             val message = expected.message ?: ""
-            assertTrue("must carry the VAL-13 RAR refusal: $message", "VAL-13" in message && "RAR" in message)
+            assertTrue("must carry the RAR refusal: $message", "RAR" in message && ("could not be" in message || "not supported" in message))
         }
         // The refusal leaves nothing behind (scratch or pointer).
         assertEquals(null, ClientGenerationStore(roots).activeGeneration())
@@ -218,7 +218,7 @@ class ManagedClientImporterArchiveTest {
         } catch (expected: ImportRejected) {
             assertTrue(
                 "must carry the VAL-11 copy: ${expected.message}",
-                (expected.message ?: "").startsWith("VAL-11: disc images are not supported"),
+                (expected.message ?: "").startsWith("Disc images are not supported"),
             )
         }
     }
@@ -261,7 +261,7 @@ class ManagedClientImporterArchiveTest {
         } catch (expected: IllegalArgumentException) {
             assertTrue(
                 "the refusal must name the unreadable archive: ${expected.message}",
-                "VAL-13" in (expected.message ?: ""),
+                "could not be read" in (expected.message ?: ""),
             )
         }
     }

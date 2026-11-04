@@ -79,7 +79,7 @@ class AddonCatalog private constructor(
 
     val categories: List<String> = addons.map(CatalogAddon::category).distinct().sorted()
     /** Tested-on-hardware starting set; every item remains individually optional.
-     * R6-r2-1: reasons resolve from the catalog's own per-flavor data first
+     * reasons resolve from the catalog's own per-flavor data first
      * (parse enforces completeness), falling back to the vanilla trio map. */
     val recommended: List<CatalogAddon> = recommendedIds.map { id ->
         checkNotNull(byMatrixId[id]) { "Recommended add-on $id is absent from the catalog" }
@@ -87,6 +87,27 @@ class AddonCatalog private constructor(
 
     fun addon(matrixId: String): CatalogAddon? = byMatrixId[matrixId]
     fun addonForInstalled(installed: InstalledAddon): CatalogAddon? = byInstallId[installed.id]
+
+    /**
+     * The desktop lane's AndroidPort exclusion: the built-in row (and its
+     * recommended/pair entanglements) dropped from a non-vanilla catalog at
+     * load — the same install identity the vanilla-only seed gate excludes
+     * per lane. The android lane consumes the same asset unfiltered.
+     */
+    internal fun withoutAndroidPortBuiltIn(): AddonCatalog {
+        if (addons.none { it.matrixId == "151" }) return this
+        return AddonCatalog(
+            researchedAt = researchedAt,
+            flavor = flavor,
+            flavorNote = flavorNote,
+            recommendedIds = recommendedIds.filterNot { it == "151" },
+            recommendationReasons = recommendationReasons.filterNot { it.key == "151" },
+            addons = addons.filterNot { it.matrixId == "151" },
+            compatibilityPairs = compatibilityPairs.filterNot {
+                it.addonA == "151" || it.addonB == "151"
+            },
+        )
+    }
 
     fun recommendationReason(matrixId: String): String? =
         recommendationReasons[matrixId] ?: RECOMMENDATION_REASONS[matrixId]
@@ -139,10 +160,13 @@ class AddonCatalog private constructor(
         }
 
         /**
-         * The ACTIVE flavor's bundled catalog (R6-r2-5): the desktop lane
+         * The ACTIVE flavor's bundled catalog: the desktop lane
          * browses the same per-flavor researched sets the android lane
          * ships. A missing bundle fails loud — every caller needs the
-         * catalog to even name the built-in add-on.
+         * catalog to even name the built-in add-on. The AndroidPort
+         * built-in stays desktop-vanilla-only: on the other lanes the row
+         * is dropped at load (the shared asset itself carries it for the
+         * android lane).
          */
         fun load(flavorId: String): AddonCatalog {
             val cache = cached ?: synchronized(this) {
@@ -152,6 +176,13 @@ class AddonCatalog private constructor(
             return synchronized(this) {
                 val current = cached ?: emptyMap()
                 current[flavorId] ?: parse(readBundledCatalogText(flavorId), flavorId)
+                    .let { parsed ->
+                        if (flavorId == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
+                            parsed
+                        } else {
+                            parsed.withoutAndroidPortBuiltIn()
+                        }
+                    }
                     .also { cached = current + (flavorId to it) }
             }
         }
@@ -240,11 +271,9 @@ class AddonCatalog private constructor(
                         "${addons.size} (a hand edit) - per-flavor catalogs are " +
                         "self-pinning assets"
                 }
-                require(addons.none { it.matrixId == "151" }) {
-                    "the $flavorId catalog must NOT carry the AndroidPort built-in " +
-                        "(matrixId 151): it ships for the vanilla client only " +
-                        "(owner decision, completion-plan table #8)"
-                }
+                // The shared per-flavor assets carry the AndroidPort built-in
+                // row (the android lane installs it everywhere); the desktop
+                // lane's own exclusion happens at load, not in the asset.
             }
             val pairsJson = root.getJSONArray("compatibilityPairs")
             val pairs = List(pairsJson.length()) { index ->

@@ -1,0 +1,35 @@
+diff --git a/contrib/mmap/src/MapBuilder.h b/contrib/mmap/src/MapBuilder.h
+index bbcbbd9..c602df0 100644
+--- a/contrib/mmap/src/MapBuilder.h
++++ b/contrib/mmap/src/MapBuilder.h
+@@ -176,12 +176,15 @@ namespace MMAP
+             void PushWork(T&& work, uint32 mapId)
+             {
+                 m_taskList.emplace_back(mapId, std::async(std::launch::async, work));
+-                while (m_taskList.size() == m_maxSize)
++                while (m_taskList.size() >= m_maxSize)
+                 {
+                     RemoveFinishedTask();
+ 
+-                    // allow other thread to run
+-                    std::this_thread::yield();
++                    // Pocket Realm: block on the oldest worker instead of
++                    // spinning; a yield loop kept one core at 100% for the
++                    // whole build (a thermal and throughput loss on phones).
++                    if (m_taskList.size() >= m_maxSize)
++                        m_taskList.front().second.wait_for(std::chrono::milliseconds(50));
+                 }
+             }
+ 
+@@ -189,7 +192,11 @@ namespace MMAP
+             void WaitAll()
+             {
+                 while (!m_taskList.empty())
++                {
+                     RemoveFinishedTask();
++                    if (!m_taskList.empty())
++                        m_taskList.front().second.wait_for(std::chrono::milliseconds(50));
++                }
+             }
+ 
+         private:

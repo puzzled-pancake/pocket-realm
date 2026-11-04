@@ -14,7 +14,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * R5-1/R6-1/R6-2 (code-red round 1): under the flipped 3-qualified
+ * under the flipped 3-qualified
  * registry, a never-picked install must render the FIRST-PICK state —
  * every render/status read returns its honest null/NONE — instead of
  * crashing composition on the ambiguous-registry refusal. The operation

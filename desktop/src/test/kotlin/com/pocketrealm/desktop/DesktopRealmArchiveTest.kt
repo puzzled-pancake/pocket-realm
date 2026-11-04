@@ -22,7 +22,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * DESK-7/33/38/60/101: the realm data archive lane over temp-root seeded
+ * the realm data archive lane over temp-root seeded
  * datadirs — the SHARED RealmDataArchive codec driven by the app model:
  * export = named backup of the stopped datadir + single-file ZIP into the
  * exports root (credentials only on explicit opt-in), inspect = manifest
@@ -68,7 +68,7 @@ class DesktopRealmArchiveTest {
     }
 
     /** The dev lane's roots with the SQLITE provider SELECTED: the shipped
-     * default flipped to MariaDB (D19), and this class pins the sqlite
+     * default flipped to MariaDB, and this class pins the sqlite
      * datadir's archive lane — the export's named backup and the import's
      * restore are provider-aware now, so an explicit selection keeps these
      * legs on the lane they pin regardless of the default. */

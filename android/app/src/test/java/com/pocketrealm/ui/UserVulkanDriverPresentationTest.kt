@@ -164,7 +164,7 @@ class UserVulkanDriverPresentationTest {
         assertEquals("Community Turnip builds", UserVulkanDriverPresentation.COMMUNITY_DIALOG_TITLE)
         assertTrue(
             UserVulkanDriverPresentation.COMMUNITY_DIALOG_NOTE
-                .contains("Not qualified by Pocket Realm"),
+                .contains("Not tested by Pocket Realm"),
         )
         assertTrue(
             UserVulkanDriverPresentation.COMMUNITY_DIALOG_NOTE

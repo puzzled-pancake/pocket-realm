@@ -1,7 +1,7 @@
 package com.pocketrealm.client
 
 /**
- * P6 (lanes item 10): the two-qualified-flavors test fixture — the desktop
+ * P6: the two-qualified-flavors test fixture — the desktop
  * twin's own idiom (desktop/src/test/kotlin/com/pocketrealm/client/
  * TwoQualifiedFlavors.kt), modeled in Kotlin through
  * [ActiveFlavor.qualifiedSource] (the same seam [ActiveFlavorTest] drives),

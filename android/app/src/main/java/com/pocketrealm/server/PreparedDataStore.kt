@@ -48,7 +48,7 @@ internal class PreparedDataStore(private val root: File) {
         val manifest = JSONObject(manifestFile.readText())
         validateDataManifestEnvelope(manifest, flavor)
         val counts = manifest.getJSONObject("counts")
-        // R1-1/R6-3 (W2 code-red round 1): the counts gate enforces the ACTIVE
+        // the counts gate enforces the ACTIVE
         // flavor's publication minimums (publicationMinimums — the measured
         // mirror of tools/win_prepare_data.py's FLAVOR_MIN_COUNTS), never a
         // vanilla-flat row: a truncated tbc/wotlk generation the official
@@ -203,7 +203,7 @@ internal data class PublicationMinimums(
 )
 
 internal fun publicationMinimums(flavorId: String): PublicationMinimums {
-    // R4-r5-2 (W2 code-red round 5): an unregistered flavorId FAILS LOUD —
+    // an unregistered flavorId FAILS LOUD —
     // the python lane's FLAVOR_MIN_COUNTS is a dict (KeyError on unknown), so
     // a silent vanilla-flat default here would let a future registry-added
     // flavor boot and publish at permissive floors with no pin catching it.

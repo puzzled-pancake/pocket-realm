@@ -14,7 +14,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The desktop DatabaseService twin (DESK-78): the fault-isolated owner of
+ * The desktop DatabaseService twin: the fault-isolated owner of
  * the MariaDB engine, with the Android service's control surface minus the
  * Binder machinery. Pinned here: the ownership handshake (claim/verify/
  * release), the guarded() error wire shape, and the owner-gated stop verbs'

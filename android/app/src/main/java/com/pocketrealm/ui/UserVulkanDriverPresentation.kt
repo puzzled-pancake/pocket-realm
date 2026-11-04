@@ -150,9 +150,9 @@ internal object UserVulkanDriverPresentation {
     const val COMMUNITY_DIALOG_TITLE = "Community Turnip builds"
 
     const val COMMUNITY_DIALOG_NOTE =
-        "Digest-pinned downloads of community Mesa Turnip builds (MIT). Not " +
-            "qualified by Pocket Realm — the same import validation and crash " +
-            "guard apply as for any imported driver."
+        "Community Mesa Turnip builds (MIT), downloaded from verified release " +
+            "files. Not tested by Pocket Realm — the same import validation and " +
+            "crash guard apply as for any imported driver."
 
     const val COMMUNITY_IMPORTED_MARK = "Imported"
 

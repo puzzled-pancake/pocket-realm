@@ -1,5 +1,6 @@
 package com.pocketrealm.importer
 
+import com.pocketrealm.storage.StorageRoots
 import android.content.Context
 import android.os.Build
 import android.system.Os
@@ -29,7 +30,7 @@ class DataPreparationStore(
     private val journal: ImportJournal,
 ) {
     private val app = context.applicationContext
-    private val root = File(app.filesDir, "content/o11-server").apply { mkdirs() }
+    private val root = File(StorageRoots.get(app).content, "o11-server").apply { mkdirs() }
     private val generations = File(root, "generations").apply { mkdirs() }
     private val nativeDir = File(app.applicationInfo.nativeLibraryDir)
 
@@ -132,52 +133,71 @@ class DataPreparationStore(
     private suspend fun prepareMmaps(importId: String, root: File, onTick: () -> Unit) {
         val mapsDir = File(root, "maps")
         val vmapsDir = File(root, "vmaps")
-        val mapIds = derivedMmapMapIds(mapsDir, vmapsDir)
+        // Every map with terrain or building data gets a navmesh: a bot
+        // that reaches any map (a battleground, an instance, a test map)
+        // finds navigation instead of a missing tile.
+        val mapIds = mmapBuildMapIds(derivedMmapMapIds(mapsDir, vmapsDir))
         check(mapIds.isNotEmpty()) { "no map IDs available for mmap generation" }
         // Terrain-backed maps must always publish a navmesh header; vmtree-only
         // dungeon/test maps are best-effort (degenerate geometry legitimately
         // yields nothing) and are skipped with a journaled note instead of
         // failing the whole import.
         val terrainBacked = numericMapPrefixes(mapsDir, ADT_MAP_FILE).toSet()
+        val batches = mmapBatches(mapIds)
+        val ordered = batches.flatten()
         val prior = journal.dataStage(importId, DataStage.MMAPS)
         if (prior?.state == DataStageState.VERIFIED) return
-        journal.startDataStage(importId, DataStage.MMAPS, mapIds.size, prior?.checkpoint)
+        journal.startDataStage(importId, DataStage.MMAPS, ordered.size, prior?.checkpoint)
         onTick()
         val mmaps = File(root, "mmaps").apply { mkdirs() }
         atomicWrite(File(root, "config.json"), "{}\n".toByteArray())
         atomicWrite(File(root, "offmesh.txt"), ByteArray(0))
-        val completed = prior?.processed?.coerceIn(0, mapIds.size) ?: 0
+        // The checkpoint counts maps in [ordered]; it only resumes the SAME
+        // plan (an older build's per-map order is not this one). A restarted
+        // map is cheap either way: the generator skips every finished tile.
+        val completed = prior?.takeIf { it.total == ordered.size }?.processed?.coerceIn(0, ordered.size) ?: 0
+        val threads = mmapThreadCount(Runtime.getRuntime().availableProcessors())
         val skipped = mutableSetOf<Int>()
         try {
-            for ((index, mapId) in mapIds.withIndex()) {
+            var done = 0
+            for (batch in batches) {
                 coroutineContext.ensureActive()
-                val header = File(mmaps, "%03d.mmap".format(mapId))
-                if (index < completed && (header.isFile || mapId !in terrainBacked)) continue
-                runTool(importId, DataStage.MMAPS, root, "libpocket_movemapgen.so", listOf(
-                    mapId.toString(), "--silent", "--threads", MMAP_THREADS.toString(),
-                    "--configInputPath", File(root, "config.json").absolutePath,
-                    "--offMeshInput", File(root, "offmesh.txt").absolutePath,
-                    "--workdir", root.absolutePath,
-                ), suffix = "%03d".format(mapId), onTick = {
-                    reportMmapProgress(importId, mapId, index, mapIds.size, mmaps)
-                    onTick()  // prepareMmaps's notification tick; runTool's label is not a binding
-                })
-                if (!header.isFile) {
-                    check(mapId !in terrainBacked) {
-                        "mmap generator did not publish terrain-backed map $mapId"
+                val batchStart = done
+                done += batch.size
+                if (done <= completed && batch.all { mapId ->
+                        File(mmaps, "%03d.mmap".format(mapId)).isFile || mapId !in terrainBacked
                     }
-                    skipped += mapId
+                ) continue
+                val label = batch.joinToString("-") { "%03d".format(it) }
+                runTool(importId, DataStage.MMAPS, root, "libpocket_movemapgen.so",
+                    batch.map { it.toString() } + listOf(
+                        "--silent", "--threads", threads.toString(),
+                        "--configInputPath", File(root, "config.json").absolutePath,
+                        "--offMeshInput", File(root, "offmesh.txt").absolutePath,
+                        "--workdir", root.absolutePath,
+                    ), suffix = label.take(MAX_LOG_SUFFIX), onTick = {
+                        reportMmapProgress(importId, batch, batchStart, ordered.size, mmaps)
+                        onTick()  // prepareMmaps's notification tick; runTool's label is not a binding
+                    })
+                for (mapId in batch) {
+                    if (!File(mmaps, "%03d.mmap".format(mapId)).isFile) {
+                        check(mapId !in terrainBacked) {
+                            "mmap generator did not publish terrain-backed map $mapId"
+                        }
+                        skipped += mapId
+                    }
                 }
-                journal.checkpointDataStage(importId, DataStage.MMAPS, index + 1, mapIds.size,
-                    directoryBytes(mmaps), mmapCheckpointText(mapId, skipped))
+                journal.checkpointDataStage(importId, DataStage.MMAPS, done, ordered.size,
+                    directoryBytes(mmaps), mmapCheckpointText(batch, skipped))
                 onTick()
             }
+            buildGameObjectNavmeshes(importId, root, mmaps, threads, ordered.last(), onTick)
             requireCount(mmaps, ".mmap", terrainBacked.size)
             requireCount(mmaps, ".mmtile", 1)
-            journal.checkpointDataStage(importId, DataStage.MMAPS, mapIds.size, mapIds.size,
+            journal.checkpointDataStage(importId, DataStage.MMAPS, ordered.size, ordered.size,
                 directoryBytes(mmaps),
                 if (skipped.isEmpty()) "complete"
-                else "complete; no-navmesh maps skipped: " + skipped.joinToString(",") { "%03d".format(it) },
+                else "complete; no-navmesh maps skipped: " + skipped.sorted().joinToString(",") { "%03d".format(it) },
                 true)
         } catch (error: Throwable) {
             journal.failDataStage(importId, DataStage.MMAPS, error.message ?: error.javaClass.simpleName)
@@ -186,29 +206,59 @@ class DataPreparationStore(
     }
 
     /**
+     * The transport and elevator navmeshes (boats, zeppelins, elevators, the
+     * Deeprun Tram: `go<displayId>.mmtile`) the server loads for units riding
+     * them. Best-effort: a client lacking one of the models still imports.
+     */
+    private suspend fun buildGameObjectNavmeshes(
+        importId: String, root: File, mmaps: File, threads: Int, finishedMapId: Int, onTick: () -> Unit,
+    ) {
+        if (mmaps.listFiles { file -> isGameObjectTile(file.name) }.orEmpty().isNotEmpty()) return
+        runCatching {
+            // A finished map id keeps the generator from rebuilding every map
+            // (no id means "all maps"); its tiles exist, so only the transport
+            // models are built.
+            runTool(importId, DataStage.MMAPS, root, "libpocket_movemapgen.so", listOf(
+                finishedMapId.toString(), "--buildGameObjects", "--silent", "--threads", threads.toString(),
+                "--configInputPath", File(root, "config.json").absolutePath,
+                "--offMeshInput", File(root, "offmesh.txt").absolutePath,
+                "--workdir", root.absolutePath,
+            ), suffix = "gameobjects", onTick = onTick)
+        }.onFailure { failure ->
+            if (failure is kotlinx.coroutines.CancellationException) throw failure
+            com.pocketrealm.log.AppLog.w("DataPreparation", "transport navmeshes skipped: ${failure.message}")
+        }
+    }
+
+    /**
      * One-second in-run progress for the user-visible page: tiles published for
-     * the map under construction plus the generator child's cumulative CPU.
+     * the maps under construction plus the generator child's cumulative CPU.
      * The child is forked by a worker thread, so Android's per-app CPU meters
      * attribute it nowhere useful; reading procfs here keeps the display truthful.
      */
-    private fun reportMmapProgress(importId: String, mapId: Int, index: Int, total: Int, mmaps: File) {
-        val prefix = "%03d".format(mapId)
-        val tiles = mmaps.listFiles { file -> file.isFile && file.name.startsWith(prefix) }?.size ?: 0
+    private fun reportMmapProgress(importId: String, batch: List<Int>, index: Int, total: Int, mmaps: File) {
+        val prefixes = batch.map { "%03d".format(it) }
+        val tiles = mmaps.listFiles { file ->
+            file.isFile && prefixes.any { file.name.startsWith(it) }
+        }?.size ?: 0
         val cpuSeconds = ImportProcessMetricsSampler.forkedChildPids()
             .filter { pid -> generatorPid(pid) }
             .sumOf { pid -> ImportProcessMetricsSampler.processCpuSeconds(pid) ?: 0.0 }
+        val label = if (batch.size == 1) "map ${prefixes.single()}" else "maps ${prefixes.first()}–${prefixes.last()}"
         journal.checkpointDataStage(importId, DataStage.MMAPS, index, total,
             directoryBytes(mmaps),
-            "map %s (%d/%d) tiles %d gen-cpu %.0fs".format(prefix, index + 1, total, tiles, cpuSeconds))
+            "%s (%d/%d) tiles %d gen-cpu %.0fs".format(label, index + batch.size, total, tiles, cpuSeconds))
     }
 
     private fun generatorPid(pid: Int): Boolean = runCatching {
         File("/proc/$pid/cmdline").readBytes().toString(Charsets.UTF_8).contains("libpocket_movemapgen")
     }.getOrDefault(false)
 
-    private fun mmapCheckpointText(mapId: Int, skipped: Set<Int>): String =
-        if (mapId in skipped) "%03d skipped (no navmesh data)".format(mapId)
-        else "%03d published".format(mapId)
+    private fun mmapCheckpointText(batch: List<Int>, skipped: Set<Int>): String =
+        batch.joinToString("; ") { mapId ->
+            if (mapId in skipped) "%03d skipped (no navmesh data)".format(mapId)
+            else "%03d published".format(mapId)
+        }
 
     private suspend fun runTool(
         importId: String, stage: DataStage, workDir: File, library: String,
@@ -269,12 +319,12 @@ class DataPreparationStore(
             .put("vmapTiles", count(File(stageRoot, "vmaps"), ".vmtile"))
             .put("mmapMaps", count(File(stageRoot, "mmaps"), ".mmap"))
             .put("mmapTiles", count(File(stageRoot, "mmaps"), ".mmtile"))
-        // GAP-3 (owner census UIUX-3): publication resolves the ACTIVE lane
+        // publication resolves the ACTIVE lane
         // through the flavor machine — with several qualified flavors the
         // manifest identity and the per-flavor active pointer follow the
         // Home switcher's selection instead of `qualified().single()`
         // refusing data preparation wholesale.
-        // R2-4 (code-red round 2): the ACTIVE selection alone was the whole
+        // the ACTIVE selection alone was the whole
         // identity — a flavor switch during the hours-long prep window
         // published a generation stamped for the WRONG lane and every
         // consume-side envelope gate keyed off the same selection, so the
@@ -311,7 +361,7 @@ class DataPreparationStore(
      * that pins the "Current work" pane and the completion notification.
      */
     /**
-     * R2-4: the data manifest's flavor is the VERIFIED identity of the
+     * the data manifest's flavor is the VERIFIED identity of the
      * source client generation (its client-manifest.json clientId — the
      * PE-resolved lane the import gate stamped), never the Home switcher's
      * current selection. A generation whose verified flavor disagrees with
@@ -360,7 +410,7 @@ class DataPreparationStore(
     }
 
     /**
-     * Flavor-scoped activation (G3-5): the pointer switch and the prune run
+     * Flavor-scoped activation: the pointer switch and the prune run
      * inside [flavor]'s namespace. The keep-set never contains another
      * flavor's data generation (hours of on-device mmaps work), and the
      * pointer body carries the flavor key so a doctored cross-flavor pointer
@@ -506,7 +556,7 @@ class DataPreparationStore(
         /** the [ActiveFlavor] lane suffix naming the data-prep gate. */
         /**
          * Pure data-manifest composition (the [publish] writer body) so the
-         * durable format is golden-fixture-testable on the JVM (G3-2). The
+         * durable format is golden-fixture-testable on the JVM. The
          * manifest stays schema 1; when S6 stamps the `flavor` alias key into
          * new manifests, the committed fixture rotates deliberately — never
          * silently, and never through a schema bump.
@@ -526,14 +576,13 @@ class DataPreparationStore(
             .put("generator", generator)
             .put("sourceClientGeneration", importId).put("counts", counts)
             .put("files", JSONArray(files)).put("publishedAtMs", publishedAtMs)
-        // RP6/modern handheld lane: leave two cores for Android/UI while the
-        // finite on-device navigation build uses the remaining big/little pool.
-        internal const val MMAP_THREADS = 6
-        // The extractor provenance pin (port plan S1 item 1): must equal the
+        /** Longest per-run log-name suffix (a batch names its maps). */
+        private const val MAX_LOG_SUFFIX = 48
+        // The extractor provenance pin : must equal the
         // commit the o11 extractor lockfiles were built from — the o09/o11
         // drivers and schemas/flavor.json vanilla server_core.commit all pin
         // the same commit, and tools/check_repo.py's divergence check fails
-        // the build if these ever disagree again (decision D36).
+        // the build if these ever disagree again.
         private const val CMANGOS_COMMIT = "ce83805d48f9c98b2af617096be5347acb8a1f17"
         private val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
     }
@@ -573,6 +622,38 @@ internal fun verifiedSourceFlavor(clientRoot: File): ClientFlavor {
 internal fun derivedMmapMapIds(mapsDir: File, vmapsDir: File): List<Int> =
     (numericMapPrefixes(mapsDir, ADT_MAP_FILE) + numericMapPrefixes(vmapsDir, VMTREE_FILE))
         .distinct().sorted().toList()
+
+/** The continents: hundreds of tiles each, so one generator run apiece. */
+internal val CONTINENT_MMAP_MAP_IDS: Set<Int> = setOf(0, 1, 530, 571)
+
+/** Small maps (dungeons, raids, battlegrounds) share one generator run. */
+internal const val MMAP_BATCH_SIZE = 16
+
+/** The navmesh build list: every derived map, test maps included — a bot
+ * reaching any map finds navigation, never a missing tile. */
+internal fun mmapBuildMapIds(derived: List<Int>): List<Int> = derived.distinct()
+
+/** A transport/elevator navmesh tile (`go<displayId>.mmtile`). */
+internal fun isGameObjectTile(name: String): Boolean = GAMEOBJECT_TILE.matches(name)
+
+private val GAMEOBJECT_TILE = Regex("^go\\d{4}\\.mmtile$")
+
+/**
+ * The generator runs: each continent alone (keeps the checkpoint fine-
+ * grained where the hours are), every other map in batches so the worker
+ * pool stays full — run one at a time, a 1-4 tile dungeon left all but one
+ * thread idle and paid a full process start and tile discovery each.
+ */
+internal fun mmapBatches(mapIds: List<Int>, batchSize: Int = MMAP_BATCH_SIZE): List<List<Int>> {
+    val (continents, small) = mapIds.partition { it in CONTINENT_MMAP_MAP_IDS }
+    return continents.map { listOf(it) } + small.chunked(batchSize)
+}
+
+/** Worker threads for MoveMapGen: every core but two (Android, UI and the
+ * generator's own coordinator), at least two. */
+internal fun mmapThreadCount(cores: Int): Int = (cores - 2).coerceIn(2, MAX_MMAP_THREADS)
+
+private const val MAX_MMAP_THREADS = 10
 
 private val ADT_MAP_FILE = Regex("[0-9]{3}[0-9]{4}\\.map")
 private val VMTREE_FILE = Regex("[0-9]{3}\\.vmtree")

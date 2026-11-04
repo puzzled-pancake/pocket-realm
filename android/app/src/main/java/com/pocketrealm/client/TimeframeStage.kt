@@ -2,13 +2,13 @@ package com.pocketrealm.client
 
 /**
  * The per-flavor content-patch timeframe registry — the shared core of the
- * "World timeframe" control (design §1–§5 of
+ * "World timeframe" control (see
  * docs/DESKTOP-MULTIPLAYER-AND-TIMEFRAME-DESIGN.md).
  *
  * The control adds a STAGE dimension under the flavor: one content patch of
  * that flavor's timeline. The client patch is FIXED per flavor — picking an
  * earlier stage never changes what binary, DBCs, maps, or UI the client runs;
- * it only gates world CONTENT availability (design §0's one plain sentence).
+ * it only gates world CONTENT availability (design 's one plain sentence).
  *
  * Default = the flavor's FINAL patch (vanilla-1.12.1 / tbc-2.4.3 /
  * wotlk-3.3.5a): the world as the pinned DB already ships it. Every stage
@@ -21,7 +21,7 @@ package com.pocketrealm.client
  * is the sync gate (ids + orders here == the manifests; the vanilla
  * final-stage era baseline == the native patch lists). Per-stage measured
  * availability id sets land with the per-(flavor, stage) DB pin (design
- * §9.2); until then every set is empty and `measured=false`, and the gating
+ * ); until then every set is empty and `measured=false`, and the gating
  * predicates pass the seed's own availability straight through — existing
  * worlds are unaffected by construction.
  */
@@ -38,7 +38,7 @@ data class TimeframeStage(
     val copy: String,
 ) {
     /**
-     * Per-stage event-availability block (design §3, the game_event leg).
+     * Per-stage event-availability block (design, the game_event leg).
      * The stage overlay MOVES `game_event` windows (never event content):
      * [openEventIds] forces listed events active at this stage, [closeEventIds]
      * forces them inactive. EMPTY + [measured]=false until the S4 DB pin
@@ -56,7 +56,7 @@ data class TimeframeStage(
     data class EraSensePhrase(val needle: String, val negationEscapes: Boolean)
 
     /**
-     * The chat era-policy term classes for one stage (design §5): the world
+     * The chat era-policy term classes for one stage (design): the world
      * resolves its class set from the same stage id the conf carries. The
      * never-ban discipline rides the lists themselves — context-allow words
      * (northrend, outland, dalaran, lich king, naxxramas, wrath, legion…)
@@ -79,7 +79,7 @@ object TimeframeStages {
 
     /**
      * The one conf key both ServerRuntimeFiles twins emit at world start
-     * (design §4.2): `PocketRealm.TimeframeStage = "<stage-or-default>"`,
+     * (design): `PocketRealm.TimeframeStage = "<stage-or-default>"`,
      * read at the world's next start — never mid-session.
      */
     const val CONF_KEY: String = "PocketRealm.TimeframeStage"
@@ -133,17 +133,16 @@ object TimeframeStages {
      * NOT staged for its flavor in this build (the tbc/wotlk lanes): the
      * choice is recorded, but a realm start at that stage is REFUSED, and
      * the copy must say exactly that — never promise the world still
-     * runs (the W7 code-red R5-1 untruth). */
+     * runs. */
     fun unstagedOverlayNotice(stage: TimeframeStage): String =
-        "${stage.title}: this stage's content data is not staged for this " +
-            "flavor in this build — a realm start at this stage is refused " +
-            "until the overlays ship. The choice is recorded for the realm; " +
-            "switch back to the current-release stage — the world starts at " +
-            "that stage only on lanes that boot this flavor (the desktop " +
-            "repo checkout today; Android and installed desktop images boot " +
-            "Vanilla only)."
+        "${stage.title}: this stage's content data is not included for this " +
+            "game version in this build, so the realm cannot start at this " +
+            "stage yet. The choice is saved for the realm; switch back to " +
+            "the current-release stage — the world starts at that stage " +
+            "only where this game version is supported (the desktop app " +
+            "today; Android plays Vanilla only)."
 
-    /** The flavor's DEFAULT stage: the final patch (design §1). */
+    /** The flavor's DEFAULT stage: the final patch (design ). */
     fun defaultStageId(flavorId: String): String =
         stagesFor(flavorId).maxByOrNull { it.order }?.id ?: ""
 
@@ -164,10 +163,10 @@ object TimeframeStages {
                 stagesFor(flavorId).joinToString { it.id },
         )
 
-    // -- Gating model (design §2/§3) --------------------------------------
+    // Gating model (design) --------------------------------------
 
     /**
-     * The stage-marker predicate (design §2): marker content boundary
+     * The stage-marker predicate (design): marker content boundary
      * [boundaryStageId] is active exactly when the world's stage is at or
      * after that boundary on the same flavor's timeline. Backward/forward
      * moves are pure flag-set decisions over this predicate.
@@ -209,7 +208,7 @@ object TimeframeStages {
         }
     }
 
-    // -- Settings-layer resolution (design §4.1) ---------------------------
+    // Settings-layer resolution (design) ---------------------------
 
     /**
      * The degrade-per-field read of a persisted stage id (the desktop twin's
@@ -229,7 +228,7 @@ object TimeframeStages {
     }
 
     /**
-     * The conf value (design §4.2: "<stage-or-default>"), resolved for the
+     * The conf value (design: "<stage-or-default>"), resolved for the
      * flavor of the world actually booting: the stored stage survives only
      * when it belongs to the ACTIVE flavor; anything else — unset, degraded,
      * or a stored stage of a DIFFERENT (even qualified) flavor — degrades to
@@ -251,7 +250,7 @@ object TimeframeStages {
         return defaultStageId(activeFlavorId)
     }
 
-    // -- Era-policy linkage (design §5) ------------------------------------
+    // Era-policy linkage (design) ------------------------------------
 
     /**
      * The GROUNDED baseline: the native 1.12.1 verdict lists, pinned verbatim
@@ -297,7 +296,7 @@ object TimeframeStages {
     )
 
     /**
-     * The TBC 2.4.3 grounded baseline (W3.1, port plan S3.4): the TBC lane
+     * The TBC 2.4.3 grounded baseline: the TBC lane
      * LEGITIMIZES every vanilla-banned TBC concept — Shattrath, the Outland
      * zones, flying mounts, the Dark Portal senses — and bans WotLK+ concepts
      * instead (Acherus, the Ebon Blade, floating Dalaran, the expansion
@@ -381,7 +380,7 @@ object TimeframeStages {
     )
 
     /**
-     * The WotLK 3.3.5a grounded baseline (W3.1, port plan S3.4): the WotLK
+     * The WotLK 3.3.5a grounded baseline: the WotLK
      * lane allows everything through WotLK — Northrend, floating Dalaran,
      * Acherus, the Ebon Blade, the expansion title, flying mounts, every
      * TBC concept — and bans Cataclysm+ concepts instead (the playable-worgen
@@ -447,11 +446,11 @@ object TimeframeStages {
         }
 
     /**
-     * The era term classes the world resolves for one stage (design §5: the
+     * The era term classes the world resolves for one stage (design: the
      * chat era-policy follows the chosen patch, not just the flavor — the
      * same stage id the conf carries drives the class set).
      *
-     * W3.1: each flavor resolves to its OWN final-stage grounded baseline
+     * each flavor resolves to its OWN final-stage grounded baseline
      * (the TBC/WotLK legitimization moves are real data now — the generated
      * native header serves the same per-flavor sets). Intra-flavor per-patch
      * deltas (an earlier vanilla stage banning later-vanilla senses) remain

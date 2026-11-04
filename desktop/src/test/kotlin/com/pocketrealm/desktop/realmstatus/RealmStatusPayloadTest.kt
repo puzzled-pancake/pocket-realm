@@ -15,7 +15,7 @@ import org.junit.Test
 
 /**
  * The `GET /api/status.json` payload contract's serialization pins
- * (design realm-status-browser.md §7, schema 3): the PUBLIC trim set,
+ * (design realm-status-browser.md, schema 3): the PUBLIC trim set,
  * the degraded fail-closed nulls, the structural world-down zeros, the
  * two-case advertised-address rule, the join-axis keying, and the
  * MOTD clamp's hostile vectors.
@@ -130,7 +130,7 @@ class RealmStatusPayloadTest {
     fun `degraded status publishes no offline claim and nulls the split`() {
         // realmOnline null (never false), uptime 0, and the
         // players block fail-closes to NULLS — never a 0-split. The two
-        // degrade axes are independent (§7's pairing note): the players
+        // degrade axes are independent (the pairing note): the players
         // block carries its OWN source label here.
         val payload = RealmStatusPayload.build(
             inputs(

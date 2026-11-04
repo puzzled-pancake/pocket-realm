@@ -33,7 +33,7 @@ internal class ManagedClientStore(context: Context) {
         override fun close() = lease.close()
     }
 
-    private val clientRoot = File(context.noBackupFilesDir, "client")
+    private val clientRoot = com.pocketrealm.storage.StorageRoots.get(context).client
 
     fun load(clientId: String): ManagedClient =
         acquireRuntime(clientId).use { it.client }
@@ -162,7 +162,7 @@ internal class ManagedClientStore(context: Context) {
     }
 
     /**
-     * G3-5: the runtime reads [clientId]'s per-flavor pointer namespace; on
+     * the runtime reads [clientId]'s per-flavor pointer namespace; on
      * first read after the multi-flavor update, an un-namespaced `active.json`
      * is adopted under the flavor's canonical name (atomic move, with the
      * plain-replace fallback the store's own write discipline carries) so the

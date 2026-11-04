@@ -3,8 +3,6 @@ package com.pocketrealm.server
 import android.content.Context
 import android.system.Os
 import android.system.OsConstants
-import com.pocketrealm.BuildConfig
-import com.pocketrealm.bots.BotLlmSpeech
 import com.pocketrealm.bots.BotProfile
 import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.ActiveFlavorState
@@ -13,11 +11,6 @@ import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.client.TimeframeStages
 import com.pocketrealm.database.DatabaseDurableState
 import com.pocketrealm.database.DatabaseSqliteControlPlane
-import com.pocketrealm.llm.LlmModelCoordinator
-import com.pocketrealm.llm.LlmModelRegistry
-import com.pocketrealm.llm.LlmPromptPack
-import com.pocketrealm.llm.LlmTierProfile
-import com.pocketrealm.llm.LlmSamplingProfile
 import com.pocketrealm.storage.Settings
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -40,11 +33,11 @@ internal class ServerRuntimeFiles(context: Context) {
     private val secretFile = File(roots.databaseRoot, "secrets.json")
 
     /** The conf-stage lane suffix (the same wording worldConfig's persisted
-     * machine resolves) for the database-name and lore-corpus resolvers. */
+     * machine resolves) for the database-name resolver. */
     private val serverRuntimeLane =
         "the server runtime resolves the persisted lane for its conf and logon clients"
 
-    /** R1-arch-5/R2-2 (android-core review round 1): the :world process's
+    /** the:world process's
      * per-flavor resolver for every data/verify lane. The [ActiveFlavor]
      * holder's selection is :ui-process-local in-memory state (the Home
      * picker) that never crosses the process boundary, so a bare holder
@@ -64,12 +57,12 @@ internal class ServerRuntimeFiles(context: Context) {
     }
 
     /**
-     * R4-1 (W4 code-red round 4): the ANDROID boot-time lane-vs-runtime
+     * the ANDROID boot-time lane-vs-runtime
      * gate — the desktop requireRuntimeLaneMatches twin. The packaged
      * Android realm runtime is the VANILLA lane's libpocket_world_runtime.so:
      * W5 built and locked the HOST-SIDE per-flavor native lanes
      * (schemas/realm-runtime-lockfile-{tbc,wotlk}-arm64-v8a.json against
-     * native/.build-o09-arm64-v8a-{flavor}/realm-staging, decision D88) but
+     * native/.build-o09-arm64-v8a-{flavor}/realm-staging) but
      * the APK's gradle flavor routing — packaging a per-flavor staging tree
      * into the image — is recorded as open follow-up work in DECISIONS-PORT
      * D90, so the image still carries exactly one realm runtime and booting
@@ -137,7 +130,7 @@ internal class ServerRuntimeFiles(context: Context) {
         nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
         settingsSnapshot: Settings.Snapshot? = null,
     ): File {
-        // R1-arch-5/R2-2: the verification lane resolves the same flavor the
+        // the verification lane resolves the same flavor the
         // conf stage below resolves - the persisted Home selection threaded
         // from the caller's snapshot, never the :ui-local holder.
         val active = normalData.requireActive(worldLaneFlavor(PreparedDataStore.SERVER_DATA_LANE, settingsSnapshot))
@@ -177,9 +170,8 @@ internal class ServerRuntimeFiles(context: Context) {
         settingsSnapshot: Settings.Snapshot?,
     ): File {
         val bind = ServerRuntimeContract.resolveBindAddress(bindAddress)
-        // One blocking settings read at world start feeds both the world
-        // log level and (through llmConfigOverrides) the appended playerbot
-        // LLM block - every world.conf toggle therefore applies on the next
+        // One blocking settings read at world start feeds the world log
+        // level - every world.conf toggle therefore applies on the next
         // realm start, never mid-session. The caller's snapshot wins when
         // provided: WorldRuntimeService resolves the stage ONCE per start
         // and feeds both this conf write and the stage overlay — two
@@ -187,7 +179,7 @@ internal class ServerRuntimeFiles(context: Context) {
         // world whose conf names a stage the DB/ledger never reached.
         val snapshot = settingsSnapshot ?: Settings(appContext).blockingSnapshot()
         purgeStaleBotConfSecrets()
-        // W3.4: the boot lane resolves ONCE here — the same resolution the
+        // the boot lane resolves ONCE here — the same resolution the
         // conf's stage value below carries — so the fail-loud conf staging
         // and the conf emission can never name different flavors.
         val laneFlavor = worldLaneFlavor(
@@ -197,8 +189,7 @@ internal class ServerRuntimeFiles(context: Context) {
         val botConfig = if (botProfile != null) {
             // the conf VALUES ride the same pinned boot lane as
             // the staging gate — never the :ui holder.
-            val botConfText = botProfile.playerbotConfig(laneFlavor) +
-                (llmConfigOverrides(botProfile, snapshot) ?: "")
+            val botConfText = botProfile.playerbotConfig(laneFlavor)
             // W3.4 fail-loud conf staging: an unknown key for the flavor's
             // bots build aborts the start instead of being silently dropped
             // by the core's config parser; excluded families (VoiceChat)
@@ -231,9 +222,9 @@ internal class ServerRuntimeFiles(context: Context) {
                     NearbyInteractPolicy.normalizeTriggerGuardMs(nearbyInteractTriggerGuardMs),
                 playerbotConfigPath = botConfig.absolutePath,
                 botTarget = botProfile?.initialTarget ?: 0,
-                // Design-timeframe §4.2: the persisted stage resolved to the
+                // Design-timeframe: the persisted stage resolved to the
                 // "<stage-or-default>" conf value (never empty).
-                // R1-arch-5/R2-2: the ACTIVE flavor side of the resolution is
+                // the ACTIVE flavor side of the resolution is
                 // this process's Settings-threaded lane (the holder's
                 // selection is :ui-local) - the same lane the data verify
                 // and the overlay binding above resolve (W3.4: one hoisted
@@ -250,8 +241,9 @@ internal class ServerRuntimeFiles(context: Context) {
     /**
      * The stale-secret purge (the desktop twin's F3 fix): a world start
      * stages exactly ONE bot conf (the active profile's — or the disabled
-     * block), so a rotated or cleared external LLM key would otherwise
-     * survive indefinitely in every OTHER preset's staged conf. Before the
+     * block), so an API key staged by an older build (the retired bot-speech
+     * endpoint) would otherwise survive indefinitely in every OTHER preset's
+     * staged conf. Before the
      * active conf is rewritten, delete every staged aiplayerbot-*.conf that
      * carries a key line — an inactive conf is never referenced by the
      * running world (mangosd.conf names exactly one) and is re-staged from
@@ -265,213 +257,9 @@ internal class ServerRuntimeFiles(context: Context) {
         purgeStaleBotConfSecrets(run)
     }
 
-    /**
-     * Playerbot LLM overrides, resolved at world start from the settings
-     * snapshot read by [worldConfig] (one blocking read inside the
-     * transition gate; toggles therefore apply on the next realm start).
-     * All decisions live in the pure [llmOverrides] companion function (see
-     * its contract there). The selected profile's per-preset speech
-     * overrides (Bots → AI tab) ride the same appended block; sentinels
-     * follow the model/global values.
-     */
-    private fun llmConfigOverrides(profile: BotProfile, snapshot: Settings.Snapshot): String? {
-        val selected = LlmModelRegistry.byId(snapshot.llmModelId)
-        val model = LlmModelCoordinator.modelPathFor(appContext, snapshot.llmModelId)
-        // Stage the lore card index only when an LLM block can be
-        // emitted, and degrade to no-cards on any staging failure - a
-        // lore asset problem must never fail a world start for a feature
-        // the user never enabled
-        val lore = if (snapshot.llmEnabled || (BuildConfig.DEBUG && model.isFile))
-            runCatching { stageLoreCards(snapshot).absolutePath }.getOrNull()
-        else
-            null
-        // Stage the EMPTY default-prompts file under the same gate (the
-        // debug lane carries the line too, so the gate matches the lore
-        // index, not the pack). The native default for
-        // AiPlayerbot.LLMDefaultPromptsFile is the bare relative name
-        // llm_character_card, resolved by the loader against CWD - never
-        // the run dir - so a missing file fails open with a "not found or
-        // unreadable" startup line. An EMPTY file loads zero prompts
-        // cleanly: identical fail-open behavior minus the error line and
-        // with zero DB writes. A staging failure also fails open (null
-        // simply omits the conf line); a staging problem must never fail
-        // a world start for a feature the user never configured.
-        val defaultPrompts = if (snapshot.llmEnabled || (BuildConfig.DEBUG && model.isFile))
-            runCatching { stageDefaultPromptsFile().absolutePath }.getOrNull()
-        else
-            null
-        // Stage the Mozilla CA bundle under the same gate. The native
-        // HTTPS client verifies external-endpoint certificates against it
-        // (LLMTLSCaFile absolute path; empty falls back to the Android
-        // system store, which often has nothing usable for user CAs). A
-        // staging failure fails open to the fallback - verification stays
-        // on, the store just changes.
-        val tlsCa = if (snapshot.llmEnabled || (BuildConfig.DEBUG && model.isFile))
-            runCatching { stageTlsCaBundle().absolutePath }.getOrNull()
-        else
-            null
-        // The power file is staged once at world start whenever the LLM
-        // subsystem can run, carrying the CURRENT ambience toggle in its
-        // enabled flag plus the low-battery courtesy dim - the native
-        // scheduler re-reads it every tick, but the toggle itself applies
-        // at realm start like every llm* setting. A staging failure fails
-        // CLOSED: no power file path in the conf means chatter stays off
-        // (the silence doctrine).
-        val chatterPower = if (snapshot.llmEnabled)
-            runCatching {
-                // The selected profile's per-preset rung cap rides the
-                // staged power file (-1 follows the computed ambience state)
-                ChatterPowerMonitor.refreshOnce(
-                    appContext,
-                    enabled = snapshot.llmAmbience,
-                    rungCap = profile.llmSpeech.chatterRung,
-                ).absolutePath
-            }.getOrNull()
-        else
-            null
-        // The prompt pack stages the RESOLVED player pack (the
-        // edited JSON from Settings, fail-open to default on corrupt edits).
-        // The file carries the enabled flags + bodies the Advanced prompt
-        // manager edits. Staging failure fails OPEN to trained-default,
-        // never closed: the renderer treats a missing path as "pack off".
-        val promptPack = if (snapshot.llmEnabled)
-            runCatching {
-                stagePromptPack(
-                    LlmPromptPack.resolve(snapshot.llmPromptPackJson).serialize(),
-                ).absolutePath
-            }.getOrNull()
-        else
-            null
-        // the composer rides the external endpoint fields the user filled
-        // in (validated by the same normalizers; null on any invalid value)
-        val composerEndpoint =
-            if (snapshot.llmEnabled)
-                LlmRuntimePolicy.normalizeExternalEndpoint(snapshot.llmExternalUrl)
-            else
-                null
-        return llmOverrides(
-            uiEnabled = snapshot.llmEnabled,
-            modelPresent = model.isFile,
-            modelAbsolutePath = model.absolutePath,
-            profile = selected.profile,
-            tier = selected.tierProfile,
-            debugBuild = BuildConfig.DEBUG,
-            externalMode = snapshot.llmExternalMode,
-            externalEndpoint = LlmRuntimePolicy.normalizeExternalEndpoint(snapshot.llmExternalUrl),
-            externalModel = LlmRuntimePolicy.normalizeExternalModel(snapshot.llmExternalModel),
-            externalApiKey = LlmRuntimePolicy.normalizeExternalApiKey(snapshot.llmExternalApiKey),
-            banterEnabled = snapshot.llmBanter,
-            loreFile = lore,
-            chatterPowerFile = chatterPower,
-            composerEndpoint = composerEndpoint,
-            composerModel = LlmRuntimePolicy.normalizeExternalModel(snapshot.llmExternalModel),
-            composerApiKey = LlmRuntimePolicy.normalizeExternalApiKey(snapshot.llmExternalApiKey),
-            maxNewTokensOverride = snapshot.llmMaxNewTokens,
-            generationTimeoutOverride = snapshot.llmGenerationTimeout,
-            speech = profile.llmSpeech,
-            promptPackFile = promptPack,
-            defaultPromptsFile = defaultPrompts,
-            tlsCaFile = tlsCa,
-            cloudLane = CloudLaneConf(cloudChatter = snapshot.llmExternalMode && snapshot.llmCloudChatter),
-            logLines = snapshot.worldDebugLogs,
-        )
-    }
-
-    /**
-     * Stage the resolved prompt pack next to the conf atomically.
-     * Re-staged when the BYTES change (a same-length body edit or a pure
-     * reorder must not keep serving the previous pack). The payload is the
-     * RESOLVED player pack (custom edits or default), so one file serves
-     * both the default and the edited states.
-     */
-    private fun stagePromptPack(payloadText: String): File {
-        val target = File(run, PROMPT_PACK_FILE_NAME)
-        val payload = payloadText.toByteArray(Charsets.UTF_8)
-        if (target.isFile && target.readBytes().contentEquals(payload))
-            return target
-        val temp = File(run, ".$PROMPT_PACK_FILE_NAME.${android.os.Process.myPid()}.tmp")
-        java.io.FileOutputStream(temp).use { stream ->
-            stream.write(payload); stream.fd.sync()
-        }
-        if (!temp.renameTo(target)) {
-            temp.copyTo(target, overwrite = true)
-            temp.delete()
-        }
-        return target
-    }
-
-    /**
-     * The lore card index ships as an app asset and is staged
-     * next to the conf atomically (pid-temp + rename, the class's write
-     * discipline). A staged copy whose size no longer matches the asset
-     * (an app update shipping revised cards, or a partial write from an
-     * older non-atomic path) is re-staged. Callers treat any failure as
-     * "no cards" - the native retrieval loop fails closed to quiet and
-     * the entity guard still works.
-     */
-    private fun stageLoreCards(settingsSnapshot: Settings.Snapshot? = null): File {
-        val loreCardsFileName = loreCardsFileName(settingsSnapshot)
-        val target = File(run, loreCardsFileName)
-        val assetPath = "lore/$loreCardsFileName"
-        val expected = appContext.assets.open(assetPath).use { it.available() }.toLong()
-        if (target.isFile && target.length() == expected)
-            return target
-        val temp = File(run, ".$loreCardsFileName.${android.os.Process.myPid()}.tmp")
-        appContext.assets.open(assetPath).use { input ->
-            FileOutputStream(temp).use { output -> input.copyTo(output) }
-        }
-        if (!temp.renameTo(target)) {
-            temp.copyTo(target, overwrite = true)
-            temp.delete()
-        }
-        return target
-    }
-
-    /**
-     * Stage an EMPTY default-prompts file next to the conf atomically
-     * (pid-temp + rename, the class's write discipline). An empty file is
-     * the deliberate payload: the native loader loads zero prompts from it
-     * cleanly - identical to the missing-file fail-open of the bare
-     * relative default, minus the "not found or unreadable" startup line,
-     * and with none of the per-line ERROR spam and junk DB writes a JSON
-     * payload would produce. Already-staged empty copies are kept as-is;
-     * only a missing or non-empty file is (re)staged.
-     */
-    private fun stageDefaultPromptsFile(): File {
-        val target = File(run, DEFAULT_PROMPTS_FILE_NAME)
-        if (target.isFile && target.length() == 0L)
-            return target
-        val temp = File(run, ".$DEFAULT_PROMPTS_FILE_NAME.${android.os.Process.myPid()}.tmp")
-        FileOutputStream(temp).use { stream -> stream.fd.sync() }
-        if (!temp.renameTo(target)) {
-            temp.copyTo(target, overwrite = true)
-            temp.delete()
-        }
-        return target
-    }
-
-    /**
-     * The Mozilla CA bundle ships as an app asset and stages next to
-     * the conf (size-verified, the stageLoreCards discipline) so the
-     * native HTTPS client verifies external certificates by absolute
-     * path - Android has no /etc/ssl/certs for native code; the system
-     * hashed-dir store is only the fallback.
-     */
-    private fun stageTlsCaBundle(): File {
-        val target = File(run, TLS_CA_BUNDLE_FILE_NAME)
-        val expected = appContext.assets.open("llm/$TLS_CA_BUNDLE_FILE_NAME").use { it.available() }.toLong()
-        if (target.isFile && target.length() == expected)
-            return target
-        val temp = File(run, ".$TLS_CA_BUNDLE_FILE_NAME.${android.os.Process.myPid()}.tmp")
-        appContext.assets.open("llm/$TLS_CA_BUNDLE_FILE_NAME").use { input ->
-            FileOutputStream(temp).use { output -> input.copyTo(output) }
-        }
-        if (!temp.renameTo(target)) {
-            temp.copyTo(target, overwrite = true)
-            temp.delete()
-        }
-        return target
-    }
+    /** A fresh app-private scratch path for one character-transfer dump. */
+    fun characterTransferFile(): File =
+        File(run, "transfer-${java.util.UUID.randomUUID()}.sql")
 
     fun writeLifecycle(component: String, clean: Boolean, operation: String, detail: String = "") {
         require(component == "realm" || component == "world") { "unknown server component" }
@@ -484,7 +272,7 @@ internal class ServerRuntimeFiles(context: Context) {
     /**
      * The per-flavor database-name set the conf templates seed, resolved
      * from the flavor registry ([ClientFlavor.databases]) instead of
-     * hard-coded names. W4 (D72 retirement, owner ruling 2026-10-12): the
+     * hard-coded names. W4 (D72 retirement, 2026-10-12): the
      * lane is the PERSISTED Home selection through the same machine
      * [worldLaneFlavor] serves — sole qualified degrades, the pick is
      * honored, an ambiguous post-flip state refuses loud. The former
@@ -494,20 +282,6 @@ internal class ServerRuntimeFiles(context: Context) {
      */
     private fun serverDatabases(settingsSnapshot: Settings.Snapshot? = null): ClientFlavor.DatabaseNames {
         return worldLaneFlavor(serverRuntimeLane, settingsSnapshot).databases
-    }
-
-    /**
-     * W3.2 (D15(5) retirement): the staged lore-corpus file name resolves
-     * through the flavor registry's `llm.lore_cards` binding
-     * ([ClientFlavor.loreCardsFile]) instead of a duplicated const — the
-     * manifest is the owner of the filename. The owner decision (completion
-     * plan table #2) binds EVERY flavor to the one shared corpus asset (no
-     * per-flavor jsonl), so the name is shared while the era FILTER is the
-     * native load-time lint (flavor-routed by the active stage's ban
-     * lists). Same exactly-one-qualified posture as [serverDatabases].
-     */
-    private fun loreCardsFileName(settingsSnapshot: Settings.Snapshot? = null): String {
-        return worldLaneFlavor(serverRuntimeLane, settingsSnapshot).loreCardsFile
     }
 
     /**
@@ -688,7 +462,7 @@ internal class ServerRuntimeFiles(context: Context) {
         }
 
         /**
-         * G3-7: the pure conf-template bodies the instance writers feed, so
+         * the pure conf-template bodies the instance writers feed, so
          * [VanillaConfGoldenTest] can byte-pin the vanilla lane's generated
          * server conf against committed fixtures before any S2/S3
          * parameterization touches the templates. The composition is moved
@@ -709,7 +483,7 @@ internal class ServerRuntimeFiles(context: Context) {
             LogFile = "$realmLogFilePath"
             LogFileLevel = 1
         """.trimIndent() + "\n" +
-            // design-remote-accounts §4.3/§6.3 (the desktop ServerRuntimeFiles
+            // design-remote-accounts / (the desktop ServerRuntimeFiles
             // D11 twin): login lockout on every non-loopback bind, omitted
             // for loopback-only LOCAL binds. Loopback output is unchanged, so
             // the vanilla golden pin below stays byte-exact.
@@ -742,7 +516,7 @@ internal class ServerRuntimeFiles(context: Context) {
             nearbyInteractCooldownMs: Int,
             playerbotConfigPath: String,
             botTarget: Int,
-            /** Design-timeframe §4.2: the RESOLVED stage id (never empty —
+            /** Design-timeframe: the RESOLVED stage id (never empty —
              * callers resolve "" through TimeframeStages.confValue). */
             timeframeStage: String,
         ): String = """
@@ -766,7 +540,7 @@ internal class ServerRuntimeFiles(context: Context) {
             LogFile = "$worldLogFilePath"
             LogFileLevel = $worldLogFileLevel
             DBErrorLogFile = "$databaseErrorsLogFilePath"
-            PlayerLimit = 10
+            PlayerLimit = ${ServerRuntimeContract.WORLD_PLAYER_LIMIT}
             # The production realm is app-private and loopback-only. Wine's
             # clock can deliver buffered CMSG_PING packets in a burst after a
             # slow emulated frame; CMaNGOS documents 0 as disabling this kick.
@@ -796,19 +570,6 @@ internal class ServerRuntimeFiles(context: Context) {
             PocketRealm.TimeframeStage = "$timeframeStage"
         """.trimIndent() + "\n"
 
-        // W3.2: the staged lore card index file name lives in the flavor
-        // registry (ClientFlavor.loreCardsFile, the llm.lore_cards manifest
-        // binding) — the const was the D15(5) duplication, retired.
-
-        /** The staged default prompt-pack file (run dir). */
-        private const val PROMPT_PACK_FILE_NAME = "llm_prompt_pack.json"
-
-        /** The staged EMPTY default-prompts file (run dir; native default name). */
-        private const val DEFAULT_PROMPTS_FILE_NAME = "llm_character_card"
-
-        /** The staged Mozilla CA bundle for external-endpoint TLS verification (asset: llm/). */
-        private const val TLS_CA_BUNDLE_FILE_NAME = "cacert.pem"
-
         /** Errors-only world log level, matching realmd's LogFileLevel = 1. */
         internal const val DEFAULT_WORLD_LOG_FILE_LEVEL = 1
 
@@ -826,116 +587,6 @@ internal class ServerRuntimeFiles(context: Context) {
          */
         internal fun worldLogFileLevel(worldDebugLogs: Boolean): Int =
             if (worldDebugLogs) DEBUG_WORLD_LOG_FILE_LEVEL else DEFAULT_WORLD_LOG_FILE_LEVEL
-
-        /**
-         * The four-state playerbot LLM gate, pure in its inputs so the
-         * verdicts are unit-testable. (0) External-endpoint mode (submenu on
-         * + a normalized endpoint) emits the external conf block BEFORE any
-         * local-model gate — an external service needs no staged GGUF, and an
-         * unusable endpoint/key/model (any normalizer null) suppresses the
-         * block entirely instead of pointing bots at a broken URL; it also
-         * shadows the debug fallback, matching the supervisor which never
-         * starts the :llm process in this mode. (1) The submenu runtime's
-         * HTTP block when the user enabled it AND the model GGUF is staged —
-         * the same gate the supervisor applies before starting the :llm
-         * process, so the conf and the running server can never disagree; the
-         * base profile conf keeps its LLMEnabled = 0 and the append
-         * wins by Config.cpp's last-wins parse. (2) With the submenu off, the
-         * debug-only in-process llama override (still
-         * model-gated), so adb-driven native debugging keeps working
-         * on debuggable builds. (3) Otherwise nothing — release builds
-         * without the submenu opt-in emit nothing.
-         */
-        internal fun llmOverrides(
-            uiEnabled: Boolean,
-            modelPresent: Boolean,
-            modelAbsolutePath: String,
-            debugBuild: Boolean,
-            externalMode: Boolean = false,
-            externalEndpoint: String? = null,
-            externalModel: String? = null,
-            externalApiKey: String? = null,
-            banterEnabled: Boolean = true,
-            profile: LlmSamplingProfile = LlmModelRegistry.TUNED_E2B.profile,
-            tier: LlmTierProfile = LlmModelRegistry.TUNED_E2B.tierProfile,
-            loreFile: String? = null,
-            chatterPowerFile: String? = null,
-            composerEndpoint: String? = null,
-            composerModel: String? = null,
-            composerApiKey: String? = null,
-            maxNewTokensOverride: Int = 0,
-            generationTimeoutOverride: Int = 0,
-            speech: BotLlmSpeech = BotLlmSpeech(),
-            promptPackFile: String? = null,
-            defaultPromptsFile: String? = null,
-            tlsCaFile: String? = null,
-            cloudLane: CloudLaneConf = CloudLaneConf(),
-            logLines: Boolean = false,
-        ): String? {
-            if (uiEnabled && externalMode) {
-                return LlmRuntimePolicy.confBlockExternal(
-                    externalEndpoint, externalModel, externalApiKey, banterEnabled,
-                    loreFile = loreFile,
-                    chatterPowerFile = chatterPowerFile,
-                    composerEndpoint = composerEndpoint,
-                    composerModel = composerModel,
-                    composerApiKey = composerApiKey,
-                    maxNewTokensOverride = maxNewTokensOverride,
-                    generationTimeoutOverride = generationTimeoutOverride,
-                    speech = speech,
-                    promptPackFile = promptPackFile,
-                    defaultPromptsFile = defaultPromptsFile,
-                    tlsCaFile = tlsCaFile,
-                    cloudLane = cloudLane,
-                    logLines = logLines,
-                )
-            }
-            if (uiEnabled && modelPresent) {
-                return LlmRuntimePolicy.confBlock(
-                    true, banterEnabled = banterEnabled, profile = profile, tier = tier,
-                    loreFile = loreFile,
-                    chatterPowerFile = chatterPowerFile,
-                    composerEndpoint = composerEndpoint,
-                    composerModel = composerModel,
-                    composerApiKey = composerApiKey,
-                    maxNewTokensOverride = maxNewTokensOverride,
-                    generationTimeoutOverride = generationTimeoutOverride,
-                    speech = speech,
-                    promptPackFile = promptPackFile,
-                    defaultPromptsFile = defaultPromptsFile,
-                    tlsCaFile = tlsCaFile,
-                )
-            }
-            if (!debugBuild || !modelPresent) return null
-            // the lore line rides the debug block too: the retrieval
-            // loop is backend-independent (the bridge loads it for both
-            // the HTTP and in-process paths)
-            val debugLore = if (!loreFile.isNullOrBlank())
-                "\n            AiPlayerbot.LLMLoreFile = \"$loreFile\"" else ""
-            // the empty default-prompts file rides the debug block for
-            // the same reason - the native loader opens it on every LLM
-            // path, not only the HTTP ones
-            val debugDefaultPrompts = if (!defaultPromptsFile.isNullOrBlank())
-                "\n            AiPlayerbot.LLMDefaultPromptsFile = \"$defaultPromptsFile\"" else ""
-            // the staged CA bundle rides the debug block too - the TLS
-            // client is shared by the embedded-server HTTP path
-            val debugTlsCa = if (!tlsCaFile.isNullOrBlank())
-                "\n            AiPlayerbot.LLMTLSCaFile = \"$tlsCaFile\"" else ""
-            // The banter toggle must gate the in-process debug
-            // path too - the native default (1) otherwise runs the authored
-            // initiative layer regardless of the toggle
-            val debugBanter =
-                "\n            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}"
-            return """
-                AiPlayerbot.LLMEnabled = 2
-                AiPlayerbot.LLMBackend = 1
-                AiPlayerbot.LLMModelPath = "$modelAbsolutePath"
-                AiPlayerbot.LLMThreads = 3
-                AiPlayerbot.LLMCpuFirstCore = 3
-                AiPlayerbot.LLMCtxSize = 4096
-                AiPlayerbot.LLMSlots = 4$debugBanter$debugLore$debugDefaultPrompts$debugTlsCa
-            """.trimIndent() + "\n"
-        }
     }
 }
 

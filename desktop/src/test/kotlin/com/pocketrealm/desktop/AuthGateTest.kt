@@ -14,7 +14,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * Per-client-build SRP6 auth fixtures (DESK-56): the auth math and wire
+ * Per-client-build SRP6 auth fixtures: the auth math and wire
  * identity golden vectors plus the frame-size pins derived from the
  * shared [ClientFlavors] registry's srp6 fields.
  *
@@ -65,7 +65,7 @@ class AuthGateTest {
      * (little-endian) - the exact transform its own check applies. */
     private val nBytesPinned: ByteArray = VsrpMath.N.toPaddedBe(32).reversedArray()
 
-    /** R2-R4-1 (W4 code-red round 4): a realmd serving a LONGER
+    /** a realmd serving a LONGER
      * proof-response frame than the flavor pins must refuse loud —
      * readExactly(N) alone silently truncated the trailing bytes, which
      * made the "drift fails loud" invariant unfalsifiable up-drift. The
@@ -181,7 +181,7 @@ class AuthGateTest {
      * equals it, and the tbc/wotlk lengths are the S8-verified
      * sAuthLogonProof_S size (cmd + error + M2[20] + uint32 accountFlags +
      * uint32 surveyId + uint16 unkFlags = 32, AuthSocket.cpp:135-143 in both
-     * branches — lanes item 14). The vanilla logon client still refuses to
+     * branches). The vanilla logon client still refuses to
      * parse anything but its own 26-byte layout until the per-flavor parser
      * lands with those lanes. */
     @Test

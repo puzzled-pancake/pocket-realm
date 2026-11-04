@@ -75,7 +75,7 @@ class FlavorLayout:
         return f"native/.build-o09-{abi}{_SUFFIX[self.flavor_id]}"
 
     # Lockfiles / ledgers (schemas/ paths, relative to the repo root).
-    # Per docs/FLAVOR-ARTIFACT-NAMING.md §2, the flavor segment comes BEFORE
+    # Per docs/FLAVOR-ARTIFACT-NAMING.md, the flavor segment comes BEFORE
     # the abi segment: <name>-{flavor}[-{abi}].json — so
     # realm-runtime-lockfile-tbc-arm64-v8a.json, not ...-arm64-v8a-tbc.json.
     def realm_runtime_lockfile(self, abi: str) -> str:

@@ -137,7 +137,7 @@ object RealmListRewrite {
     fun flavorFor(id: String): ClientFlavor =
         ClientFlavors.ALL.firstOrNull { it.flavorId == id }
             ?: throw RealmListRewriteException(
-                "VAL-IROH-REALMLIST: unknown flavor '$id' (expected one of " +
+                "unknown flavor '$id' (expected one of " +
                     ClientFlavors.ALL.joinToString(", ") { it.flavorId } + ")",
             )
 
@@ -189,7 +189,7 @@ object RealmListRewrite {
                 runCatching { parse(frame, candidate) }.isSuccess
         } ?: throw declined
         throw RealmListRewriteException(
-            "VAL-IROH-REALMLIST: the realm list parses under the " +
+            "the realm list parses under the " +
                 foreign.flavorId + " layout but the join declares " +
                 flavor.flavorId + " - the host's realmlist layout is " +
                 "misdeclared; refusing instead of re-emitting a frame " +
@@ -267,7 +267,7 @@ object RealmListRewrite {
         val count = if (vanilla) r.u8("realm count") else r.u16("realm count")
         if (count > MAX_REALM_ENTRIES) {
             throw CountExceedsBoundException(
-                "VAL-IROH-REALMLIST: realm count $count exceeds the pinned bound",
+                "realm count $count exceeds the pinned bound",
             )
         }
         if (sink != null) {
@@ -528,7 +528,7 @@ object RealmListRewrite {
 /** The one loud refusal for every layout violation (file-level so the
  * object's function count stays within the review bound). */
 private fun fail(reason: String): Nothing =
-    throw RealmListRewrite.RealmListRewriteException("VAL-IROH-REALMLIST: $reason")
+    throw RealmListRewrite.RealmListRewriteException("$reason")
 
 /**
  * The address C-string must be "host:port" with a 1..5-digit port — the

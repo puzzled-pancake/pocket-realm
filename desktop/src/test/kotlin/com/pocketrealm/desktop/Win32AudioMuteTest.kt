@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * DESK-139: the per-process game-audio mute contract — the launch-mode poll
+ * the per-process game-audio mute contract — the launch-mode poll
  * over a FAKE session muter (the plan's honest-refusal leg: "no audio
  * session found" is a result detail, never a throw). The real Core Audio
  * walk is exercised only where a session exists, so the production SYSTEM

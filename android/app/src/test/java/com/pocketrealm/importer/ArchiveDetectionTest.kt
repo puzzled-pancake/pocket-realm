@@ -45,7 +45,7 @@ class ArchiveQuickCheckTest {
     fun isoIsRejectedWithTheVal11InstallerExplanation() {
         val verdict = ArchiveQuickCheck.evaluate(ArchiveFormat.ISO, null)
         assertTrue(verdict is ArchiveQuickCheck.Verdict.Reject)
-        assertTrue((verdict as ArchiveQuickCheck.Verdict.Reject).failure.startsWith("VAL-11:"))
+        assertTrue((verdict as ArchiveQuickCheck.Verdict.Reject).failure.startsWith("Disc images are not supported"))
     }
 
     @Test
@@ -87,7 +87,7 @@ class ArchiveQuickCheckTest {
             ArchiveFormat.ZIP,
             listOf("Client/Launcher.exe", "Client/Patch.dat"),
         )
-        assertTrue((verdict as ArchiveQuickCheck.Verdict.Reject).failure.startsWith("VAL-01:"))
+        assertTrue((verdict as ArchiveQuickCheck.Verdict.Reject).failure.startsWith("WoW.exe was not found anywhere in the archive"))
     }
 
     @Test
@@ -100,7 +100,7 @@ class ArchiveQuickCheckTest {
     @Test
     fun unknownFormatIsRejectedWithVal13() {
         val verdict = ArchiveQuickCheck.evaluate(ArchiveFormat.UNKNOWN, null)
-        assertTrue((verdict as ArchiveQuickCheck.Verdict.Reject).failure.startsWith("VAL-13:"))
+        assertTrue((verdict as ArchiveQuickCheck.Verdict.Reject).failure.startsWith("Unsupported or unrecognized archive"))
     }
 }
 
@@ -168,35 +168,36 @@ class ImportExtractionPolicyTest {
     }
 
     @Test
-    fun trailingDotOrSpaceComponentIsRejected() {
-        val error = org.junit.Assert.assertThrows(ImportRejected::class.java) {
-            policy.classify(listOf(ImportExtractionPolicy.RawEntry("WoW.exe ", false, 1)))
-        }
-        assertTrue(error.message!!.startsWith("VAL-07:"))
+    fun trailingDotOrSpaceComponentIsSkippedNotCopied() {
+        // Such a name never exists on Windows (NTFS aliases "x." onto "x"):
+        // the entry is skipped with its reason instead of failing the import.
+        val result = policy.classify(listOf(ImportExtractionPolicy.RawEntry("WoW.exe ", false, 1)))
+        assertTrue(result.entries.isEmpty())
+        assertTrue(result.excluded.single().reason.contains("trailing dot or space"))
     }
 
     @Test
-    fun dirFileTypeConflictIsRejectedAsVal06() {
-        org.junit.Assert.assertThrows(ImportRejected::class.java) {
-            policy.classify(
-                listOf(
-                    ImportExtractionPolicy.RawEntry("Data", true, 0),
-                    ImportExtractionPolicy.RawEntry("data", false, 5),
-                ),
-            )
-        }
+    fun dirFileTypeConflictKeepsTheFirstAndSkipsTheDuplicate() {
+        val result = policy.classify(
+            listOf(
+                ImportExtractionPolicy.RawEntry("Data", true, 0),
+                ImportExtractionPolicy.RawEntry("data", false, 5),
+            ),
+        )
+        assertTrue(result.entries.single().directory)
+        assertTrue(result.excluded.single().reason.contains("differing only in case"))
     }
 
     @Test
-    fun caseFoldCollisionIncludingDirectoriesIsRejectedAsVal06() {
-        org.junit.Assert.assertThrows(ImportRejected::class.java) {
-            policy.classify(
-                listOf(
-                    ImportExtractionPolicy.RawEntry("WTF/Config.wtf", false, 5),
-                    ImportExtractionPolicy.RawEntry("wtf/config.wtf", false, 5),
-                ),
-            )
-        }
+    fun caseFoldCollisionKeepsTheFirstSpelling() {
+        val result = policy.classify(
+            listOf(
+                ImportExtractionPolicy.RawEntry("WTF/Config.wtf", false, 5),
+                ImportExtractionPolicy.RawEntry("wtf/config.wtf", false, 5),
+            ),
+        )
+        assertTrue(result.entries.single().relativePath == "WTF/Config.wtf")
+        assertTrue(result.excluded.single().relativePath == "wtf/config.wtf")
     }
 }
 
@@ -264,9 +265,16 @@ class ArchiveClientScannerTest {
 
     @Test
     fun wrongBuildIsReportedUnsupportedWithVal03() {
-        val result = scanZip(SyntheticClientArchives.clientEntries(wrapper = "Client", build = 6005))
+        val result = scanZip(SyntheticClientArchives.clientEntries(wrapper = "Client", build = 4222))
         assertFalse(result.scan.supported)
-        assertTrue(result.scan.failures.any { it.startsWith("VAL-03:") })
+        assertTrue(result.scan.failures.any { it.startsWith("Unsupported game version") })
+    }
+
+    @Test
+    fun aSiblingBuildTheRealmAcceptsImportsWithAWarning() {
+        val result = scanZip(SyntheticClientArchives.clientEntries(wrapper = "Client", build = 6005))
+        assertTrue(result.scan.failures.toString(), result.scan.supported)
+        assertTrue(result.scan.warnings.any { "6005 accepted" in it })
     }
 
     @Test
@@ -275,7 +283,7 @@ class ArchiveClientScannerTest {
             .filterNot { it.path.endsWith("base.MPQ") }
         val result = scanZip(entries)
         assertFalse(result.scan.supported)
-        assertTrue(result.scan.failures.any { it.startsWith("VAL-04:") })
+        assertTrue(result.scan.failures.any { it.startsWith("Missing game data files") })
     }
 
     @Test
@@ -312,5 +320,97 @@ class ArchiveClientScannerTest {
         // them, so the folder lane's VAL-10 warning does not double-report.
         assertTrue(result.scan.supported)
         assertTrue(result.excluded.any { it.relativePath == "nampower.dll" })
+    }
+
+    /** The live RP6 owner-session signature: a real-world zip that stores
+     * NO explicit directory entries (every file carries its full path) and
+     * names the executable "Wow.exe". The Data directory is implied by the
+     * file paths; root-finding must accept it. */
+    @Test
+    fun archiveWithoutExplicitDirectoryEntriesStillFindsTheClientRoot() {
+        val result = scanZip(
+            SyntheticClientArchives.clientEntries(wrapper = null).map { entry ->
+                if (entry.path == "WoW.exe") entry.copy(path = "Wow.exe") else entry
+            }.filterNot { it.directory },
+        )
+        assertTrue(result.scan.supported)
+        assertEquals(null, result.variant)
+    }
+
+    /** The W7 vanilla re-pack signature: every entry carries a leading
+     * "./" segment. Detection comparisons run through the shared cleaner,
+     * and the reader resolves cleaned documentIds back to the raw entry. */
+    @Test
+    fun dotSlashArchiveNamesDetectRebaseAndRead() {
+        val entries = SyntheticClientArchives.clientEntries(wrapper = null)
+            .map { entry -> entry.copy(path = "./" + entry.path) }
+        val file = SyntheticClientArchives.zip(
+            SyntheticClientArchives.uniqueFile(folder.newFolder(), "client"),
+            entries,
+        )
+        val zip = org.apache.commons.compress.archivers.zip.ZipFile.builder().setFile(file).get()
+        val raw = zip.entries.asSequence().map { entry ->
+            ArchiveClientScanner.RawEntry(entry.name, entry.isDirectory, entry.size)
+        }.toList()
+        val reader = ArchiveClientScanner.EntryReader { name, maxBytes ->
+            val entry = zip.entries.asSequence()
+                .firstOrNull { cleanArchiveName(it.name) == cleanArchiveName(name) }
+            zip.getInputStream(entry!!).use { input -> input.readNBytes(maxBytes) }
+        }
+        val result = try {
+            ArchiveClientScanner().scan(raw, reader)
+        } finally {
+            zip.close()
+        }
+        assertTrue(result.scan.supported)
+        assertEquals(null, result.variant)
+        assertTrue(result.classified.entries.isNotEmpty())
+        assertTrue(result.classified.entries.none { it.relativePath.startsWith("./") })
+    }
+}
+
+/** The copy lane over a real-world-shaped zip: keys keep the container's
+ * raw "./" names, and the source resolves them through the shared cleaner
+ * (the W7 vanilla re-pack the owner's RP6 session must import). */
+class ArchiveSourceCleanLookupTest {
+    @get:Rule
+    val folder = TemporaryFolder()
+
+    @Before
+    fun pinTheVanillaLane() {
+        ActiveFlavor.reset()
+        ActiveFlavor.select("vanilla")
+    }
+
+    @After
+    fun unpinTheVanillaLane() {
+        ActiveFlavor.reset()
+    }
+
+    @Test
+    fun dotSlashZipSourceInventoriesAndStreamsByCleanNames() {
+        val entries = SyntheticClientArchives.clientEntries(wrapper = null)
+            .map { record -> record.copy(path = "./" + record.path) }
+        val file = SyntheticClientArchives.zip(
+            SyntheticClientArchives.uniqueFile(folder.newFolder(), "client"),
+            entries,
+        )
+        val zip = org.apache.commons.compress.archivers.zip.ZipFile.builder().setFile(file).get()
+        val raw = zip.entries.asSequence().map { entry ->
+            ArchiveClientScanner.RawEntry(entry.name, entry.isDirectory, entry.size)
+        }.toList()
+        val located = ArchiveClientScanner().locate(raw)
+        assertTrue(located.classified.entries.isNotEmpty())
+        zip.close()
+
+        ZipArchiveSource(file, located.classified).use { source ->
+            val inventory = source.inventory()
+            assertEquals(located.classified.fileCount, inventory.fileCount)
+            val mpq = inventory.entries.first { it.relativePath.endsWith(".MPQ") }
+            source.open(mpq).use { input ->
+                val header = input.readNBytes(4)
+                assertTrue(header.contentEquals(byteArrayOf(0x4d, 0x50, 0x51, 0x1a)))
+            }
+        }
     }
 }

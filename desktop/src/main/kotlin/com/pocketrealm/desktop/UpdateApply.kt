@@ -9,7 +9,7 @@ import java.util.zip.ZipInputStream
 import kotlin.system.exitProcess
 
 /**
- * The desktop updater's CONSENTED apply (DESK-14/32/45/91/104): swap the
+ * The desktop updater's CONSENTED apply: swap the
  * jpackage app image (atomic rename; %LOCALAPPDATA% state is untouched —
  * data lives outside the image, so preservation is structural) or launch a
  * release installer. Nothing ever applies without [UpdateApply.applyDownloadedUpdate]'s
@@ -25,7 +25,7 @@ object UpdateApply {
      * explicit user action in the UI; false refuses without touching disk
      * (never silent, never automatic).
      *
-     * R4-1 (desktop-twin round 1, serious): an IO failure mid-apply (disk
+     * an IO failure mid-apply (disk
      * full during a hundreds-of-MB extraction, locked target, corrupt
      * read) previously ESCAPED this function — the confirm click's
      * coroutine had no guard, so the app died instead of landing the

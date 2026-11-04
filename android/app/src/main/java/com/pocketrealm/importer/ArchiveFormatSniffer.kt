@@ -51,21 +51,21 @@ object ArchiveQuickCheck {
         data class Reject(val failure: String) : Verdict
     }
 
-    // R6-r6-1 (W4 code-red round 6): the copy derives the accepted set from
+    // the copy derives the accepted set from
     // the registry's qualified flavors (the same source VAL-03's
     // expectedVersions uses) — never a hard-coded vanilla version, so the
     // copy cannot drift from the registry again.
     private val acceptedVersions: String =
         com.pocketrealm.client.ClientPeIdentity.expectedVersions
 
-    val VAL11_ISO = "VAL-11: disc images are not supported — disc images ship older " +
-        "installers; Pocket Realm needs the extracted client for a qualified " +
-        "game version ($acceptedVersions), not an installer"
-    val VAL12_NOT_INNO = "VAL-12: this archive carries a Windows installer payload Pocket Realm " +
-        "cannot use (only original Inno Setup-based installers for a qualified game " +
-        "version are extractable on device; the qualified set is $acceptedVersions) — " +
+    val VAL11_ISO = "Disc images are not supported — they ship older installers; " +
+        "Pocket Realm needs the extracted client for a supported game " +
+        "version ($acceptedVersions), not an installer"
+    val VAL12_NOT_INNO = "This archive carries a Windows installer payload Pocket Realm " +
+        "cannot use (only original Inno Setup-based installers for a supported game " +
+        "version are extractable on device; the supported set is $acceptedVersions) — " +
         "select an archive that directly contains WoW.exe and Data"
-    const val VAL13_UNSUPPORTED = "VAL-13: unsupported or unrecognized archive — expected .zip, .7z or .rar"
+    const val VAL13_UNSUPPORTED = "Unsupported or unrecognized archive — expected .zip, .7z or .rar"
 
     fun evaluate(format: ArchiveFormat, entryNames: List<String>?): Verdict = when (format) {
         ArchiveFormat.ISO -> Verdict.Reject(VAL11_ISO)
@@ -83,7 +83,7 @@ object ArchiveQuickCheck {
             else if (!hasClientExe) {
                 // A launcher-only or wrong-content archive: fail fast before the staging copy.
                 Verdict.Reject(
-                    "VAL-01: no WoW.exe anywhere in the archive — " +
+                    "WoW.exe was not found anywhere in the archive — " +
                         "choose the client archive itself, not a launcher, downloader or installer",
                 )
             } else Verdict.Accept(format)

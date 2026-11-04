@@ -209,38 +209,48 @@ class BotPresetStoreTest {
         assertEquals(725, BotProfiles.find(identity)?.selectedTarget)
     }
 
-    @Test fun preRPSchemaOnePresetFilesStillImport() = runTest {
-        // A schema-1 export predates the RP-layer keys: its checksum
-        // covers the canonical form WITHOUT them. Stripping the v4 keys
-        // from a current export reproduces exactly that document - the
-        // import must accept the legacy digest, not report tampering.
-        val store = newStore()
-        val preset = store.create("Old friend", base = BotProfiles.LOW_POWER_80)
-        val current = org.json.JSONObject(store.exportJson(preset))
-        val legacyConfig = org.json.JSONObject(
-            current.getJSONObject("configuration").toString(),
-        )
-        arrayOf(
-            "llmPackDeltas", "llmInitiative", "llmVolatility",
-            "llmReactivity", "llmLongForm",
-        ).forEach { legacyConfig.remove(it) }
-        val legacy = org.json.JSONObject()
+    /** An export written before the AI-speech keys were retired: the
+     * checksum covers the configuration WITH the speech keys the given
+     * schema carried (schema 1 predates the five RP-layer keys). */
+    private fun legacyExport(current: org.json.JSONObject, schema: Int): String {
+        val legacyConfig = org.json.JSONObject(current.getJSONObject("configuration").toString())
+        legacyConfig.put("llmReplyTokens", 0).put("llmBotToBotChatChance", -1)
+            .put("llmFactsCap", 0).put("llmMemoriesTail", 0).put("llmChatterRung", -1)
+        if (schema >= 2) {
+            legacyConfig.put("llmPackDeltas", org.json.JSONObject()).put("llmInitiative", -1)
+                .put("llmVolatility", -1).put("llmReactivity", -1).put("llmLongForm", -1)
+        }
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(legacyConfig.toString().toByteArray(Charsets.UTF_8))
+        return org.json.JSONObject()
             .put("kind", current.optString("kind"))
-            .put("schema", 1)
+            .put("schema", schema)
             .put("name", current.optString("name"))
             .put("basePresetId", current.opt("basePresetId"))
             .put("favorite", current.optBoolean("favorite", false))
             .put("configuration", legacyConfig)
-        // checksum over the legacy canonical form (what an old build stored)
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-            .digest(legacyConfig.toString().toByteArray(Charsets.UTF_8))
-        legacy.put(
-            "checksum",
-            digest.take(4).joinToString("") { "%02x".format(it.toInt() and 0xff) },
-        )
+            .put("checksum", digest.take(4).joinToString("") { "%02x".format(it.toInt() and 0xff) })
+            .toString()
+    }
 
-        val imported = store.importJson(legacy.toString())
-        assertEquals("Old friend", imported.name)
+    @Test fun presetFilesFromBeforeTheSpeechRetirementStillImport() = runTest {
+        val store = newStore()
+        val preset = store.create("Old friend", base = BotProfiles.LOW_POWER_80)
+        val current = org.json.JSONObject(store.exportJson(preset))
+        assertEquals(3, current.getInt("schema"))
+        for (schema in 1..2) {
+            val imported = store.importJson(legacyExport(current, schema))
+            assertEquals("Old friend", imported.name)
+            assertEquals(preset.configuration, imported.configuration)
+        }
+    }
+
+    @Test fun legacySpeechKeysCannotHideATamperedValue() = runTest {
+        val store = newStore()
+        val preset = store.create("Guarded legacy", base = BotProfiles.LOW_POWER_80)
+        val legacy = org.json.JSONObject(legacyExport(org.json.JSONObject(store.exportJson(preset)), 2))
+        legacy.getJSONObject("configuration").put("llmInitiative", 75)
+        assertRejects { store.importJson(legacy.toString()) }
     }
 
     @Test fun tamperedPresetFilesAreRejected() = runTest {

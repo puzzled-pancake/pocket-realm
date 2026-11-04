@@ -8,8 +8,8 @@ import java.security.MessageDigest
  * Shared PE32 identity parse for WoW client executables. Extracted verbatim
  * from SafClientScanner so the folder scanner and the archive scanner agree
  * byte-for-byte on what the client version resource means. A parsed resource
- * is a client identity only when it resolves to a qualified [ClientFlavor]
- * (registry gate); messages are pinned by the JVM suite (VAL-02 wording).
+ * is a client identity only when it resolves to a registered [ClientFlavor]
+ * (registry gate); messages are pinned by the JVM suite.
  */
 internal object ClientPeIdentity {
     data class Identity(
@@ -18,9 +18,12 @@ internal object ClientPeIdentity {
         val sha256: String,
         /** [ClientFlavor.flavorId] when the version resource resolved; null otherwise. */
         val flavorId: String? = null,
+        /** The version resource exactly as the exe carries it ([version]
+         * is normalized to the flavor's own resource once one resolves). */
+        val detectedVersion: String? = version,
     )
 
-    /** Version-resource text the qualified flavors accept (VAL-03 "expected" copy). */
+    /** Version-resource text the supported game versions accept. */
     internal val expectedVersions: String =
         ClientFlavors.qualified().joinToString(", ") { it.versionResource }
 
@@ -28,28 +31,29 @@ internal object ClientPeIdentity {
     internal fun qualifiedFlavor(identity: Identity?): ClientFlavor? =
         identity?.version?.let { ClientFlavors.qualifiedByVersionResource(it) }
 
-    /** VAL-03 "detected" copy: the parsed resource, or why nothing was detected. */
+    /** Detected-version text: the parsed resource, or why nothing was detected. */
     internal fun detected(identity: Identity?): String {
-        val version = identity?.version ?: return "no matching version resource"
-        return if (identity?.flavorId == null) "$version; no qualified flavor matches" else version
+        val version = identity?.version ?: return "no version info"
+        return if (identity?.flavorId == null) "$version (not a supported version)" else version
     }
 
     fun parse(bytes: ByteArray): Identity {
         fun u16(offset: Int): Int = ByteBuffer.wrap(bytes, offset, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xffff
         fun u32(offset: Int): Long = ByteBuffer.wrap(bytes, offset, 4).order(ByteOrder.LITTLE_ENDIAN).int.toLong() and 0xffffffffL
         require(bytes.size >= 512 && bytes[0] == 'M'.code.toByte() && bytes[1] == 'Z'.code.toByte()) {
-            "VAL-02: WoW.exe is not a PE executable"
+            "WoW.exe is not a valid Windows executable"
         }
         val pe = u32(0x3c).toInt()
         require(pe >= 0 && pe + 26 <= bytes.size && bytes.copyOfRange(pe, pe + 4).contentEquals(byteArrayOf(0x50, 0x45, 0, 0))) {
-            "VAL-02: WoW.exe has no valid PE header"
+            "WoW.exe is corrupt or not a valid Windows executable"
         }
         require(u16(pe + 4) == 0x14c && u16(pe + 24) == 0x10b) {
-            "VAL-02: WoW.exe is not IMAGE_FILE_MACHINE_I386 PE32"
+            "WoW.exe is not a 32-bit Windows executable"
         }
         var version: String? = null
         var build: Int? = null
         var flavorId: String? = null
+        var detected: String? = null
         for (offset in 0..bytes.size - 16) {
             if (bytes[offset] != 0xbd.toByte() || bytes[offset + 1] != 0x04.toByte() ||
                 bytes[offset + 2] != 0xef.toByte() || bytes[offset + 3] != 0xfe.toByte()) continue
@@ -62,6 +66,7 @@ internal object ClientPeIdentity {
                 version = flavor.versionResource
                 build = flavor.build
                 flavorId = flavor.flavorId
+                detected = candidate.joinToString(".")
                 break
             }
             if (version == null) {
@@ -71,6 +76,6 @@ internal object ClientPeIdentity {
             }
         }
         val digest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-        return Identity(version, build, digest, flavorId)
+        return Identity(version, build, digest, flavorId, detected ?: version)
     }
 }

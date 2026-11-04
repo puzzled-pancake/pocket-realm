@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Design-tunnel §4.4.2 (the Android half of the desktop
+ * Design-tunnel (the Android half of the desktop
  * DesktopTunnelServerFilesTest contract): the wildcard-bind lane the tunnel
  * host's start path feeds the Android conf writers. "0.0.0.0" is the ONE
  * raw conf value accepted beside the strict typed grammar

@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * R2-5 (code-red round 1): [MariaDbBootstrap.laneProvisionSql] is a
+ * [MariaDbBootstrap.laneProvisionSql] is a
  * security-shaped guard — per-lane CREATE DATABASE/GRANT composition with a
  * fail-closed identifier guard. Pin the guard's rejection and each lane's
  * golden shape (the four DB names in all four CREATE/GRANT families, no

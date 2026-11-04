@@ -11,8 +11,8 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * Design-tunnel §6/§4.4.3/§5: the tunnel lane's pure contract — the invite
- * artifact (ADDRESS BLOCK ONLY: the hard rule design-lan §4.2 supersedes
+ * Design-tunnel / /: the tunnel lane's pure contract — the invite
+ * artifact (ADDRESS BLOCK ONLY: the hard rule design-lan supersedes
  * its credential-embedding with), the tunnel-kind copy split, and
  * the mode-aware join validation/probe copy. SHARED: this suite runs on
  * BOTH platforms (desktop/shared-sources.json shared_tests), pinning the
@@ -48,7 +48,7 @@ class TunnelInviteTest {
 
     @Test
     fun inviteCopyNeverNamesTheDesktopGuestsCard() {
-        // R1-2 (android-ui-tests review round 1): the invite is rendered by
+        // the invite is rendered by
         // the ANDROID host's LanScreen — a surface family that has a Guest
         // LOGIN card, never the desktop-only "Guests card". The credential
         // handoff line must stay platform-neutral (D50(4) forbid-Guests

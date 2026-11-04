@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * R1-1 (desktop-twin round 1): the desktop flavor-switcher pick is
+ * the desktop flavor-switcher pick is
  * PERSISTED and RE-HYDRATED, the Android twin's contract — before this,
  * the desktop lane never wrote the pick and never re-applied it on cold
  * start, so at the multi-qualified flip every restart landed in an
@@ -86,7 +86,7 @@ class FlavorPersistenceWiringTest {
         ).readText()
         assertTrue(
             "the switcher tap must persist the pick (model.updateSettings copy(selectedFlavorId))",
-            "model.updateSettings { it.copy(selectedFlavorId = chip.flavor.flavorId) }" in home,
+            "model.updateSettings { it.copy(selectedFlavorId = chip.game.flavorId) }" in home,
         )
         assertTrue(
             "the hydration leg must re-apply the persisted pick",

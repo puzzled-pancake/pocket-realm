@@ -5,7 +5,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * D6 (design-lan §5.2): the pre-join reachability probe — a one-shot TCP
+ * the pre-join reachability probe — a one-shot TCP
  * connect to the host's realm port (3724, ~2 s timeout), with the world
  * port (8085) shown as display-only. A mis-typed address otherwise costs a
  * full client launch plus the client's native "Unable to connect" with no

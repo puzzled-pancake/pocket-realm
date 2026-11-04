@@ -8,7 +8,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * Rate limiting layer 1 (design-remote-accounts §6): five failed token/parse
+ * Rate limiting layer 1 (design-remote-accounts): five failed token/parse
  * attempts from one source → a 10-minute lockout that survives a store
  * reopen; a distinct source is untouched; the global concurrency gate holds
  * at [ProvisionRateLimiter.MAX_CONCURRENT_CONNECTIONS].
@@ -105,7 +105,7 @@ class ProvisionRateLimiterTest {
 }
 
 // ---------------------------------------------------------------------------
-// R4-3 (android-core review round 1): the live per-IP maps are keyed by
+// the live per-IP maps are keyed by
 // attacker-supplied source IPs and used to grow without bound or eviction
 // for the process lifetime - a many-unique-source spray (the exact hostile
 // pattern layer 1 exists for) monotonically grew the host app heap. The

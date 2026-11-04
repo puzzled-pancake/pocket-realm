@@ -188,6 +188,24 @@ def test_desktop_build_consumes_the_manifest():
 #   sessions) that the Windows port replaces natively; do not share.
 # ---------------------------------------------------------------------------
 UNSHARED_ANDROID_FREE_ALLOWLIST = {
+    "discovery/iroh/InternetJoinGateway.kt":
+        "android-side lane: the in-app internet-join gateway drives the "
+        "uniffi iroh bindings (src/iroh/kotlin + libiroh_ffi.so), which the "
+        "desktop classpath does not carry; the desktop joins through its "
+        "own gateway process",
+    "discovery/iroh/InternetHostGateway.kt":
+        "android-side lane: the in-app internet-host endpoint drives the "
+        "uniffi iroh bindings (src/iroh/kotlin + libiroh_ffi.so), which the "
+        "desktop classpath does not carry; the desktop hosts through its "
+        "own gateway process",
+    "discovery/iroh/HostGatewayPolicy.kt":
+        "android-side lane: the in-app host endpoint's decisions; the "
+        "desktop host gateway process carries its own (GatewayMain/"
+        "HostGateway)",
+    "discovery/nostr/HostListingPublisher.kt":
+        "android-side lane: the :supervisor-hosted listing heartbeat for "
+        "the in-app host endpoint; the desktop publishes through its own "
+        "NostrListingPublisher and gateway process",
     "client/AndroidSystemVulkanProbe.kt":
         "android-side lane: probes Android's Vulkan loader via "
         "com.winlator GPUHelper (not on the desktop classpath; WoW runs "

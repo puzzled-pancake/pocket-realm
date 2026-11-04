@@ -7,7 +7,7 @@ import java.io.File
 import java.io.InputStream
 
 /**
- * DESK-35/64: the desktop RAR lane — the JVM twin of the Android
+ * the desktop RAR lane — the JVM twin of the Android
  * importer/RarArchiveSource (libarchive JNI in the APK) over junrar's
  * pure-Java RAR4/RAR5 reader. Same ImportSource contract as the shared
  * [ZipArchiveSource]/[SevenZipArchiveSource]: it consumes the
@@ -50,7 +50,7 @@ internal class RarArchiveSource(
             val entry = byKey[name] ?: return@mapNotNull null
             val size = header.fullUnpackSize
             if (header.isDirectory != entry.directory || size != entry.size) {
-                throw ImportRejected("VAL-13: staged RAR entry changed: ${entry.relativePath}")
+                throw ImportRejected("The RAR changed during import: ${entry.relativePath}")
             }
             entry
         }
@@ -58,7 +58,7 @@ internal class RarArchiveSource(
         val missing = classified.entries.firstOrNull { it.key !in listedNameSet }
         if (missing != null || entries.size != classified.entries.size) {
             throw ImportRejected(
-                "VAL-13: staged RAR no longer lists ${missing?.relativePath ?: "its classified entries"}",
+                "The RAR changed during import — an entry is gone: ${missing?.relativePath ?: "its classified entries"}",
             )
         }
         return SourceInventory(entries, classified.fileCount, classified.totalBytes, fingerprint(entries))
@@ -67,11 +67,11 @@ internal class RarArchiveSource(
     override fun open(entry: ImportSourceEntry): InputStream {
         require(!entry.directory)
         val header = headers.firstOrNull { it.fileName == entry.key }
-            ?: throw ImportRejected("VAL-13: staged RAR entry changed: ${entry.relativePath}")
+            ?: throw ImportRejected("The RAR changed during import: ${entry.relativePath}")
         return try {
             archive.getInputStream(header)
         } catch (error: Exception) {
-            throw ImportRejected("VAL-07: source entry is unreadable: ${entry.relativePath}")
+            throw ImportRejected("An archive entry could not be read: ${entry.relativePath}")
         }
     }
 
@@ -146,7 +146,7 @@ internal fun listRarEntries(file: File): List<ArchiveClientScanner.RawEntry> {
             )
         }.also { entries ->
             if (entries.size > MAX_HEADER_WALK) {
-                throw ImportRejected("VAL-08: source entry count exceeds $MAX_HEADER_WALK")
+                throw ImportRejected("Too many entries in the RAR")
             }
         }
     }
@@ -160,8 +160,8 @@ internal fun listRarEntries(file: File): List<ArchiveClientScanner.RawEntry> {
 internal fun readRarEntry(file: File, rawName: String, maxBytes: Int): ByteArray {
     openRarArchive(file).use { archive ->
         val header = archive.fileHeaders.firstOrNull { it.fileName == rawName }
-            ?: throw ImportRejected("VAL-13: entry vanished: $rawName")
-        if (header.isDirectory) throw ImportRejected("VAL-13: entry vanished: $rawName")
+            ?: throw ImportRejected("The RAR changed during import: $rawName")
+        if (header.isDirectory) throw ImportRejected("The RAR changed during import: $rawName")
         try {
             archive.getInputStream(header).use { stream ->
                 val buffer = ByteArray(maxBytes)
@@ -176,7 +176,7 @@ internal fun readRarEntry(file: File, rawName: String, maxBytes: Int): ByteArray
         } catch (error: ImportRejected) {
             throw error
         } catch (error: Exception) {
-            throw ImportRejected("VAL-13: RAR extraction failed — ${error.message}")
+            throw ImportRejected("RAR extraction failed — ${error.message}")
         }
     }
 }
@@ -200,19 +200,19 @@ internal fun isRar4Magic(file: File): Boolean = try {
 
 /** The pinned VAL-13 RAR-refusal copy (shared by the source and both walks). */
 internal const val VAL13_RAR_ENCRYPTED =
-    "VAL-13: the archive is password-protected — Pocket Realm cannot open encrypted archives; " +
+    "This archive is password-protected — Pocket Realm cannot open encrypted archives; " +
         "re-pack it without a password (or extract on a PC and import the folder)"
 
 internal const val VAL13_RAR_MULTIVOLUME =
-    "VAL-13: multi-volume RAR archives are not supported — import the single-volume .rar " +
+    "Multi-volume RAR archives are not supported — import the single-volume .rar " +
         "that contains the complete client"
 
 internal const val VAL13_RAR_SOLID_RAR4 =
-    "VAL-13: solid RAR4 archives are not supported — re-pack the client as .zip or .7z " +
+    "Solid RAR4 archives are not supported — re-pack the client as .zip or .7z " +
         "(or extract the client folder and import it)"
 
 internal const val VAL13_RAR_UNREADABLE =
-    "VAL-13: the RAR archive could not be read — it may be damaged or password-protected; " +
+    "The RAR archive could not be read — it may be damaged or password-protected; " +
         "re-pack the client as .zip or .7z (or extract the client folder and import it)"
 
 private const val MAGIC_PROBE_BYTES = 8

@@ -26,15 +26,15 @@ package com.pocketrealm
  */
 object BuildConfig {
     const val NATIVE_RUNTIME_BUILD_ID: String =
-        "win-x86_64-mariadb-cmangos-ce83805d-playerbots-7e2cd2fb-6851c2394459"
+        "win-x86_64-mariadb-cmangos-ce83805d-playerbots-7e2cd2fb-47d430cee3d8"
 
  /** Flip: the tbc mariadb win lane (realm-runtime-lockfile-mariadb-win-tbc.json). */
     const val NATIVE_RUNTIME_BUILD_ID_TBC: String =
-        "win-x86_64-mariadb-cmangos-ffbf9767-playerbots-7e2cd2fb-18ae206fed52"
+        "win-x86_64-mariadb-cmangos-ffbf9767-playerbots-7e2cd2fb-7fcb0454100c"
 
  /** Flip: the wotlk mariadb win lane (realm-runtime-lockfile-mariadb-win-wotlk.json). */
     const val NATIVE_RUNTIME_BUILD_ID_WOTLK: String =
-        "win-x86_64-mariadb-cmangos-c3a8d86f-playerbots-7e2cd2fb-56a0884d3a31"
+        "win-x86_64-mariadb-cmangos-c3a8d86f-playerbots-7e2cd2fb-2e616f78362b"
 
     const val NATIVE_CMANGOS_COMMIT: String =
         "ce83805d48f9c98b2af617096be5347acb8a1f17"

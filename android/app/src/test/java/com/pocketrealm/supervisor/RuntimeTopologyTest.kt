@@ -87,7 +87,7 @@ class RuntimeTopologyTest {
         assertTrue(defaults.runtimeMode == RuntimeMode.LOCAL)
     }
 
-    // ---- design-tunnel §4.4.1: endpoint model v2 (advertised address) ----
+    // design-tunnel: endpoint model v2 (advertised address) ----
 
     @Test fun advertisedAddressesAcceptLoopbackPrivateLinkLocalAndCgnat() {
         listOf(
@@ -226,39 +226,39 @@ class RuntimeTopologyTest {
         )
     }
 
-    // ---- design-tunnel §10: the mode-aware interface-loss watch --------
+    // design-tunnel: the mode-aware interface-loss watch --------
 
     @Test fun interfaceWatchKeysTheLossLegOffTheSessionsAdvertisement() {
         assertEquals(
             "no advertisement = plain LAN hosting, the D2 leg",
             InterfaceWatch.Lan,
-            InterfaceWatch.forSession(null),
+            InterfaceWatch.forSession("192.168.1.20", null),
         )
         assertEquals(
             InterfaceWatch.Lan,
-            InterfaceWatch.forSession(""),
+            InterfaceWatch.forSession("192.168.1.20", ""),
         )
         assertEquals(
             "a tunnel advertisement watches the TUNNEL adapter (physical-LAN churn never kills it)",
             InterfaceWatch.Tunnel(AdvertisedAddress.parse("100.64.12.34")),
-            InterfaceWatch.forSession("100.64.12.34"),
+            InterfaceWatch.forSession("192.168.1.20", "100.64.12.34"),
         )
         assertEquals(
             "a ZeroTier RFC1918 advertisement is a tunnel watch too",
             InterfaceWatch.Tunnel(AdvertisedAddress.parse("10.147.1.5")),
-            InterfaceWatch.forSession("10.147.1.5"),
+            InterfaceWatch.forSession("192.168.1.20", "10.147.1.5"),
         )
         assertEquals(
             "loopback advertisement = the cloudflared recipe: no interface to lose",
             InterfaceWatch.None,
-            InterfaceWatch.forSession("127.0.0.1"),
+            InterfaceWatch.forSession("192.168.1.20", "127.0.0.1"),
         )
     }
 
     @Test fun interfaceWatchDegradesAMalformedAdvertisementToNoWatch() {
         // The launch gate already refuses a malformed advertisement; the
         // monitor treats one as no-watch rather than inventing a stop.
-        assertEquals(InterfaceWatch.None, InterfaceWatch.forSession("my-realm.ts.net"))
-        assertEquals(InterfaceWatch.None, InterfaceWatch.forSession("8.8.8.8"))
+        assertEquals(InterfaceWatch.None, InterfaceWatch.forSession("192.168.1.20", "my-realm.ts.net"))
+        assertEquals(InterfaceWatch.None, InterfaceWatch.forSession("192.168.1.20", "8.8.8.8"))
     }
 }

@@ -27,12 +27,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * constant — the import screen and the docs carry their own shorter
  * sentences so no dialog repeats the full paragraph.
  *
- * R6-3 (W4 code-red round 3): the body is DERIVED from the registry's
- * qualified set, never a hard-coded vanilla version — the flip made
- * tbc/wotlk qualified, and a "1.12.1 (build 5875)"-only requirement was
- * the exact hard-coded-1.12 class the flip retires. The MPQ enumeration
- * is likewise gone: the required base set differs per game version, so
- * the vanilla list must not be presented as the generic requirement.
+ * The body is DERIVED from the registry's supported set, never a
+ * hard-coded vanilla version, and it lists no MPQ files: the required
+ * base set differs per game version, so no single list can be the
+ * generic requirement.
  */
 internal val UNCOMPRESSED_CLIENT_REQUIREMENT: String = run {
     val qualified = com.pocketrealm.client.ClientFlavors.qualified()
@@ -40,8 +38,8 @@ internal val UNCOMPRESSED_CLIENT_REQUIREMENT: String = run {
         val version = flavor.versionResource.substringBeforeLast(".")
         "${flavor.expansion} $version (build ${flavor.build})"
     }
-    "You need your own copy of the game client for one of the qualified " +
-        "expansions — $builds — that you are entitled to use. Bring either " +
+    "You need your own copy of the game client for one of the supported " +
+        "game versions — $builds — that you are entitled to use. Bring either " +
         "a plain, already-extracted, uncompressed client folder — the " +
         "folder that directly contains WoW.exe and a Data folder with its " +
         "complete base set of .MPQ files (the exact set differs per game " +
@@ -68,7 +66,7 @@ internal val FIRST_RUN_TUTORIAL_STEPS: List<TutorialStep> = listOf(
             "or downloads them.",
     ),
     TutorialStep(
-        title = "What you need: an extracted WoW client for your flavor",
+        title = "What you need: an extracted WoW client for your game version",
         body = UNCOMPRESSED_CLIENT_REQUIREMENT,
     ),
     TutorialStep(
@@ -87,24 +85,6 @@ internal val FIRST_RUN_TUTORIAL_STEPS: List<TutorialStep> = listOf(
             "Home (the first start creates the realm database and prepares " +
             "the world — several minutes, and it happens only once), create " +
             "a local account, and play.",
-    ),
-    TutorialStep(
-        title = "Optional: make the people talk back",
-        // Accuracy constraint: the realm and game are always on this device;
-        // the bot chat is on-device by default but CAN be pointed at a
-        // cloud provider (an external OpenAI-compatible API), so the copy
-        // below must never claim that everything runs offline.
-        body = "The realm's bots can speak through an on-device language " +
-            "model. When you want that, open Settings → AI bot LLM and " +
-            "pick a model: the small \"try first\" one is the fastest way " +
-            "to hear the realm talk, though the " +
-            "tuned models are staged from a PC and the in-app download is " +
-            "the larger untuned fallback. The choice applies at the next " +
-            "realm start. Skip it and the realm still works; bots just " +
-            "stay quiet. The realm and the game always run on this " +
-            "device, offline — and so does the bot chat by default, " +
-            "though it can be pointed at a cloud provider you configure " +
-            "(an external OpenAI-compatible API) instead.",
     ),
 )
 

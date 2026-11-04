@@ -69,7 +69,7 @@ class DesktopAddonLaunchRefusalTest {
         val clientDir = folder.newFolder("client")
         File(clientDir, "WoW.exe").writeBytes(byteArrayOf(0x4D, 0x5A))
         // A user-launched client-class process under the client directory:
-        // the same scan observe() reads (DESK-114) must hit it.
+        // the same scan observe reads must hit it.
         val scanner = ClientProcessScanner {
             listOf(ClientProcessScan(pid = 4242, exePath = File(clientDir, "WoW.exe").canonicalPath))
         }

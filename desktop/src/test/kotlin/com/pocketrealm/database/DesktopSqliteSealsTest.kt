@@ -14,7 +14,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The desktop seal-identity leg (DESK-19/53/79/98), pure JVM: identity
+ * The desktop seal-identity leg, pure JVM: identity
  * derivation from the provenance, the shared seal round-trips, the
  * generation-marker revision record, and the tamper cross-check. No
  * natives — the identity/proof layer is exactly what must hold without

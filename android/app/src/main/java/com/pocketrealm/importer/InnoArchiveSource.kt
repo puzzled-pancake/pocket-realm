@@ -40,7 +40,7 @@ internal class InnoArchiveSource(
         val totalBytes = entries.sumOf { it.size }
         if (entries.size != classified.fileCount) {
             throw ImportRejected(
-                "VAL-13: installer payload listing changed between detection and import",
+                "The installer payload changed between detection and import",
             )
         }
         return SourceInventory(entries, entries.size, totalBytes, fingerprint(entries))
@@ -49,7 +49,7 @@ internal class InnoArchiveSource(
     override fun open(entry: ImportSourceEntry): InputStream {
         val key = if (prefix.isEmpty()) entry.relativePath else prefix + entry.relativePath
         val file = byPath[key]
-            ?: throw ImportRejected("VAL-13: installer payload no longer lists ${entry.relativePath}")
+            ?: throw ImportRejected("The installer payload no longer lists ${entry.relativePath}")
         return session.open(file)
     }
 

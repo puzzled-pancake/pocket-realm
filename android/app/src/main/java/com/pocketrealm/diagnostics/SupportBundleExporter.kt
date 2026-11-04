@@ -43,7 +43,7 @@ class SupportBundleExporter(private val context: Context) {
         entries["logs.json"] = AppLog.exportJson()
         fixedFile(context.noBackupFilesDir, "runtime-supervisor/journal.json")
             ?.let { entries["supervisor-journal.json"] = it }
-        // G3-5: the per-flavor pointer namespaces ride the bundle beside the
+        // the per-flavor pointer namespaces ride the bundle beside the
         // pre-flavor un-namespaced names (best-effort diagnostics either way).
         listOf(
             "content/o11-server/active.json" to "data-active.json",

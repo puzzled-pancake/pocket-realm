@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The shared SRP6 verifier math (design-remote-accounts §3.2): the same
+ * The shared SRP6 verifier math (design-remote-accounts): the same
  * reference-derivation golden vector the desktop AuthGateTest pins through
  * the delegating VsrpMath twin, re-pinned directly on
  * [Srp6AccountMath] in the shared lane. The fixture was derived from

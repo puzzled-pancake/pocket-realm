@@ -30,8 +30,8 @@ import kotlin.system.exitProcess
  * proof-response frame length) resolves through the shared
  * [com.pocketrealm.client.ClientFlavors] registry — exactly the one
  * qualified flavor the in-process server lane runs, never a hard-coded
- * build constant (DESK-94) — with golden-vector pins in
- * desktop/src/test AuthGateTest (DESK-56).
+ * build constant — with golden-vector pins in
+ * desktop/src/test AuthGateTest.
  *
  * Three independent proofs land:
  *  1. realmd accepts our M1 (it computes its own M1 from the stored
@@ -47,7 +47,7 @@ import kotlin.system.exitProcess
 @Suppress("TooGenericExceptionCaught", "LongMethod")
 /**
  * DESK-93 + -5 (desktop-twin), extracted for the harness ops
- * (W4.2): the SRP verifier row lands where the database realmd.conf's
+ * the SRP verifier row lands where the database realmd.conf's
  * LoginDatabaseInfo points — PROVIDER-AWARE. The shipped-default MariaDB
  * lane routes through the engine's owner-gated SQL (seedSrpVerifierRow,
  * the projection's path); the sqlite datadir leg stays the dev opt-in
@@ -122,7 +122,7 @@ fun main() {
     val account = "AUTHGATE"
     val password = "AuthGate-Password-1"
     val srp = VsrpMath.verifierFor(account, password)
-    // DESK-93 + R1-r3-5 (desktop-twin round 3): the verifier row lands in
+    // DESK-93 + R1-r3-5: the verifier row lands in
     // the database realmd.conf's LoginDatabaseInfo points at — PROVIDER-
     // AWARE (the extracted [seedSrpVerifierRowForLane] the harness ops
     // share; W4.2).
@@ -151,7 +151,7 @@ fun main() {
     val sessionKeyHex = try {
         VsrpClient.logon(LOOPBACK, ServerRuntimeContract.REALM_PORT.toInt(), account, srp)
     } catch (failure: Throwable) {
-        // R2-4/W4-R7-2 (code-red round 1): the catch stays Throwable — the
+        // the catch stays Throwable — the
         // wire client's connect/read legs throw IO failures (ConnectException,
         // SocketTimeoutException) that are NOT ISE, and the bring-up contract
         // ("any failure exits honestly with the stop attempted") requires
@@ -219,7 +219,7 @@ private const val READY_POLL_SLEEP_MS = 250L
  * every output independently — this object only has to AGREE.
  *
  * The verifier derivation itself moved to the shared
- * [com.pocketrealm.server.Srp6AccountMath] (design-remote-accounts §3.2:
+ * [com.pocketrealm.server.Srp6AccountMath] (design-remote-accounts:
  * the friend side derives s/v on its own device, so the math must compile
  * on both platforms); these two overloads delegate so the gate's
  * golden-vector pins keep guarding the one implementation. */
@@ -322,8 +322,8 @@ internal fun BigInteger.toPaddedBe(size: Int): ByteArray {
  * Returns the negotiated session key as lowercase hex on success. The
  * client identity (build, version resource, proof-response frame) is
  * per-flavor data resolved from the shared registry at each logon
- * (DESK-94); the golden wire/math vectors are pinned in AuthGateTest
- * (DESK-56). */
+ * the golden wire/math vectors are pinned in AuthGateTest
+ */
 internal object VsrpClient {
     private const val CMD_AUTH_LOGON_CHALLENGE = 0
     private const val CMD_AUTH_LOGON_PROOF = 1
@@ -343,7 +343,7 @@ internal object VsrpClient {
      * LoginFlags = 26. The LENGTH the client parses; the registry pins
      * the same 26 as [com.pocketrealm.client.ClientFlavors.VANILLA]
      * `.proofResponseBytes`, and logon refuses any mismatched pairing
-     * instead of silently mis-parsing the wire (DESK-94).
+     * instead of silently mis-parsing the wire.
      */
     internal const val VANILLA_PROOF_RESPONSE_BYTES = 2 + PROOF_BYTES + LOGIN_FLAGS_BYTES
 
@@ -357,7 +357,7 @@ internal object VsrpClient {
     internal const val TBC_WOTLK_PROOF_RESPONSE_BYTES = 2 + PROOF_BYTES + 4 + 4 + 2
 
     /**
-     * DESK-94: platform/os/locale have no per-flavor registry field yet,
+     * platform/os/locale have no per-flavor registry field yet,
      * so they stay the vanilla client's constants — the
      * [com.pocketrealm.client.ClientFlavors.AUTH_CHALLENGE_OPCODE]
      * shared-constant pattern (named in one place; swap for registry
@@ -399,7 +399,7 @@ internal object VsrpClient {
             val out = socket.getOutputStream()
             val input = socket.getInputStream()
 
-            // DESK-94: the challenge identity rides the one qualified
+            // the challenge identity rides the one qualified
             // flavor (ClientFlavor.build / versionResource), never a
  // Hard-coded build constant. The caller's pinned
             // boot lane first — a headless harness never populates the
@@ -462,7 +462,7 @@ internal object VsrpClient {
             out.write(proof)
             out.flush()
 
-            // DESK-94: the proof-response frame LENGTH is per-flavor data
+            // the proof-response frame LENGTH is per-flavor data
             // (ClientFlavor.proofResponseBytes). A flavor with no verified
             // length, or one whose verified length does not fit a parsed
             // layout, fails loud here instead of silently mis-parsing the
@@ -488,7 +488,7 @@ internal object VsrpClient {
                     "uint16 unkFlags) layouts"
             }
             val response = input.readExactly(proofResponseBytes, "logon proof response")
-            // R2-R4-1 (W4 code-red round 4): the pinned length is the
+            // the pinned length is the
             // MEASURED frame — a realmd serving a LONGER frame must refuse
             // loud, never pass silently truncated (readExactly(N) alone
             // discarded the trailing bytes and the 'drift fails loud'
@@ -535,7 +535,7 @@ internal object VsrpClient {
     private const val ACCOUNT_FLAGS_BYTES = 4
 
     /**
-     * W4.2: the proof-response TAIL check, LAYOUT-SHAPED. The vanilla
+     * the proof-response TAIL check, LAYOUT-SHAPED. The vanilla
      * frame's LoginFlags are zero on the green wire (pinned). The
      * tbc/wotlk frame carries uint32 accountFlags (the branches send
      * 0x8000 — observed on the live lanes' green matching cells) + uint32
@@ -570,10 +570,10 @@ internal object VsrpClient {
     /**
      * The sAuthLogonChallengeBody, extracted as the pure per-flavor
      * layout so AuthGateTest pins the exact wire bytes without a socket
-     * (DESK-56): gamename[4] "WoW\0", the version resource's
+     * gamename[4] "WoW\0", the version resource's
      * major.minor.patch, the build (LE u16), platform/os/locale
      * REVERSED (the server un-reverses), timezone bias, ip, name.
-     * W4.2: [buildOverride] substitutes the challenge's build (the
+     * [buildOverride] substitutes the challenge's build (the
      * matrix's wrong-build cells); the version bytes stay the boot
      * lane's own — the SERVER gates the build (realmbuilds), and the
      * mismatch cell is exactly build≠lane with everything else honest.

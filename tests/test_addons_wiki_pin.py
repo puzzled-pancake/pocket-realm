@@ -17,8 +17,8 @@ def test_wiki_documents_the_active_flavor_projection():
     wiki = WIKI_PAGE.read_text(encoding="utf-8")
     # the projection copy: the recommended/browse sets are per-lane
     assert (
-        "active flavor" in wiki or "active-flavor" in wiki
-    ), "the wiki must document that Recommended/Browse are the active flavor's researched set"
+        "active game version" in wiki or "active flavor" in wiki
+    ), "the wiki must document that Recommended/Browse are the active version's researched set"
     # the interface number line covers all three lanes, not vanilla-only
     assert "20400" in wiki and "30300" in wiki, (
         "the wiki's interface-number line must name the tbc/wotlk accepted "
@@ -47,5 +47,5 @@ def test_wiki_phrases_match_the_screens_copy():
     wiki = WIKI_PAGE.read_text(encoding="utf-8")
     assert "add-on set" in wiki
     assert "supported addon interface" in wiki or (
-        "interface number the active flavor accepts" in wiki
+        "interface number the active game version accepts" in wiki
     )

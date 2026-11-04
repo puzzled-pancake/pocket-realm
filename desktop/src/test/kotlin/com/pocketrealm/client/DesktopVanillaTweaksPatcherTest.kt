@@ -12,7 +12,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-27/58/89: the desktop vanilla-tweaks patch lane. The pipeline runs
+ * the desktop vanilla-tweaks patch lane. The pipeline runs
  * the REAL staged, lockfile-pinned patcher (skipped honestly where the
  * staging is absent) against a synthetic PE32-i386 image and pins the
  * published `WoW.exe.patched` byte for byte against
@@ -61,7 +61,7 @@ class DesktopVanillaTweaksPatcherTest {
         return dir to image
     }
 
-    // ---------------- authorization semantics (DESK-58) ----------------
+    // authorization semantics ----------------
 
     @Test
     fun unpatchedRequestNeverTouchesTheClientDirectory() {
@@ -106,7 +106,7 @@ class DesktopVanillaTweaksPatcherTest {
     }
 
     /**
-     * DESK-58: the world conf's nearby-use knob verdict follows the
+     * the world conf's nearby-use knob verdict follows the
      * AUTHORIZED-layout EFFECTIVE resolution of the requested tweaks over
      * the user's actual client executable — requested consent alone is not
      * enough (a non-qualified layout launches unpatched, so the server must
@@ -139,7 +139,7 @@ class DesktopVanillaTweaksPatcherTest {
         assertFalse(nearbyUseEnabledForExecutable(requested, null))
     }
 
-    // ---------------- lockfile pin (DESK-27) ----------------
+    // lockfile pin ----------------
 
     @Test
     fun stagedPatcherIsPresentAndMatchesItsLockfilePin() {
@@ -222,7 +222,7 @@ class DesktopVanillaTweaksPatcherTest {
         }
     }
 
-    // ---------------- the full publish pipeline (DESK-89) ----------------
+    // the full publish pipeline ----------------
 
     @Test
     fun publishPipelineProducesTheModelVerifiedPatchedImage() {

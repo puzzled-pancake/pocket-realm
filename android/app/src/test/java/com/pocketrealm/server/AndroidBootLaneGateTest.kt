@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * R4-1 (W4 code-red round 4): the ANDROID boot-time lane-vs-runtime gate —
+ * the ANDROID boot-time lane-vs-runtime gate —
  * the desktop requireRuntimeLaneMatches twin. The packaged Android realm
  * runtime is the VANILLA lane's libpocket_world_runtime.so only; after the
  * flip a tbc/wotlk Home pick reachable the world/realmd start path, and

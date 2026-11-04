@@ -63,7 +63,7 @@ class RelayPool(
         val lastAckOk: Boolean?,
         val lastAckMessage: String?,
         val detail: String?,
-        /** R6-4-1: the relay CLOSED our read subscription (the socket may
+        /** the relay CLOSED our read subscription (the socket may
          * still be OPEN) — emptiness is never provable off this relay. */
         val readRefused: Boolean = false,
     )
@@ -101,7 +101,7 @@ class RelayPool(
 
     private val sessions = LinkedHashMap<String, RelaySession>()
 
-    /** R4-1: the pool generation — incremented on every stop(), stamped on
+    /** the pool generation — incremented on every stop, stamped on
      * each session; a RETIRED session's async terminal callbacks (close/
      * failure/NIP-11 probe) are ignored instead of overwriting the live
      * session's report. */
@@ -125,7 +125,7 @@ class RelayPool(
             // never an exception through the caller's composition.
             val clean = runCatching { RelayUrls.validate(url) }.getOrElse { failure ->
                 val dead = RelaySession(url, generation)
-                dead.fail(failure.message ?: "VAL-NOSTR-RELAY: invalid relay URL")
+                dead.fail(failure.message ?: "invalid relay URL")
                 _reports.value = _reports.value +
                     (dead.report(RelayState.FAILED).url to dead.report(RelayState.FAILED))
                 return@forEach
@@ -229,7 +229,7 @@ class RelayPool(
         /** Set when the auth cap fired for this session. */
         @Volatile var authCapMessage: String? = null
 
-        /** R6-4-1: the relay CLOSED our subscription (an auth-walled or
+        /** the relay CLOSED our subscription (an auth-walled or
          * refused read) — the socket stays OPEN, so the honest empty-state
          * must NOT claim the network is provably empty. */
         @Volatile var readRefused = false
@@ -441,7 +441,7 @@ class RelayPool(
          * exchange, loudly. */
         private fun handleAuthRequired(eventId: String, webSocket: WebSocket) {
             if (authCapMessage != null) {
-                log("VAL-NOSTR-RELAY: $url demanded auth again after the auth event — giving up")
+                log("$url demanded auth again after the auth event — giving up")
                 return
             }
             synchronized(this) { awaitingAuth[eventId] = sentEvents[eventId] ?: return }
@@ -473,7 +473,7 @@ class RelayPool(
                 powRejections += 1
                 if (powRejections > 1) {
                     powCapMessage =
-                        "VAL-NOSTR-POW: relay $url demanded pow again after the mined " +
+                        "relay $url demanded pow again after the mined " +
                             "re-send — giving up"
                     log(powCapMessage!!)
                     lastAckOk = false
@@ -534,7 +534,7 @@ class RelayPool(
                 authChallengesAnswered += 1
                 if (authChallengesAnswered > 1) {
                     authCapMessage =
-                        "VAL-NOSTR-RELAY: relay $url sent repeated unsolicited " +
+                        "relay $url sent repeated unsolicited " +
                             "auth challenges - ignoring further ones"
                     log(authCapMessage!!)
                     return
@@ -590,13 +590,13 @@ class RelayPool(
         private const val NORMAL_CLOSE_CODE = 1000
         private const val NIP11_TIMEOUT_SECONDS = 5L
 
-        /** R4-r2-1: the NIP-11 capability probe's BYTE cap — a hostile
+        /** the NIP-11 capability probe's BYTE cap — a hostile
          * relay's arbitrarily large document is truncated at this bound
          * before it ever reaches a String (the exit record's "12 MB cap",
          * now the code that proves it). */
         const val NIP11_MAX_BYTES = 12 * 1024 * 1024
 
-        /** R4-r2-1: the observability seam the capped-probe test asserts
+        /** the observability seam the capped-probe test asserts
          * through — the number of bytes the LAST probe actually consumed
          * (-1 = no probe completed yet; last probe wins, and the capped
          * suite uses single-relay pools). An unbounded read would exceed
@@ -680,7 +680,7 @@ object RelayUrls {
             trimmed.startsWith("wss://") -> "wss://"
             trimmed.startsWith("ws://") -> "ws://"
             else -> throw IllegalArgumentException(
-                "VAL-NOSTR-RELAY: relay URL must start with wss:// or ws:// ($raw)",
+                "relay URL must start with wss:// or ws:// ($raw)",
             )
         }
         val rest = trimmed.removePrefix(scheme)
@@ -688,7 +688,7 @@ object RelayUrls {
         val host = hostPort.substringBeforeLast(':')
         val port = hostPort.substringAfterLast(':', missingDelimiterValue = "")
         require(host.isNotEmpty() && (port.isEmpty() || port.all(Char::isDigit))) {
-            "VAL-NOSTR-RELAY: relay URL needs a host (host:port) after $scheme ($raw)"
+            "relay URL needs a host (host:port) after $scheme ($raw)"
         }
         // the shape checks above are not enough — the URL must ALSO
         // round-trip through the same HTTP parser OkHttp's Request.Builder
@@ -699,7 +699,7 @@ object RelayUrls {
         val parsed = cleanedForParser(trimmed).toHttpUrlOrNull()
         if (parsed == null || parsed.port !in 1..PORT_MAX) {
             throw IllegalArgumentException(
-                "VAL-NOSTR-RELAY: relay URL is not dialable by the HTTP client " +
+                "relay URL is not dialable by the HTTP client " +
                     "($raw) — check the host and the port (1..$PORT_MAX)",
             )
         }
@@ -715,10 +715,10 @@ object RelayUrls {
     fun sanitizeList(raw: List<String>): List<String> {
         val cleaned = raw.map(::validate).distinct()
         require(cleaned.isNotEmpty()) {
-            "VAL-NOSTR-RELAY: the relay set is empty — add at least one relay"
+            "the relay set is empty — add at least one relay"
         }
         require(cleaned.size <= MAX_RELAYS) {
-            "VAL-NOSTR-RELAY: at most $MAX_RELAYS relays are supported (got ${cleaned.size})"
+            "at most $MAX_RELAYS relays are supported (got ${cleaned.size})"
         }
         return cleaned
     }
@@ -740,10 +740,10 @@ object PowMiner {
 
     fun mine(event: NostrEvent, difficulty: Int, key: NostrPrivateKey?): NostrEvent {
         require(difficulty in 1..MAX_DIFFICULTY) {
-            "VAL-NOSTR-POW: demanded difficulty $difficulty is outside 1..$MAX_DIFFICULTY"
+            "demanded difficulty $difficulty is outside 1..$MAX_DIFFICULTY"
         }
         require(key != null) {
-            "VAL-NOSTR-POW: a pow-demanding relay needs the realm key to re-sign"
+            "a pow-demanding relay needs the realm key to re-sign"
         }
         val baseTags = event.tags.filterNot { it.isNotEmpty() && it[0] == "nonce" }
         var nonce = 0L
@@ -765,7 +765,7 @@ object PowMiner {
             nonce++
         }
         throw IllegalArgumentException(
-            "VAL-NOSTR-POW: exhausted $MAX_ITERATIONS nonces at difficulty $difficulty",
+            "exhausted $MAX_ITERATIONS nonces at difficulty $difficulty",
         )
     }
 

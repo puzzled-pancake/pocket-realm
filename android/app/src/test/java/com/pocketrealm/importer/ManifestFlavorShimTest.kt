@@ -13,7 +13,7 @@ import java.nio.file.Files
 import java.security.MessageDigest
 
 /**
- * G3-2: the durable manifest readers accept both encodings — the flavor
+ * the durable manifest readers accept both encodings — the flavor
  * rides ONLY as an optional `optString("flavor", "vanilla")`-defaulted alias
  * at the existing schema numbers (client-manifest schema 2, data-manifest
  * schema 1), validated against the content (clientId / clientBuild /

@@ -28,6 +28,21 @@ interface IRuntimeSupervisorControl {
     String provisionFriendAccount(String username, String sHex, String vHex, boolean allowExistingAccount);
     String banFriendAccount(String username, String duration, String reason);
     String unbanFriendAccount(String username);
+    /** Character transfer (LAN screen): the world's player-dump verbs. */
+    String exportCharacter(String characterName);
+    /** Internet join (Realm browser): the in-app iroh gateway's state. */
+    String internetJoinStatus();
+    /** Internet hosting (Host tab): the realm-browser listing's state. */
+    String publicListingStatus();
+    /** Self sign-up (Host tab): the signed-up accounts and their removal. */
+    String signupAccounts();
+    String removeSignupAccount(String username);
+    /** Public hosting (Host tab): the players list with ban state and the
+     * device bans; one ban verb (BAN_ACCOUNT / UNBAN_ACCOUNT / BAN_DEVICE /
+     * UNBAN_DEVICE / BAN_BOTH) on an account name or device token. */
+    String publicPlayers();
+    String moderatePublicPlayer(String action, String target, String reason);
+    String importCharacter(String dumpText, String account, String newName);
     String setFriendGmLevel(String username, int level);
     String friendRoster();
     String friendCharacters(String username);

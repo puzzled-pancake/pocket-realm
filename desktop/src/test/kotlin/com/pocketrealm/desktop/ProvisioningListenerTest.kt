@@ -178,7 +178,7 @@ class ProvisioningListenerTest {
 
     @Test
     fun tornStartAndStopNeverLeakTheSocketOrTheState() {
-        // The torn-lifecycle pin (design-remote-accounts §6 exposure
+        // The torn-lifecycle pin (design-remote-accounts exposure
         // invariant): start() and stop() serialize on the listener's
         // lifecycle lock, so a stop landing between a bind and its state-set
         // can never leave state=Listening on a closed socket, and the socket

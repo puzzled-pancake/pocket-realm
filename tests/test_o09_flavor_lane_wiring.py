@@ -340,7 +340,7 @@ def test_write_lockfiles_win_overlays_follow_the_flavor_registration(
     monkeypatch.setattr(o09, "ROOT", tmp_path)
     monkeypatch.setattr(o09, "NATIVE", tmp_path / "native")
     narrowed = sorted(set(o09.PER_FLAVOR_OVERLAY_REGISTRATION["tbc"])
-                      - {"llm-companion-event-hooks"})
+                      - {"mmap-disabled-load-guard"})
     assert len(narrowed) < len(o09.PER_FLAVOR_OVERLAY_REGISTRATION["tbc"]), (
         "the narrowed registration must actually differ (vacuous pin)")
     monkeypatch.setitem(o09.PER_FLAVOR_OVERLAY_REGISTRATION, "tbc", narrowed)
@@ -349,7 +349,7 @@ def test_write_lockfiles_win_overlays_follow_the_flavor_registration(
         (schemas / "realm-runtime-lockfile-sqlite-win-tbc.json")
         .read_text(encoding="utf-8"))["cmangos_source_overlays"]]
     assert tbc_ids == [entry["id"] for entry in o09.overlays_for("tbc", "sqlite")]
-    assert "llm-companion-event-hooks" not in tbc_ids
+    assert "mmap-disabled-load-guard" not in tbc_ids
     vanilla_table_sqlite = [
         entry["id"] for entry in o09.CMANGOS_OVERLAYS
         if "sqlite" in entry.get("backends", ("mysql", "sqlite"))]

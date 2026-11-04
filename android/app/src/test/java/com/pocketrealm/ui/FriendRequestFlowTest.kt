@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The join-side friend-access flow (design-remote-accounts §3/§5): the
+ * The join-side friend-access flow (design-remote-accounts): the
  * UI-independent transitions — submit, the read-only approval poll, the
  * refusal and unreachable verdicts — against a scripted transport.
  */

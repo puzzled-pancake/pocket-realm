@@ -8,7 +8,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * R2-2 (android-core review round 1, medium): the MPQ-set gates compare
+ * the MPQ-set gates compare
  * the registry's PATH-FORM requiredMpqs entries ("enus/locale-enus.mpq")
  * against BARE-FILENAME map keys built from Data/'s top-level entries, so
  * the tbc/wotlk required sets can never match - at the qualification flip
@@ -39,7 +39,7 @@ class MpqSetKeyFormTripwireTest {
         override fun children(parentId: String): List<SafClientScanner.Entry> =
             tree.getValue(parentId)
 
-        // R1-arch-4/R2-1/R3-3/R4-2 (review round 1): the fake MUST honor
+        // the fake MUST honor
         // the production Access.read contract (SafClientScanner
         // .DocumentsAccess.read caps at maxBytes; rejectTruncation refuses
         // a blob that would be cut) - the uncapped form handed the
@@ -49,7 +49,7 @@ class MpqSetKeyFormTripwireTest {
         override fun read(documentId: String, maxBytes: Int, rejectTruncation: Boolean): ByteArray {
             val blob = blobs.getValue(documentId)
             if (rejectTruncation && blob.size > maxBytes) {
-                error("VAL-02: synthetic document exceeds the fast-scan limit")
+                error("WoW.exe is too large to scan")
             }
             return blob.copyOf(minOf(maxBytes, blob.size))
         }
@@ -87,7 +87,7 @@ class MpqSetKeyFormTripwireTest {
         )
         assertFalse(
             "no missing-MPQ failure may fire for the vanilla flat set",
-            result.toString().contains("missing base MPQ set"),
+            result.toString().contains("Missing game data files"),
         )
     }
 
@@ -157,7 +157,7 @@ class MpqSetKeyFormTripwireTest {
                 "supported: ${genuine.failures}",
             genuine.supported,
         )
-        // R2-R4-2: a flat layout cannot satisfy the SLASHED keys (the
+        // a flat layout cannot satisfy the SLASHED keys (the
         // locale MPQs must sit in Data/enUS/ - the only paths the genuine
         // client loads), so the flat locale placement refuses
         val flat = SafClientScanner.scanAccess(tbcTree(withLocaleSubdir = false))
@@ -202,27 +202,23 @@ class MpqSetKeyFormTripwireTest {
     }
 
     @Test
-    fun anUnknownPatchMpqRefusesWithTheExactSetCopy() {
-        // R1-1/R2-5-2 (W4 code-red round 5): the tbc mpq_set note's
-        // exact-set semantics are ENFORCED now that the flavor qualifies -
-        // an unknown patch-9.mpq (valid magic, not in the tbc set) refuses
-        // VAL-04 naming the file.
-        val doctored = SafClientScanner.scanAccess(
+    fun anExtraPatchMpqImportsWithAWarningNamingIt() {
+        // Owner ruling 2026-10-24 (relaxed import): an extra patch-9.mpq (a
+        // custom or HD patch beside the tbc set) no longer refuses — the
+        // client keeps it and the scan warns naming the file.
+        val extra = SafClientScanner.scanAccess(
             tbcTree(withLocaleSubdir = true, extraPatch = "patch-9.MPQ"),
         )
-        assertFalse(
-            "an unknown patch MPQ must refuse on the tbc lane: ${doctored.failures}",
-            doctored.supported,
-        )
+        assertTrue("an extra patch MPQ must import: ${extra.failures}", extra.supported)
         assertTrue(
-            "the refusal names the file: ${doctored.failures}",
-            doctored.failures.any { "patch-9.mpq" in it },
+            "the warning names the file: ${extra.warnings}",
+            extra.warnings.any { "patch-9.mpq" in it },
         )
     }
 
     @Test
     fun aPathDoctoredMpqSetRefusesLoud() {
-        // R2-R4-2: a PATH-DOCTORED set (the required MPQs under
+        // a PATH-DOCTORED set (the required MPQs under
         // Data/decoy/, no Data/enUS/) must refuse - a basename-only match
         // accepted it into a generation whose client cannot load its data.
         val wowId = "wow"
@@ -271,7 +267,7 @@ class MpqSetKeyFormTripwireTest {
 
     @Test
     fun anOversizedWowExeRefusesWithTheVal02SizeCopy() {
-        // R6-7: the charter's negative-matrix "oversized -> VAL codes" leg
+        // the charter's negative-matrix "oversized -> VAL codes" leg
         // - a declared WoW.exe size above the 32 MiB fast-scan cap must
         // refuse with the exact VAL-02 size copy.
         val wowId = "wow"
@@ -296,41 +292,22 @@ class MpqSetKeyFormTripwireTest {
         assertTrue(
             "must carry the exact VAL-02 size copy: ${result.failures}",
             result.failures.any {
-                it == "VAL-02: selected executable exceeds fast-scan limit"
+                it == "WoW.exe is too large to scan"
             },
         )
     }
 
     @Test
-    fun bothGatesCompareMissingOnlyAndNeverRejectUnknownMpqs() {
-        // R1-1/R2-5-2 (W4 code-red round 5): the C2 exact-set rule LANDED -
-        // pin it POSITIVELY in both lanes: the unknown patch-*.mpq leg
-        // (VAL-04 naming the file, non-vanilla lanes) plus the missing-only
-        // compare it complements.
+    fun bothGatesJudgeTheMpqSetThroughTheSharedAudit() {
+        // Both lanes walk Data/ (locale subdirectories included) and hand
+        // the MPQ paths to the one shared rule set, so the folder and the
+        // archive lanes can never disagree about a client.
         val saf = source("android/app/src/main/java/com/pocketrealm/client/SafClientScanner.kt")
         val archive = source("android/app/src/main/java/com/pocketrealm/importer/ArchiveClientScanner.kt")
-        // W4: the locale traversal + per-form key matching (the
-        // retired S5 deferral's replacement + the R2-R4-2 path-doctored
-        // refusal)
         assertTrue("walkMpqTree" in saf)
-        assertTrue("mpqByRelPath.containsKey(lowered)" in saf)
-        // missing-only comparison (never an unknown-entry rejection)
         for ((name, text) in listOf("SafClientScanner" to saf, "ArchiveClientScanner" to archive)) {
-            assertTrue(
-                "$name: lost the requiredMpqs missing-only compare",
-                "requiredMpqs.orEmpty().filterNot" in text,
-            )
-            // the LANDED C2 exact-set rule: an unknown patch MPQ is
-            // VAL-04 naming the file, on the non-vanilla lanes
-            assertTrue(
-                "$name: lost the exact-set unknown-patch rejection (R1-1)",
-                "unknown patch MPQ not in the exact set" in text,
-            )
-            assertTrue(
-                "$name: the exact-set leg must gate on the non-vanilla lanes " +
-                    "(vanilla's documented tolerance)",
-                "VANILLA.flavorId" in text,
-            )
+            assertTrue("$name: must judge MPQs through ClientDataAudit", "ClientDataAudit.audit(" in text)
+            assertTrue("$name: lost its own exact-set leg", "unknown patch MPQ not in the exact set" !in text)
         }
     }
 }

@@ -7,7 +7,7 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * DESK-51: the user-owned `realmlist.wtf` handling for native Windows.
+ * the user-owned `realmlist.wtf` handling for native Windows.
  *
  * On Android the target file is app-owned (the managed client generation),
  * so a wholesale replacement is safe. On Windows the file is user property
@@ -61,12 +61,24 @@ internal object DesktopRealmlist {
         val target = File(clientDir, TARGET_NAME)
         if (!target.isFile) {
             merge(target, endpoint)
-            return
+        } else {
+            if (session.backup == null) {
+                session.backup = takeBackup(target, clientDir, roots)
+            }
+            merge(target, endpoint)
         }
-        if (session.backup == null) {
-            session.backup = takeBackup(target, clientDir, roots)
+        // WotLK 3.3.5a reads Data/<locale>/realmlist.wtf, not the root file:
+        // each locale copy is backed up (or recorded as created) and merged.
+        for (locale in ClientRealmEndpointProjection.localeRealmlists(clientDir)) {
+            if (locale.isFile) {
+                if (locale.absolutePath !in session.localeBackups) {
+                    session.localeBackups[locale.absolutePath] = takeBackup(locale, locale.parentFile, roots)
+                }
+            } else if (locale.absolutePath !in session.created) {
+                session.created += locale.absolutePath
+            }
+            merge(locale, endpoint)
         }
-        merge(target, endpoint)
     }
 
     /**
@@ -76,6 +88,7 @@ internal object DesktopRealmlist {
      * "not restored" without throwing into the teardown path.
      */
     fun restoreForSession(clientDir: File, roots: DesktopStorageRoots, session: Session): Boolean {
+        restoreLocaleFiles(session)
         val backup = session.backup ?: return false
         session.backup = null
         val target = File(clientDir, TARGET_NAME)
@@ -94,6 +107,26 @@ internal object DesktopRealmlist {
             )
             false
         }
+    }
+
+    /** Restores each backed-up locale realmlist and deletes the ones this
+     * session created. Best-effort, like the root restore. */
+    private fun restoreLocaleFiles(session: Session) {
+        for ((path, backup) in session.localeBackups) {
+            runCatching {
+                val recordedSha = backup.sha256File.readText(Charsets.UTF_8).trim()
+                check(backup.file.isFile && FileDigests.sha256(backup.file) == recordedSha) {
+                    "locale realmlist backup failed its sha256 re-verification"
+                }
+                replaceAtomic(File(path), backup.file.readBytes())
+                backup.retire()
+            }.onFailure { failure ->
+                com.pocketrealm.desktop.DesktopLog.w(LOG_TAG, "locale realmlist restore failed: ${failure.message}")
+            }
+        }
+        session.localeBackups.clear()
+        session.created.forEach { runCatching { File(it).delete() } }
+        session.created.clear()
     }
 
     /**
@@ -166,6 +199,10 @@ internal object DesktopRealmlist {
     /** Per-launch-session state the backend owns and hands back on teardown. */
     class Session {
         internal var backup: Backup? = null
+        /** Locale realmlists backed up this session, by absolute path. */
+        internal val localeBackups: MutableMap<String, Backup> = linkedMapOf()
+        /** Locale realmlists this session created (deleted on restore). */
+        internal val created: MutableList<String> = mutableListOf()
     }
 
     private const val LOG_TAG = "Client"

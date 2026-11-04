@@ -17,7 +17,7 @@ import org.json.JSONObject
  *
  * `GET /` → the server-rendered HTML page; `GET /api/status.json`
  * → the payload. Everything else 404; non-GET 405. No cookies, no JS.
- *  - The bind follows §4: loopback-only (127.0.0.1:18080) in PUBLIC,
+ * The bind follows: loopback-only (127.0.0.1:18080) in PUBLIC,
  *    wildcard (0.0.0.0:18080) in FRIENDS. A bind failure refuses the
  *    transition honestly (copy names the port, never a pid or path).
  * Security headers on EVERY response: no-store, nosniff,
@@ -37,7 +37,7 @@ internal class RealmStatusServer(
     private val port: Int = PAGE_PORT,
     /** One render capture — runs ONCE per request on the caller's thread;
      * [hostView] is true only for the host's own loopback view in PUBLIC
-     * (the §8.7 blocks); null = cannot currently serve (honest 503). */
+     * (the blocks); null = cannot currently serve (honest 503). */
     private val captureRender: (hostView: Boolean) -> CapturedRender?,
     /** The served-state generation; a mismatch with the capture's is the
      * OFF-flip tombstone. */
@@ -67,7 +67,7 @@ internal class RealmStatusServer(
     private val generationCounter = AtomicLong(0)
 
     /** The tombstone generation: renders compare their capture's value
-     * against this before the first byte (§4). */
+     * against this before the first byte . */
     fun currentGeneration(): Long = generationCounter.get()
 
     private fun bumpGeneration() {
@@ -111,7 +111,7 @@ internal class RealmStatusServer(
         data class Failed(val detail: String) : StartOutcome()
     }
 
-    /** Bounded drain (§4's rebind ordering): stop accepting, give in-flight
+    /** Bounded drain (rebind ordering): stop accepting, give in-flight
      * exchanges the bounded delay, then close. */
     fun stop() {
         server?.let { current ->
@@ -139,7 +139,7 @@ internal class RealmStatusServer(
 
     @Suppress("LongMethod", "CyclomaticComplexMethod", "ReturnCount")
     // the request dispatch is one reviewed sequence; the early returns
-    // are the honest 405/404/429/503 legs (§6.2's negatives)
+    // are the 405/404/429/503 legs (the negatives)
     private fun handle(exchange: HttpExchange) {
         try {
             exchange.use { http ->
@@ -154,7 +154,7 @@ internal class RealmStatusServer(
                     respond(http, NOT_FOUND, "not found", emptyMap())
                     return
                 }
-                // The limiter keys by the visibility AT REQUEST ENTRY (§6.2).
+                // The limiter keys by the visibility AT REQUEST ENTRY .
                 val visibility = visibilityAtEntry()
                 val limiter = limiterProvider()
                 val key = when (visibility) {
@@ -183,7 +183,7 @@ internal class RealmStatusServer(
                         return
                     }
                 // The tombstone: a render straddling a flip to OFF (or any
-                // rebind is closed with NO response (§4; T19).
+                // rebind is closed with NO response ( T19).
                 if (servedGeneration() != captured.generation) {
                     logLine("realm-status render discarded: generation moved mid-flight")
                     return
@@ -215,7 +215,7 @@ internal class RealmStatusServer(
         extraHeaders: Map<String, String>,
     ) {
         val headers = exchange.responseHeaders
-        // Security headers on EVERY response (§6.2).
+        // Security headers on EVERY response .
         headers.set("Cache-Control", "no-store")
         headers.set("X-Content-Type-Options", "nosniff")
         headers.set("Referrer-Policy", "no-referrer")

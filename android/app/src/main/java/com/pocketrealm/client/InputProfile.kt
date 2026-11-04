@@ -18,6 +18,12 @@ enum class ControlScheme(val displayName: String, val description: String) {
         "Android Port",
         "Optional Vanilla 1.12.1 layout: direct target/use shoulders, eight action buttons, LT/RT modifier pages and radial menu. Unreliable RP6 M1/M2 rear buttons stay disabled.",
     ),
+    WOW_FOREVER(
+        "WoW Forever",
+        "Android Port with the WoW Forever controller layout: four action sets on screen, LT/RT/LT+RT switch sets, " +
+            "A jumps, X uses, Y opens the menu and B cancels on the base set. RB targets the nearest enemy and LB targets you. " +
+            "The in-game layout follows on the next game start.",
+    ),
     CUSTOM("Custom", "Individually edited physical or on-screen bindings."),
 }
 
@@ -432,6 +438,22 @@ data class InputProfile(
             Rp6Control.REAR_RIGHT to ControllerAction.DISABLED,
         )
 
+        /**
+         * WoW Forever's controller layout over the Android Port keyboard
+         * contract: the face buttons and D-pad keep sending 1-8 (the addon
+         * runs the fixed base-set jobs on 1-4), triggers are the Shift/Ctrl
+         * set modifiers, RB targets enemies and LB targets the player.
+         */
+        fun wowForeverBindings(): Map<Rp6Control, ControllerAction> =
+            androidPortBindings() + (Rp6Control.L1 to ControllerAction.F1)
+
+        /** The Android Port control layout a scheme asks the addon to show, if any. */
+        fun addonControlLayout(scheme: ControlScheme): String? = when (scheme) {
+            ControlScheme.ANDROID_PORT -> "star"
+            ControlScheme.WOW_FOREVER -> "forever"
+            else -> null
+        }
+
         /** Exact uncustomized Console Port map written by the first schema-v11 build. */
         private fun v11AndroidPortBindingNames(): Map<Rp6Control, String> = linkedMapOf(
             Rp6Control.LEFT_STICK_UP to "MOVE_W",
@@ -610,6 +632,12 @@ data class InputProfile(
                 overlayBindings = defaultOverlayBindings(),
                 // LT/RT are real Shift/Ctrl keys for the addon's four pages;
                 // the native face-only layers are deliberately inactive.
+                layerFaceBindings = defaultLayerFaceBindings(),
+            )
+            ControlScheme.WOW_FOREVER -> base.copy(
+                scheme = scheme,
+                rp6Bindings = wowForeverBindings(),
+                overlayBindings = defaultOverlayBindings(),
                 layerFaceBindings = defaultLayerFaceBindings(),
             )
             ControlScheme.CUSTOM -> base.copy(scheme = scheme)

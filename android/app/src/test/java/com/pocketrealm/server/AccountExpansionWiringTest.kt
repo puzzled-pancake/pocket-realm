@@ -7,7 +7,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * R1-1 (android-core review round 1, serious): account creation has TWO
+ * account creation has TWO
  * seams and they must never diverge again on the per-flavor expansion
  * write. The verifier path (`createAccountVerifier`, the friend
  * provisioning route) used to skip the addon leg entirely - the
@@ -73,7 +73,7 @@ class AccountExpansionWiringTest {
                 "$name: lost the addon write",
                 "WorldNative.setAccountAddonNative(" in body,
             )
-            // R1-arch-1 (review round 1, serious): the decision must be the
+            // the decision must be the
             // retry-aware pure function — the old `if (rc == 0)` guard
             // skipped the addon write on the designed HOST RETRY leg
             // (ACCOUNT_EXISTS with the row present from attempt 1), birthing
@@ -132,7 +132,7 @@ class AccountExpansionWiringTest {
 
     @Test
     fun verifierExpansionWriteTruthTableIsPinnedBehaviorally() {
-        // R3-1/R3-2 (review round 3): the verifier lane's decision is
+        // the verifier lane's decision is
         // BEHAVIORALLY pinned — the source-string pins passed while
         // the seam's OR-ed expression kept the collision hole open. Truth
         // table over the pure function the seam consumes:
@@ -184,7 +184,7 @@ class AccountExpansionWiringTest {
 
     @Test
     fun shouldWriteExpansionIsTheAcceptedShapeIncludingTheRetryLeg() {
-        // R1-arch-1: the pure decision is the accountResult accepted shape
+        // the pure decision is the accountResult accepted shape
         // (rc == 0, or ACCOUNT_EXISTS with the row verified present).
         assertTrue("rc == 0 always writes", ServerRuntimeContract.shouldWriteExpansion(0, accountExists = false))
         assertTrue(
@@ -202,10 +202,10 @@ class AccountExpansionWiringTest {
 
     @Test
     fun theExpansionWriteBindsToTheBootLaneAndTheVerifierGatesTheRetry() {
-        // R2-2 (review round 2): the expansion write consumes the BOOT lane
+        // the expansion write consumes the BOOT lane
         // (pinned from the start leg's own snapshot) - a Home switch after
         // world start must never re-lane the expansion write.
-        // R2-1 (review round 2, serious): the verifier seam gates the
+        // the verifier seam gates the
         // ACCOUNT_EXISTS convergence behind the host's attempt-bookkeeping
         // authorization (allowExistingAccount); an unauthorized collision
         // answers ok=false with no addon write.
@@ -238,7 +238,7 @@ class AccountExpansionWiringTest {
 
     @Test
     fun theExpansionLanesResolveThroughTheWorldProcessBinding() {
-        // R1-arch-5/R2-2 (review round 1): the ActiveFlavor holder's
+        // the ActiveFlavor holder's
         // selection is :ui-process-local; :world never seeds it. The
         // expansion legs must resolve through the persisted-Settings form
         // (worldLaneFlavor), never the bare holder, and the overlay plan's
@@ -292,7 +292,7 @@ class AccountExpansionWiringTest {
         )
     }
     /**
-     * R3-1 (native-server review round 3): an all-digit username passes
+     * an all-digit username passes
      * every token validator, but the core's `account set` handlers resolve
      * their argument through ExtractAccountId, whose NUMERIC branch
      * reinterprets a digit string as an ACCOUNT ID — the digits-named

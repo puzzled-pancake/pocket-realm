@@ -21,7 +21,7 @@ interface RuntimeBackend : AutoCloseable {
     ): RuntimeActionResult
 
     /**
-     * Design-tunnel §4.4.2 (bind/advertise split): write the realm
+     * Design-tunnel (bind/advertise split): write the realm
      * ADVERTISEMENT — the address friends' clients actually dial, from the
      * launch spec's `advertisedOrDefault` — which may diverge from the
      * [endpoint] the servers bound (a tunnel address). The default keeps
@@ -82,7 +82,7 @@ interface RuntimeBackend : AutoCloseable {
     override fun close() = Unit
 
     // ------------------------------------------------------------------
-    // Remote friend accounts (design-remote-accounts §3/§8/§9/§11): the
+    // Remote friend accounts (design-remote-accounts / /): the
     // host-side verbs the Players surfaces and the approval flow ride.
     // Every default REFUSES honestly so a backend that has not adopted the
     // lane (and every test fake) stays compiling — the same
@@ -90,10 +90,10 @@ interface RuntimeBackend : AutoCloseable {
     // desktop and Android runtimes both override all six.
     // ------------------------------------------------------------------
 
-    /** §3: inserts the friend-derived (s, v) verbatim — no password ever
+    /** inserts the friend-derived (s, v) verbatim — no password ever
      * crosses the host. ACCOUNT_EXISTS on a name collision; the HOST
      * rejects the request, the friend picks another name. R2-1 (review
-     * round 2): [allowExistingAccount] is the host's attempt bookkeeping —
+     * ): [allowExistingAccount] is the host's attempt bookkeeping —
      * the only authorization under which ACCOUNT_EXISTS converges (the
      * row is our attempt-1 create and the addon write completes it);
      * without it, ACCOUNT_EXISTS refuses with no write (a collision can
@@ -105,24 +105,39 @@ interface RuntimeBackend : AutoCloseable {
         allowExistingAccount: Boolean = false,
     ): AccountProvisionResult = AccountProvisionResult(false, "UNSUPPORTED")
 
-    /** §11: the Players roster read (identity + ban state + the live
+    /** the Players roster read (identity + ban state + the live
      * failed-logins counter + the last SUCCESSFUL logon + online). */
     suspend fun accountRoster(): RosterRead = RosterRead("unsupported")
 
-    /** §8: one account's characters. */
+    /** one account's characters. */
     suspend fun accountCharacters(username: String): CharactersRead = CharactersRead("unsupported")
 
-    /** §9: `ban account <name> <duration> <reason>` through the console
+    /** `ban account <name> <duration> <reason>` through the console
      * relay (duration "0" = permanent). */
     suspend fun banFriendAccount(username: String, duration: String, reason: String): ModerationResult =
         ModerationResult(false, "unsupported")
 
-    /** §9: `unban account <name>`. */
+    /** `unban account <name>`. */
     suspend fun unbanFriendAccount(username: String): ModerationResult = ModerationResult(false, "unsupported")
 
-    /** §10: per-friend gmlevel 0..3. */
+    /** per-friend gmlevel 0..3. */
     suspend fun setFriendGmLevel(username: String, level: Int): Boolean = false
+
+    /** Character transfer: the world's `pdump write` for one character. */
+    suspend fun exportCharacter(characterName: String): CharacterTransferResult =
+        CharacterTransferResult(false, "unsupported")
+
+    /** Character transfer: `pdump load` into [account] (blank [newName] keeps the dump's name). */
+    suspend fun importCharacter(dumpText: String, account: String, newName: String): CharacterTransferResult =
+        CharacterTransferResult(false, "unsupported")
 }
+
+/** A character-transfer verdict; [dump] carries the exported SQL on success. */
+data class CharacterTransferResult(
+    val ok: Boolean,
+    val detail: String,
+    val dump: String? = null,
+)
 
 data class AccountProvisionResult(
     val ok: Boolean,

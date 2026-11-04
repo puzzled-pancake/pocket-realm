@@ -31,9 +31,6 @@ import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.UserVulkanDriver
 import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.ingame.WowGameSettingsConfig
-import com.pocketrealm.llm.ComputeMode
-import com.pocketrealm.llm.LlmModelRegistry
-import com.pocketrealm.server.LlmRuntimePolicy
 import com.pocketrealm.server.NearbyInteractPolicy
 import com.pocketrealm.supervisor.RuntimeMode
 import kotlinx.coroutines.CoroutineScope
@@ -402,7 +399,7 @@ class Settings(private val context: Context) {
          * lifetime. Off (the default) never binds the socket. */
         val friendAccessEnabled: Boolean = false,
         /**
-         * Design-tunnel §4/§5: the ADVERTISED tunnel address (the same
+         * Design-tunnel /: the ADVERTISED tunnel address (the same
          * field name/semantics as the desktop Settings twin). Empty = plain
          * LAN hosting, byte-identical behavior; when set (and LAN hosting
          * starts), the servers bind the wildcard and the one realmlist row
@@ -414,7 +411,7 @@ class Settings(private val context: Context) {
          */
         val tunnelAdvertisedAddress: String = "",
         /**
-         * Design-timeframe §4.1: the persisted content-patch stage id
+         * Design-timeframe: the persisted content-patch stage id
          * ("" = the qualified flavor's final patch), resolved through the
          * shared [com.pocketrealm.client.TimeframeStages.resolveStored] — a
          * value that is not a registered stage of the qualified lane
@@ -437,96 +434,38 @@ class Settings(private val context: Context) {
          */
         val selectedFlavorId: String = "",
         /**
-         * Playerbot LLM runtime (:llm process, llama-server + optional Hexagon
-         * NPU hybrid). Default OFF — the base conf keeps
-         * AiPlayerbot.LLMEnabled = 0 until the user opts in from the LLM
-         * submenu. Toggles apply on the next realm start (the conf is written
-         * at world start).
+         * Online hosting: while ON and a hosted realm is up, the app runs
+         * the internet host endpoint (joiners reach the game through it);
+         * with [listInBrowser] also ON the game list listing republishes
+         * every 5 minutes. OFF (the default) or a stopped realm retracts
+         * the listing and closes the endpoint. Same field names as the
+         * desktop Settings twin. (Migrated from the old publish switch:
+         * nostrDiscoveryEnabled = true reads as onlineHosting = true and
+         * listInBrowser = true.)
          */
-        val llmEnabled: Boolean = false,
-        val llmComputeMode: ComputeMode = LlmRuntimePolicy.DEFAULT_COMPUTE_MODE,
-        val llmCoresMask: Long = LlmRuntimePolicy.DEFAULT_CORES_MASK,
-        val llmThreads: Int = LlmRuntimePolicy.DEFAULT_THREADS,
-        val llmOffloadLayers: Int = LlmRuntimePolicy.DEFAULT_OFFLOAD_LAYERS,
-        /**
-         * External endpoint mode: when on, the realm conf points bot chat at
-         * any OpenAI-compatible /v1/chat/completions endpoint ([llmExternalUrl],
-         * optional [llmExternalApiKey] sent as a Bearer header, [llmExternalModel]
-         * in the request body) and the embedded :llm runtime is never started.
-         * The URL/model/key are fail-closed: an invalid endpoint suppresses
-         * the whole conf block, exactly like a missing local model file.
-         */
-        val llmExternalMode: Boolean = false,
-        val llmExternalUrl: String = "",
-        val llmExternalApiKey: String = "",
-        val llmExternalModel: String = "",
-        /**
-         * Cloud conversation toggle (AiPlayerbot.LLMCloudChatter): gates
-         * cloud-lane chat as a conjunction key with the external endpoint
-         * lane — the on-device lane never widens. Default OFF;
-         * turning it on is a spend decision (see the LLM screen
-         * disclosure) and applies on the next realm start.
-         */
-        val llmCloudChatter: Boolean = false,
-        /**
-         * Authored banter layer (rare kill quips, tier greetings, idle/mood
-         * lines). Free — no model call behind any of it — and heavily
-         * rate-limited in the native layer; default ON because it only ever
-         * matters while the LLM feature itself is enabled.
-         */
-        val llmBanter: Boolean = true,
-        /**
-         * World chatter: the LLM-voiced ambient layers — party
-         * banter, proximity murmur, rare general-chat set pieces — every
-         * line event-gated (silence is the default; no fact-bank row, no
-         * line). The collapsed power state (off / low-battery dim / normal)
-         * is staged to the native layer at world start by
-         * [com.pocketrealm.server.ChatterPowerMonitor] and re-staged on
-         * battery events while the realm runs.
-         * Default OFF: ambient generation costs battery, and the user opts
-         * in. The external endpoint fields double as the cloud-composer
-         * configuration when set (the composer is a cloud-class job).
-         */
-        val llmAmbience: Boolean = false,
-        /**
-         * Selected registry model ([LlmModelRegistry]); drives the staged-file
-         * gate, the runtime's model path, and the request-body sampling
-         * profile. Unknown persisted ids resolve to the registry default at
-         * read time; applies on the next realm start like every llm* toggle.
-         */
-        val llmModelId: String = LlmModelRegistry.DEFAULT_MODEL_ID,
-        /**
-         * Verbose-tier disclosure for the LLM submenu (the AI-settings
-         * "advanced" gate, like [autoLoginAdvanced]). Off, the submenu shows
-         * the simple tier only (speech switch, source, banter, world chatter,
-         * model); on, it also shows the accelerator, generation, and
-         * connection cards. Purely a UI gate — no knob changes value until
-         * the user touches it.
-         */
-        val llmAdvanced: Boolean = false,
-        /**
-         * Advanced-tier reply-length override in tokens, or 0 = follow the
-         * selected model's sampling profile
-         * (emitted as AiPlayerbot.LLMMaxNewTokens). Clamped through
-         * [LlmRuntimePolicy.normalizeMaxNewTokensOverride] at read and write.
-         */
-        val llmMaxNewTokens: Int = 0,
-        /**
-         * Advanced-tier generation-timeout override in seconds, or 0 = follow
-         * the model's tier profile (emitted as
-         * AiPlayerbot.LLMGenerationTimeout). Clamped through
-         * [LlmRuntimePolicy.normalizeGenerationTimeoutOverride].
-         */
-        val llmGenerationTimeout: Int = 0,
-        /**
-         * Player-edited prompt pack JSON for the advanced prompt manager:
-         * empty = the trained default pack. Persisted verbatim (never
-         * trimmed — a trim would fight the editor mid-typing); resolved via
-         * [com.pocketrealm.llm.LlmPromptPack.resolve] at read/stage time,
-         * so a corrupt edit fails open to the default, never to silence.
-         * Applies on the next realm start like every llm* setting.
-         */
-        val llmPromptPackJson: String = "",
+        val onlineHosting: Boolean = false,
+        /** With online hosting ON: also show the game in the public game
+         * list. Off = online but unlisted (invite-code joins only). */
+        val listInBrowser: Boolean = true,
+        /** The join password ("" = anyone can join). Checked on the hello
+         * lane before any game data moves; never published in the listing
+         * (the listing carries only the locked fact). */
+        val gamePassword: String = "",
+        /** The listing's realm name ("" = the default name). */
+        val publicRealmName: String = "",
+        /** The listing's description line ("" = none). */
+        val publicRealmDescription: String = "",
+        /** The realm's Nostr identity (BIP-340 secret, lowercase hex),
+         * generated at first publish; never displayed. */
+        val nostrPrivateKeyHex: String = "",
+        /** The iroh endpoint's secret key (64 lowercase hex), generated at
+         * first publish so the realm keeps its node id; never displayed. */
+        val irohGatewaySecretHex: String = "",
+        /** Self sign-up for a published realm: strangers create their own
+         * account through the tunnel (never GM). Off by default. */
+        val signupOpen: Boolean = false,
+        /** The most sign-up accounts this realm takes (0 = no cap). */
+        val signupCap: Int = 0,
     ) {
         /** Persisted selection; [ArmClientRendererCatalog.AUTO_ID] is allowed. */
         fun selectedArmRendererId(): String = armRendererId
@@ -572,7 +511,7 @@ class Settings(private val context: Context) {
 
     /**
      * One-shot blocking read for non-suspend contexts — the :world conf
-     * generation at realm start (ServerRuntimeFiles) reads the LLM toggle
+     * generation at realm start (ServerRuntimeFiles) reads the settings
      * this way. The multi-process coordinator makes the read consistent with
      * writes from :supervisor/:ui; never call this on a hot path.
      */
@@ -648,7 +587,7 @@ class Settings(private val context: Context) {
         return bumped
     }
 
-    private fun Preferences.toSnapshot(): Snapshot {
+    internal fun Preferences.toSnapshot(): Snapshot {
         val defaultDisplay = ClientDisplaySelection.defaultForDevice(
             Build.SUPPORTED_ABIS.asList(), Build.MODEL,
         )
@@ -804,7 +743,6 @@ class Settings(private val context: Context) {
             fieldSettleMs = (this[Keys.AL_FIELD_SETTLE] ?: 300).toLong().coerceIn(50, 2000),
             pointerDwellMs = (this[Keys.AL_POINTER_DWELL] ?: 80).toLong().coerceIn(20, 500),
         ).normalized()
-        val llm = readLlmSnapshotFields()
         return Snapshot(
         displayProfileId = displayProfile.id,
         clientFrameCap = frameCap.fps,
@@ -851,7 +789,7 @@ class Settings(private val context: Context) {
         allowLanPlayers = (this[Keys.ALLOW_LAN_PLAYERS] ?: 0) == 1,
         friendAccessEnabled = (this[Keys.FRIEND_ACCESS_ENABLED] ?: 0) == 1,
         tunnelAdvertisedAddress = this[Keys.TUNNEL_ADVERTISED_ADDRESS] ?: "",
-        // Design-timeframe §4.1: validated at read time against the
+        // Design-timeframe: validated at read time against the
         // qualified lane; an impossible/stale stage degrades to "".
         timeframeStage = com.pocketrealm.client.TimeframeStages.resolveStored(
             this[Keys.TIMEFRAME_STAGE] ?: "",
@@ -860,23 +798,20 @@ class Settings(private val context: Context) {
         // ActiveFlavor machine's fail-loud resolve at use is the only
         // validator, so a stale pick refuses instead of downgrading.
         selectedFlavorId = this[Keys.SELECTED_FLAVOR] ?: "",
-        llmEnabled = llm.enabled,
-        llmComputeMode = llm.computeMode,
-        llmCoresMask = llm.coresMask,
-        llmThreads = llm.threads,
-        llmOffloadLayers = llm.offloadLayers,
-        llmExternalMode = llm.externalMode,
-        llmExternalUrl = llm.externalUrl,
-        llmExternalApiKey = llm.externalApiKey,
-        llmExternalModel = llm.externalModel,
-        llmCloudChatter = llm.cloudChatter,
-        llmBanter = llm.banter,
-        llmAmbience = llm.ambience,
-        llmModelId = llm.modelId,
-        llmAdvanced = llm.advanced,
-        llmMaxNewTokens = llm.maxNewTokens,
-        llmGenerationTimeout = llm.generationTimeout,
-        llmPromptPackJson = llm.promptPackJson,
+        // The old publish switch migrates: it meant BOTH online hosting
+        // and listing (there was only one switch).
+        onlineHosting = migratedOnlineHosting(
+            this[Keys.ONLINE_HOSTING],
+            this[Keys.NOSTR_DISCOVERY_ENABLED],
+        ),
+        listInBrowser = (this[Keys.LIST_IN_BROWSER] ?: 1) == 1,
+        gamePassword = (this[Keys.GAME_PASSWORD] ?: "").take(GAME_PASSWORD_MAX),
+        publicRealmName = this[Keys.PUBLIC_REALM_NAME] ?: "",
+        publicRealmDescription = this[Keys.PUBLIC_REALM_DESCRIPTION] ?: "",
+        nostrPrivateKeyHex = this[Keys.NOSTR_PRIVATE_KEY] ?: "",
+        irohGatewaySecretHex = this[Keys.IROH_GATEWAY_SECRET] ?: "",
+        signupOpen = (this[Keys.SIGNUP_OPEN] ?: 0) == 1,
+        signupCap = (this[Keys.SIGNUP_CAP] ?: 0).coerceIn(0, SIGNUP_CAP_MAX),
         )
     }
 
@@ -890,6 +825,17 @@ class Settings(private val context: Context) {
         }.getOrDefault(emptyMap())
     }
 }
+
+/** The sign-up cap's upper bound (a typo cannot open a realm to millions). */
+internal const val SIGNUP_CAP_MAX: Int = 10_000
+
+/** The join password's length bound (a password, not a paragraph). */
+const val GAME_PASSWORD_MAX: Int = 64
+
+/** The migrated online-hosting switch: the new key, or (pre-migration)
+ * the old publish switch — which meant online hosting AND listing. */
+fun migratedOnlineHosting(newKey: Int?, legacyPublishKey: Int?): Boolean =
+    newKey == 1 || legacyPublishKey == 1
 
 private object Keys {
     val FPS = stringPreferencesKey("fps_profile")
@@ -960,82 +906,26 @@ private object Keys {
     val TUNNEL_ADVERTISED_ADDRESS = stringPreferencesKey("tunnel_advertised_address")
     val TIMEFRAME_STAGE = stringPreferencesKey("timeframe_stage")
     val SELECTED_FLAVOR = stringPreferencesKey("selected_flavor_id")
-    val LLM_ENABLED = intPreferencesKey("llm_enabled")
-    val LLM_COMPUTE_MODE = stringPreferencesKey("llm_compute_mode")
-    val LLM_CORES_MASK = longPreferencesKey("llm_cores_mask")
-    val LLM_THREADS = intPreferencesKey("llm_threads")
-    val LLM_OFFLOAD_LAYERS = intPreferencesKey("llm_offload_layers")
-    val LLM_EXTERNAL_MODE = intPreferencesKey("llm_external_mode")
-    val LLM_EXTERNAL_URL = stringPreferencesKey("llm_external_url")
-    val LLM_EXTERNAL_API_KEY = stringPreferencesKey("llm_external_api_key")
-    val LLM_EXTERNAL_MODEL = stringPreferencesKey("llm_external_model")
-    internal val LLM_CLOUD_CHATTER = intPreferencesKey("llm_cloud_chatter")
-    val LLM_BANTER = intPreferencesKey("llm_banter")
-    val LLM_AMBIENCE = intPreferencesKey("llm_ambience")
-    val LLM_MODEL_ID = stringPreferencesKey("llm_model_id")
-    val LLM_ADVANCED = intPreferencesKey("llm_advanced")
-    val LLM_MAX_NEW_TOKENS = intPreferencesKey("llm_max_new_tokens")
-    val LLM_GENERATION_TIMEOUT = intPreferencesKey("llm_generation_timeout")
-    val LLM_PROMPT_PACK = stringPreferencesKey("llm_prompt_pack")
-}
-
-/**
- * The persisted llm* pair shared by [Settings.Snapshot] reads and the
- * [writeSnapshotWrites] round trip. Kept as one reader so the write encoding
- * and the restore semantics cannot drift apart (SettingsUpdateWriteSetTest).
- */
-internal data class LlmSnapshotFields(
-    val enabled: Boolean,
-    val computeMode: ComputeMode,
-    val coresMask: Long,
-    val threads: Int,
-    val offloadLayers: Int,
-    val externalMode: Boolean,
-    val externalUrl: String,
-    val externalApiKey: String,
-    val externalModel: String,
-    val cloudChatter: Boolean = false,
-    val banter: Boolean,
-    val ambience: Boolean,
-    val modelId: String,
-    val advanced: Boolean,
-    val maxNewTokens: Int,
-    val generationTimeout: Int,
-    val promptPackJson: String,
-)
-
-internal fun Preferences.readLlmSnapshotFields(): LlmSnapshotFields {
-    // `null == 1` is false, so a missing key reads as off without an elvis.
-    return LlmSnapshotFields(
-        enabled = this[Keys.LLM_ENABLED] == 1,
-        computeMode = runCatching { ComputeMode.valueOf(this[Keys.LLM_COMPUTE_MODE] ?: "") }
-            .getOrDefault(LlmRuntimePolicy.DEFAULT_COMPUTE_MODE),
-        coresMask = LlmRuntimePolicy.normalizeCoresMask(
-            this[Keys.LLM_CORES_MASK] ?: LlmRuntimePolicy.DEFAULT_CORES_MASK,
-        ),
-        threads = LlmRuntimePolicy.normalizeThreads(
-            this[Keys.LLM_THREADS] ?: LlmRuntimePolicy.DEFAULT_THREADS,
-        ),
-        offloadLayers = LlmRuntimePolicy.normalizeOffloadLayers(
-            this[Keys.LLM_OFFLOAD_LAYERS] ?: LlmRuntimePolicy.DEFAULT_OFFLOAD_LAYERS,
-        ),
-        externalMode = this[Keys.LLM_EXTERNAL_MODE] == 1,
-        externalUrl = this[Keys.LLM_EXTERNAL_URL] ?: "",
-        externalApiKey = this[Keys.LLM_EXTERNAL_API_KEY] ?: "",
-        externalModel = this[Keys.LLM_EXTERNAL_MODEL] ?: "",
-        cloudChatter = (this[Keys.LLM_CLOUD_CHATTER] ?: 0) == 1,
-        banter = (this[Keys.LLM_BANTER] ?: 1) == 1,
-        ambience = this[Keys.LLM_AMBIENCE] == 1,
-        modelId = this[Keys.LLM_MODEL_ID] ?: LlmModelRegistry.DEFAULT_MODEL_ID,
-        advanced = this[Keys.LLM_ADVANCED] == 1,
-        maxNewTokens = LlmRuntimePolicy.normalizeMaxNewTokensOverride(
-            this[Keys.LLM_MAX_NEW_TOKENS] ?: 0,
-        ),
-        generationTimeout = LlmRuntimePolicy.normalizeGenerationTimeoutOverride(
-            this[Keys.LLM_GENERATION_TIMEOUT] ?: 0,
-        ),
-        promptPackJson = this[Keys.LLM_PROMPT_PACK] ?: "",
-    )
+    val NOSTR_DISCOVERY_ENABLED = intPreferencesKey("nostr_discovery_enabled")
+    val ONLINE_HOSTING = intPreferencesKey("online_hosting")
+    val LIST_IN_BROWSER = intPreferencesKey("list_in_browser")
+    val GAME_PASSWORD = stringPreferencesKey("game_password")
+    val PUBLIC_REALM_NAME = stringPreferencesKey("public_realm_name")
+    val PUBLIC_REALM_DESCRIPTION = stringPreferencesKey("public_realm_description")
+    val NOSTR_PRIVATE_KEY = stringPreferencesKey("nostr_private_key_hex")
+    val IROH_GATEWAY_SECRET = stringPreferencesKey("iroh_gateway_secret_hex")
+    val SIGNUP_OPEN = intPreferencesKey("signup_open")
+    val SIGNUP_CAP = intPreferencesKey("signup_cap")
+    /** Keys of the retired bot-LLM settings; [writeSnapshotWrites] removes
+     * them so an upgraded install drops the stored endpoint key too. */
+    val RETIRED_LLM_KEYS: List<Preferences.Key<*>> = listOf(
+        "llm_enabled", "llm_threads", "llm_offload_layers", "llm_external_mode",
+        "llm_cloud_chatter", "llm_banter", "llm_ambience", "llm_advanced",
+        "llm_max_new_tokens", "llm_generation_timeout",
+    ).map { intPreferencesKey(it) } + listOf(
+        "llm_compute_mode", "llm_external_url", "llm_external_api_key",
+        "llm_external_model", "llm_model_id", "llm_prompt_pack",
+    ).map { stringPreferencesKey(it) } + longPreferencesKey("llm_cores_mask")
 }
 
 /**
@@ -1138,34 +1028,36 @@ internal fun MutablePreferences.writeSnapshotWrites(
     this[Keys.ALLOW_LAN_PLAYERS] = if (next.allowLanPlayers) 1 else 0
     this[Keys.FRIEND_ACCESS_ENABLED] = if (next.friendAccessEnabled) 1 else 0
     this[Keys.TUNNEL_ADVERTISED_ADDRESS] = next.tunnelAdvertisedAddress
-    // Design-timeframe §4.1: the stage persists through the shared
+    // Design-timeframe: the stage persists through the shared
     // resolution so an impossible value can never be re-persisted.
     this[Keys.TIMEFRAME_STAGE] =
         com.pocketrealm.client.TimeframeStages.resolveStored(next.timeframeStage)
     this[Keys.SELECTED_FLAVOR] = next.selectedFlavorId
-    this[Keys.LLM_ENABLED] = if (next.llmEnabled) 1 else 0
-    this[Keys.LLM_COMPUTE_MODE] = next.llmComputeMode.name
-    this[Keys.LLM_CORES_MASK] = LlmRuntimePolicy.normalizeCoresMask(next.llmCoresMask)
-    this[Keys.LLM_THREADS] = LlmRuntimePolicy.normalizeThreads(next.llmThreads)
-    this[Keys.LLM_OFFLOAD_LAYERS] =
-        LlmRuntimePolicy.normalizeOffloadLayers(next.llmOffloadLayers)
-    this[Keys.LLM_EXTERNAL_MODE] = if (next.llmExternalMode) 1 else 0
-    // verbatim, NOT trimmed: a trim here round-trips through the flow and
-    // deletes a trailing space under the user's cursor mid-typing; the conf
-    // emission path normalizes (trims + validates) at read time instead
-    this[Keys.LLM_EXTERNAL_URL] = next.llmExternalUrl
-    this[Keys.LLM_EXTERNAL_API_KEY] = next.llmExternalApiKey
-    this[Keys.LLM_EXTERNAL_MODEL] = next.llmExternalModel
-    this[Keys.LLM_CLOUD_CHATTER] = if (next.llmCloudChatter) 1 else 0
-    this[Keys.LLM_BANTER] = if (next.llmBanter) 1 else 0
-    this[Keys.LLM_AMBIENCE] = if (next.llmAmbience) 1 else 0
-    this[Keys.LLM_MODEL_ID] = next.llmModelId
-    this[Keys.LLM_ADVANCED] = if (next.llmAdvanced) 1 else 0
-    this[Keys.LLM_MAX_NEW_TOKENS] =
-        LlmRuntimePolicy.normalizeMaxNewTokensOverride(next.llmMaxNewTokens)
-    this[Keys.LLM_GENERATION_TIMEOUT] =
-        LlmRuntimePolicy.normalizeGenerationTimeoutOverride(next.llmGenerationTimeout)
-    // verbatim prompt-pack JSON (never trimmed — same mid-typing rule as the
-    // external URL fields); resolved via LlmPromptPack.resolve at read time
-    this[Keys.LLM_PROMPT_PACK] = next.llmPromptPackJson
+    this[Keys.ONLINE_HOSTING] = if (next.onlineHosting) 1 else 0
+    this[Keys.LIST_IN_BROWSER] = if (next.listInBrowser) 1 else 0
+    // The migrated switch is retired on the first write (the value lives
+    // under the new key from here on).
+    this.remove(Keys.NOSTR_DISCOVERY_ENABLED)
+    if (next.gamePassword.isEmpty()) {
+        this.remove(Keys.GAME_PASSWORD)
+    } else {
+        this[Keys.GAME_PASSWORD] = next.gamePassword.take(GAME_PASSWORD_MAX)
+    }
+    this[Keys.PUBLIC_REALM_NAME] = next.publicRealmName
+    this[Keys.PUBLIC_REALM_DESCRIPTION] = next.publicRealmDescription
+    this[Keys.SIGNUP_OPEN] = if (next.signupOpen) 1 else 0
+    this[Keys.SIGNUP_CAP] = next.signupCap.coerceIn(0, SIGNUP_CAP_MAX)
+    // The two identities are written only once generated: an empty value
+    // removes the key, so the default write-set carries no secret slot.
+    if (next.nostrPrivateKeyHex.isEmpty()) {
+        this.remove(Keys.NOSTR_PRIVATE_KEY)
+    } else {
+        this[Keys.NOSTR_PRIVATE_KEY] = next.nostrPrivateKeyHex
+    }
+    if (next.irohGatewaySecretHex.isEmpty()) {
+        this.remove(Keys.IROH_GATEWAY_SECRET)
+    } else {
+        this[Keys.IROH_GATEWAY_SECRET] = next.irohGatewaySecretHex
+    }
+    Keys.RETIRED_LLM_KEYS.forEach { remove(it) }
 }

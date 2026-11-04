@@ -68,7 +68,7 @@ private sealed class AddonView {
 }
 
 /**
- * DESK-10/17/39/54/82: the add-on manager — the CMP port of the Android
+ * the add-on manager — the CMP port of the Android
  * ui/AddonsScreen (recommended / my add-ons / browse catalog / GitHub-commit
  * install / rollback), against the desktop [DesktopAddonRepository]. The
  * built-in Android Port installs on fresh installs; every change applies at
@@ -89,7 +89,7 @@ fun AddonsScreen(model: DesktopAppModel) {
         // refusal once a pick exists.
         if (ActiveFlavor.displayedId == null) {
             Text(
-                "Pick a game flavor on the Home screen first — the add-on catalog follows that lane.",
+                "Pick a game version on the Home screen first — the add-on catalog follows it.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(24.dp),
@@ -152,8 +152,8 @@ private fun AddonsHubScreen(
             }
             item {
                 Text(
-                    "Showing the ${activeFlavor.expansion} (${activeFlavor.flavorId}) add-on set — " +
-                        "switch the flavor on Home.",
+                    "Showing the add-on set for ${activeFlavor.expansion} — " +
+                        "switch game versions on Home.",
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.testTag("addon-active-flavor"),
                 )
@@ -238,8 +238,8 @@ private fun RecommendedAddonsScreen(
             if (catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
                 "Each entry has been tested on Pocket Realm hardware. "
             } else {
-                "${activeFlavor.expansion} recommendations are research-curated " +
-                    "(reference-grade evidence, not hardware-tested). "
+                "${activeFlavor.expansion} recommendations are researched picks, " +
+                    "not hardware-tested. "
             }
         Text(
             testedCopy + "Open one to review it before installing.",
@@ -248,9 +248,8 @@ private fun RecommendedAddonsScreen(
         )
         if (flavorRecommended.isEmpty()) {
             EmptyAddonMessage(
-                "No researched recommendation for the ${activeFlavor.expansion} client yet. " +
-                    "The catalog keeps researching; Browse lists every entry whose " +
-                    "research covers this flavor.",
+                "No recommendations for ${activeFlavor.expansion} yet. " +
+                    "Browse lists every add-on that works with this game version.",
             )
         }
         LazyColumn(
@@ -406,8 +405,8 @@ private fun BrowseAddonsScreen(
                         supporting = addon.description,
                         status = when {
                             installed -> "Installed"
-                            !addon.installable -> "Research reference only"
-                            else -> "${addon.handheldScore}/10 · ${addon.handheldVerdict}"
+                            !addon.installable -> "Reference only, can't be installed yet"
+                            else -> handheldRating(addon)
                         },
                         onClick = { onOpen(AddonView.CatalogDetail(addon.matrixId)) },
                         tag = "addon-catalog-${addon.matrixId}",
@@ -533,8 +532,7 @@ private fun CustomAddonInstallScreen(
         )
         Text(
             "Pocket Realm downloads from GitHub, records the exact commit and checksum, rejects oversized or unsafe archives, and requires " +
-                "${activeFlavor.expansion} Interface ${activeFlavor.addonInterfaces.min()} metadata " +
-                "(the active flavor's accepted set).",
+                "${activeFlavor.expansion} Interface ${activeFlavor.addonInterfaces.min()} metadata.",
             style = MaterialTheme.typography.bodySmall,
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -696,7 +694,7 @@ private fun AddonDetail(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 Text(addon.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text("${addon.category} · ${addon.handheldScore}/10 ${addon.handheldVerdict}")
+                Text("${addon.category} · ${handheldRating(addon)}")
             }
             Text(
                 when {
@@ -734,16 +732,15 @@ private fun AddonDetail(
         OutlinedButton(
             onClick = { moreDetails = !moreDetails },
             modifier = Modifier.heightIn(min = 48.dp).testTag("addon-more-details"),
-        ) { Text(if (moreDetails) "Hide technical details" else "More details") }
+        ) { Text(if (moreDetails) "Hide details" else "More details") }
         if (moreDetails) {
             Text("Client: ${addon.clientTarget}")
             Text("Version: ${addon.version}")
-            Text("Last researched update: ${addon.verifiedUpdate} (${addon.dateConfidence})")
+            Text("Last update: ${addon.verifiedUpdate}")
             Text("Maintenance: ${addon.maintenance}")
-            if (addon.compatibilityNotes.isNotBlank()) Text("Compatibility: ${addon.compatibilityNotes}")
+            if (addon.compatibilityNotes.isNotBlank()) Text(addon.compatibilityNotes)
             Text(addon.communitySignal, color = MaterialTheme.colorScheme.onSurfaceVariant)
             addon.githubUrl?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            Text("Research: ${addon.researchSources.size} cited source(s).")
         }
         installed?.let {
             Text(
@@ -837,3 +834,8 @@ private fun AddonOperationBanner(
         }
     }
 }
+
+/** The handheld rating label; unrated rows carry a placeholder score that is not shown. */
+private fun handheldRating(addon: com.pocketrealm.addons.CatalogAddon): String =
+    if (addon.handheldVerdict == "Unrated") "Not rated yet"
+    else "${addon.handheldScore}/10 · ${addon.handheldVerdict}"

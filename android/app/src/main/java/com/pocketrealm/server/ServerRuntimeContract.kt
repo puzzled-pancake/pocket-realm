@@ -28,9 +28,13 @@ internal object ServerRuntimeContract {
     const val REALM_PORT = 3724
     const val WORLD_PORT = 8085
 
+    /** The world's player limit (mangosd PlayerLimit, both conf twins):
+     * past it the realm queues logins. Public listings show it. */
+    const val WORLD_PLAYER_LIMIT = 100
+
     /**
      * The remote-account provisioning listener's TCP port
-     * (design-remote-accounts §6, open question §13.4 resolved here: the
+     * (design-remote-accounts, open question resolved here: the
      * lane ships one exact port, adjacent to the realm port, so the
      * reference firewall rule names three ports — 3724/8085/3725 — and no
      * range). The listener is a property of a hosting session with
@@ -59,7 +63,7 @@ internal object ServerRuntimeContract {
     fun errorName(value: Long): String = errors.getOrNull(value.toInt()) ?: "UNKNOWN"
 
     /** Whether an account-creation seam must write the per-flavor expansion
-     * for this native result (R1-arch-1, android-core review round 1,
+     * for this native result (R1-arch-1, android-core,
      * serious): the HOST RETRY LANE is designed — a failed relay op returns
      * the invite row to SUBMITTED and the host retries, so the second
      * attempt lands on ACCOUNT_EXISTS (10) with the row present. The old
@@ -77,7 +81,7 @@ internal object ServerRuntimeContract {
     const val ACCOUNT_EXISTS_CODE = 10
 
     /** The VERIFIER lane's expansion-write decision (R3-1, android-core
-     * review round 3, serious): on ACCOUNT_EXISTS the addon write converges
+     * ): on ACCOUNT_EXISTS the addon write converges
      * the row ONLY under the host's attempt-bookkeeping authorization —
      * (rc, exists) alone cannot distinguish the designed HOST RETRY (the row
      * is our attempt-1 create) from an IDENTITY COLLISION (a username that
@@ -113,13 +117,13 @@ internal object ServerRuntimeContract {
     }
 
     /**
-     * Design-tunnel §4.4.2: the bind value the conf writers and the server
+     * Design-tunnel: the bind value the conf writers and the server
      * services receive. The typed path parses through the strict
      * [RealmEndpoint] grammar (loopback or canonical private/link-local
      * IPv4); the ONE extra literal accepted is
      * [RealmEndpoint.WILDCARD_BIND] — "0.0.0.0", the raw conf value tunnel
      * hosting binds so the advertised tunnel address is actually reachable
-     * (design-tunnel §4.4.2 keeps it out of the typed path deliberately:
+     * (design-tunnel keeps it out of the typed path deliberately:
      * it is never a [RealmEndpoint]). Digits and dots only, interpolated
      * into `BindIP = "..."`; anything else is refused before any conf
      * exists. A wildcard bind is a NON-loopback bind, so the D11 lockout
@@ -133,7 +137,7 @@ internal object ServerRuntimeContract {
         }
 
     /**
-     * The realmd login-lockout emission (design-remote-accounts §4.3/§6.3,
+     * The realmd login-lockout emission (design-remote-accounts /,
      * the android twin of the desktop ServerRuntimeFiles D11 block): the
      * WrongPass keys are emitted WHEN AND ONLY WHEN the bind is not
      * loopback. Every lane that exposes TCP 3724 to anything but loopback

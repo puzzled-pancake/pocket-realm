@@ -291,7 +291,7 @@ class FriendAccountNativeOpsTest {
                 twinVerdict.ok,
             )
 
-            // A non-loopback bind emits the §4.3/§6.3 lockout keys on this
+            // A non-loopback bind emits the lockout keys on this
             // lane's conf (the conditional the remote accounts feature adds
             // to realmd's exposure posture); the LOCAL bind omits them.
             val lanConf = ServerRuntimeFiles(roots).realmdConfig("192.168.1.50").readText()

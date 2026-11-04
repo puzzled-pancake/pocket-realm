@@ -64,8 +64,6 @@ data class BotCustomConfiguration(
         healthyRampMs = 5 * 60_000L,
         changeCooldownMs = 10_000L,
     ),
-    // AI speech (the Bots editor's AI tab); sentinels = follow the model
-    val llmSpeech: BotLlmSpeech = BotLlmSpeech(),
 ) {
     init {
         BotPopulationPolicy.validatePopulation(
@@ -142,7 +140,6 @@ data class BotCustomConfiguration(
             wanderWhenIdle = wanderWhenIdle,
             enableOffSpecStrategies = enableOffSpecStrategies,
             admission = admission,
-            llmSpeech = llmSpeech,
         ).also { require(basePresetId == null || basePresetId.matches(Regex("[a-z0-9][a-z0-9._-]{2,63}"))) }
 
     companion object {
@@ -185,7 +182,6 @@ data class BotCustomConfiguration(
             wanderWhenIdle = profile.wanderWhenIdle,
             enableOffSpecStrategies = profile.enableOffSpecStrategies,
             admission = profile.admission,
-            llmSpeech = profile.llmSpeech,
         )
 
         /** Start a new custom preset from a built-in base (duplicate-friendly). */
@@ -246,7 +242,7 @@ enum class BotActivityPreset(val label: String, val summary: String) {
  * (networking lives in the LAN destination).
  */
 enum class BotPlaystylePreset(val label: String, val summary: String) {
-    CLASSIC_WORLD("Classic World", "Quests, autonomous groups, wandering; level matching off."),
+    CLASSIC_WORLD("Classic World", "The standard playerbots world: quests, groups, wandering and invites."),
     SOLO_FRIENDLY("Solo Friendly", "Player-focused and quiet; bots do not form their own groups."),
     LAN_COOP("LAN Co-op", "Group-ready behaviour for several humans in one world."),
     INDEPENDENT("Independent", "Bots roam and quest alone; no bot-only groups form."),
@@ -261,7 +257,7 @@ enum class BotPlaystylePreset(val label: String, val summary: String) {
             wanderWhenIdle = true,
             enableOffSpecStrategies = true,
             allowBotChat = false,
-            allowPlayerInvites = false,
+            allowPlayerInvites = true,
             syncLevelWithPlayers = false,
         )
         SOLO_FRIENDLY -> configuration.copy(

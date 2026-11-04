@@ -6,7 +6,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /**
- * P6 (lanes item 10): every multi-qualified lane the eight former
+ * P6: every multi-qualified lane the eight former
  * `qualified().single()` sites lifted into the [ActiveFlavor] machine,
  * exercised with TWO qualified flavors registered through
  * [TwoQualifiedFlavors] — the exact resolution shape each site calls:
@@ -186,7 +186,7 @@ class MultiQualifiedLaneResolutionTest {
     fun theFlipFixtureIsSeamOnly() {
         TwoQualifiedFlavors.install()
  // Flip: the PRODUCTION registry now qualifies all three lanes
-        // (the real flip, decision D86) — the fixture's two-lane list stays
+        // (the real flip) — the fixture's two-lane list stays
         // a test-only seam and never mutates it. The seam's list is still
         // distinguishable from production's THREE (wotlk absent).
         assertEquals(

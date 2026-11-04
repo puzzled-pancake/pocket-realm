@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The roster relay ops' JSON parsers (design-remote-accounts §8/§11/§12):
+ * The roster relay ops' JSON parsers (design-remote-accounts /):
  * the shapes the world_runtime.cpp ops document, parsed without natives.
  */
 class FriendRosterJsonTest {
@@ -34,7 +34,7 @@ class FriendRosterJsonTest {
         assertTrue(rows[0].online)
     }
 
-    /** R5-5 (native-server round 1): the payload labels bot rows (the
+    /** the payload labels bot rows (the
      * PRB13 admission prefix) — a mixed friends+bot roster projects every
      * row with its bot marker, so a surface can render or filter honestly
      * instead of padding the friends list with unlabeled bots. */

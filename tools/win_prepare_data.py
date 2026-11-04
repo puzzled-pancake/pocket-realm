@@ -108,7 +108,7 @@ FLAVOR_MIN_COUNTS = {
 }
 MIN_COUNTS = dict(FLAVOR_MIN_COUNTS["vanilla"])
 
-# Per-flavor pointer namespace + manifest identity (DESK-128): the
+# Per-flavor pointer namespace + manifest identity: the
 # canonical pointer is active-<flavorId>.json and the manifest carries the
 # flavor alias key that the shared PreparedDataStore's
 # validateDataManifestEnvelope resolves through cmangosFamily/clientBuild
@@ -257,7 +257,7 @@ def run(step: str, cwd: Path, cmd: list[str]) -> str:
     if result.stdout:
         print(f"[{step}] {result.stdout[-600:]}", flush=True)
     print(f"[{step}] done in {time.time() - started:.0f}s", flush=True)
-    # R2-r2-2 (W2 code-red round 2): the failure oracle must see BOTH streams
+    # the failure oracle must see BOTH streams
     # — the generator's per-map write failures go through perror() → stderr
     # (cmangos-wotlk MapBuilder.cpp:853-854/:1095-1096) while rc stays 0, so
     # a stdout-only return scanned 'failure-clean' past them.
@@ -387,7 +387,7 @@ def validate_mmaps(workspace: Path, movemap_stdout_clean: bool | None = None) ->
             problems.append(
                 f"{len(missing)} maps have no mmtiles (MoveMapGen per-map failures?): "
                 f"{', '.join(missing[:20])}{'…' if len(missing) > 20 else ''}")
-    # R2-r2-2 (W2 code-red round 2): every TILE-BEARING map also requires its
+    # every TILE-BEARING map also requires its
     # %03u.mmap navmesh header — the runtime loads tiles through it (the
     # desktop twin's requireCount(mmaps, ".mmap", ...) has always enforced
     # this side; the official lane did not). A header write lost to a
@@ -459,7 +459,7 @@ def assert_client_shape(client: Path, flavor: str) -> None:
     # Kotlin import lane's VAL-03 gate enforces).
     exe = client / shape["exe"]
     expected_size, expected_sha = registered_exe_identity(flavor)
-    # R2-6-2 (W2 code-red round 6): the identity gate used to SKIP both legs
+    # the identity gate used to SKIP both legs
     # for a flavor registered without pins — the fail-closed posture was
     # keyed to data no pin enforced. A lane without registered identity pins
     # cannot verify anything and refuses before any extractor runs; the new
@@ -498,7 +498,7 @@ def extract(client: Path) -> None:
                               "(run tools/build_win_realm_runtime.py "
                               f"--flavor {FLAVOR} --extractors)")
     verified_sha = assert_client_shape(client, FLAVOR)
-    # R2-r2-1 (W2 code-red round 2): the workspace records the lane identity
+    # the workspace records the lane identity
     # its data was extracted under — publish()/--publish-only refuse any
     # workspace whose marker is absent or names another lane, so a
     # wrong-flavor-shaped workspace can never publish under this lane's
@@ -640,7 +640,7 @@ def publish(flavor: str) -> None:
         if not source.is_dir():
             raise StepFailure(f"missing prepared data kind: {source}")
 
-    # R2-r2-1 (W2 code-red round 2): the workspace's lane-identity marker —
+    # the workspace's lane-identity marker —
     # written by extract() after the client shape + S5.1 exe verification —
     # gates EVERY publication. Absence (a workspace this tool's extract never
     # produced, e.g. hand-staged or produced by an older lane) and flavor
@@ -659,7 +659,7 @@ def publish(flavor: str) -> None:
     except ValueError as error:
         raise StepFailure(f"workspace lane identity unreadable: {error} "
                           "(VAL-WORKSPACE-IDENTITY)") from error
-    # R2-r4-1 (W2 code-red round 4): valid-but-non-object JSON (a bare string,
+    # valid-but-non-object JSON (a bare string,
     # array, or number) parsed fine and then crashed marker.get() with a raw
     # AttributeError below — an unactionable traceback instead of the gate's
     # VAL refusal. Same fail-closed posture, actionable copy.
@@ -754,7 +754,7 @@ def publish(flavor: str) -> None:
         manifest_path.write_text(json.dumps(manifest, indent=1), encoding="utf-8")
         manifest_sha = sha256_of(manifest_path)
 
-        # Per-flavor pointer namespace (DESK-128): the canonical
+        # Per-flavor pointer namespace: the canonical
         # active-<flavorId>.json plus the un-namespaced active.json mirror
         # (kept for one transition release so existing consumers and shared
         # PreparedDataStore builds without the flavor namespace keep
@@ -884,7 +884,7 @@ def main() -> int:
         if not args.publish_only:
             extract(args.client)
         else:
-            # R2-1 (W2 code-red round 1): --publish-only is not a trust
+            # publish-only is not a trust
             # shortcut. The workspace must pass the SAME completeness gates
             # the extraction path enforces before anything publishes — a
             # MoveMapGen-truncated workspace used to flip both active

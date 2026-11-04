@@ -4,7 +4,7 @@ Pocket Realm does not replace the original game client. It prepares and runs a p
 
 ## Supported client
 
-The importer accepts any qualified client: Vanilla 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340 (each with its own MPQ set). The selected source folder stays read-only. Pocket Realm copies files into private storage, checks every copied file, and publishes a complete managed client generation only after verification succeeds.
+The importer accepts any supported client: Vanilla 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340 (each with its own MPQ set). The selected source folder stays read-only. Pocket Realm copies files into private storage, checks every copied file, and publishes a complete managed client generation only after verification succeeds.
 
 Unexpected root programs and injected libraries are not accepted as part of the managed client. Standard files needed by the supported client are preserved.
 
@@ -89,13 +89,13 @@ Sound is selected before launch. Turning it on does not alter realm data, and tu
 
 ## Optional client tweaks
 
-Pocket Realm includes the open-source vanilla-tweaks 1.6.0 patcher for optional quality-of-life changes. Available choices cover widescreen field of view, background sound, sound channel count, view distances, quick loot behaviour, nameplate distance, large-address support, and a camera skip fix. The patcher is a Vanilla-lane feature: the tweak set is validated against the 1.12.1 client only, and on the TBC and WotLK lanes the tweaks card says so and offers nothing.
+Pocket Realm includes the open-source vanilla-tweaks 1.6.0 patcher for optional quality-of-life changes. Available choices cover widescreen field of view, background sound, sound channel count, view distances, quick loot behaviour, nameplate distance, large-address support, and a camera skip fix. The patcher is a Vanilla-only feature: the tweak set is validated against the 1.12.1 client only, and on TBC and WotLK the tweaks card says so and offers nothing.
 
 The patcher never edits the player's source folder. It works on the managed client and publishes a separate patched executable. Before using the result, Pocket Realm requires the complete recognised client hash and independently checks every expected changed byte. An unrecognised executable stays on the pristine behaviour.
 
 ## x86 validation route
 
-The repository has a separate x86-64 Android validation route using Wine 11.14, a pinned glibc environment, PRoot, and Gladio. It helps test packaging and compatibility. Normal ARM handheld play does not use that route.
+The repository has a separate x86-64 Android validation route using Wine 11.14, a version-locked glibc environment, PRoot, and Gladio. It helps test packaging and compatibility. Normal ARM handheld play does not use that route.
 
 ## Related pages
 

@@ -30,7 +30,7 @@ class ImportWorkerServiceLaneRefusalTeardownTest {
     }
 
     private fun refusalArms(source: String): List<String> =
-        Regex("""catch \(lane: IllegalStateException\) \{.*?return@launch""",
+        Regex("""catch \((?:lane|_): IllegalStateException\) \{.*?return@launch""",
             RegexOption.DOT_MATCHES_ALL)
             .findAll(source)
             .map { it.value }
@@ -75,6 +75,41 @@ class ImportWorkerServiceLaneRefusalTeardownTest {
                 "arm $index: a bare return@launch directly after the " +
                     "notification is the leak shape this pin exists for",
                 afterNotify.isEmpty(),
+            )
+        }
+    }
+
+    @Test
+    fun bothArmsSeedThePersistedPickBeforeConstruction() {
+        // The :import process's ActiveFlavor holder starts empty; with
+        // several qualified flavors a bare resolve refuses "found 3" even
+        // though the pick was made (and persisted) on Home. Each arm must
+        // re-apply the persisted pick BEFORE buildImporter — the live RP6
+        // owner-session failure this pins shut.
+        val source = serviceSource()
+        val arms = refusalArms(source)
+        assertTrue("expected both arms present", arms.size == 2)
+        val seed = "seedLaneFromPersistedPick()"
+        assertTrue(
+            "the seed helper must guard a stale persisted id (a throwing " +
+                "select would crash the task instead of refusing honestly)",
+            "runCatching { ActiveFlavor.select(persisted) }" in source,
+        )
+        for ((index, armStart) in listOf(
+            source.indexOf("task = scope.launch"),
+            source.indexOf("task = scope.launch", source.indexOf("task = scope.launch") + 1),
+        ).withIndex()) {
+            val buildAt = source.indexOf("buildImporter(testProfile, joinOnly(applicationContext))", armStart)
+            val seedAt = source.indexOf(seed, armStart)
+            assertTrue(
+                "arm $index: no buildImporter after its task launch",
+                buildAt >= 0,
+            )
+            assertTrue(
+                "arm $index: seedLaneFromPersistedPick() must run before " +
+                    "buildImporter(testProfile) — the holder only has the " +
+                    "lane if the persisted pick is applied first",
+                seedAt in armStart until buildAt,
             )
         }
     }

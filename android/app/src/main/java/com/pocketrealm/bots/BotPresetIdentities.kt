@@ -53,7 +53,7 @@ object BotPresetIdentities {
             append(profile.startupRampIntervalMs).append('|')
             append(profile.activationBatchSize).append('|')
             append(profile.accountCount).append('|')
-            append(profile.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)).append('|')
+            append(profile.identityConfigText()).append('|')
             append(profile.admission)
         }
         return MessageDigest.getInstance("SHA-256")

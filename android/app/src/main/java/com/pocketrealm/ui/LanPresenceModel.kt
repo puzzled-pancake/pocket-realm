@@ -4,7 +4,7 @@ import org.json.JSONObject
 
 /**
  * Pure presentation model for the LAN screen's joined-mode players-online
- * line (F9, census-backend-tools; design-lan §4.2) — the
+ * line (F9, census-backend-tools; design-lan) — the
  * DesktopAppModel.lanPlayersOnline + budgetLine "people" half twin, over
  * the same shared observeWorldPresence contract. The Compose line renders
  * this verbatim; the shapes are pinned by LanPresenceModelTest.

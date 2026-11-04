@@ -32,7 +32,7 @@ class ClientFlavorTest {
 
     @Test
     fun onlyVanillaIsQualified() {
-        // W4 flip: all three lanes are qualified (owner default, §4 W4.4).
+        // All three game versions are supported.
         assertEquals(
             listOf(ClientFlavors.VANILLA, ClientFlavors.TBC, ClientFlavors.WOTLK),
             ClientFlavors.qualified(),
@@ -76,7 +76,7 @@ class ClientFlavorTest {
             ClientFlavors.VANILLA.requiredMpqs,
         )
         assertEquals(11, ClientFlavors.VANILLA.requiredMpqs.size)
-        // S5.1 registration (lanes item 13): the exact sets enumerated from the
+        // S5.1 registration: the exact sets enumerated from the
         // staged genuine clients — Data/ root plus the enus/ locale segment,
         // lowercase forward-slash paths relative to Data/ (correction).
         assertEquals(
@@ -164,7 +164,7 @@ class ClientFlavorTest {
         // Pinned literals of the documented pristine WoW.exe SHA-256s
         // (schemas/flavor.json wine.known_exe_sha256): vanilla's inspected
         // 5875 copy plus the S5.1 registrations measured on the staged
-        // genuine tbc/wotlk clients (lanes item 13). A registry edit cannot
+        // genuine tbc/wotlk clients. A registry edit cannot
         // silently swap the warning-only telltale.
         assertEquals(
             "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7",
@@ -187,7 +187,7 @@ class ClientFlavorTest {
         // max_total_bytes 20 GiB for the shipped lane.
         assertEquals(6L * 1024L * 1024L * 1024L, ClientFlavors.VANILLA.extractedEstimateBytes)
         assertEquals(20L * 1024L * 1024L * 1024L, ClientFlavors.VANILLA.maxTotalBytes)
-        // Null until measured for the flavor (port plan S5).
+        // Null until measured for the flavor .
  // Flip: the estimates cover the measured client trees (the
         // managed-copy floor) — 12 GiB tbc / 24 GiB wotlk; caps 24/40 GiB.
         assertEquals(12L * 1024L * 1024L * 1024L, ClientFlavors.TBC.extractedEstimateBytes)
@@ -239,7 +239,7 @@ class ClientFlavorTest {
         assertEquals("8606", ClientFlavors.TBC.realmdAcceptedBuilds)
         assertEquals("12340", ClientFlavors.WOTLK.realmdAcceptedBuilds)
         // ONE shared auth-challenge opcode; every branch's frame length is
-        // verified (S8, lanes item 14): vanilla 26 (BUILD_6005 form), tbc/wotlk
+        // verified: vanilla 26 (BUILD_6005 form), tbc/wotlk
         // 32 (sAuthLogonProof_S: cmd+error+M2[20]+accountFlags+surveyId+unkFlags).
         assertEquals(0x1EC, ClientFlavors.AUTH_CHALLENGE_OPCODE)
         assertEquals(26, ClientFlavors.VANILLA.proofResponseBytes)
@@ -270,7 +270,7 @@ class ClientFlavorTest {
     fun planCorrectionC6ExeProvenanceIsRegisteredPerFlavor() {
         // vanilla's pristine-exe size is the pinned installer fact (its
         // MD5 cross-check stays unregistered); tbc/wotlk carry the full S5.1
-        // registrations measured on the staged genuine clients (lanes item 13)
+        // registrations measured on the staged genuine clients
         // — sizes and MD5s equal the anzz1 pristine prefixes.
         assertEquals(4775986L, ClientFlavors.VANILLA.knownExeSizeBytes)
         assertNull(ClientFlavors.VANILLA.knownExeMd5)
@@ -290,13 +290,13 @@ class ClientFlavorTest {
         assertEquals(8606, identity.build)
         assertNull(identity.flavorId)
         val message = ClientPeIdentity.detected(identity)
-        assertTrue(message.contains("no qualified flavor matches"))
+        assertTrue(message.contains("not a supported version"))
         assertTrue(message.contains(identity.version!!))
     }
 
     @Test
     fun accountExpansionLevelsFollowTheCoreExpansionDomain() {
-        // F1-10 (lanes item 12): the account-side expansion level the
+        // the account-side expansion level the
         // core's `account set addon` console verb writes — the values the
         // account-creation wirings chain after a fresh create, resolved
         // through the registry so a callsite literal can never drift from
@@ -319,7 +319,6 @@ class ClientFlavorTest {
             realmdAcceptedBuilds = "9999", proofResponseBytes = null,
             wtfLayout = "account-level", wtfCharacterCacheFiles = emptySet(),
             knownExeMd5 = null, knownExeSizeBytes = null, largeAddressAware = null,
-            loreCardsFile = "lore_cards_v112.jsonl", promptIdentity = "WoW: Stranger",
             graphicsRoutes = setOf("dxvk"), vanillaTweaksEnabled = false,
         )
         val failure = runCatching { stranger.accountExpansion }.exceptionOrNull()

@@ -231,7 +231,7 @@ def main() -> int:
     drift = False
     unknown_kinds = False
     pending = 0
-    # Review round 2 (R2-2): a duplicated id makes the per-entry loop below
+    # Review a duplicated id makes the per-entry loop below
     # verify each duplicate independently (both can print OK) while the
     # by-id consumers collapse or mis-bind — refuse the shape outright.
     duplicates = common.duplicate_source_ids(entries)

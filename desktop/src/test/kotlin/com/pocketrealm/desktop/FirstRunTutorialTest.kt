@@ -13,7 +13,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-16/31/49/92/105: the first-run tutorial's compose-free legs — the
+ * the first-run tutorial's compose-free legs — the
  * visibility gate (shown while `setupComplete` is unset, replayable from
  * the Settings Setup card), the bounded step walk, the step walk's copy,
  * and the model-level gating the register plan pins (tutorial shown iff
@@ -58,7 +58,7 @@ class FirstRunTutorialTest {
         // wording has no desktop leg).
         assertTrue("WoW.exe" in FIRST_RUN_TUTORIAL_STEPS[1].body)
         assertTrue("build 5875" in FIRST_RUN_TUTORIAL_STEPS[1].body)
-        // R6-3 (W4 code-red round 3): the requirement body is derived from
+        // the requirement body is derived from
         // the registry's qualified set — every qualified flavor's version
         // and build must be named, and the vanilla MPQ list must not be
         // presented as the generic requirement.

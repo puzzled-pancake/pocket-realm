@@ -16,7 +16,7 @@ import com.pocketrealm.supervisor.RuntimeMode
 enum class RealmStatusVisibility { OFF, FRIENDS, PUBLIC }
 
 /**
- * The pure visibility transition verdicts (§4). Refusals leave the
+ * The pure visibility transition verdicts . Refusals leave the
  * visibility at its PRIOR state and carry the honest copy the hosting
  * card renders — they never half-start the tunnel or the server.
  */
@@ -29,24 +29,24 @@ sealed class RealmTransitionVerdict {
     /** Refused: visibility stays at its prior state; [reason] is the
      * machine-readable code the app-side suite asserts (T3d names
      * CROSS_CHECK_FAILING in the 409 body) and [copy] is the honest,
-     * pid-free/path-free refusal text (§3.2). */
+     * pid-free/path-free refusal text . */
     data class Refused(val reason: RefusalReason, val copy: String) :
         RealmTransitionVerdict()
 }
 
-/** Why a visibility transition was refused (§4/§5.3/§6.6). */
+/** Why a visibility transition was refused. */
 enum class RefusalReason {
     /** Port 18080 already bound (second app instance, leftover,
      * unrelated app). Copy names the port, never a pid or path. */
     BIND_CONFLICT,
 
     /** The activeSessions cross-check is failing — PUBLIC enable is
-     * refused (§3.3; T3d's 409-analog). */
+     * refused ( T3d's 409-analog). */
     CROSS_CHECK_FAILING,
 
     /** A lost-record orphaned page tunnel is live: the transition that
      * binds 18080 is refused until the host acknowledges or adopts it
-     * (§5.3 — FRIENDS included, the resurrect scenario runs through it). */
+     * (FRIENDS included, the resurrect scenario runs through it). */
     ORPHAN_PENDING,
 
     /** LOCAL/solo sessions are not offered FRIENDS (the page rides
@@ -74,7 +74,7 @@ enum class RefusalReason {
 object RealmVisibilityMachine {
 
     /**
-     * §5.3's refusal copy — ONE source for this machine's input-level
+     * 's refusal copy — ONE source for this machine's input-level
      * refusal AND the controller's apply-time fresh-sweep refusal (the
      * sweep that runs before a binding transition gates that same
      * transition, so an orphan that surfaced after the machine's read
@@ -90,8 +90,8 @@ object RealmVisibilityMachine {
      * [target] the switch's wish. [hostingMode] is the supervisor
      * snapshot's runtime mode (the game's own hosting lane — LOCAL offers
      * no FRIENDS seat); [bindAllowed] is the caller's 18080 bind probe;
-     * [crossCheckOk] the players cross-check verdict (§3.3); [orphanGateClear]
-     * the §5.3 sweep verdict.
+     * [crossCheckOk] the players cross-check verdict ; [orphanGateClear]
+     * the sweep verdict.
      */
     @Suppress("ReturnCount", "LongParameterList", "MaxLineLength") // the truth table is one literal; the gates ARE the inputs
     fun transition(
@@ -144,11 +144,11 @@ object RealmVisibilityMachine {
     }
 
     /**
-     * The boot semantics (§4, round 4): the persisted value meets the
+     * The boot semantics: the persisted value meets the
      * fail-closed default at app launch. A persisted FRIENDS RESTORES —
      * the page server restarts, no tunnel child, no new consent (the
      * reachability is unchanged). A persisted PUBLIC restores ARMED-BUT-OFF:
-     * the app never auto-starts cloudflared at launch, and the §3.5 consent
+     * the app never auto-starts cloudflared at launch, and the consent
      * flip is required before any tunnel child spawns. OFF stays OFF.
      */
     fun bootOutcome(persisted: RealmStatusVisibility): BootOutcome = when (persisted) {
@@ -158,6 +158,6 @@ object RealmVisibilityMachine {
     }
 
     /** The launch state plus whether the hosting card must show the
-     * "your Public showcase was on — enable again" armed notice (§4). */
+     * "your Public showcase was on — enable again" armed notice . */
     data class BootOutcome(val restored: RealmStatusVisibility, val publicArmed: Boolean)
 }

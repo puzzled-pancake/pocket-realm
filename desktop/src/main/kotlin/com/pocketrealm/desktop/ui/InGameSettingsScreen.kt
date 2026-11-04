@@ -52,7 +52,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * DESK-12/22/41/59/85/86/96: the stock 1.12.1 settings panels over the
+ * the stock 1.12.1 settings panels over the
  * client's WTF tree — graphics / sound / interface / advanced-interface
  * sections from the shared, integrity-hashed [WowVanillaSettingsCatalog],
  * plus the bindings editor over the shared 211-entry
@@ -143,12 +143,12 @@ fun InGameSettingsScreen(model: DesktopAppModel) {
             ) {
                 Text("In-game settings", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    // R6-2 (W6-N5 code-red round 1): flavor-neutral — the
+                    // flavor-neutral — the
                     // catalogs resolve per flavor (2.4.3/3.3.5 included), so
                     // the header never names one lane's build.
-                    "The stock settings panels for your flavor, editing the " +
-                        "client's WTF files through the shared, integrity-pinned " +
-                        "stock catalogs. While the client runs, changes queue " +
+                    "The game's stock settings panels, editing the " +
+                        "client's WTF files through the built-in option " +
+                        "catalogs. While the client runs, changes queue " +
                         "and deliver at the next clean stop.",
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -477,7 +477,7 @@ private fun BindingsEditorCard(
             Text(
                 "The stock binding catalog (" + com.pocketrealm.ingame.WowFlavorCatalogs
                     .bindingsUserFacing(editor.activeLaneForCatalog()).size +
-                    " action IDs, integrity-pinned). Assignments land in the selected " +
+                    " action IDs). Assignments land in the selected " +
                     "scope's bindings-cache.wtf when the client is stopped, or queue for " +
                     "the next clean stop while it runs.",
                 style = MaterialTheme.typography.bodySmall,

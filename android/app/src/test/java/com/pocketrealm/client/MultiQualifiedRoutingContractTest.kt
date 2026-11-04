@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * P6 (lanes item 10): the multi-qualified routing WIRING pin for the eight
+ * P6: the multi-qualified routing WIRING pin for the eight
  * former `qualified().single()` sites. Five of the six shipping classes are
  * Context-bound (no Robolectric on this lane — the module's unit tests are
  * pure-JVM by design), so the cross-lane wiring is pinned as a source

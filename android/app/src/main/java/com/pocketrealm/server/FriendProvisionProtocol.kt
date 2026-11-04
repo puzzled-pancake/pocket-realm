@@ -7,7 +7,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * The remote-account provisioning wire (design-remote-accounts §5/§6):
+ * The remote-account provisioning wire (design-remote-accounts):
  * length-prefixed UTF-8 JSON, one request per connection, a hard 4 KiB
  * request cap (matching RuntimeLaunchSpec.fromJson's 4096 budget) and a
  * short deadline. Android-free pure JVM so the FRIEND side runs on both
@@ -27,7 +27,7 @@ import java.net.Socket
 object FriendProvisionProtocol {
     const val SCHEMA = 1
 
-    /** Hard cap on one framed request, in bytes (§6). */
+    /** Hard cap on one framed request, in bytes. */
     const val MAX_REQUEST_BYTES = 4_096
 
     /** Hard cap on one framed response, in bytes (a PROVISIONED verdict is tiny). */
@@ -98,6 +98,102 @@ object FriendProvisionProtocol {
     fun isSrpHex(value: String): Boolean =
         value.length == 64 && value.all { (it in '0'..'9') || (it in 'a'..'f') }
 
+    /** The D7 LAN sign-up request kind: account creation on the
+     * friend-access port without an invite, gated on the host's switches
+     * and (when the game is locked) the game password's proof. */
+    const val KIND_SIGNUP = "signup"
+
+    /**
+     * The D3 proof's pinned node legs for the LAN sign-up lane: no iroh
+     * descriptor is exchanged on this lane, so BOTH legs carry the lane
+     * name — the proof binds the derived key (and so the password) to
+     * this lane's shape, exactly the D3 formula with a fixed message.
+     */
+    const val LAN_SIGNUP_NODE = "lan"
+
+    /** One D7 LAN sign-up request (the friend's account ask). */
+    data class SignupRequest(val username: String, val sHex: String, val vHex: String, val pass: String)
+
+    /**
+     * The friend-side proof for a game password on the LAN sign-up lane:
+     * the D3 formula verbatim (the same per-password key and HMAC shape)
+     * with BOTH node legs pinned to the lane literal — [JoinPasscode.proof]
+     * validates node ids as 64-hex, which the lane name deliberately is
+     * not, so the math is mirrored here.
+     */
+    fun lanSignupPass(gamePassword: String): String {
+        val key = com.pocketrealm.discovery.iroh.JoinPasscode.keyHex(gamePassword)
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(
+            javax.crypto.spec.SecretKeySpec(
+                key.chunked(2).map { it.toInt(16).toByte() }.toByteArray(),
+                "HmacSHA256",
+            ),
+        )
+        return mac.doFinal("$LAN_SIGNUP_NODE:$LAN_SIGNUP_NODE".toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    fun encodeSignupRequest(username: String, sHex: String, vHex: String, pass: String): ByteArray =
+        frame(
+            JSONObject()
+                .put("schema", SCHEMA)
+                .put("kind", KIND_SIGNUP)
+                .put("username", username)
+                .put("sHex", sHex)
+                .put("vHex", vHex)
+                .put("pass", pass)
+                .toString(),
+        )
+
+    /** Decodes one LAN sign-up request; null = malformed (the caller
+     * answers the SIGNUP_CLOSED-shaped refusal, never half-interprets). */
+    fun decodeSignupRequest(payload: ByteArray): SignupRequest? {
+        if (payload.size > MAX_REQUEST_BYTES) return null
+        val value = runCatching { JSONObject(String(payload, Charsets.UTF_8)) }.getOrNull() ?: return null
+        val allowed = setOf("schema", "kind", "username", "sHex", "vHex", "pass")
+        val actual = buildSet { value.keys().forEachRemaining(::add) }
+        if (actual != allowed) return null
+        if (value.optInt("schema", -1) != SCHEMA) return null
+        if (value.optString("kind") != KIND_SIGNUP) return null
+        val username = value.optString("username")
+        if (username.isEmpty()) return null
+        if (runCatching { ServerRuntimeContract.requireAccountToken("username", username) }.isSuccess.not()) {
+            return null
+        }
+        val sHex = value.optString("sHex")
+        val vHex = value.optString("vHex")
+        if (!isSrpHex(sHex) || !isSrpHex(vHex)) return null
+        // An unlocked game takes any pass including empty; the proof check
+        // only runs when the host set a game password.
+        val pass = value.optString("pass")
+        if (pass.length > 128) return null
+        return SignupRequest(username, sHex, vHex, pass)
+    }
+
+    /** The LAN sign-up reply frame (the shared sign-up codes, this wire). */
+    fun encodeSignupReply(reply: com.pocketrealm.discovery.iroh.SignupProtocol.Reply): String = JSONObject()
+        .put("schema", SCHEMA)
+        .put("kind", KIND_SIGNUP)
+        .put("ok", reply.ok)
+        .put("code", reply.code)
+        .put("detail", reply.detail)
+        .toString()
+
+    /** Decodes a LAN sign-up reply; null = off-protocol. */
+    fun decodeSignupReply(payload: ByteArray): com.pocketrealm.discovery.iroh.SignupProtocol.Reply? {
+        val value = runCatching { JSONObject(String(payload, Charsets.UTF_8)) }.getOrNull() ?: return null
+        if (value.optInt("schema", -1) != SCHEMA) return null
+        if (value.optString("kind") != KIND_SIGNUP) return null
+        val code = value.optString("code")
+        if (code.isEmpty()) return null
+        return com.pocketrealm.discovery.iroh.SignupProtocol.Reply(
+            value.optBoolean("ok"),
+            code,
+            value.optString("detail"),
+        )
+    }
+
     /** 4-byte big-endian length prefix + the UTF-8 payload. */
     fun frame(json: String): ByteArray {
         val payload = json.toByteArray(Charsets.UTF_8)
@@ -164,7 +260,7 @@ class FriendAccessClient(
 
     /**
      * One request per connection. [host] is the same canonical IPv4 literal
-     * the join flow already carries (the endpoint parser's rule — §13.5
+     * the join flow already carries (the endpoint parser's rule —
      * keeps hostnames out until the parser decision lands).
      */
     @Suppress("TooGenericExceptionCaught") // every transport failure is the honest Unreachable verdict
@@ -215,6 +311,68 @@ class FriendAccessClient(
         }
         // The refused/unreachable paths drop `verifier` here: nothing derived
         // from the password outlives a refused request.
+    }
+
+    /** One LAN sign-up ask (D7) over the friend-access port. */
+    sealed class SignupOutcome {
+        /** The host answered with a sign-up verdict (created or a refusal). */
+        data class Answered(val reply: com.pocketrealm.discovery.iroh.SignupProtocol.Reply) : SignupOutcome()
+
+        /** The host could not be reached or answered off-protocol. */
+        data class Unreachable(val reason: String) : SignupOutcome()
+    }
+
+    /**
+     * The D7 LAN sign-up ask: derives the SRP6 verifier ON THIS DEVICE,
+     * proves the game password (when the friend typed one) with the D3
+     * proof pinned to the lane name, and reports the host's verdict. The
+     * typed passwords never leave the device — only the verifier and the
+     * proof cross.
+     */
+    @Suppress("TooGenericExceptionCaught") // every transport failure is the honest Unreachable verdict
+    fun requestSignup(
+        host: String,
+        port: Int,
+        username: String,
+        password: String,
+        gamePassword: String?,
+    ): SignupOutcome {
+        runCatching { ServerRuntimeContract.requireAccountToken("username", username) }
+            .getOrElse { return SignupOutcome.Unreachable(it.message ?: "invalid username") }
+        val verifier = Srp6AccountMath.verifierFor(username, password)
+        val pass = gamePassword?.takeIf { it.isNotEmpty() }
+            ?.let(FriendProvisionProtocol::lanSignupPass)
+            ?: ""
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(host, port), connectTimeoutMs)
+                socket.soTimeout = readTimeoutMs
+                socket.getOutputStream().apply {
+                    write(
+                        FriendProvisionProtocol.encodeSignupRequest(
+                            username, verifier.sHex, verifier.vHex, pass,
+                        ),
+                    )
+                    flush()
+                }
+                val payload = FriendProvisionProtocol.readFrame(
+                    socket.getInputStream(),
+                    FriendProvisionProtocol.MAX_RESPONSE_BYTES,
+                ) ?: return SignupOutcome.Unreachable("host closed or timed out mid-response")
+                val reply = FriendProvisionProtocol.decodeSignupReply(payload)
+                    // The locked-source answer is the invite lane's identical
+                    // refusal blob; the friend sees the shared rate-limit
+                    // sentence, never an "unparseable" mystery.
+                    ?: if (String(payload, Charsets.UTF_8) == FriendProvisionProtocol.REFUSED_RESPONSE) {
+                        com.pocketrealm.discovery.iroh.SignupProtocol.RATE_LIMITED_REPLY
+                    } else {
+                        return SignupOutcome.Unreachable("unparseable host response")
+                    }
+                SignupOutcome.Answered(reply)
+            }
+        } catch (failure: Throwable) {
+            SignupOutcome.Unreachable(failure.message ?: failure.javaClass.simpleName)
+        }
     }
 
     private companion object {

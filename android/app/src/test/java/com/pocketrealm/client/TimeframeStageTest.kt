@@ -11,7 +11,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * The shared timeframe core's contract (design §1–§5 of the multiplayer +
+ * The shared timeframe core's contract (per the multiplayer +
  * timeframe design doc), compiled into BOTH lanes via shared_tests:
  *
  * - stage gating: the stage-marker ordering predicate, the game_event
@@ -113,7 +113,7 @@ class TimeframeStageTest {
 
     @Test
     fun confValueForTheBootingFlavorNeverNamesAForeignLaneStage() {
-        // R5-2 (code-red round 1): with two qualified flavors the conf of a
+        // with two qualified flavors the conf of a
         // booting tbc world must name a tbc stage — never a vanilla id —
         // and a stored stage of a NON-ACTIVE qualified flavor degrades to
         // the ACTIVE flavor's final patch (no cross-flavor stage bleed the
@@ -225,7 +225,7 @@ class TimeframeStageTest {
 
     @Test
     fun storedStageValuesDegradeToTheDefaultNeverThrow() {
-        // The settings layer's degrade-per-field posture (design §4.1):
+        // The settings layer's degrade-per-field posture (design):
         // "" stays "", a stage of the QUALIFIED lane survives, and anything
         // else — a stale stage of an unqualified flavor, a typo — degrades
         // to "" so a flavor change can never strand a world silently.
@@ -324,7 +324,7 @@ class TimeframeStageTest {
 
     @Test
     fun neverBanDisciplineHoldsOverEveryStageClass() {
-        // Design §5: context-allow words collide with earlier legitimate
+        // Design: context-allow words collide with earlier legitimate
         // vocabulary and are NEVER banned; only full later-era senses are.
         val forbiddenBans = setOf(
             "northrend", "outland", "dalaran", "lich king", "naxxramas",
@@ -347,21 +347,21 @@ class TimeframeStageTest {
     }
     @Test
     fun unstagedOverlayNoticeTellsTheStartRefusalTruth() {
-        // W7 code-red R5-1: a selected non-final stage with no staged
+        // W7 R5-1: a selected non-final stage with no staged
         // overlay for its flavor REFUSES the world start, so the Settings
         // copy must say that — never "the world still runs the current
         // release's content".
         val stage = TimeframeStages.byId("tbc", "tbc-2.0.1")!!
         val notice = TimeframeStages.unstagedOverlayNotice(stage)
-        assertTrue(notice.contains("refused"))
+        assertTrue(notice.contains("cannot start"))
         assertTrue(notice.contains("current-release stage"))
         assertFalse(notice.contains("world still runs"))
         // The remedy must not promise an
         // unconditional start — on Android and installed desktop images a
-        // non-vanilla realm start is refused at ANY stage (D90), so the
+        // non-vanilla realm start is refused at ANY stage, so the
         // promise is lane-qualified
         assertFalse(notice.contains("start the world today"))
-        assertTrue(notice.contains("boot this flavor"))
+        assertTrue(notice.contains("where this game version is supported"))
     }
 
     @Test

@@ -180,7 +180,13 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
 
     val physicalControls: @Composable () -> Unit = {
         SupportingText(
-            if (profile.scheme == ControlScheme.ANDROID_PORT) {
+            if (profile.scheme == ControlScheme.WOW_FOREVER) {
+                "WoW Forever layout: all four action sets stay on screen, D-pad slots on the left and face slots " +
+                    "on the right. Hold L2, R2 or both to switch sets. On the base set A jumps, X uses the nearest " +
+                    "corpse, chest or object, Y opens the radial menu and B cancels (closes windows, then clears " +
+                    "the target). R1 targets the nearest enemy and L1 targets you. Start opens the game menu. " +
+                    "In game, /ap layout star or /ap layout forever switches the on-screen layout."
+            } else if (profile.scheme == ControlScheme.ANDROID_PORT) {
                 "Android Port combat keeps frequent actions direct: R1 targets the nearest enemy " +
                     "and L1 selects and uses the nearest eligible corpse, chest, or ordinary object. " +
                     "Select + L1 is the precise use-at-pointer fallback. L2/R2 are Shift/Ctrl action-page modifiers. " +
@@ -441,7 +447,11 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                if (profile.scheme == ControlScheme.ANDROID_PORT) {
+                if (profile.scheme == ControlScheme.WOW_FOREVER) {
+                    "WoW Forever layout: face buttons and D-pad send actions 1-8 and L2/R2 pick the set, exactly " +
+                        "like Android Port, but the base set's face buttons are fixed to jump, use, menu and cancel. " +
+                        "Select opens the radial menu; Select + R3 toggles camera/pointer."
+                } else if (profile.scheme == ControlScheme.ANDROID_PORT) {
                     "The leveling loop does not use Select: R1 directly targets the nearest living enemy and L1 " +
                         "selects and uses the nearest eligible corpse, chest, or ordinary object. Select + L1 sends " +
                         "the precise use-at-pointer fallback. Face buttons send actions 1-4 and D-pad sends 5-8; " +

@@ -35,20 +35,23 @@ import org.json.JSONObject
  * W6-N1 (docs/NOSTR-IROH-BUILD-PLAN.md): the host-side listing heartbeat.
  *
  * The lifecycle contract, fail-closed by construction:
- *  - a listing is published ONLY while ALL of: the host's discovery
- *    switch is ON (a persisted default OFF), the realm-status visibility
- *    is PUBLIC (never while OFF/FRIENDS), and the captured realm-status
- *    payload says the realm is online;
+ *  - a listing is published ONLY while ALL of: the host's online-hosting
+ *    switch is ON, the captured realm-status payload says the realm is
+ *    online, and "show in the game list" is on — online hosting no longer
+ *    requires the realm-status page's PUBLIC visibility (the status page
+ *    and the listing are separate surfaces);
+ *  - online with the list off is the UNLISTED state: the internet endpoint
+ *    STAYS UP (invite-code joins keep working) while any listing retracts;
  *  - the content derives from THE realm-status payload builder (the
  *    same JSON the status page serves) — one source of truth; a payload
  *    whose players split is not live skips the beat (bots are never
  *    padded, and a listing is never published on padded numbers);
  *  - while the gates hold, the listing republishes every 5 minutes
  *    ([RealmListingContract.HEARTBEAT_SECONDS]);
- *  - ANY gate drop (switch off, visibility lost, world down) retracts the
- *    listing with a NIP-09 deletion — the graceful-stop path too (the
- *    model's close drives [shutdown]); a crash publishes nothing further
- *    and the 10-minute client freshness expires the stale listing.
+ *  - ANY gate drop (switch off, world down) retracts the listing with a
+ *    NIP-09 deletion — the graceful-stop path too (the model's close
+ *    drives [shutdown]); a crash publishes nothing further and the
+ *    10-minute client freshness expires the stale listing.
  *
  * The realm's Nostr key is generated once at first enable and lives in
  * the settings store; it is an identity, never displayed.
@@ -70,12 +73,11 @@ private const val PROD_HOST_DESCRIPTOR_WAIT_MS = 5_000L
 internal data class Seams(
     val clockMs: () -> Long,
     val client: OkHttpClient,
-    val visibilityProvider: () -> RealmStatusVisibility,
     val payloadProvider: () -> JSONObject?,
     val gatePollMs: Long,
     val heartbeatSeconds: Long,
     /**
-     * W6-N3: the host gateway's ensure/stop + the descriptor the listing's
+     * the host gateway's ensure/stop + the descriptor the listing's
      * `join` field carries. Production wires the model's iroh gateway
      * manager (the child-process transport); the lifecycle suite's default
      * bundle leaves them inert (no process, join:null beats — exactly the
@@ -107,7 +109,6 @@ internal data class Seams(
                 .readTimeout(PROD_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .pingInterval(PROD_PING_SECONDS, TimeUnit.SECONDS)
                 .build(),
-            visibilityProvider = { realmStatus.uiState.value.visibility },
             payloadProvider = {
                 runCatching { realmStatus.captureRender(hostView = false)?.payload }.getOrNull()
             },
@@ -137,7 +138,13 @@ internal class NostrListingPublisher(
 
     private val clockMs get() = seams.clockMs
 
+    /** The host card's lifecycle phase (the Android HostListingPublisher
+     * twin — [statusCopy] renders one line per phase). */
+    enum class Phase { OFF, WAITING, STARTING, UNLISTED, LIVE, PAUSED, FAILED }
+
     data class UiState(
+        val phase: Phase = Phase.OFF,
+        val detail: String? = null,
         val enabled: Boolean = false,
         val active: Boolean = false,
         val relays: List<String> = emptyList(),
@@ -160,7 +167,7 @@ internal class NostrListingPublisher(
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    /** R5-R3-1: the lifecycle serializer — evaluateGates is driven by
+    /** the lifecycle serializer — evaluateGates is driven by
      * three independent coroutines; without this mutex two overlapping
      * evaluations can double-build the relay pool (orphaning the loser's
      * sockets) and double-publish beats. */
@@ -194,6 +201,10 @@ internal class NostrListingPublisher(
 
     @Volatile private var publishedEvent: com.pocketrealm.discovery.nostr.NostrEvent? = null
 
+    /** The live listing's content before its join descriptor was attached
+     * (the change-republish comparison). */
+    @Volatile private var publishedContent: RealmListingContent? = null
+
     /** Round-6 R4-r6-2: the host-stop latch — true from an ensure until
      * the next deactivate consumes it; deactivation is idempotent. */
     @Volatile private var hostStopArmed: Boolean = true
@@ -203,7 +214,7 @@ internal class NostrListingPublisher(
         if (watcherJob?.isActive == true) return
         watcherJob = scope.launch {
             model.settings.collect { settings ->
-                val enabled = settings.nostrDiscoveryEnabled
+                val enabled = settings.onlineHosting
                 val relays = effectiveRelays(settings)
                 _uiState.value = _uiState.value.copy(enabled = enabled, relays = relays)
                 if (!enabled) {
@@ -232,12 +243,12 @@ internal class NostrListingPublisher(
 
     /** The host's switch verb (persists; the watcher does the rest). */
     fun setEnabled(enabled: Boolean) {
-        model.updateSettings { it.copy(nostrDiscoveryEnabled = enabled) }
+        model.updateSettings { it.copy(onlineHosting = enabled) }
     }
 
     /** The user-editable relay set (owner decision 4). Fails loud with
      * the VAL copy; the stored list persists only when valid. While
-     * publishing is ACTIVE the pool is recycled (R3-6/R4-4): the next
+     * publishing is ACTIVE the pool is recycled: the next
      * beat re-resolves the stored set, so a removed relay stops receiving
      * the host's frames immediately instead of at the next gate drop. */
     fun setRelays(raw: List<String>) {
@@ -292,7 +303,7 @@ internal class NostrListingPublisher(
 
     /**
      * Publishes the NIP-09 deletion through the live pool — or, when the
-     * pool was recycled (a relay edit while active — R4-r2-2/R2B-2),
+     * pool was recycled (a relay edit while active),
      * through a fresh pool over the CURRENT stored relay set, so the
      * retract reaches the relays the listing was published to. Returns
      * whether a pool actually carried the frame; the 'retracted' log may
@@ -374,11 +385,16 @@ internal class NostrListingPublisher(
         /** A gate dropped: retract any live listing. */
         object Retract : Gates()
 
+        /** Online and the world is up but "show in the game list" is off:
+         * the endpoint stays up unlisted (invite-code joins keep working),
+         * any live listing retracts. */
+        object Unlisted : Gates()
+
         /** Green but not publishable this instant (the beat is not due —
          * never a padded listing). */
         object Skip : Gates()
 
-        /** R5r2-3: the players split went non-native WHILE a listing was
+        /** The players split went non-native WHILE a listing was
          * live — publishing pauses (no padded beats), and the host card
          * must say so instead of claiming 5-minute republishing while the
          * listing silently ages out of every browser. */
@@ -399,17 +415,75 @@ internal class NostrListingPublisher(
         runCatching {
             when (val verdict = readGates()) {
                 is Gates.Publish -> publishIfDue(verdict.content)
-                Gates.Retract -> deactivate(retract = publishedEvent != null)
-                Gates.Paused -> _uiState.value = _uiState.value.copy(paused = true)
+                Gates.Retract -> deactivate(
+                    retract = publishedEvent != null,
+                    phase = if (model.settings.value.onlineHosting) Phase.WAITING else Phase.OFF,
+                    detail = if (model.settings.value.onlineHosting) WAITING_DETAIL else null,
+                )
+                Gates.Unlisted -> hostUnlisted()
+                Gates.Paused -> _uiState.value = _uiState.value.copy(paused = true, phase = Phase.PAUSED)
                 Gates.Skip -> Unit
             }
         }.onFailure { failure ->
             DesktopLog.w(TAG, "nostr gate evaluation failed: ${failure.message}")
             _uiState.value = _uiState.value.copy(
+                phase = Phase.FAILED,
                 errorCopy = failure.message ?: "nostr gate evaluation failed",
             )
         }
         }
+    }
+
+    /**
+     * Online but not listed: the internet endpoint STAYS UP (invite-code
+     * joins keep working) while any live listing retracts and the relay
+     * pool drops — the Android publisher's UNLISTED twin. The endpoint's
+     * ensure re-arms the host-stop latch exactly like a publishing beat.
+     */
+    private suspend fun hostUnlisted() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+        _uiState.value = _uiState.value.copy(phase = Phase.STARTING, detail = "Opening the internet endpoint…")
+        runCatching {
+            val secret = model.ensureIrohGatewayIdentity()
+            if (secret != null) {
+                seams.ensureHostGateway(secret)
+                hostStopArmed = true
+            }
+        }.onFailure { DesktopLog.w(TAG, "iroh host gateway ensure failed: ${it.message}") }
+        if (publishedEvent != null) {
+            runCatching {
+                val listing = publishedEvent
+                val key = realmIdentity()
+                if (listing != null && key != null) {
+                    retractThroughPool(
+                        RealmListingEvent.buildDeletion(
+                            listing = listing,
+                            key = key,
+                            nowSeconds = clockMs() / MILLIS_PER_SECOND,
+                        ),
+                    )
+                }
+            }
+        }
+        publishedEvent = null
+        publishedContent = null
+        beatAcks.clear()
+        reportsCollectorJob?.cancel()
+        reportsCollectorJob = null
+        acksCollectorJob?.cancel()
+        acksCollectorJob = null
+        pool?.stop()
+        pool = null
+        _uiState.value = _uiState.value.copy(
+            phase = Phase.UNLISTED,
+            detail = null,
+            paused = false,
+            active = false,
+            listingEventId = null,
+            lastPublishedAtMs = null,
+            relayReports = emptyList(),
+        )
     }
 
     /** One relay's OK/rejection for the current beat: the beat's
@@ -436,7 +510,7 @@ internal class NostrListingPublisher(
         )
     }
 
-    /** R5-3: the payload → frozen-schema content resolution — a banned
+    /** the payload → frozen-schema content resolution — a banned
      * realm name/MOTD makes the builder THROW (VAL-NOSTR-CONTENT); the
      * reason surfaces on the card's error channel and the ladder keeps
      * running (fail-closed, never silent). */
@@ -451,25 +525,39 @@ internal class NostrListingPublisher(
         }
     }
 
-    /** The fail-closed gate ladder. NEVER published while visibility is
-     * OFF/FRIENDS; any dropped gate retracts (a non-public realm must not
-     * stay discoverable); a payload whose players split is not live
-     * skips the beat — bots are never padded, and a stale live listing
-     * still expires client-side within the 10-minute freshness window. */
+    /** The fail-closed gate ladder. Online hosting runs on the host's own
+     * switch (never the status page's visibility); the listing publishes
+     * only with "show in the game list" too, and online-unlisted keeps the
+     * endpoint up. Any dropped gate retracts (a stopped realm must not stay
+     * discoverable); a payload whose players split is not live skips the
+     * beat — bots are never padded, and a stale live listing still expires
+     * client-side within the 10-minute freshness window. */
     private fun readGates(): Gates {
-        val enabled = model.settings.value.nostrDiscoveryEnabled
-        val publicVisibility = seams.visibilityProvider() == RealmStatusVisibility.PUBLIC
+        val enabled = model.settings.value.onlineHosting
+        val listed = model.settings.value.listInBrowser
         val payload = seams.payloadProvider()
         val realmOnline = payload?.optJSONObject("supervisor")?.optBoolean("realmOnline", false) == true
-        val content = resolveContent(realmOnline, payload)
+        // The listing's live extras: open sign-up only while the host's
+        // switch is on, the world's player limit, and this app's version.
+        val content = resolveContent(realmOnline, payload)?.copy(
+            signupOpen = model.settings.value.signupOpen,
+            maxPlayers = com.pocketrealm.server.ServerRuntimeContract.WORLD_PLAYER_LIMIT,
+            appVersion = RealmListingContent.appVersionTag(com.pocketrealm.desktop.APP_VERSION),
+            locked = model.settings.value.gamePassword.isNotBlank(),
+        )
         val beatDue = run {
             val last = _uiState.value.lastPublishedAtMs
             publishedEvent == null || last == null ||
-                clockMs() - last >= seams.heartbeatSeconds * MILLIS_PER_SECOND
+                clockMs() - last >= seams.heartbeatSeconds * MILLIS_PER_SECOND ||
+                // Players came or went (or sign-up flipped): republish once
+                // the change window is open instead of waiting 5 minutes.
+                (RealmListingContract.changeWindowOpen(last, clockMs()) &&
+                    RealmListingContract.factsChanged(publishedContent, content))
         }
         return when {
-            !enabled || !publicVisibility || !realmOnline -> Gates.Retract
-            // R5r2-3: a live listing whose players split went non-native
+            !enabled || !realmOnline -> Gates.Retract
+            !listed -> Gates.Unlisted
+            // A live listing whose players split went non-native
             // PAUSES (never padded) — the card says so instead of claiming
             // 5-minute republishing while the listing ages out.
             content == null && publishedEvent != null -> Gates.Paused
@@ -487,7 +575,7 @@ internal class NostrListingPublisher(
 
     private suspend fun publishIfDue(content: RealmListingContent) {
         val key = realmIdentity() ?: run {
-            _uiState.value = _uiState.value.copy(errorCopy = "VAL-NOSTR-KEY: no realm identity")
+            _uiState.value = _uiState.value.copy(errorCopy = "no realm identity", phase = Phase.FAILED)
             return
         }
         val activePool = ensurePool()
@@ -496,6 +584,9 @@ internal class NostrListingPublisher(
         // the descriptor only when the endpoint actually reached READY (a
         // still-starting gateway publishes join:null — the honest
         // not-joinable listing — and the next beat attaches it).
+        if (_uiState.value.phase != Phase.LIVE) {
+            _uiState.value = _uiState.value.copy(phase = Phase.STARTING, detail = "Opening the internet endpoint…")
+        }
         runCatching {
             val secret = model.ensureIrohGatewayIdentity()
             if (secret != null) {
@@ -515,14 +606,19 @@ internal class NostrListingPublisher(
         }
         val descriptor = awaitHostDescriptorBriefly()
         val event = RealmListingEvent.build(
+            // The extras (sign-up, player limit, app version) were attached
+            // at the gate; the uptime rides the realm-status payload.
             content = content.copy(join = descriptor),
             key = key,
             nowSeconds = clockMs() / MILLIS_PER_SECOND,
         )
         activePool.publish(event)
         publishedEvent = event
+        publishedContent = content
         beatAcks.clear()
         _uiState.value = _uiState.value.copy(
+            phase = Phase.LIVE,
+            detail = null,
             active = true,
             paused = false,
             listingEventId = event.idHex,
@@ -567,7 +663,7 @@ internal class NostrListingPublisher(
         return descriptor
     }
 
-    private fun deactivate(retract: Boolean) {
+    private fun deactivate(retract: Boolean, phase: Phase = Phase.OFF, detail: String? = null) {
         heartbeatJob?.cancel()
         heartbeatJob = null
         reportsCollectorJob?.cancel()
@@ -575,7 +671,7 @@ internal class NostrListingPublisher(
         acksCollectorJob?.cancel()
         acksCollectorJob = null
         beatAcks.clear()
-        _uiState.value = _uiState.value.copy(paused = false)
+        _uiState.value = _uiState.value.copy(paused = false, phase = phase, detail = detail)
         // a gate drop stops the host gateway too — no listing, no
         // discovery surface, no listening endpoint (a public realm's
         // transport exists exactly as long as its listing does).
@@ -591,7 +687,7 @@ internal class NostrListingPublisher(
             runCatching {
                 val listing = publishedEvent ?: return
                 val key = realmIdentity() ?: return
-                // R2B-2: the retract must survive a recycled pool (a relay
+                // the retract must survive a recycled pool (a relay
                 // edit followed by this gate drop) — rebuild the carrier.
                 val delivered = retractThroughPool(
                     RealmListingEvent.buildDeletion(
@@ -615,6 +711,7 @@ internal class NostrListingPublisher(
             }
         }
         publishedEvent = null
+        publishedContent = null
         pool?.stop()
         pool = null
         _uiState.value = _uiState.value.copy(
@@ -655,7 +752,7 @@ internal class NostrListingPublisher(
 
     /** The realm identity: reads the stored key, generating + persisting
      * it once at first enable (a BIP-340 identity, never displayed).
-     * R2B-3: a CORRUPT stored key (hand-edited settings.json) self-heals —
+     * a CORRUPT stored key (hand-edited settings.json) self-heals —
      * it is replaced with a fresh identity instead of bricking publishing
      * forever (the R6-6 degrade-don't-stick posture for stored secrets). */
     private fun realmIdentity(): NostrPrivateKey? {
@@ -680,8 +777,13 @@ internal class NostrListingPublisher(
     companion object {
         private const val TAG = "NostrListing"
 
+        /** Online but no hosted world yet (the Android WAITING twin). */
+        internal const val WAITING_DETAIL =
+            "Waiting for a hosted realm: start hosting on the Multiplayer screen and the listing goes " +
+                "up once the world is ready."
+
     /**
-     * The host card's publish-status copy (R2-6/R6-4): a pure projection
+     * The host card's publish-status copy: a pure projection
      * of the UiState the composable renders verbatim. The 'Live' claim is
      * honest — it appears only while the switch is on AND (no relay has
      * rejected the current beat, or at least one relay accepted it).
@@ -719,7 +821,7 @@ internal class NostrListingPublisher(
         }
     }
 
-    /** R6-2: the per-relay publish reports as renderable lines — each
+    /** the per-relay publish reports as renderable lines — each
      * relay's state/rejection reason reaches the host card (the data was
      * fetched and dropped before this projection existed). */
     fun relayReportLines(state: UiState): List<String> = state.relayReports.map { report ->
@@ -761,20 +863,20 @@ internal class NostrListingPublisher(
                 "when the split returns."
 
         private const val LIVE_COPY =
-            "Live — republished every 5 minutes while the realm is up and the " +
-                "status page is Public. Retracted when any of that stops being " +
-                "true or the app closes."
+            "Live — refreshed as players come and go (at least every 5 minutes) while " +
+                "the realm is up and the status page is Public. Removed when either " +
+                "stops or the app closes."
 
         private const val WAITING_COPY =
-            "Waiting for the gates: the realm up and the realm-status visibility " +
-                "set to Public. Nothing is published until then."
+            "Waiting: start hosting the realm and set the realm status page to Public " +
+                "(Settings). Nothing is published until both are true."
 
         private const val MILLIS_PER_SECOND = 1_000L
         private const val SHUTDOWN_DRAIN_MS = 2_000L
         private const val SHUTDOWN_POLL_MS = 100L
         private const val SHUTDOWN_SETTLE_MS = 500L
 
-        /** W6-N3: the first-beat wait for the host gateway's READY. */
+        /** the first-beat wait for the host gateway's READY. */
         private const val HOST_DESCRIPTOR_POLL_MS = 250L
     }
 }

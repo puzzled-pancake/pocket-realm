@@ -1,6 +1,6 @@
 # Pocket Realm Wiki
 
-Pocket Realm is an Android launcher and local game environment for playing a user-supplied World of Warcraft client — any of the three qualified game versions (Vanilla 1.12.1, The Burning Crusade 2.4.3, or Wrath of the Lich King 3.3.5a) — on a handheld device. It brings the game client, a private realm, local player accounts, computer-controlled residents, controller support, touch controls, add-ons, backups, and troubleshooting into one app.
+Pocket Realm is an Android launcher and local game environment for playing a user-supplied World of Warcraft client — any of the three supported game versions (Vanilla 1.12.1, The Burning Crusade 2.4.3, or Wrath of the Lich King 3.3.5a) — on a handheld device. It brings the game client, a private realm, local player accounts, computer-controlled residents, controller support, touch controls, add-ons, backups, and troubleshooting into one app.
 
 This wiki describes the project as it exists now. It is written for players, testers, family members, and other readers who do not need to understand the code.
 
@@ -32,8 +32,8 @@ This wiki describes the project as it exists now. It is written for players, tes
 
 Pocket Realm turns one Android handheld into both the game machine and the local server. The player supplies a supported game client. Pocket Realm makes a private working copy, starts the local world, manages a local account, opens the game, and closes everything in a safe order when the player finishes.
 
-The normal experience is offline. An optional experimental LAN mode can let another device join a host on the same private network, and the opt-in Public realms lane (desktop) can publish a listing that desktop browsers join over the iroh relay. Neither turns the local realm into a general public Internet server.
+The normal experience is offline. An optional experimental LAN mode can let another device join a host on the same private network, and the opt-in Public realms feature (desktop) can publish a listing that desktop browsers join over the iroh relay. Neither turns the local realm into a general public Internet server.
 
 ## Current documentation date
 
-These pages were re-verified against the 0.110.0 tree on 2026-10-21 (the W7 docs truth pass); the on-device re-check is pending the RP6 session, decision D100.
+These pages were re-verified against the 0.110.0 tree on 2026-10-21; the on-device re-check is still pending.

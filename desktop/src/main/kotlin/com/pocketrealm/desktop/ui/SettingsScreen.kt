@@ -12,7 +12,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,26 +27,22 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.pocketrealm.client.ClientTweaksConfig
 import com.pocketrealm.desktop.DesktopAppModel
-import com.pocketrealm.ui.LanJoinProbe
-import com.pocketrealm.ui.TunnelInvite
 import com.pocketrealm.server.NearbyInteractPolicy
 import com.pocketrealm.storage.Settings
-import com.pocketrealm.supervisor.RealmEndpoint
-import com.pocketrealm.supervisor.RuntimeMode
 
 /**
- * The Settings screen, Windows subset: the AI LLM pointer card,
- * the verbose world log toggle, LAN play (host/join topology), auto-login,
+ * The Settings screen, Windows subset: the verbose world log toggle, auto-login,
  * the update check, and the provenance/about card (the Android
  * renderer/display/input sections are not carried over — the Windows
- * client runs natively).
+ * client runs natively; the LAN host/join topology moved to the
+ * Multiplayer screen).
  */
 @Composable
 @Suppress("LongMethod")
-fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
+fun SettingsScreen(model: DesktopAppModel, onOpenBots: () -> Unit = {}) {
     val settings by model.settings.collectAsState()
     val storedAccount by model.storedAccount.collectAsState()
-    // Design-timeframe §7: no mid-session switch — the conf is generated at
+    // Design-timeframe: no mid-session switch — the conf is generated at
     // world start, so the timeframe card disables while a world is up and
     // directs the user to stop first (the conf-riding-toggle discipline).
     val runtime by model.state.collectAsState()
@@ -57,42 +52,29 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
         modifier = Modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // DESK-69: the Settings "Prepare world data" flow (the DESK-44/102
+        // the Settings "Prepare world data" flow (the DESK-44/102
         // progress card) — the same lane the Home card renders.
-        DataPreparationCard(model)
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                var showExperimentalLlm by remember { mutableStateOf(false) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Switch(
-                        checked = showExperimentalLlm || settings.llmEnabled,
-                        onCheckedChange = { reveal ->
-                            showExperimentalLlm = reveal
-                            if (!reveal) {
-                                model.updateSettings { it.copy(llmEnabled = false) }
-                            }
-                        },
-                    )
-                    Text("Experimental AI bot chat", style = MaterialTheme.typography.titleMedium)
-                }
-                Text(
-                    "Letting bots speak through a language model is an experimental, " +
-                        "power-hungry feature and stays off unless you turn it on here. " +
-                        "Turning this switch off also silences bot chat.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                if (showExperimentalLlm || settings.llmEnabled) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Bots", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Playerbots speak through an external OpenAI-compatible server " +
-                            "(configured in the LLM destination). Off keeps bots silent. The switch " +
-                            "applies at the next realm start; authored banter and ambient chatter " +
-                            "have their own switches in the LLM destination.",
+                        "In use: " + (
+                            if (settings.botSavedPresetId != null) "custom preset"
+                            else com.pocketrealm.bots.BotProfiles.find(settings.botProfileId)?.displayName
+                                ?: com.pocketrealm.bots.BotProfiles.defaultProfile.displayName
+                            ),
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    OutlinedButton(onClick = onOpenLlm) { Text("Configure AI bot LLM ->") }
                 }
+                androidx.compose.material3.Button(onClick = onOpenBots) { Text("Manage bots") }
             }
         }
+        DataPreparationCard(model)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("World", style = MaterialTheme.typography.titleMedium)
@@ -110,168 +92,29 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
                         "grow world.log very large. Keep it off unless investigating a problem.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                // DESK-132: the nearby-use debounce stepper (the Android
+                // the nearby-use debounce stepper (the Android
                 // nearbyInteractTriggerGuardMs surface) — bounds come from
                 // the shared NearbyInteractPolicy; applies at the next realm
                 // start like every world.conf knob.
                 NearbyGuardStepper(model, settings.nearbyInteractTriggerGuardMs)
             }
         }
-        // Design-timeframe §6: the per-flavor content-patch knob — the
+        // Design-timeframe: the per-flavor content-patch knob — the
         // qualified flavor's ordered stages as a selectable list, default =
         // final patch, disabled while the realm runs.
         TimeframeCard(model, settings.timeframeStage, realmRunning)
-        // DESK-13/27/46/58/89: the client-tweak lane's Controls card (the
+        // the client-tweak lane's Controls card (the
         // Android ClientTweakControls port). Toggling any patch on IS the
         // consent to patch the user's client copy at the next launch; the
         // card's copy says so.
         ClientTweaksCard(model, settings.tweaks)
-        // DESK-139: the game-audio mute toggle (the Android audio-mode card's
+        // the game-audio mute toggle (the Android audio-mode card's
         // desktop twin). Off enforces the Config.wtf master-sound overlay leg
         // at the next launch and mutes the client's OS audio session.
         AudioModeCard(model, settings.audioMode)
-        // DESK-47/106: the database provider selection — the shipped SQLite
+        // the database provider selection — the shipped SQLite
         // lane vs the staged-provider MariaDB engine lane.
         DatabaseProviderCard(model, settings.databaseProvider)
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("LAN play", style = MaterialTheme.typography.titleMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ModeButton("Local only", settings.runtimeMode == RuntimeMode.LOCAL) {
-                        model.updateSettings { it.copy(runtimeMode = RuntimeMode.LOCAL) }
-                    }
-                    ModeButton("Host on LAN", settings.runtimeMode == RuntimeMode.LAN_HOST) {
-                        model.updateSettings { it.copy(runtimeMode = RuntimeMode.LAN_HOST) }
-                    }
-                    ModeButton("Join a LAN host", settings.runtimeMode == RuntimeMode.LAN_JOIN) {
-                        model.updateSettings { it.copy(runtimeMode = RuntimeMode.LAN_JOIN) }
-                    }
-                }
-                if (settings.runtimeMode != RuntimeMode.LOCAL) {
-                    LanAddressField(model, settings.lanAddress, settings.runtimeMode)
-                }
-                when (settings.runtimeMode) {
-                    RuntimeMode.LAN_HOST -> {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Switch(
-                                checked = settings.allowLanPlayers,
-                                onCheckedChange = { value ->
-                                    model.updateSettings { it.copy(allowLanPlayers = value) }
-                                },
-                            )
-                            Text("Allow LAN players (required to host)", style = MaterialTheme.typography.bodyMedium)
-                        }
-                        Text(
-                            "The realm and world servers bind to the chosen private IPv4 " +
-                                "(ports 3724/8085). Windows Firewall may ask to allow them on " +
-                                "your private network the first time you host — allow access so " +
-                                "LAN players can connect. The topology applies at the next " +
-                                "realm start (Save & exit first).",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        // §3.3 (design-lan): the firewall support copy — the
-                        // prompt must be Allow + Private, and the recovery
-                        // for a cancelled prompt / Public-marked network,
-                        // with the reference netsh rule for the two game
-                        // ports only.
-                        Text(
-                            "Answer the Windows prompt Allow for Private networks. If it was " +
-                                "cancelled, or your network is marked Public in Windows, guests " +
-                                "cannot connect even though your own realm shows online — set " +
-                                "the network to Private in Windows Settings, then host again " +
-                                "(or run once from an admin prompt: netsh advfirewall firewall " +
-                                "add rule name=\"PocketRealm LAN\" dir=in action=allow " +
-                                "protocol=TCP localport=3724,8085 profile=private). No UPnP, " +
-                                "no router port forwarding, and no inbound rules beyond the " +
-                                "app itself.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        // the characters-on-host copy (join pane twin
-                        // lives in the join branch below).
-                        Text(
-                            "Hosting note: characters your guests create are saved in THIS " +
-                                "app's realm — they appear wherever this realm runs and stop " +
-                                "being playable when you save and exit, until you host again.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        // design-remote-accounts §6: friend access — the one
-                        // extra socket a hosting session may expose (the
-                        // provisioning listener on 3725, bound only while a
-                        // friend-access start is up) and the matching
-                        // three-port firewall copy.
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Switch(
-                                checked = settings.friendAccessEnabled,
-                                onCheckedChange = { value ->
-                                    model.updateSettings { it.copy(friendAccessEnabled = value) }
-                                },
-                            )
-                            Column {
-                                Text("Allow friend access while hosting (invite codes)", style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    "App-equipped friends request an account with an invite code; " +
-                                        "their password never leaves their device. Adds the provisioning " +
-                                        "port to the LAN posture at the next realm start.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                        }
-                        if (settings.friendAccessEnabled) {
-                            Text(
-                                "With friend access on, the reference firewall rule opens all three " +
-                                    "ports (netsh advfirewall firewall add rule name=\"PocketRealm LAN\" " +
-                                    "dir=in action=allow protocol=TCP localport=3724,8085,3725 " +
-                                    "profile=private). The provisioning socket binds only while a " +
-                                    "friend-access realm is up; with friend access off nothing listens.",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                        // Design-tunnel §4/§5: the advertised tunnel address —
-                        // internet hosting rides Tailscale/ZeroTier, the servers
-                        // bind all interfaces, and the realm row carries THIS
-                        // address (never the LAN IP) while it is set. Gated off
-                        // while the realm runs (§7's no-mid-session-switch
-                        // posture, the timeframe card's pattern): the running
-                        // session advertises the value its launch spec froze,
-                        // so a mid-session edit here would only diverge the
-                        // displayed invite from the live advertisement.
-                        TunnelAdvertisedField(model, settings.tunnelAdvertisedAddress, realmRunning)
-                    }
-                    RuntimeMode.LAN_JOIN -> {
-                        Text(
-                            "Your game only: Pocket Realm launches WoW.exe against the host's " +
-                                "realm (its world must already be running). Joining while a " +
-                                "local realm is up saves and stops it first — the Realm " +
-                                "card's \"Join LAN host instead\" does this in one step.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        // the join auto-login is verified-safe (the
-                        // stored local credential is never typed at the
-                        // host's login screen) — the copy says so.
-                        Text(
-                            "You'll log in with the account your host created for you — " +
-                                "your local account stays yours.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        // characters live on the host.
-                        Text(
-                            "Characters you play here are saved on the host's realm — they " +
-                                "appear wherever that host's realm runs, and stop existing " +
-                                "for you when the host saves and exits.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        JoinProbeRow(model, settings.lanAddress)
-                    }
-                    RuntimeMode.LOCAL -> {
-                        Text(
-                            "The app-private loopback realm (the default). Switching topology " +
-                                "applies at the next realm start.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-            }
-        }
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Auto-login", style = MaterialTheme.typography.titleMedium)
@@ -295,7 +138,7 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
                 if (storedAccount != null) {
                     OutlinedButton(onClick = { model.clearAccount() }) { Text("Clear") }
                 }
-                // DESK-133: the persisted auto-login timing surface (the
+                // the persisted auto-login timing surface (the
                 // Android AutoLoginTimings twin) — bounds-clamped, shown
                 // here so the automation's waits are never invisible.
                 val timings = settings.effectiveAutoLoginTimings()
@@ -310,7 +153,7 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
             }
         }
         RealmArchiveCard(model)
-        // DESK-84: the input safe-mode gate — the addon projection honors it
+        // the input safe-mode gate — the addon projection honors it
         // at every client launch (safe mode projects none of the managed
         // add-on folders).
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -335,7 +178,7 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
             }
         }
         UpdatesCard(model)
-        // DESK-16/31/49/92/105: the replayable Setup card (the Android
+        // the replayable Setup card (the Android
         // Settings → Setup card's desktop twin, minus the SAF/report legs
         // that have no desktop lane). The replay bumps the tutorial's
         // process-wide channel; the overlay renders over any route.
@@ -375,8 +218,8 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
-                    "Sources: pinned submodules (schemas/sources.json); realm lane pins in " +
-                        "schemas/realm-runtime-lockfile-sqlite-win.json.",
+                    "Sources: recorded in schemas/sources.json and " +
+                        "schemas/realm-runtime-lockfile-sqlite-win.json (every dependency is version-locked).",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -384,18 +227,8 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
     }
 }
 
-/** One of the three topology mode buttons; the selected mode is filled. */
-@Composable
-private fun ModeButton(label: String, selected: Boolean, onClick: () -> Unit) {
-    if (selected) {
-        Button(onClick = onClick) { Text(label) }
-    } else {
-        OutlinedButton(onClick = onClick) { Text(label) }
-    }
-}
-
 /**
- * DESK-132: the nearby-use debounce stepper — the persisted
+ * the nearby-use debounce stepper — the persisted
  * `nearbyInteractTriggerGuardMs` (world.conf's
  * PocketRealm.NearbyInteractCooldownMs), bounds clamped through the shared
  * [NearbyInteractPolicy]; applies at the next realm start.
@@ -442,7 +275,7 @@ private fun NearbyGuardStepper(model: DesktopAppModel, currentMs: Int) {
 }
 
 /**
- * GAP-3 (owner census UIUX-3, the desktop timeframe-card lane): the lane the
+ * the lane the
  * "World timeframe" card resolves — the Home switcher's ACTIVE flavor through
  * the [com.pocketrealm.client.ActiveFlavor] machine, replacing the former
  * `singleOrNull() ?: VANILLA` silent default that pinned the card to vanilla
@@ -467,10 +300,10 @@ internal fun renderedFlavorIdOrNull(): String? =
 
 /** the [com.pocketrealm.client.ActiveFlavor] lane suffix naming the
  * timeframe card's resolution gate. */
-private const val TIMEFRAME_CARD_LANE = "the world-timeframe card resolves the qualified lane"
+private const val TIMEFRAME_CARD_LANE = "the world-timeframe card resolves the active game version"
 
 /**
- * Design-timeframe §6: the "World timeframe" card — the ordered stages of the
+ * Design-timeframe: the "World timeframe" card — the ordered stages of the
  * ACTIVE QUALIFIED flavor as a selectable list (the flavor's timeline
  * top-to-bottom), default selection = the final patch. The mandatory copy
  * rides the card: the client-version sentence, the apply-time sentence,
@@ -489,7 +322,7 @@ private fun TimeframeCard(model: DesktopAppModel, storedStage: String, realmRunn
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("World timeframe", style = MaterialTheme.typography.titleMedium)
-                Text("Pick a game flavor on the Home screen first — the timeline follows that lane.")
+                Text("Pick a game version on the Home screen first — the timeline follows it.")
             }
         }
         return
@@ -531,7 +364,7 @@ private fun TimeframeCard(model: DesktopAppModel, storedStage: String, realmRunn
                 style = MaterialTheme.typography.bodySmall,
             )
             if (!selected.isFinal) {
-                // Design §11.4 honesty: the present-tense "later content
+                // Design honesty: the present-tense "later content
                 // closes" claim is only true once the stage's availability
                 // data is measured. Until the measured per-stage sets land,
                 // no build gates anything — asserting closure would promise
@@ -577,7 +410,7 @@ private fun TimeframeCard(model: DesktopAppModel, storedStage: String, realmRunn
 private const val TIMEFRAME_CHIP_ROW = 4
 
 /**
- * Design-timeframe §7: the phases in which the world holds the conf — the
+ * Design-timeframe: the phases in which the world holds the conf — the
  * timeframe card disables exactly while one of these holds (no mid-session
  * switch; the spent-world restart contract rides the app relaunch).
  */
@@ -588,7 +421,7 @@ private fun realmRunningPhase(phase: com.pocketrealm.supervisor.RuntimePhase): B
         phase == com.pocketrealm.supervisor.RuntimePhase.CLIENT_FAILED
 
 /**
- * DESK-13/27/46/58/89: the client-tweak Controls card (the Android
+ * the client-tweak Controls card (the Android
  * ClientTweakControls port). Each switch is one upstream vanilla-tweaks
  * patch; off restores the upstream game default. Toggling any patch on is
  * the consent that lets the launch boundary publish the verified
@@ -609,7 +442,7 @@ private fun ClientTweaksCard(model: DesktopAppModel, tweaks: ClientTweaksConfig)
     // composition (the operation gates keep the loud refusal).
     val tweaksLane = remember { com.pocketrealm.client.ActiveFlavor.displayedId }
     val tweaksUnavailable = when {
-        tweaksLane == null -> "Pick a game flavor on the Home screen first — tweaks follow that lane."
+        tweaksLane == null -> "Pick a game version on the Home screen first — tweaks follow it."
         else -> com.pocketrealm.client.ClientRuntimeContract.flavorTweaksCopy(
             com.pocketrealm.client.ClientFlavors.ALL.first { it.flavorId == tweaksLane },
         )
@@ -682,7 +515,7 @@ private fun VanillaTweakToggles(model: DesktopAppModel, tweaks: ClientTweaksConf
 private fun TweaksUnavailableCopy(unavailable: String) {
     Text(unavailable, style = MaterialTheme.typography.bodySmall)
     Text(
-        "Switch the flavor back to Vanilla on Home to use the tweak set.",
+        "Switch back to Vanilla on Home to use the tweaks.",
         style = MaterialTheme.typography.labelLarge,
     )
 }
@@ -696,15 +529,13 @@ private fun TweakSwitch(label: String, checked: Boolean, onChange: (Boolean) -> 
 }
 
 /**
- * DESK-47/106 (the default-flip): the database provider selection (the
- * consumable control the engine lane hangs off). MARIADB is the shipped
- * DEFAULT — matching the on-device product; a first boot initializes the
- * MariaDB datadir through the engine lane and an unstaged provider
- * distribution refuses with the honest DB-LINK copy at start, never a
- * silent fallback. SQLITE remains selectable as the explicit dev/compat
- * provider: it materializes the seeded datadir in-process and is the
- * adoption lane for pre-flip desktop state. Applies at the next start,
- * like every lane toggle.
+ * The database provider selection. MARIADB is the shipped DEFAULT —
+ * matching the on-device product; a first boot initializes the MariaDB
+ * datadir and an unstaged provider distribution refuses with the DB-LINK
+ * message at start, never a silent fallback. SQLITE remains selectable as
+ * the explicit dev/compat provider: it materializes the seeded datadir
+ * in-process and adopts pre-existing SQLite realms. Applies at the next
+ * start.
  */
 @Composable
 private fun DatabaseProviderCard(model: DesktopAppModel, provider: Settings.DatabaseProvider) {
@@ -728,16 +559,16 @@ private fun DatabaseProviderCard(model: DesktopAppModel, provider: Settings.Data
             Text(
                 when (provider) {
                     Settings.DatabaseProvider.MARIADB ->
-                        "MariaDB (the default, like the on-device product) boots the staged, " +
-                            "pinned provider distribution as a managed daemon; a first boot " +
+                        "MariaDB (the default, like the on-device product) runs the staged " +
+                            "provider distribution as a managed daemon; a first boot " +
                             "initializes the MariaDB datadir. It must be staged first " +
                             "(tools/build_win_realm_runtime.py --database-backend mariadb); " +
                             "until then starting the database refuses with a DB-LINK error " +
                             "instead of silently falling back. Applies at the next start."
                     Settings.DatabaseProvider.SQLITE ->
                         "SQLite materializes the seeded datadir in-process (the explicit " +
-                            "dev/compat lane — keep it selected to adopt a pre-flip SQLite " +
-                            "realm). Applies at the next start."
+                            "dev/compat choice — keep it selected to keep using an existing " +
+                            "SQLite realm). Applies at the next start."
                 },
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -746,7 +577,7 @@ private fun DatabaseProviderCard(model: DesktopAppModel, provider: Settings.Data
 }
 
 /**
- * DESK-139: the game-audio mode toggle (the Android audio-mode card's
+ * the game-audio mode toggle (the Android audio-mode card's
  * desktop twin). Off takes effect at the next game start: the Config.wtf
  * overlay enforces the master-sound CVar off AND the app mutes the client's
  * Windows audio session for that launch; On leaves both user-owned.
@@ -798,7 +629,7 @@ internal suspend fun realmArchiveImportStatus(
 )
 
 /**
- * DESK-7/33/38/60/101: the realm-characters archive card (the Android
+ * the realm-characters archive card (the Android
  * SettingsScreen archive section's desktop twin): export the current
  * characters as the shared single-file ZIP (a stopped-state database
  * snapshot + the paired credentials when explicitly opted in + a manifest,
@@ -918,210 +749,7 @@ private fun pickRealmArchive(onPicked: (java.io.File) -> Unit) {
 }
 
 /**
- * The LAN endpoint field (DESK-42): persisted verbatim, validated for
- * display through the shared RealmEndpoint parsing (canonical numeric
- * private/link-local IPv4 only — no DNS, no hostnames, fixed ports
- * 3724/8085). The app model re-validates before building a launch spec,
- * so an invalid stored value can never start a realm.
- *
- * rev-3 (design-lan §5.2): tunnel-shaped input (canonical numeric IPv4
- * outside the LAN ranges — public addresses, CGNAT 100.64/10) shows the
- * address-class copy right at the field, where the refusal actually
- * happens; every other invalid input keeps the parser's own message.
- *
- * Design-tunnel §4.4.3 (endpoint model v2): the grammar is MODE-AWARE — a
- * HOST field (the bind endpoint) keeps the strict parseLan grammar (a
- * tunnel address still refuses there, as a bind must), while a JOIN field
- * accepts the widened v2 join grammar (the host's numeric tunnel address,
- * CGNAT 100.64/10 included — never a hostname or a public IP).
- */
-@Composable
-private fun LanAddressField(model: DesktopAppModel, value: String, mode: RuntimeMode) {
-    val hint = remember(value, mode) {
-        when {
-            value.isEmpty() -> null
-            mode == RuntimeMode.LAN_JOIN -> TunnelInvite.joinTargetError(value)
-            LanJoinProbe.tunnelShapedAddress(value) -> LanJoinProbe.TUNNEL_INPUT_COPY
-            else -> runCatching { RealmEndpoint.parseLan(value) }.exceptionOrNull()?.message
-        }
-    }
-    OutlinedTextField(
-        value = value,
-        onValueChange = { next -> model.updateSettings { it.copy(lanAddress = next.trim()) } },
-        label = { Text("LAN IPv4 address (e.g. 192.168.1.50)") },
-        isError = value.isNotEmpty() && hint != null,
-        supportingText = {
-            Text(
-                when {
-                    value.isEmpty() ->
-                        if (mode == RuntimeMode.LAN_JOIN) {
-                            "The host's address — its LAN IPv4 or its tunnel address."
-                        } else {
-                            "Choose the address to host on / join."
-                        }
-                    hint != null -> hint
-                    mode == RuntimeMode.LAN_JOIN -> "A valid LAN or tunnel address."
-                    else -> "Valid private or link-local IPv4."
-                },
-                style = MaterialTheme.typography.bodySmall,
-            )
-        },
-        singleLine = true,
-    )
-    // Detected interfaces —: the desktop twin's FILTERED scan (virtual
-    // adapters excluded, default-route owner first), not the shared
-    // policy's raw list: a one-click host must default to an address LAN
-    // guests can actually reach.
-    val interfaces = remember {
-        runCatching { model.lanInterfaces.available() }.getOrDefault(emptyList())
-    }
-    if (interfaces.isNotEmpty()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            interfaces.take(MAX_INTERFACE_QUICK_PICKS).forEach { endpoint ->
-                OutlinedButton(onClick = {
-                    model.updateSettings { it.copy(lanAddress = endpoint.address) }
-                }) { Text("Use ${endpoint.address}") }
-            }
-        }
-    }
-}
-
-/**
- * Design-tunnel §4/§5: the advertised tunnel address field (LAN_HOST only).
- * Persisted verbatim like the LAN field; validated for display through the
- * shared v2 grammar (canonical numeric IPv4: private/link-local/loopback/
- * CGNAT — hostnames and public IPs stay out of v1). Empty = plain LAN
- * hosting, byte-identical to before. When set, the next start advertises
- * THIS address in the realm row and binds all interfaces, so the honest
- * consequences ride the copy: tunnel friends reach it, plain-LAN guests
- * see a realm they cannot enter (one advertisement for everyone), and the
- * firewall prompt (if any) must be allowed on the network the TUNNEL
- * adapter lives on. Tailscale-first guidance per; ZeroTier second;
- * cloudflared stays the documented advanced recipe (no UI lane).
- */
-@Composable
-private fun TunnelAdvertisedField(model: DesktopAppModel, value: String, realmRunning: Boolean) {
-    val hint = remember(value) {
-        when {
-            value.isEmpty() -> null
-            else -> runCatching {
-                com.pocketrealm.supervisor.AdvertisedAddress.parse(value)
-            }.exceptionOrNull()?.message
-        }
-    }
-    OutlinedTextField(
-        value = value,
-        onValueChange = { next ->
-            model.updateSettings { it.copy(tunnelAdvertisedAddress = next.trim()) }
-        },
-        label = { Text("Advertise over the internet — tunnel address (e.g. 100.64.1.20)") },
-        isError = value.isNotEmpty() && hint != null,
-        enabled = !realmRunning,
-        supportingText = {
-            Text(
-                when {
-                    realmRunning ->
-                        "The realm is running — Save & exit first, then change the advertised " +
-                            "address (the running session keeps the address it started with)."
-                    value.isEmpty() ->
-                        "Optional. Host over the internet through Tailscale or ZeroTier: " +
-                            "paste this host's tunnel address. Leave empty for LAN-only hosting."
-                    hint != null -> hint ?: "invalid tunnel address"
-                    else -> "The realm will advertise this address. Plain-LAN guests will " +
-                        "still see the realm, but only friends inside the tunnel can reach it."
-                },
-                style = MaterialTheme.typography.bodySmall,
-            )
-        },
-        singleLine = true,
-    )
-    // Detected tunnel adapters (§4.4.4: the explicit allowlist lane —
-    // Tailscale/ZeroTier — never a relaxation of the LAN filter).
-    val tunnelAddresses = remember {
-        runCatching {
-            com.pocketrealm.supervisor.TunnelInterfacePolicy.available()
-        }.getOrDefault(emptyList())
-    }
-    if (tunnelAddresses.isNotEmpty()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            tunnelAddresses.take(MAX_INTERFACE_QUICK_PICKS).forEach { advertised ->
-                OutlinedButton(
-                    enabled = !realmRunning,
-                    onClick = {
-                        model.updateSettings { it.copy(tunnelAdvertisedAddress = advertised.value) }
-                    },
-                ) { Text("Use ${advertised.value}") }
-            }
-        }
-    }
-    Text(
-        "How to host over the internet: 1) Install Tailscale (tailscale.com) on this PC and " +
-            "on each friend's PC, and join the same tailnet (ZeroTier works too). 2) Paste this " +
-            "host's tunnel address above — the quick-pick buttons show detected adapters. 3) " +
-            "Start hosting; the Home card's invite has the exact line your friends paste into " +
-            "realmlist.wtf. If Windows asks about the realm while hosting, allow it on the " +
-            "network the tunnel adapter lives on. Accounts for internet friends are created " +
-            "on the Home Guests card (never share yours).",
-        style = MaterialTheme.typography.bodySmall,
-    )
-}
-
-/**
- * D6 (design-lan §5.2): the join pane's one-shot reachability probe — a TCP
- * connect to <addr>:3724 (~2 s) before any client launch, with the world
- * port shown as display-only. A failure renders the shared humanized copy
- * (firewall remedy included) instead of costing a full client launch and
- * the client's native "Unable to connect".
- */
-@Composable
-private fun JoinProbeRow(model: DesktopAppModel, address: String) {
-    var probing by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        OutlinedButton(
-            enabled = !probing && address.isNotEmpty(),
-            onClick = {
-                probing = true
-                scope.launch {
-                    // The probe is blocking socket work — off the UI thread.
-                    val result = kotlinx.coroutines.withContext(
-                        kotlinx.coroutines.Dispatchers.IO,
-                    ) { model.probeJoinTarget() }
-                    status = when (result) {
-                        is com.pocketrealm.ui.LanJoinProbe.ProbeResult.Reachable ->
-                            "Realm answered at ${result.address}:3724 (its world port " +
-                                "${result.address}:8085 is used once you log in)."
-                        is com.pocketrealm.ui.LanJoinProbe.ProbeResult.Unreachable ->
-                            // Design-tunnel §5 (the D6 correction): the
-                            // failure copy is MODE-AWARE — a tunnel address
-                            // only resolves inside the host's tunnel, so the
-                            // "same network" remedy would mislead there.
-                            if (LanJoinProbe.tunnelShapedAddress(address)) {
-                                TunnelInvite.joinFailureHint(address)
-                            } else {
-                                com.pocketrealm.supervisor.RuntimeFailureCopy.humanize(
-                                    com.pocketrealm.ui.LanJoinProbe.unreachableDetail(result),
-                                )
-                            }
-                    }
-                    probing = false
-                }
-            },
-        ) {
-            Text(
-                if (probing) "Testing…" else "Test connection to $address:3724",
-            )
-        }
-        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-    }
-}
-
-/** At most this many detected-interface quick-pick buttons render. */
-private const val MAX_INTERFACE_QUICK_PICKS = 3
-
-/**
- * The Updates card (DESK-14/32/45/91/104): the opt-in feed check plus — when
+ * The Updates card: the opt-in feed check plus — when
  * the feed carries download legs — the resumable digest-verified download
  * and the two-step consented install. Network and file I/O stay off the UI
  * thread; the unsigned-build copy rides every step; nothing applies without
@@ -1143,7 +771,7 @@ private fun UpdatesCard(model: DesktopAppModel) {
         ) {
             Text("Updates", style = MaterialTheme.typography.titleMedium)
             Text(
-                "The Windows port is unsigned and never updates silently; releases " +
+                "The Windows build is unsigned and never updates silently; releases " +
                     "ship as new packages. The provenance card below identifies the " +
                     "exact build.",
                 style = MaterialTheme.typography.bodySmall,

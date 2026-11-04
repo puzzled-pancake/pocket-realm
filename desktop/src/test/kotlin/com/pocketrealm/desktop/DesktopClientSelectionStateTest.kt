@@ -18,7 +18,7 @@ import org.junit.Before
 import org.junit.After
 
 /**
- * DESK-135: the client-selection affordance's UI-less state leg. The
+ * the client-selection affordance's UI-less state leg. The
  * "Change game folder…"/import control renders in EVERY state (the plan's
  * core change: it is no longer gated on `clientDir == null`); this pins the
  * pure state that decides what the affordance says, for both null and
@@ -165,7 +165,7 @@ class DesktopClientSelectionStateTest {
     @Test
     fun aWrongBuildFolderReadsAsNoneNotFolder() {
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
-        val wrongBuild = materializeClient(folder.newFolder("wrong"), build = 6005)
+        val wrongBuild = materializeClient(folder.newFolder("wrong"), build = 4222)
         val fixtureRealmlist = File(wrongBuild, "realmlist.wtf").readText()
         val model = DesktopAppModel(roots)
         try {

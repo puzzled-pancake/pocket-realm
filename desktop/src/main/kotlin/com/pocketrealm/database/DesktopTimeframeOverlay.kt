@@ -4,7 +4,7 @@ import com.pocketrealm.fs.FileDigests
 import java.io.File
 
 /**
- * Design-timeframe §2/§4.3: the DESKTOP stage-overlay applier — applied at
+ * Design-timeframe /: the DESKTOP stage-overlay applier — applied at
  * world start, BEFORE native boot, when the desired stage differs from the
  * durably-recorded applied one, with the ledger row written on success and
  * ANY failure refusing the world start loudly (never boot a world whose DB
@@ -14,7 +14,7 @@ import java.io.File
  * execution leg is `TimeframeOverlayApplier` over the same plan, so the
  * two platforms cannot fork.
  *
- * v1 honesty (design §9.1/§9.2, mirrored by the manifests): the staged
+ * v1 honesty (design /, mirrored by the manifests): the staged
  * overlays carry the stage-MARKER scaffolding only — reversible, idempotent
  * `INSERT OR IGNORE` statements against the seed's own `game_event` /
  * `conditions` schema, in id ranges measured absent from the pinned seed.
@@ -35,7 +35,7 @@ import java.io.File
  * world it was handed without that leg.
  */
 // One reviewed mechanism object: the desired/applied ledger resolution,
-// the seam execution, and the meta bookkeeping - the design §4.3
+// the seam execution, and the meta bookkeeping - the design
 // world-start leg in one place.
 @Suppress("TooManyFunctions")
 internal object DesktopTimeframeOverlay {

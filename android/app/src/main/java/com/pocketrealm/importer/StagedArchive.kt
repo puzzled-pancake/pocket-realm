@@ -69,7 +69,7 @@ class StagedArchiveCopier(
                 continue
             }
             val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-            if (read < 0) throw ImportRejected("VAL-13: staged archive is shorter than the journal recorded")
+            if (read < 0) throw ImportRejected("The archive is shorter than the import journal recorded")
             remaining -= read
         }
     }

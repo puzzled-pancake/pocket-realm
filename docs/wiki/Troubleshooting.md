@@ -24,24 +24,24 @@ On an affected version, open Settings from Home instead: the **Active setup** ca
 
 ## The import was rejected as unsupported
 
-The selection is checked before anything is copied. A `VAL-01` rejection means the picked folder is not the game client itself — typical causes:
+The selection is checked before anything is copied. A rejection that says the folder "looks like an installer or launcher folder" means the picked folder is not the game client itself — typical causes:
 
 - An installer or setup program was selected instead of the installed client.
-- A downloader/launcher folder was selected (the message says `launcher-only` because a direct `WoW.exe` is absent).
+- A downloader/launcher folder was selected (there is no `WoW.exe` in it).
 - A `.zip`/`.7z`/`.rar` archive or a shortcut was selected instead of a folder.
 
-Archive lanes unpack original installer payloads (setup.exe + setup-*.bin) on device; non-Inno installer payloads reject with `VAL-12`, disc images with `VAL-11`, and unsupported archives (encrypted, multi-volume, solid RAR4, pre-5.0/post-5.5.6 Inno data) with `VAL-13` — run `tools/install_client_windows.ps1` on a PC to rank every source and extract the problematic ones for the folder lane. For the folder lane, extract the client first, then choose the folder that directly contains `WoW.exe` and a `Data` folder. A `VAL-03` rejection instead means the client is the wrong version: the client must be one of the qualified builds (Vanilla 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340 — the app names the set it expects). Replay the guide with **Settings → Setup → Show first-run setup guide** if you want the full requirements again.
+The archive import unpacks original installer payloads (setup.exe + setup-*.bin) on device. Other installer payloads, disc images, and unsupported archives (encrypted, multi-volume, solid RAR4, pre-5.0/post-5.5.6 Inno data) are refused with a message saying so — run `tools/install_client_windows.ps1` on a PC to rank every source and extract the problematic ones. For a folder import, extract the client first, then choose the folder that directly contains `WoW.exe` and a `Data` folder. An "unsupported game version" rejection instead means the client is the wrong version: the client must be one of the supported builds (Vanilla 1.12.1 build 5875, TBC 2.4.3 build 8606, or WotLK 3.3.5a build 12340 — the message names the set it expects). Replay the guide with **Settings → Setup → Show first-run setup guide** if you want the full requirements again.
 
-## VAL-02: the executable is over the fast-scan limit
+## The executable is over the scan limit
 
-`VAL-02: selected executable exceeds fast-scan limit` means the selected `WoW.exe` is larger than the 32 MiB fast-scan cap. That is not a normal client file — pick the client's own `WoW.exe` (the genuine builds are a few megabytes), not a repacked or bundled executable.
+A "WoW.exe is too large to scan" rejection means the selected `WoW.exe` is larger than the 32 MiB scan cap. That is not a normal client file — pick the client's own `WoW.exe` (the genuine builds are a few megabytes), not a repacked or bundled executable.
 
-## VAL-04: the MPQ set does not match the flavor
+## The MPQ set does not match the game version
 
-A `VAL-04` rejection names the problem set:
+A rejection about missing game data files names the problem set:
 
-- `missing base MPQ set: <files>` — the client's `Data` folder is missing files the selected flavor requires. TBC and WotLK clients keep their locale files inside `Data\enUS\` (or another locale folder); the scan walks those folders, so a genuine client passes. If you moved or deleted files out of `Data`, restore them from your original client copy.
-- `unknown patch MPQ not in the exact set: Data/<file>` — the TBC and WotLK flavors enforce an exact set: an unknown `patch-*.mpq` is refused naming the file, because a patched client cannot load the server's data. Remove the unknown patch file (or restore the original client's `Data` folder). The Vanilla flavor tolerates unknown patch files (its own MPQ note documents this), so this refusal only fires on the TBC/WotLK lanes.
+- `Missing game data files: <files>` — the client's `Data` folder is missing files the selected game version requires. TBC and WotLK clients keep their locale files inside `Data\enUS\` (or another locale folder); the scan walks those folders, so a genuine client passes. If you moved or deleted files out of `Data`, restore them from your original client copy.
+- A refusal that names an unknown patch file — the TBC and WotLK versions enforce an exact set: an unknown `patch-*.mpq` is refused naming the file, because a patched client cannot load the server's data. Remove the unknown patch file (or restore the original client's `Data` folder). The Vanilla version tolerates unknown patch files, so this refusal only fires for TBC/WotLK.
 
 ## Import stopped or looks frozen
 
@@ -125,7 +125,7 @@ LAN play does not use automatic discovery.
 
 Check **Sound** in Settings and restart the game. The setting applies on the next client launch.
 
-If the sound control says the current runtime does not support audio, changing the switch will not add audio to that validation route.
+If the sound control says the current runtime does not support audio, changing the switch will not add audio to that runtime.
 
 ## A session was interrupted
 

@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * R4-2 (code-red round 1): the desktop lane ships the VANILLA catalog (row
+ * the desktop lane ships the VANILLA catalog (row
  * 151 always present), so the AndroidPort per-flavor exclusion must gate on
  * the ACTIVE FLAVOR — the old `addon("151") ?: return` skip was dead code
  * (never null). The seed decision is extracted as a pure function and

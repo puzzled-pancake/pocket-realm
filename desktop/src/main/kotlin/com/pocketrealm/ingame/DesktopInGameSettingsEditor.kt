@@ -11,7 +11,7 @@ private const val DESKTOP_EDITOR_LANE =
     "the desktop in-game settings editor resolves the active flavor's catalogs"
 
 /**
- * DESK-12/22/41/59/85/96: the desktop twin of the Android in-game settings
+ * the desktop twin of the Android in-game settings
  * editor — same package, same contract, one process.
  *
  * The WTF tree is the configured client folder's `WTF/` directory and the
@@ -267,14 +267,14 @@ class DesktopInGameSettingsEditor(
         DesktopConfigWtf.enforcedKeys(conditions)
 
     /**
-     * W3.3: the ACTIVE flavor's catalog lookups (the desktop twin of the
+     * the ACTIVE flavor's catalog lookups (the desktop twin of the
      * Android editor's routing) — every former vanilla reference resolves
      * the active flavor's authored catalog through [WowFlavorCatalogs].
      */
     private fun activeFlavor(): com.pocketrealm.client.ClientFlavor =
         com.pocketrealm.client.ActiveFlavor.resolve(DESKTOP_EDITOR_LANE)
 
-    /** R5-1: the render-side screens share the editor's ACTIVE lane
+    /** the render-side screens share the editor's ACTIVE lane
      * resolution so their catalog reads route through the same seam. */
     internal fun activeLaneForCatalog(): com.pocketrealm.client.ClientFlavor =
         activeFlavor()
@@ -374,7 +374,7 @@ class DesktopInGameSettingsEditor(
             }
         }
         is Edit.UvarSetting -> {
-            // W3.3: the per-flavor enumeration route (vanilla single file;
+            // the per-flavor enumeration route (vanilla single file;
             // tbc/wotlk per-addon SavedVariables directory) — never the
             // fail-loud single-file route, which is a vanilla-lane family.
             val layout = InGameSettingsFiles.activeLayout()

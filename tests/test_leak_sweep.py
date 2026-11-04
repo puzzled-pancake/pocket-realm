@@ -673,8 +673,8 @@ def test_settings_setup_card_copy_is_flavor_neutral():
         f"identity ({hard_coded[:2]}) - the desktop twin reads "
         "flavor-neutrally; name the user's own flavor instead (R4-4)"
     )
-    assert "Setup covers the game-files import for your flavor" in stripped, (
-        "the Setup card lost the flavor-neutral requirement copy"
+    assert "Setup covers the game-files import for your game version" in stripped, (
+        "the Setup card lost the version-neutral requirement copy"
     )
 
 
@@ -1063,7 +1063,7 @@ def test_ingame_settings_screen_copy_is_flavor_neutral():
         f"client build ({hard_coded[:1]}) — the catalogs resolve per "
         f"flavor; name 'your flavor', never '1.12.1' (R6-2)"
     )
-    assert "stock settings panels for your flavor" in stripped
+    assert "stock settings panels" in stripped and "editing the" in stripped
     assert "no binding in the stock panels" in stripped
 
 
@@ -1092,7 +1092,7 @@ def test_readme_quick_start_is_flavor_aware():
     )
     # the WHOLE README is flavor-aware — a bare "WoW 1.12.1
     # client" mention outside the three-flavor enumeration is the exact
-    # staleness class (found at lines 8 and 111 in round 3).
+    # staleness class (found at lines 8 and 111 in ).
     bare = [
         l for l in source.splitlines()
         if "WoW 1.12.1 client" in l and "TBC 2.4.3" not in l

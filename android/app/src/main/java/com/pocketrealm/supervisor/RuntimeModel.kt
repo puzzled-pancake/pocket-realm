@@ -40,7 +40,7 @@ data class RuntimeSnapshot(
     val runtimeMode: RuntimeMode = RuntimeMode.LOCAL,
     val realmEndpoint: RealmEndpoint = RealmEndpoint.LOCAL,
     /**
-     * Design-tunnel §5/§10: the ADVERTISED address this session projects
+     * Design-tunnel /: the ADVERTISED address this session projects
      * into the realmlist row when tunnel mode is on (the launch spec's
      * override, already validated by [AdvertisedAddress]'s grammar), null
      * for the plain endpoint advertisement. The monitor keys its
@@ -59,7 +59,7 @@ data class RuntimeSnapshot(
     val updatedAtElapsedMs: Long = 0,
     val recoverability: Recoverability = Recoverability.NONE,
     /**
-     * G3-4: the flavor this session's server lane runs, carried as an
+     * the flavor this session's server lane runs, carried as an
      * optional journal field — defaulted so every existing constructor call
      * site compiles unchanged, and encoded/decoded by
      * [RuntimeSnapshotJournalCodec] without incrementing JOURNAL_SCHEMA

@@ -53,12 +53,12 @@ class BotPassiveDelayTest {
     }
 
     @Test
-    fun everyExperiencePresetEmitsThreeSeconds() {
-        assertEquals(7, BotProfiles.experiencePresets.size)
+    fun everyExperiencePresetAnswersInsideTheGreetBound() {
+        assertEquals(3, BotProfiles.experiencePresets.size)
         for (profile in BotProfiles.experiencePresets) {
             assertEquals(
-                "experience preset ${profile.id} must answer inside the greet bound",
-                3_000,
+                "experience preset ${profile.id} uses the upstream passive delay",
+                4_000,
                 profile.passiveDelayMs,
             )
         }
@@ -72,7 +72,7 @@ class BotPassiveDelayTest {
         val tuned = BotProfiles.experiencePresets.first()
         assertTrue(
             tuned.playerbotConfig(com.pocketrealm.client.ClientFlavors.VANILLA)
-            .contains("AiPlayerbot.PassiveDelay = 3000"),
+            .contains("AiPlayerbot.PassiveDelay = 4000"),
         )
     }
 

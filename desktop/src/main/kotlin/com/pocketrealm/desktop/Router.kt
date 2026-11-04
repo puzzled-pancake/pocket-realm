@@ -11,9 +11,8 @@ sealed class Route(val label: String) {
     /** DESK-1/97: the client import lane (folder → managed generation). */
     data object Import : Route("Import")
 
+    /** Opened from Home and Settings; not in the sidebar. */
     data object Bots : Route("Bots")
-
-    data object Llm : Route("LLM")
 
     data object Settings : Route("Settings")
 
@@ -34,10 +33,12 @@ sealed class Route(val label: String) {
      * and the friends table (roster, ban/unban, gmlevel). */
     data object Players : Route("Players")
 
-    /** The realm browser: LAN realms over the shared LanJoinProbe seam, the
-     * hosted realm-status page link, and the W6-N1 Public realms section
-     * (Nostr discovery: the shared discovery/nostr module). */
-    data object Realms : Route("Realms")
+    /** The Multiplayer screen: Find a game / Host / Direct join — the
+     * realm browser's surfaces (LAN realms over the shared LanJoinProbe
+     * seam, the hosted realm-status page link, the W6-N1 Public realms
+     * section via Nostr discovery) live under its tabs. The route object
+     * keeps its historical name (Realms); the label is Multiplayer. */
+    data object Realms : Route("Multiplayer")
 
     data object Diagnostics : Route("Diagnostics")
 }
@@ -45,8 +46,6 @@ sealed class Route(val label: String) {
 val DESKTOP_ROUTES: List<Route> = listOf(
     Route.Home,
     Route.Import,
-    Route.Bots,
-    Route.Llm,
     Route.Players,
     Route.Realms,
     Route.Settings,
@@ -60,6 +59,9 @@ val DESKTOP_ROUTES: List<Route> = listOf(
 class DesktopRouter(initial: Route = Route.Home) {
     var current: Route = initial
         private set
+
+    /** the tab Home asked for; consumed by the Multiplayer screen once */
+    var pendingRealmsTab: String? = null
 
     fun navigate(route: Route) {
         current = route

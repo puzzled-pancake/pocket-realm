@@ -8,7 +8,7 @@ import java.net.Socket
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * The host-side provisioning TCP listener (design-remote-accounts §6): a
+ * The host-side provisioning TCP listener (design-remote-accounts): a
  * small server IN THE HOST APP PROCESS — never in realmd, never in the
  * world — serving exactly one purpose: receiving a friend's
  * `{inviteId, token, username, sHex, vHex}` request and moving the invite
@@ -40,13 +40,17 @@ import java.util.concurrent.atomic.AtomicReference
 // answer) — one verb per design rule, the RuntimeBackend suppress pattern.
 // TooGenericExceptionCaught: the per-connection guard converts ANY request
 // failure to a close, never a listener death; the accept loop dies loudly
-// (Failed) on a live-socket accept failure, never silently (§6).
+// (Failed) on a live-socket accept failure, never silently .
 @Suppress("TooManyFunctions", "TooGenericExceptionCaught", "ReturnCount")
 class ProvisioningListener(
     private val store: FriendInviteStore,
     private val rateLimiter: ProvisionRateLimiter,
     private val bindAddress: String,
     private val port: Int = ServerRuntimeContract.PROVISION_PORT,
+    /** The D7 LAN sign-up lane's host-side decision (switches → password
+     * proof → the shared sign-up gate → account creation). Null = the host
+     * did not wire the lane; the listener answers its closed refusal. */
+    private val signupLane: ((FriendProvisionProtocol.SignupRequest) -> com.pocketrealm.discovery.iroh.SignupProtocol.Reply)? = null,
     private val logWarning: (String) -> Unit = {},
     private val logInfo: (String) -> Unit = {},
 ) {
@@ -74,7 +78,7 @@ class ProvisioningListener(
 
     /** Binds the listener. Returns the resulting state (also observable via
      * [currentState]); a bind failure lands in [ListenerState.Failed] — the
-     * UI must show it, never fake listening (§6 exposure invariant). */
+     * UI must show it, never fake listening ( exposure invariant). */
     fun start(): ListenerState = synchronized(lifecycleLock) {
         if (state.get() is ListenerState.Listening) return state.get()
         stopLocked()
@@ -120,7 +124,7 @@ class ProvisioningListener(
                 failIfStillLive(socket, failure.message ?: failure.javaClass.simpleName)
                 return
             }
-            // The concurrency gate (§6 layer 1): over capacity → the
+            // The concurrency gate ( layer 1): over capacity → the
             // identical refusal blob, then close.
             if (!rateLimiter.tryAcquireConnection()) {
                 answerAndClose(client, FriendProvisionProtocol.REFUSED_RESPONSE)
@@ -139,7 +143,7 @@ class ProvisioningListener(
      * socket). A socket that is still the live one failed on its own —
      * EMFILE and friends arrive as SocketException too — and the loop must
      * die loudly: [ListenerState.Failed], never a silent Listening over a
-     * dead accept loop (§6 exposure invariant). */
+     * dead accept loop ( exposure invariant). */
     private fun failIfStillLive(socket: ServerSocket, reason: String) {
         synchronized(lifecycleLock) {
             val current = state.get()
@@ -184,6 +188,13 @@ class ProvisioningListener(
             socket.getInputStream(),
             FriendProvisionProtocol.MAX_REQUEST_BYTES,
         )
+        // The D7 LAN sign-up lane rides the same port: a kind=signup frame
+        // gets the lane's own reply shape (the friend sees WHY — closed,
+        // wrong password, cap — unlike the invite lane's refusal oracle).
+        payload?.let { FriendProvisionProtocol.decodeSignupRequest(it) }?.let { signup ->
+            serveSignup(socket, sourceIp, signup)
+            return
+        }
         val request = payload?.let { FriendProvisionProtocol.decodeRequest(it) }
         if (request == null) {
             refuse(socket, sourceIp)
@@ -228,6 +239,44 @@ class ProvisioningListener(
         answer(socket, FriendProvisionProtocol.REFUSED_RESPONSE)
     }
 
+    /**
+     * One LAN sign-up request: the lane's verdict (or the closed refusal
+     * when the host did not wire it), with the SAME per-source rate
+     * accounting as the invite lane — every refusal counts, a created
+     * account records success.
+     */
+    private fun serveSignup(
+        socket: Socket,
+        sourceIp: String,
+        request: FriendProvisionProtocol.SignupRequest,
+    ) {
+        val lane = signupLane
+        if (lane == null) {
+            rateLimiter.recordFailure(sourceIp)
+            answer(
+                socket,
+                FriendProvisionProtocol.encodeSignupReply(
+                    com.pocketrealm.discovery.iroh.SignupProtocol.Reply(
+                        false,
+                        com.pocketrealm.discovery.iroh.SignupProtocol.SIGNUP_CLOSED,
+                        "This realm is not taking sign-ups right now.",
+                    ),
+                ),
+            )
+            return
+        }
+        val reply = runCatching { lane(request) }.getOrElse { failure ->
+            logWarning("LAN sign-up lane failed: ${failure.message ?: failure.javaClass.simpleName}")
+            com.pocketrealm.discovery.iroh.SignupProtocol.Reply(
+                false,
+                com.pocketrealm.discovery.iroh.SignupProtocol.FAILED,
+                "The host could not create the account.",
+            )
+        }
+        if (reply.ok) rateLimiter.recordSuccess(sourceIp) else rateLimiter.recordFailure(sourceIp)
+        answer(socket, FriendProvisionProtocol.encodeSignupReply(reply))
+    }
+
     private fun answer(socket: Socket, body: String) = answerAndClose(socket, body)
 
     private fun answerAndClose(socket: Socket, body: String) {
@@ -244,7 +293,7 @@ class ProvisioningListener(
     }
 
     companion object {
-        /** §6: "a short read deadline". One request per connection; a client
+        /** "a short read deadline". One request per connection; a client
          * that cannot produce its frame inside this window is a refusal. */
         internal const val READ_DEADLINE_MS = 5_000
     }

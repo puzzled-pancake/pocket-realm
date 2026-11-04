@@ -91,7 +91,7 @@ class DataPreparationStoreTest {
         assertEquals(emptyList<Int>(), derivedMmapMapIds(root, root))
     }
 
-    // ---- R2-4 (code-red round 2): the data manifest's flavor is the
+    // the data manifest's flavor is the
     // VERIFIED source-generation identity, never the Home switcher's
     // selection — a mid-prep flavor switch cannot relabel cross-flavor
     // bytes.

@@ -847,7 +847,7 @@ class DesktopAddonRepository private constructor(
         runCatching { prunePackages(loadRegistry(registry), loadRegistry(previousRegistry)) }
     }
 
-    /** R4-2: true when the ACTIVE flavor is the vanilla lane — the only
+    /** true when the ACTIVE flavor is the vanilla lane — the only
      * lane the AndroidPort built-in ships for. */
     private fun isVanillaLane(): Boolean =
         seedAndroidPortForLane(
@@ -1011,7 +1011,7 @@ class DesktopAddonRepository private constructor(
         @Volatile private var instance: DesktopAddonRepository? = null
 
         /**
-         * R4-2: the AndroidPort built-in seeds/refreshes on the VANILLA lane
+         * the AndroidPort built-in seeds/refreshes on the VANILLA lane
          * ONLY — the owner decision excludes it per flavor. Extracted as a
          * pure function so the desktop seed-skip is deterministically
          * testable (the full construction's seed runs in a coroutine).

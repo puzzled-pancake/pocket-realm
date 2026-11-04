@@ -11,7 +11,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
- * R4-1 (desktop-twin round 1, serious): the update-apply path must land
+ * the update-apply path must land
  * the honest outcome on EVERY failure class — an IO failure mid-apply
  * (truncated/garbage package, disk-full, locked target) previously
  * escaped the confirm click's unguarded coroutine and killed the app.

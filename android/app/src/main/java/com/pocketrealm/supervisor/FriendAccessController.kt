@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 /**
- * The host's friend-access hub (design-remote-accounts §5-§12), SHARED by
+ * The host's friend-access hub (design-remote-accounts -), SHARED by
  * the desktop app and the Android service: owns the [FriendInviteStore],
  * the [ProvisionRateLimiter], and the [ProvisioningListener], and exposes
  * the host actions the Players surfaces render. The owner (the desktop
@@ -35,6 +35,9 @@ class FriendAccessController(
     logWarning: (String) -> Unit = {},
     logInfo: (String) -> Unit = {},
     storeOverride: FriendInviteStore? = null,
+    /** The D7 LAN sign-up lane's host-side decision, passed through to the
+     * listener (null = the lane answers its closed refusal). */
+    private val signupLane: ((com.pocketrealm.server.FriendProvisionProtocol.SignupRequest) -> com.pocketrealm.discovery.iroh.SignupProtocol.Reply)? = null,
 ) {
     val store: FriendInviteStore =
         storeOverride ?: FriendInviteStore(storeDirectory)
@@ -42,7 +45,11 @@ class FriendAccessController(
     private val rateLimiter = ProvisionRateLimiter(store)
 
     private val makeListener: (String) -> ProvisioningListener = { address ->
-        ProvisioningListener(store, rateLimiter, address, logWarning = logWarning, logInfo = logInfo)
+        ProvisioningListener(
+            store, rateLimiter, address,
+            signupLane = signupLane,
+            logWarning = logWarning, logInfo = logInfo,
+        )
     }
 
     private val _listenerState = MutableStateFlow<ProvisioningListener.ListenerState>(
@@ -63,7 +70,7 @@ class FriendAccessController(
      * cancelled its collector — cancel cannot interrupt a body with no
      * suspension points) must not re-bind the provisioning socket. The
      * flag is checked inside the SAME lock as the start/stop act, so the
-     * exposure invariant (§6: bound only while a friend-access session is
+     * exposure invariant ( bound only while a friend-access session is
      * up, stopped with the realm, never bound otherwise) holds on every
      * teardown path. */
     @Volatile private var closed = false
@@ -126,7 +133,7 @@ class FriendAccessController(
     fun refresh() {
         // The listener can leave Listening on its own (a live-socket accept
         // failure publishes Failed): re-sync the flow from the live listener
-        // so the hub/UI never shows Listening over a dead socket (§6).
+        // so the hub/UI never shows Listening over a dead socket .
         listener?.let { _listenerState.value = it.currentState() }
         _invites.value = store.rows()
     }
@@ -171,13 +178,13 @@ class FriendAccessController(
     }
 
     /**
-     * The approval leg (§5): markApproved → the supervisor's verifier
-     * provision (the durable-journal seam, §12) → PROVISIONED (or back to
+     * The approval leg : markApproved → the supervisor's verifier
+     * provision (the durable-journal seam) → PROVISIONED (or back to
      * SUBMITTED on a relay failure, so the host can retry; the friend is
      * never punished for a host-side error).
      */
     suspend fun approveInvite(inviteId: String): String = withContext(Dispatchers.IO) {
-        // R2-1 (android-core review round 2, serious): the attempt bookkeeping
+        // the attempt bookkeeping
         // IS the retry-vs-collision discriminator. The first approval is this
         // invite's one provisioning attempt; a re-approval (after
         // approvalFailed) authorizes the ACCOUNT_EXISTS convergence onto OUR
@@ -215,7 +222,7 @@ class FriendAccessController(
 
     /** The friend's pending username already on the realm (the approval
      * card re-checks against account.username UNIQUE — the relay op returns
-     * ACCOUNT_EXISTS and the host rejects; §3.5). */
+     * ACCOUNT_EXISTS and the host rejects;). */
     fun pendingRows(): List<FriendInviteStore.InviteRow> = store.pending()
 
     suspend fun roster(): RosterRead = backend.accountRoster()
@@ -243,7 +250,7 @@ class FriendAccessController(
     }
 
     /** Per-friend gmlevel 0..3 through the supervisor's journal seam,
-     * then the §12 audit row. */
+     * then the audit row. */
     suspend fun setGmLevel(username: String, level: Int): Boolean {
         val ok = supervisor.setFriendGmLevel(username, level)
         store.auditModeration(

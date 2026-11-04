@@ -138,7 +138,7 @@ class AuthStreamFilter(private val flavor: ClientFlavor) {
             totalBytesSeen > MAX_PRE_AUTH_BYTES
         if (overBudget) {
             throw RealmListRewrite.RealmListRewriteException(
-                "VAL-IROH-REALMLIST: the pre-auth phase exceeded its " +
+                "the pre-auth phase exceeded its " +
                     "$MAX_PRE_AUTH_BYTES-byte budget (" + phase.name +
                     ") — the stream is hostile or misframed",
             )
@@ -286,20 +286,20 @@ class AuthStreamFilter(private val flavor: ClientFlavor) {
                 ((buffer[2].toInt() and BYTE_MASK) shl 8)
             if (RealmListRewrite.isRealmListOpcode(opcode) && size == 0) {
                 throw RealmListRewrite.RealmListRewriteException(
-                    "VAL-IROH-REALMLIST: zero-size realm list frame",
+                    "zero-size realm list frame",
                 )
             }
             if (RealmListRewrite.isRealmListOpcode(opcode) &&
                 size > MAX_FRAMED_PAYLOAD
             ) {
                 throw RealmListRewrite.RealmListRewriteException(
-                    "VAL-IROH-REALMLIST: realm list declares $size payload " +
+                    "realm list declares $size payload " +
                         "bytes — beyond the pinned post-auth bound",
                 )
             }
             if (!RealmListRewrite.isRealmListOpcode(opcode)) {
                 throw RealmListRewrite.RealmListRewriteException(
-                    "VAL-IROH-REALMLIST: opcode 0x${opcode.toString(16)} is " +
+                    "opcode 0x${opcode.toString(16)} is " +
                         "not a realm list in the framed phase — the stream " +
                         "is misframed (wrong-flavor pairing?)",
                 )
@@ -314,7 +314,7 @@ class AuthStreamFilter(private val flavor: ClientFlavor) {
             // would hang the client at logon; refuse loudly instead.
             if (totalBytesSeen - framedArmedAtTotal > MAX_FRAMED_PAYLOAD) {
                 throw RealmListRewrite.RealmListRewriteException(
-                    "VAL-IROH-REALMLIST: a framed message exceeded its " +
+                    "a framed message exceeded its " +
                         "declared payload budget — the stream is misframed " +
                         "(wrong-flavor pairing?)",
                 )
@@ -368,12 +368,12 @@ class AuthStreamFilter(private val flavor: ClientFlavor) {
             ((buffer[2].toInt() and BYTE_MASK) shl 8)
         if (size == 0) {
             throw RealmListRewrite.RealmListRewriteException(
-                "VAL-IROH-REALMLIST: zero-size realm list frame",
+                "zero-size realm list frame",
             )
         }
         if (size > MAX_FRAMED_PAYLOAD) {
             throw RealmListRewrite.RealmListRewriteException(
-                "VAL-IROH-REALMLIST: realm list declares $size payload " +
+                "realm list declares $size payload " +
                     "bytes — beyond the pinned bound",
             )
         }

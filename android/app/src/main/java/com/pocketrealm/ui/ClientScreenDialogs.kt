@@ -4,6 +4,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 
 /** The GB divisor for the human-readable archive size (1e9 bytes). */
 private const val GB = 1_000_000_000.0
@@ -19,39 +22,51 @@ internal fun importConfirmDialog(
     pending: ImportUiState.PendingImportPick,
     clientVersion: String?,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
+    /** true = join only: copy the game files and skip the server build. */
+    onConfirm: (joinOnly: Boolean) -> Unit,
 ) {
     val laneCopy = clientVersion
-        ?: return confirmWithFirstPickCopy(pending, onDismiss, onConfirm)
+        ?: return confirmWithFirstPickCopy(pending, onDismiss) { onConfirm(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (pending.isArchive) "Install from this archive?" else "Import the game files?") },
         text = {
-            Text(
-                if (pending.isArchive) {
-                    val gigabytes = pending.expectedBytes / GB
-                    "Pocket Realm copies the ${"%.1f".format(gigabytes)} GB archive into app storage, " +
-                        "detects the WoW $laneCopy client inside, extracts and verifies it, then builds " +
-                        "the server's maps, collision and navmesh data. Original installer archives " +
-                        "(containing setup.exe + setup-*.bin) are unpacked on device too — plan for " +
-                        "well over 30 minutes (an hour or more for a ~5 GB installer archive) and " +
-                        "roughly twice the archive size in free space " +
-                        "(three times for an installer archive); keep the device plugged in and " +
-                        "awake. The archive itself is only read, never modified, and the staged " +
-                        "copy is deleted after the client is published."
-                } else {
-                    "This copies and verifies the WoW $laneCopy client, then builds the " +
-                        "server's maps, collision and navmesh data. Depending on the " +
-                        "device this can take over 30 minutes. Keep the device plugged " +
-                        "in and awake. The selected folder is only read, never modified. " +
-                        "The folder must be the plain, already-extracted (uncompressed) " +
-                        "WoW $laneCopy client itself — not an installer or launcher."
-                },
-            )
+            androidx.compose.foundation.layout.Column(
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    if (pending.isArchive) {
+                        val gigabytes = pending.expectedBytes / GB
+                        "Pocket Realm copies the ${"%.1f".format(gigabytes)} GB archive and installs " +
+                            "the WoW $laneCopy game files from it. You need about twice the archive " +
+                            "size in free space. The archive itself is never changed."
+                    } else {
+                        "Pocket Realm copies the WoW $laneCopy game files from this folder. " +
+                            "The folder is never changed."
+                    },
+                )
+                Text(
+                    "Full install: also builds your own world, for solo play and hosting. " +
+                        "This can take 30 minutes or more; keep the device plugged in.",
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Join only: just the game files, for joining other people's games. " +
+                        "Much faster. You can build your own world later.",
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                )
+            }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(if (pending.isArchive) "Install" else "Start import")
+            androidx.compose.foundation.layout.Row {
+                TextButton(
+                    onClick = { onConfirm(true) },
+                    modifier = Modifier.testTag("client-import-join-only"),
+                ) { Text("Join only") }
+                TextButton(
+                    onClick = { onConfirm(false) },
+                    modifier = Modifier.testTag("client-import-full"),
+                ) { Text("Full install") }
             }
         },
         dismissButton = {
@@ -75,11 +90,9 @@ private fun confirmWithFirstPickCopy(
         text = {
             Text(
                 if (pending.isArchive) {
-                    "Pick a game flavor on Home first — the archive import follows " +
-                        "that lane's client and preparation."
+                    "Pick a game version on Home first — the archive import needs it."
                 } else {
-                    "Pick a game flavor on Home first — the import follows that " +
-                        "lane's client and preparation."
+                    "Pick a game version on Home first — the import needs it."
                 },
             )
         },

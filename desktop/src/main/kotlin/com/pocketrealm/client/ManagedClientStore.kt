@@ -9,7 +9,7 @@ import java.nio.file.StandardCopyOption
 import org.json.JSONObject
 
 /**
- * DESK-55/67: fail-closed reader for the app-owned managed client generation —
+ * fail-closed reader for the app-owned managed client generation —
  * the desktop twin of the Android client/ManagedClientStore. Same pointer
  * namespace (per-flavor `active-<flavorId>.json` with the legacy
  * un-namespaced `active.json` adopted on first read), same fail-closed
@@ -183,7 +183,7 @@ internal class ManagedClientStore(roots: DesktopStorageRoots) {
     }
 
     /**
-     * G3-5: the runtime reads [clientId]'s per-flavor pointer namespace; on
+     * the runtime reads [clientId]'s per-flavor pointer namespace; on
      * first read after the multi-flavor update, an un-namespaced `active.json`
      * is adopted under the flavor's canonical name (atomic move, with the
      * plain-replace fallback the store's own write discipline carries) so the

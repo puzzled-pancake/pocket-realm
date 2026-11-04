@@ -16,7 +16,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * Design-timeframe §2/§4.3: the desktop stage-overlay applier — desired vs
+ * Design-timeframe /: the desktop stage-overlay applier — desired vs
  * applied resolved against the durable pocketrealm_meta ledger, reversible
  * INSERT OR IGNORE overlays executed against the world DB, the DEFAULT
  * stage recording without touching the world DB (existing worlds
@@ -177,7 +177,7 @@ class DesktopTimeframeOverlayTest {
         assertEquals(1L to 1L, counts(datadir))
         // Backward to 1.1: the earlier overlay re-applies over the same
         // datadir — its OWN marker lands, the later stage's rows stay
-        // (never DELETE, design §2).
+        // (never DELETE, design).
         DesktopTimeframeOverlay.prepareForStart(datadir, "vanilla-1.1")
         assertEquals("vanilla-1.1", DesktopTimeframeOverlay.readAppliedStage(datadir))
         assertEquals(2L to 2L, counts(datadir))

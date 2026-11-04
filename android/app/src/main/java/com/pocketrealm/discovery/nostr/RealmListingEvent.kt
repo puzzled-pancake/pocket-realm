@@ -20,7 +20,11 @@ import java.security.MessageDigest
  *  - content JSON exactly per the frozen schema: name, motd, flavor, build,
  *    timeframe, rates, players{humans,bots} (bots labeled, never padded),
  *    join (the iroh join descriptor — node id + home relay URL ONLY, never
- *    an IP; null while the host's gateway is down), statusPageUrl (optional);
+ *    an IP; null while the host's gateway is down), statusPageUrl (optional),
+ *    uptimeSeconds (the current session's uptime, integer seconds, or
+ *    null) and signupOpen (whether the host accepts self sign-up) — the
+ *    two owner-authorized additions, admitted TOLERANTLY (a listing from
+ *    an older publisher without them still shows);
  *  - NEVER an IP address, geo, or client-download URL; the only
  *    hostnames a listing may carry are the join descriptor's home-relay
  *    URL (a validated hostname-only https URL, IrohJoinDescriptor) and
@@ -47,7 +51,7 @@ object RealmListingContract {
     const val FRESHNESS_MS: Long = 10L * 60L * 1_000L
 
     /** The same window in SECONDS — the store's freshness arithmetic runs
-     * in the created_at domain (code-red R2-1: a Long milliseconds
+     * in the created_at domain ( R2-1: a Long milliseconds
      * multiply wraps for a crafted far-future created_at). */
     const val FRESHNESS_SECONDS: Long = 10L * 60L
 
@@ -59,6 +63,25 @@ object RealmListingContract {
 
     /** The heartbeat cadence while the realm is up and public. */
     const val HEARTBEAT_SECONDS: Long = 300L
+
+    /** A listing whose live facts changed (players online, sign-up,
+     * name) republishes after this long instead of waiting for the
+     * heartbeat, so browsers see near-live counts. */
+    const val CHANGE_REPUBLISH_SECONDS: Long = 60L
+
+    /** True when the changed facts of [next] differ from [published]
+     * (uptime and the join descriptor are not facts that move a beat). */
+    fun factsChanged(published: RealmListingContent?, next: RealmListingContent?): Boolean {
+        if (published == null || next == null) return published != next
+        return published.copy(uptimeSeconds = null, join = null) != next.copy(uptimeSeconds = null, join = null)
+    }
+
+    /** The early-republish window: a changed listing may go out once this
+     * long has passed since the last beat. */
+    fun changeWindowOpen(lastPublishedMs: Long?, nowMs: Long): Boolean =
+        lastPublishedMs != null && nowMs - lastPublishedMs >= CHANGE_REPUBLISH_SECONDS * MILLIS_PER_SECOND
+
+    private const val MILLIS_PER_SECOND = 1_000L
 }
 
 /**
@@ -76,7 +99,7 @@ data class RealmListingContent(
     val humans: Int,
     val bots: Int,
     /**
-     * The iroh join descriptor (W6-N3: no longer null by contract). Null
+     * The iroh join descriptor no longer null by contract). Null
      * means the host's gateway is not running — the honest "not joinable
      * over the internet right now". A non-null descriptor is validated at
      * construction ([IrohJoinDescriptor]: node id + home relay URL, never
@@ -86,6 +109,23 @@ data class RealmListingContent(
     /** The realm-status showcase tunnel URL — the ONLY allowed URL, and
      * only in the pinned trycloudflare shape. */
     val statusPageUrl: String? = null,
+    /** The current session's uptime in whole seconds (null = not known;
+     * bounded by [UPTIME_SECONDS_CEILING]). */
+    val uptimeSeconds: Long? = null,
+    /** True when the host accepts self sign-up from joiners ("Open
+     * sign-up"); false = accounts by invitation. */
+    val signupOpen: Boolean = false,
+    /** The world's player limit (null = not carried). Serialized only
+     * when set, so listings without it keep their exact bytes. */
+    val maxPlayers: Int? = null,
+    /** The host app's version, "v" + dotted digits ("v0.110.0" — the "v"
+     * keeps it clear of the address fence). Serialized only when set. */
+    val appVersion: String? = null,
+    /** True when the host set a join password. The listing carries the
+     * FACT only — never the password or a hash of it (a hash in a public
+     * listing could be cracked offline). Serialized only when true, so
+     * listings from older publishers read as unlocked, byte-identically. */
+    val locked: Boolean = false,
 ) {
 
     /** The frozen-schema content JSON, pinned key order. */
@@ -118,6 +158,21 @@ data class RealmListingContent(
         } else {
             append(NostrJson.quote(statusPageUrl))
         }
+        append(",\"uptimeSeconds\":")
+        append(uptimeSeconds?.toString() ?: "null")
+        append(",\"signupOpen\":")
+        append(signupOpen)
+        if (maxPlayers != null) {
+            append(",\"maxPlayers\":")
+            append(maxPlayers)
+        }
+        if (appVersion != null) {
+            append(",\"appVersion\":")
+            append(NostrJson.quote(appVersion))
+        }
+        if (locked) {
+            append(",\"locked\":true")
+        }
         append("}")
     }
 
@@ -141,11 +196,24 @@ data class RealmListingContent(
         const val TIMEFRAME_MAX_LENGTH = 64
         const val PLAYERS_COUNT_CEILING = 1_000_000
 
-        /** R4-1: the per-entry TAG bound (room for d/t/expiration/flavor/
+        /** The uptime sanity bound: ten years of seconds. */
+        const val UPTIME_SECONDS_CEILING: Long = 10L * 365L * 24L * 3_600L
+
+        /** The listing's app-version shape: "v" + 1-4 dotted digit groups. */
+        val APP_VERSION_SHAPE: Regex = Regex("^v[0-9]{1,4}([.][0-9]{1,4}){0,3}$")
+
+        /** The listing's app version for a raw version name ("0.110.0" →
+         * "v0.110.0"), or null when it does not fit the shape. */
+        fun appVersionTag(versionName: String?): String? =
+            versionName?.trim()?.removePrefix("v")?.let { "v$it" }?.takeIf { APP_VERSION_SHAPE.matches(it) }
+
+        fun isValidMaxPlayers(value: Int?): Boolean = value == null || value in 1..PLAYERS_COUNT_CEILING
+
+        /** the per-entry TAG bound (room for d/t/expiration/flavor/
          * timeframe + a NIP-13 nonce, many times over). */
         const val MAX_LISTING_TAGS = 64
 
-        /** R5-2: a single tag VALUE may not exceed this length. */
+        /** a single tag VALUE may not exceed this length. */
         const val MAX_TAG_VALUE_LENGTH = 128
 
         /** (b) the per-entry SERIALIZED budget — the admission fence
@@ -174,7 +242,7 @@ data class RealmListingContent(
             }
             if (statusPageUrl != null && !isShapeValidPublicUrl(statusPageUrl)) {
                 throw IllegalArgumentException(
-                    "VAL-NOSTR-CONTENT: statusPageUrl must be the realm-status showcase " +
+                    "statusPageUrl must be the realm-status showcase " +
                         "tunnel URL (https://<label>.trycloudflare.com)",
                 )
             }
@@ -235,9 +303,13 @@ data class RealmListingContent(
                 ),
                 humans = humans,
                 bots = bots,
+                // the realm-status payload's session uptime (0 while the
+                // world is down; minute-coarse in PUBLIC mode).
+                uptimeSeconds = payload.optJSONObject("uptime")?.optLong("seconds", -1L)
+                    ?.takeIf { it in 0L..UPTIME_SECONDS_CEILING },
                 // the payload has no dial descriptor — the PUBLISHER
-                // attaches the live gateway's join descriptor (node + home
-                // relay) after this builder returns, so the listing only
+                // attaches the live gateway's join descriptor (node +
+                // home relay) after this builder returns, so the listing only
                 // ever carries a descriptor of a gateway that is UP.
                 join = null,
                 statusPageUrl = publicUrl,
@@ -253,7 +325,7 @@ data class RealmListingContent(
             ClientFlavors.TBC.flavorId -> ClientFlavors.TBC.build
             ClientFlavors.WOTLK.flavorId -> ClientFlavors.WOTLK.build
             else -> throw IllegalArgumentException(
-                "VAL-NOSTR-CONTENT: unknown flavor '$flavor' for the listing build field",
+                "unknown flavor '$flavor' for the listing build field",
             )
         }
 
@@ -264,7 +336,7 @@ data class RealmListingContent(
             } else {
                 stripped.take(maxLength).also {
                     throw IllegalArgumentException(
-                        "VAL-NOSTR-CONTENT: listing $field exceeds $maxLength characters",
+                        "listing $field exceeds $maxLength characters",
                     )
                 }
             }
@@ -294,12 +366,12 @@ object PrivacyGuard {
      * ("192.168.000.001") that common stacks accept as connectable
      * addresses while the canonical regex's strict octets refuse them
      * (R5-1; fail-closed). Same sentence-final-period boundary as the
-     * canonical rule (R3-1/R6-3-1). */
+     * canonical rule. */
     private val IPV4_LOOSE: Regex = Regex(
         "(^|[^0-9.])([0-9]{1,3}\\.){3}[0-9]{1,3}(\\.(?![0-9.])|($|[^0-9.]))",
     )
 
-    /** R2B-1: inet_aton SHORTHAND — 1-3 part dotted numerics ("10.1",
+    /** inet_aton SHORTHAND — 1-3 part dotted numerics ("10.1",
      * "192.168.1") are connectable addresses on common stacks (the JVM's
      * own InetAddress.getByName resolves them; 2-part forms encode any
      * IPv4). Any whitespace-delimited token of ONLY digits and dots
@@ -316,9 +388,9 @@ object PrivacyGuard {
             token.count { it == '.' } >= 1 &&
             token.split('.').all { part -> part.isNotEmpty() }
 
-    /** R3-3: the DOTLESS integer spelling — the single-chunk inet_aton
-     * forms ("2130706433" = 127.0.0.1). R2-N5-r4-1 (code-red round 4,
-     * serious; superseding round 3's octal model, which was never
+    /** the DOTLESS integer spelling — the single-chunk inet_aton
+     * forms ("2130706433" = 127.0.0.1). R2-N5-r4-1 (
+     * serious; superseding the octal model, which was never
      * executed against the JVM): the pinned JDKs' single-chunk parser is
      * PLAIN DECIMAL with leading zeros ignored and an unsigned-32-bit
      * value bound — measured on both pinned JDKs ("0123456789" ->
@@ -343,11 +415,11 @@ object PrivacyGuard {
         return value != null && value in 1..MAX_DOTLESS_DECIMAL_VALUE
     }
 
-    /** R3-r4-1: a HEX address spelling — "0x7f000001" (dotless) and
+    /** a HEX address spelling — "0x7f000001" (dotless) and
      * "0x7f.0x0.0.1" (dotted hex) are connectable on common resolvers.
      * Any 0x-prefixed token of hex characters is address-shaped;
      * fail-closed. */
-    /** R3-r4-1: hex NOTATION requires the "0x" prefix on at least one
+    /** hex NOTATION requires the "0x" prefix on at least one
      * chunk ("0x7f.0x0.0.1", "0x7f000001") — a bare pure-hex word like
      * "deadbeef" or "E0" stays legal prose; fail-closed. */
     private val HEX_CHUNK = Regex("^(0x)?[0-9a-f]+$")
@@ -366,17 +438,17 @@ object PrivacyGuard {
     /** The hex/colon/dot character set an IPv6 spelling draws from. */
     private const val IPV6_TOKEN_CHARS = "0123456789abcdefABCDEF:."
 
-    /** R2-N5-r1-2: the HEX characters an IPv6 spelling must carry at least
+    /** the HEX characters an IPv6 spelling must carry at least
      * one of — all-hex-letter literals ("dead:beef::cafe") are connectable
      * with zero decimal digits. */
     private const val IPV6_HEX_CHARS = "0123456789abcdefABCDEF"
 
 
-    /** R5-2: the clock-prose shape (h:mm / h:mm:ss) exempted from the
+    /** the clock-prose shape (h:mm / h:mm:ss) exempted from the
      * IPv6 leg — the JVM leaves such tokens unresolved. */
     private val TIME_SHAPE = Regex("^\\d{1,2}(:\\d{2}){1,2}$")
 
-    /** R2-N5-r4-1: the JVM single-chunk parse bounds, MEASURED on both
+    /** the JVM single-chunk parse bounds, MEASURED on both
      * pinned JDKs: DECIMAL with leading zeros ignored, resolving within
      * the UNSIGNED 32-bit range and a ~15-character length cap. */
     private const val MAX_DOTLESS_DECIMAL_VALUE = 0xFFFFFFFFL
@@ -390,7 +462,7 @@ object PrivacyGuard {
     private const val MIN_TLD_LENGTH = 2
     private const val MAX_TLD_LENGTH = 24
 
-    /** R3-5: an IPv6 shape check for one whitespace-delimited token —
+    /** an IPv6 shape check for one whitespace-delimited token —
      * "2001:db8::1", "[2001:db8::1]:8085", "::ffff:192.168.1.10". A
      * token carrying 2+ colons and only address characters is
      * address-shaped. Fail-closed: an exotic spelling is refused, not
@@ -399,14 +471,14 @@ object PrivacyGuard {
      * decimal digits, so the old any-digit test passed connectable
      * all-letter literals; exactly "::" stays legal (the
      * unspecified-address wildcard carries no address to refuse).
-     * R5-2 (round 5): h:mm / h:mm:ss TIME tokens ("12:30:45",
+     * h:mm / h:mm:ss TIME tokens ("12:30:45",
      * "03:00:00") are explicitly EXEMPT — the JVM does not resolve them
      * (UnknownHostException measured on the pinned JDKs; they supersede
      * this KDoc's earlier and wrong "prose colons never survive the
      * token split" sentence, which time prose disproves), so a host can
      * publish clock prose without a false "an IP address" refusal. */
     fun isIpV6ShapedToken(token: String): Boolean {
-        // "[2001:db8::1]:8085" — brackets go first. R2B-1: zone-ids are
+        // "[2001:db8::1]:8085" — brackets go first. Zone-ids are
         // part of the address — strip BOTH the raw ("%eth0") and the
         // URL-encoded ("%25eth0") forms. A trailing all-digit group is a
         // PORT only when what remains still carries 2+ colons ("fe80::1"
@@ -431,7 +503,7 @@ object PrivacyGuard {
             core.any { it in IPV6_HEX_CHARS }
     }
 
-    /** R3-4: an IDN hostname spelling — the ASCII HOSTNAME regex only
+    /** an IDN hostname spelling — the ASCII HOSTNAME regex only
      * sees [a-z0-9-], so "水.com" sailed while its punycode equivalent
      * ("xn--1rw.com", IDN.toASCII-proven the same hostname) was refused.
      * Fail-closed: any token whose LAST dot-separated label is letters-
@@ -477,8 +549,8 @@ object PrivacyGuard {
         // walk runs ALWAYS, not only when a canonical rule matched.
         // each token is judged with ONE sentence-final period
         // stripped ("direct: 2130706433." is the same infrastructure
-        // pointer as "10.0.0.1." which the canonical IPV4 regex already
-        // refuses) — a second period defeats the strip and stays refused
+        // pointer as "10.0.0.1." which the canonical IPV4 regex
+        // already refuses) — a second period defeats the strip and stays refused
         // by the empty-part rule.
         val banned = canonical ?: text.split(Regex("\\s+")).firstOrNull { rawToken ->
             val token =
@@ -509,7 +581,7 @@ object PrivacyGuard {
         }
         if (banned == null) return
         throw IllegalArgumentException(
-            "VAL-NOSTR-CONTENT: listing $field carries $banned",
+            "listing $field carries $banned",
         )
     }
 }
@@ -610,7 +682,7 @@ data class NostrEvent(
                 pending.kind, pending.tags, pending.content,
             )
             val id = computeId(serialized)
-            val sig = key.signSchnorr(Hex.decode(id, "VAL-NOSTR-EVENT"), auxRand32)
+            val sig = key.signSchnorr(Hex.decode(id, "nostr event"), auxRand32)
             return NostrEvent(
                 idHex = id,
                 pubkeyHex = key.xOnlyPublicKeyHex,
@@ -637,9 +709,9 @@ data class NostrEvent(
             val kind = obj?.optInt("kind", -1) ?: -1
             val content = obj?.optString("content", "").orEmpty()
             val tagsJson = requireNotNull(obj) {
-                "VAL-NOSTR-EVENT: not a JSON object"
+                "nostr event: not a JSON object"
             }.optJSONArray("tags").let { tags ->
-                requireNotNull(tags) { "VAL-NOSTR-EVENT: missing tags" }
+                requireNotNull(tags) { "nostr event: missing tags" }
             }
             val problem = when {
                 !HEX_64.matches(id) || !HEX_64.matches(pubkey) || !HEX_128.matches(sig) ->
@@ -648,10 +720,10 @@ data class NostrEvent(
                 createdAt < 0 -> "created_at missing"
                 else -> null
             }
-            require(problem == null) { "VAL-NOSTR-EVENT: $problem" }
+            require(problem == null) { "nostr event: $problem" }
             val tags = (0 until tagsJson.length()).map { i ->
                 val tag = requireNotNull(tagsJson.optJSONArray(i)) {
-                    "VAL-NOSTR-EVENT: tag $i not an array"
+                    "nostr event: tag $i not an array"
                 }
                 (0 until tag.length()).map { j -> tag.optString(j, "") }
             }
@@ -714,7 +786,7 @@ object RealmListingEvent {
      * privacy guard runs HERE (the signing boundary) — a content object
      * assembled by [RealmListingContent.copy] or any other path that
      * skipped the constructor-time sanitize cannot smuggle a banned
-     * payload into a signed event. R2-3 (W6-N5 round 5): the TAG fields
+     * payload into a signed event. R2-3: the TAG fields
      * cross the same boundary — flavor and timeframeStage are serialized
      * verbatim into the public `flavor`/`timeframe` tags, so both pass
      * the privacy fence here: a corrupted staged conf value surfacing as
@@ -731,6 +803,16 @@ object RealmListingEvent {
         auxRand32: ByteArray? = null,
     ): NostrEvent {
         RealmListingContent.sanitize(content.name, content.motd, content.statusPageUrl)
+        require(content.uptimeSeconds == null ||
+            content.uptimeSeconds in 0L..RealmListingContent.UPTIME_SECONDS_CEILING) {
+            "listing uptime is outside 0..${RealmListingContent.UPTIME_SECONDS_CEILING} seconds"
+        }
+        require(RealmListingContent.isValidMaxPlayers(content.maxPlayers)) {
+            "listing maxPlayers is outside 1..${RealmListingContent.PLAYERS_COUNT_CEILING}"
+        }
+        require(content.appVersion == null || RealmListingContent.APP_VERSION_SHAPE.matches(content.appVersion)) {
+            "listing appVersion must look like v1.2.3"
+        }
         PrivacyGuard.refuseIfBanned(content.flavor, "flavor tag")
         PrivacyGuard.refuseIfBanned(content.timeframeStage, "timeframe tag")
         return NostrEvent.create(
@@ -746,18 +828,20 @@ object RealmListingEvent {
     }
 
     /** The frozen schema's tag set: d, t, expiration (hint), flavor,
-     * timeframe. Nothing else. */
+     * timeframe — plus `locked` for a password-protected game. Nothing
+     * else. */
     fun tagsFor(
         content: RealmListingContent,
         nowSeconds: Long,
         expirationHintSeconds: Long,
-    ): List<List<String>> = listOf(
-        listOf("d", RealmListingContract.D_TAG),
-        listOf("t", RealmListingContract.T_TAG),
-        listOf("expiration", (nowSeconds + expirationHintSeconds).toString()),
-        listOf("flavor", content.flavor),
-        listOf("timeframe", content.timeframeStage),
-    )
+    ): List<List<String>> = buildList {
+        add(listOf("d", RealmListingContract.D_TAG))
+        add(listOf("t", RealmListingContract.T_TAG))
+        add(listOf("expiration", (nowSeconds + expirationHintSeconds).toString()))
+        add(listOf("flavor", content.flavor))
+        add(listOf("timeframe", content.timeframeStage))
+        if (content.locked) add(listOf("locked", "true"))
+    }
 
     /** NIP-09 deletion for one listing (graceful shutdown's retract): kind
      * 5 with the e-tag on the listing id and the a-tag on the replaceable
@@ -795,18 +879,18 @@ object RealmListingEvent {
     // trust boundary: one exit per refusal, each with its VAL code
     fun verifyListing(event: NostrEvent): Verified {
         if (event.kind != RealmListingContract.KIND) {
-            return Verified(false, "VAL-NOSTR-EVENT: kind ${event.kind} is not a realm listing")
+            return Verified(false, "nostr event: kind ${event.kind} is not a realm listing")
         }
         val d = event.tags.firstOrNull { it.size >= 2 && it[0] == "d" }?.getOrNull(1)
         if (d != RealmListingContract.D_TAG) {
-            return Verified(false, "VAL-NOSTR-EVENT: d tag missing or wrong for a realm listing")
+            return Verified(false, "nostr event: d tag missing or wrong for a realm listing")
         }
         if (event.tags.none { it.size >= 2 && it[0] == "t" && it[1] == RealmListingContract.T_TAG }) {
-            return Verified(false, "VAL-NOSTR-EVENT: t tag missing or wrong for a realm listing")
+            return Verified(false, "nostr event: t tag missing or wrong for a realm listing")
         }
         val recomputed = NostrEvent.computeId(event.serializedForId())
         if (recomputed != event.idHex) {
-            return Verified(false, "VAL-NOSTR-EVENT: id does not match the serialization")
+            return Verified(false, "nostr event: id does not match the serialization")
         }
         val ok = runCatching {
             Secp256k1Verify.schnorr(

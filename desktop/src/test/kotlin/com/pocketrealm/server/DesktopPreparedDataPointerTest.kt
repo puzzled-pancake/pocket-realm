@@ -156,7 +156,7 @@ class DesktopPreparedDataPointerTest {
     /** Stage one generation whose manifest mirrors the tool's published
      * shape, with the identity fields taken from the registry itself;
      * returns the manifest sha256. */
-    /** Optional fixture overrides (R2-arch-1): the below-floor pins plant
+    /** Optional fixture overrides: the below-floor pins plant
      * explicit counts; the alias tests override the flavor alias. */
     private class GenerationFixture(
         val withAlias: Boolean = true,
@@ -200,7 +200,7 @@ class DesktopPreparedDataPointerTest {
     }
 
     @Test fun belowFloorCountsRefuseTheTbcAndWotlkLanesAtBoot() {
-        // R2-arch-1 (W2 code-red round 2): the flavor-routed counts gate is
+        // the flavor-routed counts gate is
         // pinned BEHAVIORALLY — a tbc/wotlk-identity manifest with the
         // pre-wave vanilla-flat counts (100/100/1/1/1) is refused with the
         // missing-maps copy, exactly the regression its fix closes ("a

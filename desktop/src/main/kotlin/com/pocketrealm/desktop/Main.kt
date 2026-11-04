@@ -32,10 +32,9 @@ import com.pocketrealm.desktop.ui.FirstRunTutorialHost
 import com.pocketrealm.desktop.ui.HomeScreen
 import com.pocketrealm.desktop.ui.InGameSettingsScreen
 import com.pocketrealm.desktop.ui.ImportScreen
-import com.pocketrealm.desktop.ui.LlmScreen
-import com.pocketrealm.desktop.ui.PlayersScreen
-import com.pocketrealm.desktop.ui.RealmBrowserScreen
+import com.pocketrealm.desktop.ui.PlayersAdvanced
 import com.pocketrealm.desktop.ui.SettingsScreen
+import com.pocketrealm.desktop.ui.online.MultiplayerScreen
 
 fun main() = application {
     // Packaged-image smoke lane: -Dpocketrealm.nativeSmoke=1 makes the
@@ -237,13 +236,32 @@ private fun PocketRealmDesktopApp(model: DesktopAppModel) {
                         onOpenSettings = { current = Route.Settings },
                         onOpenImport = { current = Route.Import },
                         onOpenPlayers = { current = Route.Players },
+                        onOpenMultiplayerHost = {
+                            router.pendingRealmsTab = "HOST"
+                            router.navigate(Route.Realms)
+                            current = Route.Realms
+                        },
+                        onOpenMultiplayerFind = {
+                            router.pendingRealmsTab = "FIND"
+                            router.navigate(Route.Realms)
+                            current = Route.Realms
+                        },
                     )
                     Route.Import -> ImportScreen(model)
                     Route.Bots -> BotsScreen(model)
-                    Route.Llm -> LlmScreen(model)
-                    Route.Players -> PlayersScreen(model)
-                    Route.Realms -> RealmBrowserScreen(model)
-                    Route.Settings -> SettingsScreen(model, onOpenLlm = { current = Route.Llm })
+                    Route.Players -> PlayersAdvanced(model)
+                    Route.Realms -> {
+                        // the tab Home asked for is consumed once, here —
+                        // a later rail visit lands on the default tab.
+                        val initialTab = router.pendingRealmsTab
+                        router.pendingRealmsTab = null
+                        MultiplayerScreen(
+                            model = model,
+                            onOpenPlayers = { current = Route.Players },
+                            initialTab = initialTab,
+                        )
+                    }
+                    Route.Settings -> SettingsScreen(model, onOpenBots = { current = Route.Bots })
                     Route.InGameSettings -> InGameSettingsScreen(model)
                     Route.Controls -> ControlsScreen(model)
                     Route.Addons -> AddonsScreen(model)

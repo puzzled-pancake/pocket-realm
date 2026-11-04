@@ -98,7 +98,7 @@ class DurableRuntimeSupervisorTest {
         val result = runtime.start("mobile-low-v1", includeClient = false)
 
         assertFalse(result.ok)
-        // GAP-2: a failed start whose unwind drains cleanly settles at rest -
+        // a failed start whose unwind drains cleanly settles at rest -
         // STOPPED and clean, the refusal preserved as lastError - instead of
         // the poisoned ERROR journal. The STARTING-live stage is still
         // stopped through the ordinary path (a boot mid-flight is real work).
@@ -709,7 +709,7 @@ class DurableRuntimeSupervisorTest {
         val rejected = runtime.start("mobile-low-v1", includeClient = false)
 
         assertFalse(rejected.ok)
-        // GAP-2: the live engine runs under the ENDED session's claim - not
+        // the live engine runs under the ENDED session's claim - not
         // this generation's to stop - so the never-started stage's ownership
         // is unwound bookkeeping-only and the journal settles at rest with
         // the honest refusal, never a poisoned ERROR journal.
@@ -746,7 +746,7 @@ class DurableRuntimeSupervisorTest {
         tokens.session = "22222222-2222-4222-8222-222222222222"
         val rejected = runtime.start("mobile-low-v1", includeClient = false)
         assertFalse(rejected.ok)
-        // GAP-2: the unwinnable release leaves OUR generation holding
+        // the unwinnable release leaves OUR generation holding
         // nothing (engine down, claim is the ended session's) - the refused
         // start settles at rest with the dedicated failure class as
         // lastError, and the consented verb below remains the repair.
@@ -970,7 +970,7 @@ class DurableRuntimeSupervisorTest {
     // ------------------------------------------------------------------
     // GAP-2 root-fix pins. The deterministic restore-gate wedge: after a
     // restore + bots-disabled proof cycle the proof's READY spent the
-    // process's one world lifetime (DESK-25), so the next ORDINARY start's
+    // process's one world lifetime, so the next ORDINARY start's
     // WORLD stage is refused WRONG_STATE rc=2 by the native gate BEFORE any
     // worker spawns. The old start-failure unwind then attempted a native
     // stop of that OWNED-BUT-NEVER-STARTED stage: graceful stop timed out,
@@ -1286,7 +1286,7 @@ class DurableRuntimeSupervisorTest {
         var databaseStaleOwner: ComponentOwner? = null
         val failedStarts = mutableSetOf<RuntimeComponent>()
         /**
-         * GAP-2: while set, start() takes the claim, parks the observation
+         * while set, start takes the claim, parks the observation
          * FAILED under the claim (the native one-lifetime gate's residue -
          * world_runtime.cpp start() fail() runs BEFORE any worker spawns, so
          * FAILED-with-no-worker: nothing running, and un-stoppable because

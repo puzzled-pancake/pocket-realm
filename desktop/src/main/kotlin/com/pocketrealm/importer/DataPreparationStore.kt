@@ -22,7 +22,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * DESK-44/69/102: checkpointed CMaNGOS data generation and immutable
+ * checkpointed CMaNGOS data generation and immutable
  * normal-mode publication — the desktop twin of the Android
  * importer/DataPreparationStore. Same stage model (DBC_MAPS → VMAP_EXTRACT →
  * VMAP_ASSEMBLE → MMAPS → MANIFEST) checkpointed through the
@@ -225,6 +225,7 @@ internal open class DataPreparationStore(
                     directoryBytes(mmaps), mmapCheckpointText(mapId, skipped))
                 onTick()
             }
+        buildGameObjectNavmeshes(importId, root, mmaps, mapIds.last(), onTick)
         requireCount(mmaps, ".mmap", terrainBacked.size)
         requireCount(mmaps, ".mmtile", 1)
         validateMmtileNames(mmaps, verifiedSourceFlavor(clientRoot))
@@ -236,6 +237,32 @@ internal open class DataPreparationStore(
         } catch (error: Throwable) {
             journal.failDataStage(importId, DataStage.MMAPS, error.message ?: error.javaClass.simpleName)
             throw error
+        }
+    }
+
+    /**
+     * The transport and elevator navmeshes (boats, zeppelins, elevators, the
+     * Deeprun Tram: `go<displayId>.mmtile`) the server loads for units riding
+     * them — the Android twin's step. Best-effort: a client lacking one of
+     * the models still imports.
+     */
+    private suspend fun buildGameObjectNavmeshes(
+        importId: String, root: File, mmaps: File, finishedMapId: Int, onTick: () -> Unit,
+    ) {
+        if (mmaps.listFiles { file -> GAMEOBJECT_TILE.matches(file.name) }.orEmpty().isNotEmpty()) return
+        runCatching {
+            // A finished map id keeps the generator from rebuilding every map
+            // (no id means "all maps"); its tiles exist, so only the transport
+            // models are built.
+            runTool(importId, DataStage.MMAPS, root, MOVEMAPGEN_TOOL, listOf(
+                finishedMapId.toString(), "--buildGameObjects", "--silent", "--threads", mmapThreads().toString(),
+                "--configInputPath", File(root, "config.json").absolutePath,
+                "--offMeshInput", File(root, "offmesh.txt").absolutePath,
+                "--workdir", root.absolutePath,
+            ), suffix = "gameobjects", onTick = onTick)
+        }.onFailure { failure ->
+            if (failure is kotlinx.coroutines.CancellationException) throw failure
+            com.pocketrealm.desktop.DesktopLog.w("DataPreparation", "transport navmeshes skipped: ${failure.message}")
         }
     }
 
@@ -270,6 +297,7 @@ internal open class DataPreparationStore(
         val pattern = mmtileNamePattern(flavor.flavorId)
         val offenders = mmaps.listFiles { file -> file.isFile && file.name.endsWith(".mmtile") }
             .orEmpty()
+            .filterNot { GAMEOBJECT_TILE.matches(it.name) }
             .filter { !pattern.matches(it.nameWithoutExtension) }
         check(offenders.isEmpty()) {
             "unexpected mmtile name (expected ${mmtileExpectedShape(flavor.flavorId)}): " +
@@ -323,7 +351,7 @@ internal open class DataPreparationStore(
         // and the generators' per-map WRITE failures go through perror() →
         // stderr (cmangos-wotlk MapBuilder.cpp:853-854/:1095-1096), all while
         // still exiting 0 — win_prepare_data.py's belt-and-braces check scans
-        // BOTH streams (R2-r2-2).
+        // BOTH streams.
         output = stdout.readText() + "\n" + stderr.readText()
         check("exit with errors" !in output) {
             diagnostic(stage, process.exitValue(), stdout, stderr)
@@ -350,7 +378,7 @@ internal open class DataPreparationStore(
         val fromLibraryPath = javaLibraryPath.split(File.pathSeparator)
             .filter { it.isNotBlank() }
             .map { File(File(it), name) }
-        // R1-2 (W2 code-red round 1): the extractors are PER-FLAVOR builds —
+        // the extractors are PER-FLAVOR builds —
         // the repo walk resolves the ACTIVE lane's build root (the mirror of
         // win_prepare_data.py's WIN_BUILD_ROOTS), never vanilla's for every
         // lane.
@@ -397,12 +425,12 @@ internal open class DataPreparationStore(
             .put("vmapTiles", count(File(stageRoot, "vmaps"), ".vmtile"))
             .put("mmapMaps", count(File(stageRoot, "mmaps"), ".mmap"))
             .put("mmapTiles", count(File(stageRoot, "mmaps"), ".mmtile"))
-        // GAP-3 (owner census UIUX-3): publication resolves the ACTIVE lane
+        // publication resolves the ACTIVE lane
         // through the flavor machine — with several qualified flavors the
         // manifest identity and the per-flavor active pointer follow the
         // Home switcher's selection instead of `qualified().single()`
         // refusing data preparation wholesale.
-        // R2-4 (code-red round 2) + R2r3-1 (desktop-twin round 3, serious):
+        //
         // the stamp is the VERIFIED source generation identity, never the
         // switcher's selection — the desktop twin of the android
         // verifiedSourceFlavor contract (D48's mid-prep-switch quarantine,
@@ -473,7 +501,7 @@ internal open class DataPreparationStore(
     }
 
     /**
-     * Flavor-scoped activation (G3-5): the pointer switch and the prune run
+     * Flavor-scoped activation: the pointer switch and the prune run
      * inside [flavor]'s namespace — the vanilla lane can never point at
      * another lane's data generation, and the keep-set never retires one.
      */
@@ -561,7 +589,7 @@ internal open class DataPreparationStore(
             val file = toolFile(name)
             JSONObject().put("name", name).put("size", file.length()).put("sha256", if (file.isFile) sha256(file) else "")
         }
-        // R1-2 (W2 code-red round 1): the stamp is the VERIFIED flavor's own
+        // the stamp is the VERIFIED flavor's own
         // core commit — a wotlk run through this lane used to stamp vanilla's
         // commit over wotlk-core-built extractors.
         return JSONObject().put("cmangosCommit", cmangosCommitFor(flavor.flavorId))
@@ -569,7 +597,7 @@ internal open class DataPreparationStore(
     }
 
     private fun validatePublicationCounts(counts: JSONObject, flavor: ClientFlavor) {
-        // R1-1/R6-3 (W2 code-red round 1): the ACTIVE flavor's measured
+        // the ACTIVE flavor's measured
         // minimums (shared with the boot envelope through publicationMinimums
         // — the golden pin holds the rows to tools/win_prepare_data.py's
         // FLAVOR_MIN_COUNTS), never a vanilla-flat row.
@@ -681,7 +709,7 @@ internal open class DataPreparationStore(
 
         /**
          * Pure data-manifest composition (the [publish] writer body) so the
-         * durable format is golden-fixture-testable on the JVM (G3-2). The
+         * durable format is golden-fixture-testable on the JVM. The
          * manifest stays schema 1; when S6 stamps the `flavor` alias key into
          * new manifests, the committed fixture rotates deliberately — never
          * silently, and never through a schema bump.
@@ -708,14 +736,14 @@ internal open class DataPreparationStore(
         internal fun mmapThreads(): Int =
             (Runtime.getRuntime().availableProcessors() - 1).coerceAtLeast(1)
 
-        // The extractor provenance pin (port plan S1 item 1): must equal the
+        // The extractor provenance pin : must equal the
         // commit the o11 extractor lockfiles were built from — the o09/o11
         // drivers and schemas/flavor.json vanilla server_core.commit all pin
         // the same commit, and tools/check_repo.py's divergence check fails
-        // the build if these ever disagree again (decision D36).
+        // the build if these ever disagree again.
         private const val CMANGOS_COMMIT = "ce83805d48f9c98b2af617096be5347acb8a1f17"
 
-        /** R1-2 (W2 code-red round 1): the per-flavor core provenance stamp.
+        /** the per-flavor core provenance stamp.
          * Vanilla stays the D36 four-way-pinned [CMANGOS_COMMIT] (the shared
          * vanilla extractor provenance tools/check_repo.py holds across the
          * o11 lockfiles, the o09 driver, this constant, and flavor.json);
@@ -752,7 +780,7 @@ private const val SERVER_DATA_PREPARATION_LANE_TOP_LEVEL =
     "server data preparation resolves the qualified lane"
 
 /**
- * R2-4 (code-red round 2): the data manifest's flavor is the VERIFIED
+ * the data manifest's flavor is the VERIFIED
  * identity of the source client generation (its client-manifest.json
  * clientId — the identity the import gate stamped), never the Home
  * switcher's current selection. A generation whose verified flavor
@@ -769,7 +797,7 @@ internal fun verifiedSourceFlavor(clientRoot: File): ClientFlavor {
         "source client generation identity \"" + clientId + "\" resolves to no registered " +
             "flavor — the verified clientId must name a registered lane"
     }
-    // R2r3-1: compare the flavorId — a registry lane compared by data-class
+    // Compare the flavorId — a registry lane compared by data-class
     // equality against the holder's resolved instance would break on any
     // qualified-flag copy (the TwoQualifiedFlavors fixture's own shape).
     check(verified.flavorId == active.flavorId) {
@@ -833,3 +861,6 @@ private fun numericMapPrefixes(directory: File, pattern: Regex): Sequence<Int> =
     directory.listFiles().orEmpty().asSequence()
         .filter { it.isFile && it.name.matches(pattern) }
         .mapNotNull { it.name.substring(0, 3).toIntOrNull() }
+
+/** A transport/elevator navmesh tile (`go<displayId>.mmtile`). */
+private val GAMEOBJECT_TILE = Regex("^go\\d{4}\\.mmtile$")

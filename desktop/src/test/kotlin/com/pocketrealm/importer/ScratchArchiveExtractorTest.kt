@@ -46,7 +46,7 @@ class ScratchArchiveExtractorTest {
                 val error = assertThrows(name, ImportRejected::class.java) {
                     ScratchArchiveExtractor.extract(zipFile, ArchiveFormat.ZIP, temp.newFolder(), ImportLimits())
                 }
-                assertTrue(error.message!!.startsWith("VAL-07: trailing dot or space"))
+                assertTrue(error.message!!.startsWith("trailing dot or space"))
             }
     }
 }

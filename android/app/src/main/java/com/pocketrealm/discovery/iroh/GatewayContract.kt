@@ -39,6 +39,19 @@ object GatewayContract {
      * own idle timeout only surfaces at ~26s). Never a game lane. */
     const val PORT_KEEPALIVE: Int = 0
 
+    /** The mux self sign-up lane: port id 1 is RESERVED — a joiner opens
+     * one bi-stream, writes ONE [SignupProtocol] request line, and the
+     * host answers ONE reply line (never a game lane; never dialed to a
+     * loopback port — the host app answers it). */
+    const val PORT_SIGNUP: Int = 1
+
+    /** The mux hello lane: port id 2 is RESERVED — right after dialing,
+     * the joiner writes ONE [JoinHello] line (its per-host device token)
+     * and waits for the host's one-line answer. A host that hands out
+     * bans only serves game streams and sign-ups on a connection it
+     * welcomed. Never a game lane. */
+    const val PORT_HELLO: Int = 2
+
     /** The muxed game ports (ServerRuntimeContract's constants, restated:
      * this module cannot import the supervisor tree without dragging the
      * android-free manifest wider; the cross-spelling pin is the desktop
@@ -65,6 +78,42 @@ object GatewayContract {
     const val ARG_FLAVOR: String = "--flavor"
     const val ARG_REALM_TARGET: String = "--realm-target"
     const val ARG_WORLD_TARGET: String = "--world-target"
+
+    /** Keeps the stdin pipe open after the secret line as the sign-up
+     * channel: HOST role — the gateway prints [SIGNUP_REQUEST_LINE_PREFIX]
+     * lines and reads the app's [SIGNUP_REPLY_LINE_PREFIX] answers from
+     * stdin; JOIN role — the app writes request lines to stdin and the
+     * gateway prints the host's reply lines. */
+    const val ARG_SIGNUP_CHANNEL: String = "--signup-channel"
+
+    const val SIGNUP_REQUEST_LINE_PREFIX: String = "PR_GATEWAY_SIGNUP_REQUEST "
+    const val SIGNUP_REPLY_LINE_PREFIX: String = "PR_GATEWAY_SIGNUP_REPLY "
+
+    /** JOIN role: the per-host device token the joiner presents on the
+     * hello lane (a hash — never the raw platform id) arrives as the
+     * stdin line after the secret, never argv (any local process can read
+     * argv, and the token is what a host's device ban keys on). */
+    const val ARG_DEVICE_STDIN: String = "--device-from-stdin"
+
+    /** JOIN role: the join password's derived HMAC key (never the
+     * password itself) arrives as the stdin line after the device token,
+     * never argv. The gateway derives the hello's proof from it; the
+     * password never enters the gateway process. */
+    const val ARG_PASSKEY_STDIN: String = "--passkey-from-stdin"
+
+    /** HOST role with the channel: one admission question per hello
+     * (stdout, [JoinHello.encodeAdmitLine]) and the app's answer (stdin,
+     * a [SignupProtocol] reply frame through the channel-line shape). */
+    const val ADMIT_REQUEST_LINE_PREFIX: String = "PR_GATEWAY_ADMIT_REQUEST "
+    const val ADMIT_REPLY_LINE_PREFIX: String = "PR_GATEWAY_ADMIT_REPLY "
+
+    /** HOST role with the channel: peer events (a login seen on the realm
+     * lane, a connection that ended) — stdout, [JoinHello.encodeEventLine]. */
+    const val PEER_EVENT_LINE_PREFIX: String = "PR_GATEWAY_PEER "
+
+    /** HOST role with the channel: the app's order to close every live
+     * connection of a banned device or node — stdin, [JoinHello.encodeDropLine]. */
+    const val DROP_LINE_PREFIX: String = "PR_GATEWAY_DROP "
 
     /** Relay-only is the DEFAULT (owner-adopted ruling 3): a public realm's
      * joiner dials the listing's home relay URL and nothing else — the
@@ -97,6 +146,10 @@ object GatewayContract {
         /** The loopback game stack (realmd/mangosd) the HOST gateway must
          * mux was not reachable when a client flow arrived. */
         const val HOST_STACK_UNREACHABLE: Int = 7
+
+        /** The host answered the hello lane with a refusal (this device
+         * is banned there). Never retried automatically. */
+        const val JOIN_REFUSED: Int = 9
     }
 
     /** The error codes carried in the error JSON's "code" field — the
@@ -107,4 +160,5 @@ object GatewayContract {
     const val ERR_PORT_BIND: String = "GATEWAY-PORT-BIND-FAILED"
     const val ERR_HOST_STACK: String = "GATEWAY-HOST-STACK-UNREACHABLE"
     const val ERR_INTERNAL: String = "GATEWAY-INTERNAL"
+    const val ERR_JOIN_REFUSED: String = "GATEWAY-JOIN-REFUSED"
 }

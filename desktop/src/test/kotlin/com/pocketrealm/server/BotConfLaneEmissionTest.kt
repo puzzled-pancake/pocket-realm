@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * R5-R6-2 (W4 code-red round 6): the desktop twin of the bot-conf lane
+ * the desktop twin of the bot-conf lane
  * emission pin — the world start's conf VALUES ride the pinned boot lane
  * (ServerRuntimeFiles passes the resolved lane into playerbotConfig), and
  * BotProfiles never consults the :ui ActiveFlavor holder.

@@ -214,7 +214,7 @@ object ArmClientRendererCatalog {
                 )
             else -> ArmRendererAvailability(
                 true,
-                "Experimental and not device-qualified: EGL ${capability.eglMajor}.${capability.eglMinor}, " +
+                "Experimental and untested on this device: EGL ${capability.eglMajor}.${capability.eglMinor}, " +
                     "OpenGL ES ${capability.actualGlesLabel}. No renderer fallback is used.",
             )
         }
@@ -239,7 +239,7 @@ object ArmClientRendererCatalog {
             )
             else -> ArmRendererAvailability(
                 true,
-                "Experimental and not device-qualified: EGL ${capability.eglMajor}.${capability.eglMinor}, " +
+                "Experimental and untested on this device: EGL ${capability.eglMajor}.${capability.eglMinor}, " +
                     "OpenGL ES ${capability.actualGlesLabel}. No renderer fallback is used.",
             )
         }

@@ -1,6 +1,9 @@
 package com.pocketrealm.desktop.iroh
 
 import com.pocketrealm.discovery.iroh.GatewayContract
+import com.pocketrealm.discovery.iroh.JoinHello
+import com.pocketrealm.discovery.iroh.JoinPeer
+import com.pocketrealm.discovery.iroh.SignupProtocol
 import com.pocketrealm.discovery.iroh.IrohJoinDescriptor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,9 +19,9 @@ import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
 /**
- * W6-N3: the app-side manager of the iroh gateway CHILD PROCESS (why a
+ * The app-side manager of the iroh gateway CHILD PROCESS (why a
  * child: the computer.iroh artifact's Kotlin 2.2/JVM 21 metadata is
- * unreadable by this lane's pinned K2.0.21/JDK17 toolchain — D92 §0). One
+ * unreadable by this lane's pinned K2.0.21/JDK17 toolchain). One
  * manager owns at most one HOST process and one JOIN process; the
  * stdout line protocol is [GatewayContract]'s (shared source, no drift).
  *
@@ -155,13 +158,17 @@ internal class IrohGatewayManager(
         // Code-red round-4 R3-3: the transport secret rides the inherited
         // STDIN pipe, never argv (a 64-hex argv is Win32_Process-readable
         // by any local process for the endpoint's whole lifetime).
-        val process = processLauncher?.invoke(
-            listOf(GatewayContract.ARG_MODE, GatewayContract.MODE_HOST, GatewayContract.ARG_SECRET_STDIN),
-            secretHex,
-        ) ?: launch(
-            listOf(GatewayContract.ARG_MODE, GatewayContract.MODE_HOST, GatewayContract.ARG_SECRET_STDIN),
-            stdinPayload = secretHex,
+        // The stdin pipe then stays open as the self sign-up channel.
+        val hostArgs = listOf(
+            GatewayContract.ARG_MODE, GatewayContract.MODE_HOST, GatewayContract.ARG_SECRET_STDIN,
+            GatewayContract.ARG_SIGNUP_CHANNEL,
         )
+        val process = processLauncher?.invoke(hostArgs, secretHex)
+            ?: launch(hostArgs, stdinPayload = secretHex, keepStdinOpen = true)
+        process.onSignupRequest = { id, frame -> answerHostSignup(process, id, frame, null) }
+        process.onSignupPeerRequest = { id, frame, peer -> answerHostSignup(process, id, frame, peer) }
+        process.onAdmitRequest = { id, peer, proof -> answerHostAdmit(process, id, peer, proof) }
+        process.onPeerEvent = { event -> runCatching { hostPeerEvents?.invoke(event) } }
         hostProcess = process
         hostReady = null
         hostDescriptorCache = null
@@ -197,6 +204,84 @@ internal class IrohGatewayManager(
         return true
     }
 
+    /** The app's answer to one joiner's self sign-up (set by the model;
+     * null = the realm answers SIGNUP_CLOSED). */
+    @Volatile var hostSignupHandler: ((SignupProtocol.Request) -> SignupProtocol.Reply)? = null
+
+    /** The sign-up answer that also gets the joiner's identity; preferred
+     * over [hostSignupHandler] when set. */
+    @Volatile var hostPeerSignupHandler: ((SignupProtocol.Request, JoinPeer?) -> SignupProtocol.Reply)? = null
+
+    /** The hello answer (bans). Null = every joiner is welcome. */
+    @Volatile var hostAdmissionHandler: ((JoinPeer, String) -> SignupProtocol.Reply)? = null
+
+    /** Logins the host gateway saw on the realm lane, and connection ends. */
+    @Volatile var hostPeerEvents: ((JoinHello.PeerEvent) -> Unit)? = null
+
+    /** Closes every live host connection of this device or node (a ban
+     * takes effect at once). No-op while no host gateway runs. */
+    fun dropHostPeer(deviceToken: String?, nodeHex: String?) {
+        val process = synchronized(this) { hostProcess }?.takeIf { it.isAlive() } ?: return
+        process.writeChannelLine(JoinHello.encodeDropLine(GatewayContract.DROP_LINE_PREFIX, deviceToken, nodeHex))
+    }
+
+    /** One admission question from the host gateway, answered from the
+     * app's ban list (fast, in memory) and replied on stdin. */
+    private fun answerHostAdmit(process: GatewayProcess, id: Long, peer: JoinPeer, passwordProof: String) {
+        val handler = hostAdmissionHandler
+        val reply = if (handler == null) {
+            JoinHello.WELCOME_REPLY
+        } else {
+            runCatching { handler(peer, passwordProof) }.getOrElse { JoinHello.NO_ANSWER_REPLY }
+        }
+        process.writeChannelLine(
+            SignupProtocol.encodeChannelLine(
+                GatewayContract.ADMIT_REPLY_LINE_PREFIX, id, SignupProtocol.encodeReply(reply),
+            ),
+        )
+    }
+
+    /** One host-side request line: validated again here, answered on the
+     * IO scope (the account write may take seconds), replied on stdin. */
+    private fun answerHostSignup(process: GatewayProcess, id: Long, frame: String, peer: JoinPeer?) {
+        scope.launch {
+            val request = SignupProtocol.decodeRequest(frame)
+            val withPeer = hostPeerSignupHandler
+            val handler = hostSignupHandler
+            val reply = when {
+                request == null -> SignupProtocol.INVALID_REPLY
+                withPeer != null -> runCatching { withPeer(request, peer) }.getOrElse {
+                    SignupProtocol.Reply(false, SignupProtocol.FAILED, "The host could not answer.")
+                }
+                handler == null -> SignupProtocol.gate(false, 0, emptyList(), request)!!
+                else -> runCatching { handler(request) }.getOrElse {
+                    SignupProtocol.Reply(false, SignupProtocol.FAILED, "The host could not answer.")
+                }
+            }
+            process.writeChannelLine(
+                SignupProtocol.encodeChannelLine(
+                    GatewayContract.SIGNUP_REPLY_LINE_PREFIX, id, SignupProtocol.encodeReply(reply),
+                ),
+            )
+        }
+    }
+
+    /**
+     * Self sign-up on the READY join tunnel: the request (name + locally
+     * derived salt/verifier only) goes to the join gateway's stdin channel
+     * and on to the host; blocks for the host's reply (bounded).
+     */
+    fun joinSignup(request: SignupProtocol.Request): SignupProtocol.Reply {
+        val process = joinProcess?.takeIf { it.isAlive() }
+            ?: return SignupProtocol.Reply(false, SignupProtocol.FAILED, "the tunnel to the host is not up")
+        val frame = process.requestSignup(
+            SignupProtocol.encodeRequest(request),
+            SignupProtocol.REPLY_TIMEOUT_MS + SIGNUP_CHANNEL_SLACK_MS,
+        )
+        return frame?.let(SignupProtocol::decodeReply)
+            ?: SignupProtocol.Reply(false, SignupProtocol.FAILED, "the host did not answer the sign-up")
+    }
+
     /** Stops the host gateway (the heartbeat's gate-drop / close paths). */
     @Synchronized
     fun stopHost() {
@@ -212,15 +297,41 @@ internal class IrohGatewayManager(
      * running; the async outcome lands on [joinState] (Ready / Error).
      */
     @Synchronized
-    fun startJoin(descriptor: IrohJoinDescriptor, flavorId: String, relayOnly: Boolean): String? {
+    fun startJoin(
+        descriptor: IrohJoinDescriptor,
+        flavorId: String,
+        relayOnly: Boolean,
+        /** This device's identity for this host (per-host key + device
+         * token). Null = a random key and no hello. */
+        identity: JoinIdentity? = null,
+        /** The join password's derived key (64 hex) when the game is
+         * locked — the stdin line after the device token; the password
+         * itself never reaches this process. */
+        passwordKeyHex: String? = null,
+    ): String? {
         val busy = joinProcess?.isAlive() == true
         val failure = if (busy) {
             "a gateway join is already running"
         } else {
             _joinState.value = JoinState.Starting(descriptor)
-            launchJoinProcess(descriptor, flavorId, relayOnly)
+            launchJoinProcess(descriptor, flavorId, relayOnly, identity, passwordKeyHex)
         }
         return failure
+    }
+
+    /** The joiner's per-host identity ([com.pocketrealm.discovery.iroh.DeviceIdentity]). */
+    data class JoinIdentity(val deviceToken: String, val secretHex: String) {
+        init {
+            require(com.pocketrealm.discovery.iroh.DeviceIdentity.isToken(deviceToken)) { "bad device token" }
+            require(com.pocketrealm.discovery.iroh.DeviceIdentity.isToken(secretHex)) { "bad join key" }
+        }
+
+        companion object {
+            fun forHost(deviceSecret: ByteArray, hostNodeHex: String): JoinIdentity = JoinIdentity(
+                com.pocketrealm.discovery.iroh.DeviceIdentity.tokenFor(deviceSecret, hostNodeHex),
+                com.pocketrealm.discovery.iroh.DeviceIdentity.joinSecretHex(deviceSecret, hostNodeHex),
+            )
+        }
     }
 
     /** The launch half of [startJoin]: builds the argv, spawns the
@@ -231,11 +342,26 @@ internal class IrohGatewayManager(
         descriptor: IrohJoinDescriptor,
         flavorId: String,
         relayOnly: Boolean,
+        identity: JoinIdentity? = null,
+        passwordKeyHex: String? = null,
     ): String? {
-        val joinSecret = freshJoinSecret()
+        require(passwordKeyHex == null || identity != null) {
+            "the join pass key rides stdin after the device token — identity required"
+        }
+        val joinSecret = identity?.secretHex ?: freshJoinSecret()
+        val args = joinArgs(descriptor, flavorId, relayOnly, withDevice = identity != null) +
+            listOfNotNull(passwordKeyHex?.let { GatewayContract.ARG_PASSKEY_STDIN })
+        // The device token rides stdin right after the secret (never argv),
+        // and the join password's derived key (when the game is locked) is
+        // the line after it — the password itself never crosses.
+        val stdinPayload = buildString {
+            append(joinSecret)
+            if (identity != null) append("\n").append(identity.deviceToken)
+            if (passwordKeyHex != null) append("\n").append(passwordKeyHex)
+        }
         val outcome = runCatching {
-            processLauncher?.invoke(joinArgs(descriptor, flavorId, relayOnly), joinSecret)
-                ?: launch(joinArgs(descriptor, flavorId, relayOnly), stdinPayload = joinSecret)
+            processLauncher?.invoke(args, stdinPayload)
+                ?: launch(args, stdinPayload = stdinPayload, keepStdinOpen = true)
         }
         val process = outcome.getOrNull()
         if (process == null) {
@@ -269,13 +395,16 @@ internal class IrohGatewayManager(
         descriptor: IrohJoinDescriptor,
         flavorId: String,
         relayOnly: Boolean,
+        withDevice: Boolean = false,
     ): List<String> {
         val args = mutableListOf(
             GatewayContract.ARG_MODE, GatewayContract.MODE_JOIN,
             GatewayContract.ARG_SECRET_STDIN,
             GatewayContract.ARG_NODE_HEX, descriptor.nodeHex,
             GatewayContract.ARG_FLAVOR, flavorId,
+            GatewayContract.ARG_SIGNUP_CHANNEL,
         )
+        if (withDevice) args += GatewayContract.ARG_DEVICE_STDIN
         if (relayOnly) {
             args += GatewayContract.ARG_RELAY_ONLY
             args += GatewayContract.ARG_RELAY_URL
@@ -303,8 +432,8 @@ internal class IrohGatewayManager(
             // Code-red R4-r2-1: READY lands the MOMENT the line arrives —
             // the old code awaited the ERROR line first, whose full 60 s
             // budget exceeded the verb's 45 s deadline and false-timed-out
-            // every successful join. A post-READY ERROR line (or process
-            // death) flips Ready → Error through the background monitors.
+            // every successful join. A post-READY ERROR line (or
+            // process death) flips Ready → Error through the background monitors.
             val ready = process.awaitLine(GatewayContract.READY_LINE_PREFIX)
             if (ready == null) {
                 armPreReadyFailureLane(process)
@@ -315,7 +444,7 @@ internal class IrohGatewayManager(
         }
     }
 
-    /** The no-READY leg (detekt split, round 4): the process died (or
+    /** The no-READY leg: the process died (or
      * errored) before READY — one error-lane await names the failure. */
     private fun armPreReadyFailureLane(process: GatewayProcess) {
         val error = process.awaitLine(GatewayContract.ERROR_LINE_PREFIX, timeoutSeconds = 10)
@@ -328,16 +457,16 @@ internal class IrohGatewayManager(
         )
     }
 
-    /** The post-READY monitors (detekt split, round 4): the death watcher
+    /** The post-READY monitors: the death watcher
      * + the looping ERROR monitor. */
     private fun armPostReadyMonitors(process: GatewayProcess) {
         // Code-red R3-2: a post-READY process death (the loud rewrite
         // exit, any crash) must not leave a stale Ready — the watcher
         // flips it to Error — the browser renders the Error lane
-        // (code-red round 3) — mirroring hostDescriptor's per-read
+        // Mirroring hostDescriptor's per-read
         // liveness leg. A deliberate stopJoin cancels it first.
-        // Round-4 R4-N3-3: the gateway's OWN error line (queued before
-        // death) is surfaced VERBATIM — the generic fallback runs only
+        // The gateway's OWN error line (queued before
+        // process death) is surfaced VERBATIM — the generic fallback runs only
         // when the queue is truly empty.
         joinDeathWatcher = scope.launch {
             while (process.isAlive()) {
@@ -413,12 +542,23 @@ internal class IrohGatewayManager(
 
     // ------------------------------------------------------------ plumbing
 
-    private fun launch(args: List<String>, stdinPayload: String? = null): GatewayProcess {
-        // The repo checkout layout: <repo>/gateway/build/libs/gateway-*-all.jar
-        // (R6-4-4: this is the recorded DEV-CHECKOUT posture — the packaged
-        // transport lane is a recorded follow-up; the copy below names it).
+    private fun launch(
+        args: List<String>,
+        stdinPayload: String? = null,
+        keepStdinOpen: Boolean = false,
+    ): GatewayProcess {
+        // Install-first, dev fallback (Phase 5 packaging): the packaged
+        // image ships gateway/ (gateway-all.jar + a jlink Java 21 runtime)
+        // BESIDE the app jar; the repo checkout layout
+        // (<repo>/gateway/build/libs/gateway-*-all.jar, R6-4-4) remains the
+        // dev-run fallback, and the -D overrides win over both.
+        val appDir = runCatching {
+            File(IrohGatewayManager::class.java.protectionDomain.codeSource.location.toURI()).parentFile
+        }.getOrNull()
+        val bundled = appDir?.resolve("gateway")
         val repoRoot = System.getProperty("pocket.repo.root")?.let(::File) ?: File(".").absoluteFile
         val jar = jarOverride
+            ?: bundled?.resolve("gateway-all.jar")?.takeIf { it.isFile }
             ?: File(repoRoot, "gateway/build/libs")
                 .listFiles { file ->
                     file.name.startsWith("gateway-") && file.name.endsWith("-all.jar")
@@ -429,7 +569,9 @@ internal class IrohGatewayManager(
                     "build does not bundle yet (it ships with the developer " +
                     "checkout: build gateway/ first, or pass -Dpocket.gateway.jar=...)",
             )
-        val java = javaOverride ?: File(DEFAULT_JAVA_21).takeIf { it.isFile }?.absolutePath
+        val java = javaOverride
+            ?: bundled?.resolve("runtime/bin/java.exe")?.takeIf { it.isFile }?.absolutePath
+            ?: File(DEFAULT_JAVA_21).takeIf { it.isFile }?.absolutePath
             ?: throw GatewayLaunchException(
                 "Internet join needs a bundled Java 21 runtime for the gateway " +
                     "transport, which this build does not ship yet (developer " +
@@ -441,6 +583,14 @@ internal class IrohGatewayManager(
         )
         command += args
         val process = ProcessBuilder(command).redirectErrorStream(false).start()
+        if (stdinPayload != null && keepStdinOpen) {
+            // R3-3: the transport secret is the first stdin line (the
+            // gateway's readLine returns at the newline); the pipe then
+            // stays open as the sign-up channel (--signup-channel).
+            process.outputStream.write((stdinPayload + "\n").toByteArray(Charsets.UTF_8))
+            process.outputStream.flush()
+            return GatewayProcess(process, channelOut = process.outputStream)
+        }
         if (stdinPayload != null) {
             // R3-3: write the transport secret to the child's stdin and
             // CLOSE the pipe so the gateway's readLine returns.
@@ -466,11 +616,19 @@ internal class IrohGatewayManager(
          * R6-4-3: extracted so a model-level test pins the rendered
          * string — the composable shows it verbatim). */
         fun joinErrorLine(code: String, detail: String): String =
-            "Internet join failed: $code: $detail"
+            if (code == GatewayContract.ERR_JOIN_REFUSED) {
+                // The host's own words (a ban), with no code in front.
+                "Can't join this realm: $detail"
+            } else {
+                "Internet join failed: $code: $detail"
+            }
 
         /** A 32-byte iroh transport secret (the descriptor's node id
          * derives from it). */
         const val IROH_SECRET_BYTES = 32
+
+        /** Headroom over the gateway's own reply budget (process hops). */
+        const val SIGNUP_CHANNEL_SLACK_MS = 5_000L
 
         /** The post-READY death watcher's poll grain. */
         const val JOIN_DEATH_POLL_MS = 200L
@@ -504,7 +662,58 @@ class GatewayLaunchException(message: String) : RuntimeException(message)
 
 /** One live gateway child process: line-draining stdout (both protocol
  * lines captured), stderr to the app log, bounded destroy. */
-internal class GatewayProcess(private val process: Process) {
+internal class GatewayProcess(
+    private val process: Process,
+    /** The open stdin pipe when launched with the sign-up channel. */
+    private val channelOut: java.io.OutputStream? = null,
+) {
+
+    /** HOST role: called for each joiner request line (id, request frame). */
+    @Volatile var onSignupRequest: ((Long, String) -> Unit)? = null
+
+    /** HOST role: the same request with the joiner's identity when the
+     * line carries one (preferred over [onSignupRequest] when set). */
+    @Volatile var onSignupPeerRequest: ((Long, String, JoinPeer?) -> Unit)? = null
+
+    /** HOST role: one admission question per joiner hello. */
+    @Volatile var onAdmitRequest: ((Long, JoinPeer, String) -> Unit)? = null
+
+    /** HOST role: logins seen on the realm lane and connection ends. */
+    @Volatile var onPeerEvent: ((JoinHello.PeerEvent) -> Unit)? = null
+
+    private val signupReplies =
+        java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.CompletableFuture<String>>()
+    private val signupIds = java.util.concurrent.atomic.AtomicLong()
+
+    /** Writes one channel line to the child's stdin (no-op without one). */
+    fun writeChannelLine(line: String) {
+        val out = channelOut ?: return
+        synchronized(out) {
+            runCatching {
+                out.write((line + "\n").toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
+        }
+    }
+
+    /** JOIN role: one request frame out, its reply frame back (or null on
+     * timeout / no channel / process exit). */
+    fun requestSignup(frame: String, timeoutMs: Long): String? {
+        if (channelOut == null) return null
+        val id = signupIds.incrementAndGet()
+        val waiter = java.util.concurrent.CompletableFuture<String>()
+        signupReplies[id] = waiter
+        writeChannelLine(
+            SignupProtocol.encodeChannelLine(GatewayContract.SIGNUP_REQUEST_LINE_PREFIX, id, frame),
+        )
+        return try {
+            waiter.get(timeoutMs, TimeUnit.MILLISECONDS)
+        } catch (_: Exception) {
+            null
+        } finally {
+            signupReplies.remove(id)
+        }
+    }
 
     private val readyLines = java.util.concurrent.LinkedBlockingQueue<String>()
 
@@ -529,6 +738,32 @@ internal class GatewayProcess(private val process: Process) {
 
                             line.startsWith(GatewayContract.ERROR_LINE_PREFIX) ->
                                 errorLines.offer(line.removePrefix(GatewayContract.ERROR_LINE_PREFIX))
+
+                            line.startsWith(GatewayContract.SIGNUP_REQUEST_LINE_PREFIX) ->
+                                SignupProtocol.decodeChannelLine(GatewayContract.SIGNUP_REQUEST_LINE_PREFIX, line)
+                                    ?.let { (id, frame) ->
+                                        val withPeer = onSignupPeerRequest
+                                        if (withPeer != null) {
+                                            val peer = SignupProtocol.decodeChannelPeer(
+                                                GatewayContract.SIGNUP_REQUEST_LINE_PREFIX, line,
+                                            )
+                                            withPeer(id, frame, peer)
+                                        } else {
+                                            onSignupRequest?.invoke(id, frame)
+                                        }
+                                    }
+
+                            line.startsWith(GatewayContract.ADMIT_REQUEST_LINE_PREFIX) ->
+                                JoinHello.decodeAdmitLine(GatewayContract.ADMIT_REQUEST_LINE_PREFIX, line)
+                                    ?.let { admit -> onAdmitRequest?.invoke(admit.id, admit.peer, admit.passwordProof) }
+
+                            line.startsWith(GatewayContract.PEER_EVENT_LINE_PREFIX) ->
+                                JoinHello.decodeEventLine(GatewayContract.PEER_EVENT_LINE_PREFIX, line)
+                                    ?.let { event -> onPeerEvent?.invoke(event) }
+
+                            line.startsWith(GatewayContract.SIGNUP_REPLY_LINE_PREFIX) ->
+                                SignupProtocol.decodeChannelLine(GatewayContract.SIGNUP_REPLY_LINE_PREFIX, line)
+                                    ?.let { (id, frame) -> signupReplies.remove(id)?.complete(frame) }
 
                             else -> com.pocketrealm.desktop.DesktopLog.i(TAG, "gateway: $line")
                         }

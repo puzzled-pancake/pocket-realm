@@ -13,8 +13,8 @@ package com.pocketrealm.server
  * their recorded provenance match the lockfile lane pins, and do those pins
  * still agree with schemas/sources.json? A stale packaged .so would
  * otherwise ship silently with an exit-0 BUILD SUCCESSFUL (for example a
- * libpocket_world_runtime.so missing world-chat/reset-state/llm-memory-state
- * JNI ops) - every check below exists to make that mismatch loud.
+ * libpocket_world_runtime.so missing the world-chat or character
+ * export/import JNI ops) - every check below exists to make that mismatch loud.
  */
 internal object NativeRuntimeFreshness {
 

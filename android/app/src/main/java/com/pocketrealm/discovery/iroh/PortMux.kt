@@ -32,7 +32,7 @@ object PortMux {
      * not a value someone passes by accident). */
     fun encodeHeader(port: Int): ByteArray {
         require(isAllowedPort(port)) {
-            "VAL-IROH-MUX: port $port is not a muxed game port"
+            "port $port is not a muxed game port"
         }
         return byteArrayOf(
             ((port ushr BYTE_HIGH_SHIFT) and BYTE_MASK).toByte(),
@@ -46,20 +46,23 @@ object PortMux {
      * mismatch, never a lane to guess). */
     fun decodePort(header: ByteArray): Int {
         require(header.size >= HEADER_BYTES) {
-            "VAL-IROH-MUX: mux header truncated (${header.size} bytes)"
+            "mux header truncated (${header.size} bytes)"
         }
         val port = ((header[0].toInt() and BYTE_MASK) shl BYTE_HIGH_SHIFT) or
             (header[1].toInt() and BYTE_MASK)
         require(isAllowedPort(port)) {
-            "VAL-IROH-MUX: unknown mux port $port"
+            "unknown mux port $port"
         }
         return port
     }
 
-    /** True for the two game lanes and the reserved keep-alive lane
-     * (round-6 R6-2-1: the joiner's loss probe — never a game lane). */
+    /** True for the two game lanes and the reserved keep-alive, sign-up
+     * and hello lanes (round-6 R6-2-1: the joiner's loss probe; the self
+     * sign-up request; the joiner's device hello — never game lanes). */
     fun isAllowedPort(port: Int): Boolean =
         port == GatewayContract.PORT_KEEPALIVE ||
+            port == GatewayContract.PORT_SIGNUP ||
+            port == GatewayContract.PORT_HELLO ||
             port == GatewayContract.PORT_REALM ||
             port == GatewayContract.PORT_WORLD
 }

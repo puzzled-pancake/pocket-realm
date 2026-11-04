@@ -39,7 +39,7 @@ class RealmImportAccountWriteContractTest {
 
     @Test
     fun theImportedAccountWriteIsTheStoreAtomicDisciplineByteForm() {
-        val settings = mainSource("ui/SettingsScreen.kt")
+        val settings = mainSource("ui/RealmDataSection.kt")
         // Nothing lands on disk before the store's own decode accepts the bytes.
         assertTrue(
             "the import must validate through the store decode before writing",
@@ -81,7 +81,7 @@ class RealmImportAccountWriteContractTest {
 
     @Test
     fun noNonAtomicWriteOverTheLiveRecordRemains() {
-        val settings = mainSource("ui/SettingsScreen.kt")
+        val settings = mainSource("ui/RealmDataSection.kt")
         assertFalse(
             "the import must not writeBytes over the live account.json",
             "writeBytes(bytes)" in settings,
@@ -103,7 +103,7 @@ class RealmImportAccountWriteContractTest {
      * FailingTheCommittedRestore). */
     @Test
     fun theAccountWriteFailureIsFoldedIntoTheNoteNeverAnImportFailure() {
-        val settings = mainSource("ui/SettingsScreen.kt")
+        val settings = mainSource("ui/RealmDataSection.kt")
         assertTrue(
             "the account leg must fold its own failure at the call site, not throw it",
             "runCatching { writeImportedAccount(bytes) }.fold(" in settings,

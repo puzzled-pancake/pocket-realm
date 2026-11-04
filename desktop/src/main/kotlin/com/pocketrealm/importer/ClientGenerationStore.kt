@@ -13,7 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * DESK-67/97: immutable generation publication with an atomic active-pointer
+ * immutable generation publication with an atomic active-pointer
  * switch — the desktop twin of the Android importer/ClientGenerationStore.
  * Same layout (content/client/generations/<uuid>, per-flavor
  * `active-<flavorId>.json` pointers with the legacy un-namespaced pair as a
@@ -67,11 +67,11 @@ class ClientGenerationStore(roots: com.pocketrealm.desktop.DesktopStorageRoots) 
     }
 
     /**
-     * The active generation id for [flavor]'s pointer namespace (G3-5). The
+     * The active generation id for [flavor]'s pointer namespace. The
      * read adopts a legacy un-namespaced pointer first, so an updated build
      * resolves the pre-flavor active generation on its first boot.
      *
-     * GAP-3 (owner census UIUX-3): the default resolves the ACTIVE lane
+     * the default resolves the ACTIVE lane
      * through the [ActiveFlavor] machine — the switcher's selection drives
      * the pointer namespace when several flavors qualify, replacing the
      * former `qualified().single()` default that threw the moment a second
@@ -156,7 +156,7 @@ class ClientGenerationStore(roots: com.pocketrealm.desktop.DesktopStorageRoots) 
     }
 
     /**
-     * Flavor-scoped activation (G3-5): the pointer switch and the prune run
+     * Flavor-scoped activation: the pointer switch and the prune run
      * inside [flavor]'s namespace. The keep-set never contains another
      * flavor's generation, so activating a TBC/WotLK client can never delete
      * the vanilla managed client (or vice versa); the pointer body carries
@@ -353,7 +353,7 @@ class ClientGenerationStore(roots: com.pocketrealm.desktop.DesktopStorageRoots) 
 
         /**
          * Pure client-manifest composition (the [publish] writer body) so the
-         * durable format is golden-fixture-testable on the JVM (G3-2): the
+         * durable format is golden-fixture-testable on the JVM: the
          * fixture test pins these exact bytes as the current-release manifest,
          * and every later manifest change (S5 stamps `flavor` into it) must
          * rotate that fixture deliberately, never silently.

@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The provisioning wire (design-remote-accounts §5/§6): framing, request
+ * The provisioning wire (design-remote-accounts): framing, request
  * decode strictness, the refusal-oracle rule, and the friend client's
  * verdict mapping. Pure JVM.
  */

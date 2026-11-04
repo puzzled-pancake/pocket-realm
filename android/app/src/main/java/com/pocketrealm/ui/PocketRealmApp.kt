@@ -24,9 +24,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Lan
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -94,7 +93,6 @@ fun PocketRealmApp() {
     val route = current?.route
     val topLevel = route in setOf(
         Screen.Home.route,
-        Screen.Bots.route,
         Screen.Lan.route,
         AddonRoutes.HUB,
         Screen.Controls.route,
@@ -114,7 +112,7 @@ fun PocketRealmApp() {
     val settingsSnapshot by settings.flow.collectAsState(initial = null)
     val hasImportedClient by produceState<Boolean?>(initialValue = null, context) {
         value = withContext(Dispatchers.IO) {
-            val clientRoot = File(context.noBackupFilesDir, "client")
+            val clientRoot = com.pocketrealm.storage.StorageRoots.get(context).client
             // R3-r2-1 (android-ui-tests review round 2): the probe must
             // enumerate EVERY registered flavor's canonical pointer
             // (GenerationPointers.activePointerName — active-tbc.json /
@@ -123,8 +121,8 @@ fun PocketRealmApp() {
             // read). Probing only the vanilla pair left a tbc/wotlk-only
             // import invisible: the first-run tutorial re-showed on every
             // launch and the setupComplete seal never fired.
-            val pointerFileExists = ClientFlavors.ALL.any { flavor ->
-                File(clientRoot, GenerationPointers.activePointerName(flavor.flavorId)).isFile
+            val pointerFileExists = ClientFlavors.ALL.any { version ->
+                File(clientRoot, GenerationPointers.activePointerName(version.flavorId)).isFile
             } || File(clientRoot, "active.json").isFile ||
                 File(clientRoot, GenerationPointers.LEGACY_ACTIVE).isFile
             managedClientImported(
@@ -158,7 +156,7 @@ fun PocketRealmApp() {
         Scaffold(
             topBar = {
                 PocketRealmTopBar(
-                    title = screenTitle(route),
+                    title = screenTitle(route, backStack?.arguments?.getString("category")),
                     topLevel = topLevel,
                     realmState = realmState,
                     onBack = { navController.popBackStack() },
@@ -169,8 +167,7 @@ fun PocketRealmApp() {
                 if (!wide) {
                     NavigationBar {
                         topDestinations.forEach { destination ->
-                            val selected =
-                                current?.hierarchy?.any { it.route == destination.route } == true
+                            val selected = destinationSelected(current, route, destination)
                             NavigationBarItem(
                                 selected = selected,
                                 onClick = { navigateTop(navController, destination.route) },
@@ -198,8 +195,7 @@ fun PocketRealmApp() {
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             topDestinations.forEach { destination ->
-                                val selected =
-                                    current?.hierarchy?.any { it.route == destination.route } == true
+                                val selected = destinationSelected(current, route, destination)
                                 NavigationRailItem(
                                     selected = selected,
                                     onClick = { navigateTop(navController, destination.route) },
@@ -219,15 +215,16 @@ fun PocketRealmApp() {
                 ) {
                     composable(Screen.Home.route) {
                         HomeScreen(
-                            onOpenBots = { navigatePush(navController, Screen.Bots.route) },
-                            onOpenSettings = { navigatePush(navController, Screen.Settings.route) },
+                            onOpenBots = {
+                                navigatePush(navController, SettingsRoutes.category(SettingsCategory.WORLD))
+                            },
+                            onOpenSettings = {
+                                navigatePush(navController, SettingsRoutes.category(SettingsCategory.GRAPHICS))
+                            },
                         )
                     }
-                    composable(Screen.Bots.route) {
-                        BotsScreen()
-                    }
                     composable(Screen.Lan.route) {
-                        LanScreen()
+                        com.pocketrealm.ui.online.MultiplayerScreen()
                     }
                     navigation(startDestination = AddonRoutes.HUB, route = Screen.Addons.route) {
                         composable(AddonRoutes.HUB) {
@@ -297,15 +294,26 @@ fun PocketRealmApp() {
                     composable(Screen.Controls.route) { ControlsScreen() }
                     composable(Screen.Settings.route) {
                         SettingsScreen(
-                            onBots = { navigatePush(navController, Screen.Bots.route) },
+                            onOpenCategory = { category ->
+                                navigatePush(navController, SettingsRoutes.category(category))
+                            },
+                        )
+                    }
+                    composable(
+                        SettingsRoutes.CATEGORY,
+                        arguments = listOf(navArgument("category") { type = NavType.StringType }),
+                    ) { entry ->
+                        SettingsScreen(
+                            category = SettingsCategory.fromSlug(entry.arguments?.getString("category")),
+                            onOpenCategory = { category ->
+                                navigatePush(navController, SettingsRoutes.category(category))
+                            },
                             onClientSetup = { navigatePush(navController, Screen.Client.route) },
                             onCapability = { navigatePush(navController, Screen.Capability.route) },
                             onDiagnostics = { navigatePush(navController, Screen.Diagnostics.route) },
                             onInGameSettings = { navigatePush(navController, InGameRoutes.HUB) },
-                            onLlm = { navigatePush(navController, LlmRoutes.HUB) },
                         )
                     }
-                    composable(LlmRoutes.HUB) { LlmScreen() }
                     composable(Screen.Client.route) { ClientScreen(PaddingValues()) }
                     composable(Screen.Capability.route) { CapabilityScreen() }
                     composable(Screen.Diagnostics.route) { DiagnosticsScreen() }
@@ -403,12 +411,26 @@ private fun PocketRealmTopBar(
     }
 }
 
+/** A Settings category page keeps the Settings destination highlighted. */
+private fun destinationSelected(
+    current: androidx.navigation.NavDestination?,
+    route: String?,
+    destination: Screen,
+): Boolean =
+    current?.hierarchy?.any { it.route == destination.route } == true ||
+        (destination == Screen.Settings && route == SettingsRoutes.CATEGORY)
+
 /** Short realm state label for the compact top bar. */
 internal fun realmStatusBadge(state: RealmState): String = when (state) {
     is RealmState.Idle -> "Realm stopped"
     is RealmState.Starting -> "Starting…"
     is RealmState.Running ->
-        if (state.mode == com.pocketrealm.supervisor.RuntimeMode.LAN_JOIN) "LAN client" else "Realm online"
+        when {
+            state.mode != com.pocketrealm.supervisor.RuntimeMode.LAN_JOIN -> "Realm online"
+            state.endpointAddress == com.pocketrealm.supervisor.RealmEndpoint.LOOPBACK_ADDRESS ->
+                "Internet client"
+            else -> "LAN client"
+        }
     is RealmState.Saving -> "Saving…"
     is RealmState.Stopping -> "Stopping…"
     is RealmState.Recovering -> "Recovering…"
@@ -462,11 +484,15 @@ internal object AddonRoutes {
     fun installedDetail(installId: String): String = "addons/installed/${Uri.encode(installId)}"
 }
 
-internal object LlmRoutes {
-    const val HUB = "llm"
+internal object SettingsRoutes {
+    const val CATEGORY = "settings/{category}"
+
+    fun category(category: SettingsCategory): String = "settings/${category.slug}"
 }
 
-internal fun screenTitle(route: String?): String = when {
+internal fun screenTitle(route: String?, settingsCategory: String? = null): String = when {
+    route == SettingsRoutes.CATEGORY ->
+        SettingsCategory.fromSlug(settingsCategory)?.title ?: Screen.Settings.label
     route?.startsWith(InGameRoutes.GRAPH) == true -> InGameRoutes.titleFor(route)
     route == AddonRoutes.HUB -> "Add-ons"
     route == AddonRoutes.RECOMMENDED -> "Recommended add-ons"
@@ -475,14 +501,12 @@ internal fun screenTitle(route: String?): String = when {
     route == AddonRoutes.CUSTOM -> "Install from GitHub"
     route == AddonRoutes.CATALOG_DETAIL -> "Add-on details"
     route == AddonRoutes.INSTALLED_DETAIL -> "Installed add-on"
-    route == LlmRoutes.HUB -> "AI bot LLM"
     else -> Screen.fromRoute(route)?.label ?: "Pocket Realm"
 }
 
 sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
     data object Home : Screen("home", "Home", Icons.Filled.Home)
-    data object Bots : Screen("bots", "Bots", Icons.Filled.SmartToy)
-    data object Lan : Screen("lan", "LAN", Icons.Filled.Lan)
+    data object Lan : Screen("lan", "Multiplayer", Icons.Filled.Public)
     data object Addons : Screen("addons", "Add-ons", Icons.Filled.Extension)
     data object Controls : Screen("controls", "Controls", Icons.Filled.Tune)
     data object Settings : Screen("settings", "Settings", Icons.Filled.Settings)
@@ -493,7 +517,6 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
     companion object {
         fun fromRoute(route: String?): Screen? = when (route) {
             "home" -> Home
-            "bots" -> Bots
             "lan" -> Lan
             "addons" -> Addons
             "controls" -> Controls
@@ -506,10 +529,9 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
     }
 }
 
-/** Landscape side-rail order per the brief: Home, Bots, LAN, Add-ons, Controls, Settings. */
+/** Landscape side-rail order: Home, LAN, Add-ons, Controls, Settings. */
 private val topDestinations = listOf(
     Screen.Home,
-    Screen.Bots,
     Screen.Lan,
     Screen.Addons,
     Screen.Controls,

@@ -44,7 +44,7 @@ class R3BreakerNegativeTest {
 
     @Test
     fun `an unauthorized collision is refused - the seam decision is conjunctive on the authorization`() {
-        // R3-1 fix (android-core review round 3, serious): the decision is
+        // R3-1 fix: the decision is
         // the CONJUNCTIVE verifierExpansionWrite — the expression
         // OR-ed the gated leg with the authorization-blind
         // shouldWriteExpansion, making the gate a no-op (the hole this test

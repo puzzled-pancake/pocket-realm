@@ -46,7 +46,7 @@ class WorldRuntimeService : Service() {
     @Volatile private var admissionState: BotAdmissionState? = null
     @Volatile private var latestMetrics: BotRuntimeMetrics? = null
     @Volatile private var admissionError = ""
-    /** R2-2 (android-core review round 2): the lane THIS process's world
+    /** the lane THIS process's world
      * booted with, pinned from the start leg's own settings snapshot. The
      * account-expansion writes consume THIS lane — a Home switch after
      * world start must never write the new pick's expansion level into the
@@ -64,7 +64,7 @@ class WorldRuntimeService : Service() {
         super.onCreate()
         // Saved bot presets must resolve in the world process too.
         com.pocketrealm.bots.BotCustomPresets.install(java.io.File(filesDir, "bots"))
-        // R1-arch-5/R2-2: the overlay plan's lane binding is installed at
+        // the overlay plan's lane binding is installed at
         // :world start — the ActiveFlavor holder's selection never crosses
         // the process boundary, so every overlay-plan resolve in this
         // process goes through the persisted Home selection instead (the
@@ -161,14 +161,14 @@ class WorldRuntimeService : Service() {
         override fun startAt(bindAddress: String, nearbyInteractTriggerGuardMs: Int) =
             guarded { transitionGate.run {
             stopAccepted = false
-            // Design-tunnel §4.4.2: the wildcard (0.0.0.0) is the ONE raw
+            // Design-tunnel: the wildcard (0.0.0.0) is the ONE raw
             // conf value beside the typed grammar — the tunnel host's bind.
             val bind = ServerRuntimeContract.resolveBindAddress(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
             files.prepareWorldLogsForStart(currentNativeState())
             files.writeLifecycle("world", false, "start", bind)
             activeBindAddress = bind
-            // Design-timeframe §4.3: conf first (an unprepared install
+            // Design-timeframe: conf first (an unprepared install
             // refuses at the conf gate), then the stage overlay, then the
             // native boot - never a world whose conf names a stage the DB
             // never reached. ONE settings snapshot feeds both the conf write
@@ -198,14 +198,14 @@ class WorldRuntimeService : Service() {
         override fun startNormalAt(bindAddress: String, nearbyInteractTriggerGuardMs: Int) =
             guarded { transitionGate.run {
             stopAccepted = false
-            // Design-tunnel §4.4.2: the wildcard (0.0.0.0) is the ONE raw
+            // Design-tunnel: the wildcard (0.0.0.0) is the ONE raw
             // conf value beside the typed grammar — the tunnel host's bind.
             val bind = ServerRuntimeContract.resolveBindAddress(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
             files.prepareWorldLogsForStart(currentNativeState())
             files.writeLifecycle("world", false, "start-normal", bind)
             activeBindAddress = bind
-            // Design-timeframe §4.3: conf, then the stage overlay, then the
+            // Design-timeframe: conf, then the stage overlay, then the
             // native boot (inside the lease guard - an overlay failure
             // closes the lease and refuses the start loudly). ONE settings
             // snapshot feeds both the conf write and the overlay.
@@ -235,7 +235,7 @@ class WorldRuntimeService : Service() {
             nearbyInteractTriggerGuardMs: Int,
         ) = guarded { transitionGate.run {
             stopAccepted = false
-            // Design-tunnel §4.4.2: the wildcard (0.0.0.0) is the ONE raw
+            // Design-tunnel: the wildcard (0.0.0.0) is the ONE raw
             // conf value beside the typed grammar — the tunnel host's bind.
             val bind = ServerRuntimeContract.resolveBindAddress(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
@@ -243,7 +243,7 @@ class WorldRuntimeService : Service() {
             val profile = BotProfiles.require(profileId)
             files.writeLifecycle("world", false, "start-bot-profile", "${profile.id}@${bind}")
             activeBindAddress = bind
-            // Design-timeframe §4.3: conf, then the stage overlay, then the
+            // Design-timeframe: conf, then the stage overlay, then the
             // native boot (inside the lease guard - an overlay failure
             // closes the lease and refuses the start loudly). ONE settings
             // snapshot feeds both the conf write and the overlay.
@@ -275,7 +275,7 @@ class WorldRuntimeService : Service() {
             ServerRuntimeContract.requireAccountToken("username", username)
             ServerRuntimeContract.requireAccountToken("password", password)
             val rc = WorldNative.createAccountNative(username, password, ServerRuntimeContract.CONTROL_TIMEOUT_MS)
-            // F1-10 (lanes item 12): the fresh row is born with the seed's
+            // the fresh row is born with the seed's
             // expansion default (0), and the core gates expansion content
             // per account row — so the ACTIVE flavor's level is written
             // here, after a successful create and before first login
@@ -352,7 +352,7 @@ class WorldRuntimeService : Service() {
             }
             val verdict = WorldNative.createAccountVerifierNative(username, sHex, vHex)
             val rc = verdict.getOrElse(0) { Long.MAX_VALUE }.toInt()
-            // R1-1 (android-core review round 1, serious): the verifier path
+            // the verifier path
             // is provisioning's SECOND account-creation seam and was the only
             // one that never wrote the per-flavor expansion - the native
             // INSERT births the row at the seed's expansion default (0), so
@@ -373,7 +373,7 @@ class WorldRuntimeService : Service() {
             // re-lane the expansion write.
             val expansion = (bootLane
                 ?: worldLaneFlavor(ACCOUNT_EXPANSION_LANE)).accountExpansion
-            // R2-1 (android-core review round 2, serious): the (rc, exists)
+            // the (rc, exists)
             // decision alone cannot distinguish the designed HOST RETRY (the
             // row is OUR attempt-1 create; the host threads its attempt
             // bookkeeping as allowExistingAccount) from an IDENTITY COLLISION
@@ -382,7 +382,7 @@ class WorldRuntimeService : Service() {
             // authorization, ACCOUNT_EXISTS refuses with ok=false and NO
             // addon write on the existing row; the approval leg then rejects
             // the invite (never PROVISIONED, never a success reveal).
-            // R3-1 (android-core review round 3, serious): the decision is
+            // the decision is
             // CONJUNCTIVE on the authorization — the expression OR-ed
             // the gated leg with shouldWriteExpansion, whose rc==10 leg is
             // authorization-blind, so the gate was a no-op and every
@@ -425,6 +425,49 @@ class WorldRuntimeService : Service() {
             JSONObject(WorldNative.unbanAccountNative(username, ServerRuntimeContract.CONTROL_TIMEOUT_MS))
                 .put("schema", 1).put("component", "world").put("operation", "unban-account")
         }
+        override fun characterExport(characterName: String) = guarded { transitionGate.run {
+            ServerRuntimeContract.requireCharacterName(characterName)
+            val dump = files.characterTransferFile()
+            try {
+                val verdict = runCatching {
+                    JSONObject(WorldNative.characterExportNative(
+                        characterName, dump.absolutePath, ServerRuntimeContract.CONTROL_TIMEOUT_MS))
+                }.getOrElse { failure ->
+                    if (failure !is UnsatisfiedLinkError) throw failure
+                    JSONObject().put("ok", false).put("reason", CHARACTER_TRANSFER_RUNTIME_OUTDATED)
+                }
+                if (verdict.optBoolean("ok")) {
+                    check(dump.isFile && dump.length() in 1..CHARACTER_TRANSFER_MAX_BYTES) {
+                        "character dump missing or larger than $CHARACTER_TRANSFER_MAX_BYTES bytes"
+                    }
+                    verdict.put("dump", dump.readText(Charsets.UTF_8))
+                }
+                verdict.put("schema", 1).put("component", "world").put("operation", "character-export")
+            } finally {
+                dump.delete()
+            }
+        } }
+        override fun characterImport(dumpText: String, account: String, newName: String) = guarded {
+            transitionGate.run {
+                ServerRuntimeContract.requireAccountToken("account", account)
+                if (newName.isNotEmpty()) ServerRuntimeContract.requireCharacterName(newName)
+                val bytes = dumpText.toByteArray(Charsets.UTF_8)
+                require(bytes.size in 1..CHARACTER_TRANSFER_MAX_BYTES) { "character dump size out of range" }
+                val dump = files.characterTransferFile()
+                try {
+                    dump.writeBytes(bytes)
+                    runCatching {
+                        JSONObject(WorldNative.characterImportNative(
+                            dump.absolutePath, account, newName, ServerRuntimeContract.CONTROL_TIMEOUT_MS))
+                    }.getOrElse { failure ->
+                        if (failure !is UnsatisfiedLinkError) throw failure
+                        JSONObject().put("ok", false).put("reason", CHARACTER_TRANSFER_RUNTIME_OUTDATED)
+                    }.put("schema", 1).put("component", "world").put("operation", "character-import")
+                } finally {
+                    dump.delete()
+                }
+            }
+        }
         override fun characterPersistence(username: String, characterName: String) = guarded {
             ServerRuntimeContract.requireAccountToken("username", username)
             ServerRuntimeContract.requireCharacterName(characterName)
@@ -440,14 +483,6 @@ class WorldRuntimeService : Service() {
                     characterName, channel, target, text, ServerRuntimeContract.CONTROL_TIMEOUT_MS))
                     .put("schema", 1).put("component", "world")
             } }
-        override fun resetState(player: String) = guarded { transitionGate.run {
-            JSONObject(WorldNative.resetStateNative(player))
-                .put("schema", 1).put("component", "world")
-        } }
-        override fun llmMemoryState(player: String) = guarded { transitionGate.run {
-            JSONObject(WorldNative.llmMemoryStateNative(player))
-                .put("schema", 1).put("component", "world")
-        } }
         override fun realmStatus() = guarded {
             JSONObject(WorldNative.realmInfoNative())
                 .put("schema", 1).put("ok", true).put("component", "world")
@@ -468,8 +503,7 @@ class WorldRuntimeService : Service() {
             ServerStatusJson.operation("world", if (paused != 0) "pause" else "resume", rc)
         } }
         override fun setCompanionMode(enabled: Int) = guarded { transitionGate.run {
-            // world pause + the full-residency LLM profile in one verb; the
-            // coexistence profile restores when leaving companion mode
+            // world pause as one journaled verb
             val rc = WorldNative.setCompanionModeNative(if (enabled != 0) 1 else 0)
             files.writeLifecycle("world", false,
                 if (enabled != 0) "companion-enter" else "companion-exit",
@@ -570,7 +604,7 @@ class WorldRuntimeService : Service() {
     }
 
     /**
-     * Design-timeframe §4.3 (the Android execution leg): bring the world DB
+     * Design-timeframe (the Android execution leg): bring the world DB
      * from its recorded stage to the stage the conf names — the shared
      * decision plan executed through TimeframeOverlayApplier. The desktop
      * lane runs the identical plan through its SQLite seam; any failure
@@ -583,7 +617,7 @@ class WorldRuntimeService : Service() {
         // The CALLER's snapshot — the same one the conf write consumed — so
         // the conf's PocketRealm.TimeframeStage and the overlay's desired
         // stage can never disagree (one stage resolution per start).
-        // R2-1/R4-2 (android-core review round 2): the desired stage
+        // the desired stage
         // resolves through the SAME persisted-selection machine as the conf
         // write (worldLaneFlavor) — the old bare `TimeframeStages.confValue`
         // resolved through the :ui-local holder, which refuses at a
@@ -640,7 +674,7 @@ class WorldRuntimeService : Service() {
     private fun accountExists(username: String): Boolean =
         WorldNative.accountInfoNative(username).let { it.size >= 2 && it[0] > 0 }
 
-    /** R1-arch-5/R2-2 (android-core review round 1): the flavor resolver
+    /** the flavor resolver
      * for this process's per-flavor gates. The [ActiveFlavor] holder's
      * selection is :ui-process-local in-memory state (the Home picker) that
      * never crosses the process boundary — this service runs in :world
@@ -951,7 +985,11 @@ class WorldRuntimeService : Service() {
         private const val ADMISSION_JOIN_TIMEOUT_MS = 6_000L
         private const val BOT_STATUS_SIZE = 19
         private const val PERFORMANCE_STATUS_SIZE = 10
-        /** F1-10: create-account's expansion write resolves the qualified
+        /** One character dump crosses Binder as a UTF-16 string; the cap
+         * keeps the round trip well inside the 1 MiB transaction buffer. */
+        private const val CHARACTER_TRANSFER_MAX_BYTES = 384L * 1024
+        const val CHARACTER_TRANSFER_RUNTIME_OUTDATED = "runtime-outdated"
+        /** create-account's expansion write resolves the qualified
          * lane (the ActiveFlavor fail-loud suffix, PreparedDataStore's
          * SERVER_DATA_LANE idiom). */
         private const val ACCOUNT_EXPANSION_LANE =

@@ -24,16 +24,16 @@ class BotExperiencePresetTest {
         ActiveFlavor.reset()
     }
 
-    @Test fun experiencePresetsFormTheCuratedLadderPeakingAtSixHundred() {
+    @Test fun experiencePresetsAreLightStandardAndMassive() {
         assertEquals(
-            listOf(80, 160, 240, 320, 400, 500, 600),
+            listOf(200, 500, 1_000),
             BotProfiles.experiencePresets.map { it.selectedTarget },
         )
         assertEquals(
-            listOf(80, 160, 240, 320, 400, 500, 600, 700),
+            listOf(200, 500, 1_000),
             BotProfiles.userSelectable().map { it.selectedTarget },
         )
-        // 600 is the curated built-in ceiling, not the custom ceiling.
+        // The built-in ceiling, not the custom ceiling.
         assertTrue(
             BotProfiles.experiencePresets.all {
                 it.selectedTarget <= BotPopulationPolicy.MAX_BUILT_IN_TARGET
@@ -50,32 +50,32 @@ class BotExperiencePresetTest {
         // floor at 3_072, and the frozen legacy adv4 catalog (CROWDED_400
         // at 1_792) is never re-tuned.
         val floors = BotProfiles.experiencePresets.map { it.admission.minFreeMemoryMiB }
-        assertEquals(listOf(768L, 1_024L, 1_536L, 2_048L, 2_048L, 2_048L, 2_048L), floors)
+        assertEquals(listOf(1_536L, 1_536L, 1_536L), floors)
         floors.zipWithNext().forEach { (smaller, bigger) ->
             assertTrue("experience ladder memory floor dipped at $bigger (below $smaller)", bigger >= smaller)
         }
     }
 
-    @Test fun aliveRealmIsTheRecommendedDefault() {
-        val alive = BotProfiles.defaultProfile
-        assertEquals(BotProfiles.ALIVE_REALM_320, alive)
-        assertEquals(320, alive.selectedTarget)
-        assertEquals(50, alive.initialTarget)
-        assertEquals(50, alive.minimumOnline)
-        // ~12% active of 320 ≈ 38 normally-active bots.
-        assertEquals(38, BotCustomConfiguration.fromProfile(alive).estimatedActiveBots())
-        assertEquals(15, alive.iterationsPerTick)
-        assertEquals(2_000, alive.randomBotUpdateIntervalMs)
-        assertEquals(16, alive.nearPlayerTeleportMaxAmount)
-        assertFalse(alive.syncLevelWithPlayers)
-        assertTrue(alive.autoDoQuests)
-        assertTrue(alive.groupNearby)
-        assertTrue(alive.wanderWhenIdle)
-        assertTrue(alive.enableOffSpecStrategies)
-        assertFalse(alive.allowBotChat)
-        assertFalse(alive.allowPlayerInvites)
-        // Account pool covers the population with headroom.
-        assertTrue(alive.accountCount * BotPopulationPolicy.CHARACTERS_PER_BOT_ACCOUNT >= 320)
+    @Test fun standardFiveHundredIsTheDefaultWithUpstreamPlayerbotSettings() {
+        val standard = BotProfiles.defaultProfile
+        assertEquals(BotProfiles.STANDARD_500, standard)
+        assertEquals(500, standard.selectedTarget)
+        assertEquals(150, standard.initialTarget)
+        assertEquals(100, standard.minimumOnline)
+        // The upstream playerbots defaults: 10% of distant bots active,
+        // a 1 s AI pass, no combat limiter, bots group and invite.
+        assertEquals(50, BotCustomConfiguration.fromProfile(standard).estimatedActiveBots())
+        assertEquals(1_000, standard.randomBotUpdateIntervalMs)
+        assertEquals(4_000, standard.passiveDelayMs)
+        assertFalse(standard.limitCombatActivity)
+        assertFalse(standard.syncLevelWithPlayers)
+        assertTrue(standard.autoDoQuests)
+        assertTrue(standard.groupNearby)
+        assertTrue(standard.wanderWhenIdle)
+        assertTrue(standard.enableOffSpecStrategies)
+        assertFalse(standard.allowBotChat)
+        assertTrue(standard.allowPlayerInvites)
+        assertTrue(standard.accountCount * BotPopulationPolicy.CHARACTERS_PER_BOT_ACCOUNT >= 500)
     }
 
     @Test fun everyExperiencePresetCombinesPopulationWithRealAiChoices() {
@@ -112,7 +112,7 @@ class BotExperiencePresetTest {
             assertEquals(profile, BotProfiles.find(profile.id))
         }
         assertEquals(BotProfiles.LAUNCH_DAY_700, BotProfiles.find(BotProfiles.LAUNCH_DAY_700.id))
-        assertTrue(BotProfiles.LAUNCH_DAY_700.userSelectable)
+        assertFalse(BotProfiles.LAUNCH_DAY_700.userSelectable)
         // Legacy ladder members stay resolvable but are not user-selectable.
         assertFalse(BotProfiles.QUIET_25.userSelectable)
         assertFalse(BotProfiles.BALANCED_100.userSelectable)
@@ -224,15 +224,15 @@ class BotExperiencePresetTest {
         assertFalse(BotActivityPreset.SMART.matches(odd))
     }
 
-    @Test fun freshInstallSnapshotSelectsAliveRealm() {
+    @Test fun freshInstallSnapshotSelectsStandard() {
         val snapshot = com.pocketrealm.storage.Settings.Snapshot()
-        assertEquals(BotProfiles.ALIVE_REALM_320.id, snapshot.botProfileId)
-        assertEquals(320, snapshot.botPopulationTarget)
+        assertEquals(BotProfiles.STANDARD_500.id, snapshot.botProfileId)
+        assertEquals(500, snapshot.botPopulationTarget)
         assertNull(snapshot.botSavedPresetId)
         // Legacy advanced defaults mirror the recommended preset exactly, so
         // opening the old advanced editor can never shift a value.
         assertEquals(
-            BotAdvancedSettings.fromProfile(BotProfiles.ALIVE_REALM_320),
+            BotAdvancedSettings.fromProfile(BotProfiles.STANDARD_500),
             snapshot.botAdvanced,
         )
     }

@@ -22,7 +22,7 @@ class ServerRuntimeContractTest {
         }
     }
 
-    /** design-remote-accounts §6: the provisioning port sits next to the
+    /** design-remote-accounts: the provisioning port sits next to the
      * realm port; both platforms pin the exact value so the firewall copy
      * and the listener cannot disagree. */
     @Test fun provisionPortIsPinnedNextToTheRealmPort() {
@@ -30,7 +30,7 @@ class ServerRuntimeContractTest {
         assertEquals(ServerRuntimeContract.REALM_PORT + 1, ServerRuntimeContract.PROVISION_PORT)
     }
 
-    /** §4.3/§6.3: The WrongPass lockout emission is conditional on the bind —
+    /** The WrongPass lockout emission is conditional on the bind —
      * every non-loopback lane gets the decided values; the loopback-only
      * LOCAL lane emits NOTHING (the IP-autoban would ban 127.0.0.1 itself).
      * The desktop ServerRuntimeFiles twin pins the same contract. */
@@ -46,7 +46,7 @@ class ServerRuntimeContractTest {
         )
     }
 
-    // ---- design-tunnel §4.4.2: the wildcard-bind lane ------------------
+    // design-tunnel: the wildcard-bind lane ------------------
     // (the desktop DesktopTunnelServerFilesTest contract, pinned on the
     // shared resolver both platforms' conf writers now feed)
 

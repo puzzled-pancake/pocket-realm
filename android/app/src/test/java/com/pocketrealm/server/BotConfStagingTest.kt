@@ -153,7 +153,7 @@ class BotConfStagingTest {
         }
     }
 
-    @Test fun `the overlay family and the patch-read llm family are known`() {
+    @Test fun `the overlay family and the emitted llm kill switch are known`() {
         // The four ENUMERATED PocketRealm keys the built core reads...
         assertTrue(
             BotConfStaging.validate(
@@ -165,26 +165,18 @@ class BotConfStagingTest {
                     "PocketRealm.TimeframeStage = \"vanilla-1.12.1\"\n",
             ).isClean,
         )
-        // ...and the patch-injected LLM keys the built core reads (the
-        // emission block's surface) are known via the core-read leg.
-        val llmBlock = """
-            AiPlayerbot.LLMEnabled = 2
-            AiPlayerbot.LLMBackend = 1
-            AiPlayerbot.LLMModelPath = "E:/models/q4.gguf"
-            AiPlayerbot.LLMThreads = 3
-            AiPlayerbot.LLMCtxSize = 4096
-            AiPlayerbot.LLMSlots = 4
-            AiPlayerbot.LLMBanterEnabled = 1
-            AiPlayerbot.LLMLoreFile = "lore_cards_v112.jsonl"
-            AiPlayerbot.LLMDefaultPromptsFile = "llm_character_card"
-            AiPlayerbot.LLMTLSCaFile = "cacert.pem"
-        """.trimIndent()
+        // ...and the one LLM key the app still emits (the upstream reader's
+        // kill switch) stays known, while the retired patch-only LLM keys
+        // are unknown again now that no driver overlay reads them.
         for (flavor in listOf("vanilla", "tbc", "wotlk")) {
-            val verdict = BotConfStaging.validate(flavor, llmBlock)
             assertTrue(
-                "$flavor: the LLM emission block must stage clean, got " +
-                    "unknown=${verdict.unknownKeys} excluded=${verdict.excludedKeys}",
-                verdict.isClean,
+                "$flavor: AiPlayerbot.LLMEnabled = 0 must stage clean",
+                BotConfStaging.validate(flavor, "AiPlayerbot.LLMEnabled = 0\n").isClean,
+            )
+            val retired = BotConfStaging.validate(flavor, "AiPlayerbot.LLMBackend = 1\n")
+            assertTrue(
+                "$flavor: the retired AiPlayerbot.LLMBackend must be unknown",
+                retired.unknownKeys == listOf("AiPlayerbot.LLMBackend"),
             )
         }
     }
@@ -204,7 +196,7 @@ class BotConfStagingTest {
     }
 
     @Test fun `another lane's exclusive keys are refused - R4-R2-2 wrong-flavor staging`() {
-        // R4-R2-2: the per-flavor known-key sets must stay DISJOINT — a key
+        // the per-flavor known-key sets must stay DISJOINT — a key
         // exclusive to one flavor's build must be unknown on every other
         // lane (derived from the owning matrices, not literals).
         val tbcOnly = com.pocketrealm.server.GeneratedBotConfKeyCatalog.keysByFlavor["tbc"]!!
@@ -252,33 +244,6 @@ class BotConfStagingTest {
             "the hostile hyphenated key must be unknown",
             verdict.unknownKeys == listOf("AiPlayerbot.DefinitelyNot-ARealKey"),
         )
-    }
-
-    @Test fun `the LLMPromptBlock emission stages clean for every flavor - R4-1`() {
-        // The composed emission: every pack-delta id the UI can toggle must
-        // stage clean for every flavor (the catalog's kBlocks dynamic-read
-        // leg covers the family; tool-exemplar is excluded from the
-        // emission because the core never reads its conf key).
-        val packDeltaIds = setOf(
-            "voice-lock", "rule-autonomy", "rule-anti-omniscient",
-            "rule-boldness", "rule-salience", "ban-list", "scene-close",
-            "initiative-opener", "mood-weather", "player-persona",
-        )
-        assertTrue(
-            "tool-exemplar must be excluded from the pack-delta emission",
-            "tool-exemplar" !in packDeltaIds,
-        )
-        val confText = packDeltaIds.joinToString("\n") { id ->
-            "AiPlayerbot.LLMPromptBlock.$id = 1"
-        } + "\nAiPlayerbot.Enabled = 1"
-        for (flavor in listOf("vanilla", "tbc", "wotlk")) {
-            val verdict = BotConfStaging.validate(flavor, confText)
-            assertTrue(
-                "$flavor: the LLMPromptBlock emission must stage clean, got " +
-                    "unknown=${verdict.unknownKeys}",
-                verdict.isClean,
-            )
-        }
     }
 
     @Test fun `the tool-exemplar conf key is refused - the core never reads it`() {

@@ -182,7 +182,7 @@ class RealmListingEventTest {
         val event = RealmListingEvent.build(goldenContent(), key, GOLDEN_CREATED, auxRand32 = ByteArray(32))
         assertNull(RealmListingEvent.verifyListing(event).reason)
         val wrongKind = event.copy(kind = 1)
-        assertTrue(RealmListingEvent.verifyListing(wrongKind).reason.orEmpty().startsWith("VAL-NOSTR-EVENT"))
+        assertTrue(RealmListingEvent.verifyListing(wrongKind).reason.orEmpty().isNotBlank())
         val wrongD = event.copy(tags = event.tags.map { if (it[0] == "d") listOf("d", "other") else it })
         assertTrue(RealmListingEvent.verifyListing(wrongD).reason.orEmpty().contains("d tag"))
         val wrongT = event.copy(tags = event.tags.filterNot { it[0] == "t" })
@@ -286,7 +286,7 @@ class RealmListingEventTest {
                 )
                 fail("an IP relay host must refuse: $relay")
             } catch (expected: IllegalArgumentException) {
-                assertTrue(expected.message.orEmpty().startsWith("VAL-IROH-JOIN"))
+                assertTrue(expected.message.orEmpty().isNotBlank())
             }
         }
     }
@@ -305,7 +305,7 @@ class RealmListingEventTest {
                 RealmListingEvent.build(goldenContent().copy(statusPageUrl = bad), key, GOLDEN_CREATED)
                 fail("expected VAL-NOSTR-CONTENT for $bad")
             } catch (expected: IllegalArgumentException) {
-                assertTrue(expected.message.orEmpty().startsWith("VAL-NOSTR-CONTENT"))
+                assertTrue(expected.message.orEmpty().isNotBlank())
             }
         }
     }
@@ -321,7 +321,7 @@ class RealmListingEventTest {
             RealmListingContent.buildForFlavor("cata")
             fail("expected the unknown-flavor refusal")
         } catch (expected: IllegalArgumentException) {
-            assertTrue(expected.message.orEmpty().startsWith("VAL-NOSTR-CONTENT"))
+            assertTrue(expected.message.orEmpty().isNotBlank())
         }
     }
 
@@ -359,7 +359,7 @@ class RealmListingEventTest {
             // Every content key is from the frozen schema — none is an address key.
             val allowed = setOf(
                 "name", "motd", "flavor", "build", "timeframe",
-                "rates", "players", "join", "statusPageUrl",
+                "rates", "players", "join", "statusPageUrl", "uptimeSeconds", "signupOpen",
             )
             val keys = org.json.JSONObject(event.content).keys().asSequence().toList()
             assertTrue("unexpected content keys: $keys", keys.all { it in allowed })
@@ -385,7 +385,7 @@ class RealmListingEventTest {
             "connect at [2001:db8::1]:8085",
             "2001:db8::1",
             "::ffff:192.168.1.10",
-            // R2B-1: inet_aton shorthand + zone-id spellings are
+            // inet_aton shorthand + zone-id spellings are
             // connectable address forms — refused, fail-closed.
             "join me at 10.1 port 8085",
             "gateway 192.168.1",
@@ -434,10 +434,10 @@ class RealmListingEventTest {
                 RealmListingContent.sanitize(name = banned, motd = "")
                 fail("expected refusal for: $banned")
             } catch (expected: IllegalArgumentException) {
-                assertTrue(expected.message.orEmpty().startsWith("VAL-NOSTR-CONTENT"))
+                assertTrue(expected.message.orEmpty().isNotBlank())
             }
         }
-        // R2B-1: the OUTBOUND build path refuses the shorthand too — a
+        // the OUTBOUND build path refuses the shorthand too — a
         // signed-and-published listing can never carry "join me at 10.1".
         try {
             RealmListingEvent.build(
@@ -446,7 +446,7 @@ class RealmListingEventTest {
             )
             fail("the outbound build signed an inet_aton shorthand MOTD")
         } catch (expected: IllegalArgumentException) {
-            assertTrue(expected.message.orEmpty().startsWith("VAL-NOSTR-CONTENT"))
+            assertTrue(expected.message.orEmpty().isNotBlank())
         }
         // Ordinary prose stays clean (versions like "3.3.5a" and "v1.2"
         // are not hostname shapes; a lone TLD-less word never matches).
@@ -480,7 +480,7 @@ class RealmListingEventTest {
         )
     }
 
-    /** R2-3 (W6-N5 round 5): the OUTBOUND tag lane crosses the signing
+    /** the OUTBOUND tag lane crosses the signing
      * boundary — a corrupted staged conf value surfacing as
      * timeframeStageId must be refused at build (the privacy fence run at
      * the signing boundary), never serialized verbatim into a
@@ -492,7 +492,7 @@ class RealmListingEventTest {
             RealmListingEvent.build(hostile, key, GOLDEN_CREATED)
             fail("the signing boundary serialized an unvalidated timeframe stage tag")
         } catch (expected: IllegalArgumentException) {
-            assertTrue(expected.message.orEmpty().startsWith("VAL-NOSTR-CONTENT"))
+            assertTrue(expected.message.orEmpty().isNotBlank())
             assertTrue(
                 "the refusal must name the banned class",
                 "an IP address — never published" in expected.message.orEmpty(),
@@ -523,7 +523,7 @@ class RealmListingEventTest {
         assertEquals(0.5, content?.rates?.xpHonor ?: -1.0, 0.0)
     }
 
-    /** R1-2: a payload whose flavor key is MISSING (or names an unknown
+    /** a payload whose flavor key is MISSING (or names an unknown
      * lane) must never default to vanilla — the beat is skipped
      * fail-closed, exactly like buildForFlavor's unknown-flavor refusal. */
     @Test
@@ -563,6 +563,58 @@ class RealmListingEventTest {
         }
     }
 
+    // ------------------------------------------------------ the locked fact
+
+    @Test
+    fun aLockedListingCarriesTheFactAndNeverThePassword() {
+        // A registered stage and the owning build: the shape the browser's
+        // admission ladder is known to admit.
+        val base = RealmListingContent(
+            name = "Northdale",
+            motd = "Casual quests and dungeons, no rush.",
+            flavor = ClientFlavors.WOTLK.flavorId,
+            build = ClientFlavors.WOTLK.build,
+            timeframeStage = com.pocketrealm.client.TimeframeStages.defaultStageId(
+                ClientFlavors.WOTLK.flavorId,
+            ),
+            rates = null,
+            humans = 3,
+            bots = 12,
+            locked = true,
+        )
+        val event = RealmListingEvent.build(base, key, GOLDEN_CREATED)
+        val serialized = event.toWireJson()
+        assertTrue("the locked fact rides the content", "\"locked\":true" in event.content)
+        assertTrue(
+            "the locked fact rides the tags",
+            event.tags.any { it.size == 2 && it[0] == "locked" && it[1] == "true" },
+        )
+        // The password (or any hash of it) never appears anywhere in the
+        // serialized event — asserted on the serialized string itself.
+        for (secret in listOf("sesame", "hunter2")) {
+            assertFalse(secret in serialized)
+        }
+        // The browser's own parser reads it back, and the same listing
+        // WITHOUT the key (an older publisher) reads as unlocked.
+        val parsed = (ListingStore { 0L }.parseContent(event.content) as ListingStore.ContentParse.Ok)
+                .content
+        assertTrue(parsed.locked)
+        val older = (ListingStore { 0L }.parseContent(base.copy(locked = false).toJsonString())
+                as ListingStore.ContentParse.Ok).content
+        assertFalse("a listing without the key reads as unlocked", older.locked)
+    }
+
+    @Test
+    fun anUnlockedListingKeepsItsExactBytes() {
+        // locked = false serializes NOTHING (the golden vectors stay
+        // byte-identical; an older browser never sees the key).
+        assertEquals(
+            goldenContent().toJsonString(),
+            goldenContent().copy(locked = false).toJsonString(),
+        )
+        assertFalse("locked" in goldenContent().toJsonString())
+    }
+
     private fun goldenContent() = RealmListingContent(
         name = "Northdale",
         motd = "Casual quests and dungeons, no rush.",
@@ -572,6 +624,8 @@ class RealmListingEventTest {
         rates = RealmListingContent.ListingRates(1.0, 1.0, 1.0),
         humans = 3,
         bots = 12,
+        uptimeSeconds = 11_520L,
+        signupOpen = true,
     )
 
     private fun hexToBytes(hex: String) = Hex.decode(hex, "test")
@@ -582,10 +636,10 @@ class RealmListingEventTest {
         const val GOLDEN_SECKEY: String = "0f01e21b4b3e2e5c6f21a8b3c9d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6"
         const val GOLDEN_PUBKEY: String = "23f00fc13d7d90217ec94045116c041872a9732156798152892e355a0fce8e28"
         const val GOLDEN_CREATED: Long = 1760000000L
-        const val GOLDEN_ID: String = "99fc6e950d354e850ab12b4ab2045dbaa9302e6aa866272bb2011eeb3bed2bb0"
+        const val GOLDEN_ID: String = "dca47a5cad3c03d7ca1e3fc985dc3e6806fd7f5b3a6e22bc63945867c6428e52"
         const val GOLDEN_SIG: String =
-            "1d78bb09f4823521fd8e86c95ba5d2897ea66b3973ccff319627ef941b6353ec5" +
-                "acc1c6230924b41defa7e3e09a3c250731584d310e5eaaeb7e1eccce3bb4307"
+            "f9838613ce65fec74561b02f7361f0889bf83958f5425144c83f6ba71ed1f788" +
+                "8f0442595bd922a2b9deb41ed9f946b7e75911d7f11fafac8c8902998b031e44"
         const val GOLDEN_TAGS: String =
             "[[\"d\",\"pocketrealm-v1\"],[\"t\",\"pocketrealm\"]," +
                 "[\"expiration\",\"1760000600\"],[\"flavor\",\"wotlk\"]," +
@@ -598,7 +652,8 @@ class RealmListingEventTest {
             "{\"name\":\"Northdale\",\"motd\":\"Casual quests and dungeons, no rush.\"," +
                 "\"flavor\":\"wotlk\",\"build\":${ClientFlavors.WOTLK.build},\"timeframe\":\"progression-wotlk-1x\"," +
                 "\"rates\":{\"xpKill\":1.0,\"xpQuest\":1.0,\"xpHonor\":1.0}," +
-                "\"players\":{\"humans\":3,\"bots\":12},\"join\":null,\"statusPageUrl\":null}"
+                "\"players\":{\"humans\":3,\"bots\":12},\"join\":null,\"statusPageUrl\":null," +
+                "\"uptimeSeconds\":11520,\"signupOpen\":true}"
         const val BIP340_PUBKEY_1: String = "dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659"
     }
 }

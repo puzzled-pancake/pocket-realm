@@ -68,10 +68,10 @@ class R2DoctoredMpqScannerTest {
         )
         val result = SafClientScanner.scanAccess(access)
         assertFalse(result.supported)
-        assertTrue(result.failures.none { it.startsWith("VAL-03") })
+        assertTrue(result.failures.none { it.startsWith("Unsupported game version") })
         assertTrue(
             "the mpq union comparison is the lane's own set (VAL-04)",
-            result.failures.any { it.startsWith("VAL-04") },
+            result.failures.any { it.startsWith("Missing game data files") },
         )
         // the refusal result carries no managed clientId (only the
         // supported verdict publishes the managed identity).
@@ -83,7 +83,7 @@ class R2DoctoredMpqScannerTest {
         val access = tree(exe = vanillaExe(), mpqs = VANILLA_BASE_MPQS - "terrain.mpq")
         val result = SafClientScanner.scanAccess(access)
         assertFalse(result.supported)
-        val missing = result.failures.single { it.startsWith("VAL-04: missing base MPQ set") }
+        val missing = result.failures.single { it.startsWith("Missing game data files") }
         assertTrue(missing.contains("terrain.mpq"))
     }
 
@@ -95,7 +95,7 @@ class R2DoctoredMpqScannerTest {
         val result = SafClientScanner.scanAccess(access)
         assertFalse(result.supported)
         assertTrue(
-            result.failures.any { it.startsWith("VAL-04: invalid MPQ header") && it.contains("texture.mpq") },
+            result.failures.any { it.startsWith("Required data file is not a valid MPQ") && it.contains("texture.mpq") },
         )
     }
 
@@ -104,7 +104,7 @@ class R2DoctoredMpqScannerTest {
         val access = tree(exe = vanillaExe(), mpqs = VANILLA_BASE_MPQS, unreadable = "Data/sound.mpq")
         val result = SafClientScanner.scanAccess(access)
         assertFalse(result.supported)
-        assertTrue(result.failures.any { it.startsWith("VAL-04: invalid MPQ header") })
+        assertTrue(result.failures.any { it.startsWith("Required data file is not a valid MPQ") })
     }
 
     @Test
@@ -137,10 +137,10 @@ class R2DoctoredMpqScannerTest {
         try {
             val result = ArchiveClientScanner().verifyExtracted(root)
             assertFalse(result.supported)
-            assertTrue(result.failures.none { it.startsWith("VAL-03") })
+            assertTrue(result.failures.none { it.startsWith("Unsupported game version") })
             assertTrue(
                 "the mpq union comparison is the lane's own set (VAL-04)",
-                result.failures.any { it.startsWith("VAL-04") },
+                result.failures.any { it.startsWith("Missing game data files") },
             )
             // refusal results publish no managed clientId.
             assertNull(result.clientId)
@@ -155,7 +155,7 @@ class R2DoctoredMpqScannerTest {
         try {
             val result = ArchiveClientScanner().verifyExtracted(root)
             assertFalse(result.supported)
-            assertTrue(result.failures.any { it.startsWith("VAL-04: missing base MPQ set") })
+            assertTrue(result.failures.any { it.startsWith("Missing game data files") })
         } finally {
             root.deleteRecursively()
         }
@@ -167,7 +167,7 @@ class R2DoctoredMpqScannerTest {
         try {
             val result = ArchiveClientScanner().verifyExtracted(root)
             assertFalse(result.supported)
-            assertTrue(result.failures.any { it == "VAL-04: Data directory is absent" })
+            assertTrue(result.failures.any { it == "The Data folder is missing" })
         } finally {
             root.deleteRecursively()
         }

@@ -68,7 +68,7 @@ data class GitHubRepoRef(val owner: String, val repo: String) {
  * `registry.previous.json`), extracted from `AddonRepository` so the durable
  * format is fixture-testable on the JVM (G3-6 item 3): `InstalledAddon.id`
  * stays the UN-prefixed install id on every flavor — flavor scoping of
- * installed sets happens at the projection/rollback layer (F3-5), never by
+ * installed sets happens at the projection/rollback layer, never by
  * rewriting ids, and a pre-multi-flavor registry fixture must keep loading
  * and resolving through `AddonCatalog.addonForInstalled` unchanged.
  */

@@ -3,7 +3,7 @@ package com.pocketrealm.desktop
 import java.io.File
 
 /**
- * DESK-107/126: the desktop client-crash evidence lane, replacing the
+ * the desktop client-crash evidence lane, replacing the
  * "crash dumps are Windows' own" deferral. Three read-only, best-effort
  * sources:
  *

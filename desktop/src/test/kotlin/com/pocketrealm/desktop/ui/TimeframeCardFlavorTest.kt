@@ -8,7 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * GAP-3 (owner census UIUX-3, the desktop timeframe-card lane): with two
+ * with two
  * qualified flavors the "World timeframe" card's lane resolves the ACTIVE
  * flavor through the flavor machine — the selection drives the stage list
  * instead of the former `singleOrNull() ?: VANILLA` silent default that

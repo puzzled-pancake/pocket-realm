@@ -9,7 +9,7 @@ import com.sun.jna.ptr.IntByReference
 
 /**
  * The client-window seam behind the shared ForegroundPromotionPolicy's
- * verbs (DESK-71): finds the visible top-level window of a pid and moves
+ * verbs: finds the visible top-level window of a pid and moves
  * the OS foreground to or away from it.
  *
  * On Android the supervisor promotes/demotes the world/database services'

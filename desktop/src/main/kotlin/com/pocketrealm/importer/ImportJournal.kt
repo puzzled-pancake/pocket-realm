@@ -5,7 +5,7 @@ import com.pocketrealm.desktop.DesktopStorageRoots
 import java.io.File
 
 /**
- * DESK-3/66: the desktop import journal — the JVM twin of the Android
+ * the desktop import journal — the JVM twin of the Android
  * importer/ImportJournal (android.database.sqlite) over the
  * [DesktopSqliteConnection] seam (the repo-pinned SQLite amalgamation through
  * pocket_sqlite.dll). Same schema (version 4), same imports/files/

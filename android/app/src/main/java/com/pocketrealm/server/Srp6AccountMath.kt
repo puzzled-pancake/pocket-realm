@@ -6,7 +6,7 @@ import java.security.SecureRandom
 
 /**
  * The SRP6 verifier-derivation half of the desktop [com.pocketrealm.desktop.AuthGate]'s
- * VsrpMath, moved to the shared sources unchanged (design-remote-accounts §3.2):
+ * VsrpMath, moved to the shared sources unchanged (design-remote-accounts):
  * pure Kotlin/BigInteger/SHA-1, android-free, so the FRIEND side of remote
  * account creation derives `(s, v)` on its own device — the password never
  * leaves it — and only `{username, sHex, vHex}` crosses the provisioning
@@ -21,7 +21,7 @@ import java.security.SecureRandom
  * with the top AND bottom byte nonzero — so realmd's challenge packet
  * carries the unpadded minimal salt form at exactly 32 bytes.
  *
- * SRP6 caveat the caller must respect (design-remote-accounts §2): (s, v)
+ * SRP6 caveat the caller must respect (design-remote-accounts): (s, v)
  * is password-equivalent for offline guessing. Never log it, never persist
  * it outside the provisioning request, and discard it immediately on a
  * REJECTED verdict.

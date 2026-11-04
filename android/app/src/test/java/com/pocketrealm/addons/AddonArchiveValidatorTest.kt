@@ -37,7 +37,7 @@ class AddonArchiveValidatorTest {
     }
 
     @Test fun `a tbc-lane interface refusal names the tbc interface and never Vanilla`() {
-        // R3-1 (android-ui-tests review round 3): the accepted set is
+        // the accepted set is
         // flavor-routed (the default Policy resolves the active lane), so a
         // 11200-only archive on a tbc lane must be refused with the TBC
         // interface named — never the hard-coded Vanilla lane copy.

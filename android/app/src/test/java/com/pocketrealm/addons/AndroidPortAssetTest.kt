@@ -15,7 +15,7 @@ class AndroidPortAssetTest {
             File("src/main/assets"),
             File("app/src/main/assets"),
             File("android/app/src/main/assets"),
-            // Desktop JVM lane (DESK-39): gradlew -p desktop runs from the
+            // Desktop JVM lane: gradlew -p desktop runs from the
             // desktop/ module, so the shared asset tree sits one level up.
             File("../android/app/src/main/assets"),
         ).first { it.isDirectory }
@@ -47,7 +47,7 @@ class AndroidPortAssetTest {
         assertTrue(toc.lineSequence().any { it.trim() == "## Interface: 11200" })
         val declared = toc.lineSequence().map(String::trim)
             .filter { it.endsWith(".lua") || it.endsWith(".xml") }.toList()
-        assertEquals(listOf("Core.lua", "ActionBars.lua", "Radial.lua", "Bags.lua", "FrameMover.lua", "Hud.lua", "Talk.lua"), declared)
+        assertEquals(listOf("HostLayout.lua", "Core.lua", "ActionBars.lua", "Radial.lua", "Bags.lua", "FrameMover.lua", "Hud.lua", "Talk.lua"), declared)
         declared.forEach { assertTrue("TOC entry $it", File(addon, it).isFile) }
         // Vanilla discovers this reserved filename itself. Listing it in the
         // TOC sends it through the generic FrameXML loader, which reports one
@@ -59,11 +59,31 @@ class AndroidPortAssetTest {
             it.extension.lowercase() in setOf("lua", "xml", "toc", "txt")
         })
         val source = addon.walkTopDown().filter { it.extension == "lua" }.joinToString("\n") { it.readText() }
+        // One shared tree: the secure-template machinery must exist (the
+        // 2.4.3/3.3.5a clients need it) and everything else on the list
+        // stays forbidden on every client line. "SecureAction..." here is
+        // the gated SecureActionButtonTemplate; plain SetBindingClick
+        // (which would claim the player's binding set) stays out.
         listOf(
-            "SecureHandler", "SecureAction", "RegisterStateDriver", "SetBindingClick",
+            "SetBindingClick",
             "Interact.dll", "CE_INTERACT", "string.match", "ipairs =", "table.unpack",
         )
             .forEach { assertFalse(it, source.contains(it, ignoreCase = true)) }
+        // The secure state handler exists only for the 3.3.5a in-combat
+        // stance re-point, in ActionBars.lua, behind a capability check.
+        val barsSource = File(addon, "ActionBars.lua").readText()
+        val outsideBars = addon.walkTopDown().filter { it.extension == "lua" && it.name != "ActionBars.lua" }
+            .joinToString("\n") { it.readText() }
+        listOf("SecureHandler", "RegisterStateDriver").forEach {
+            assertFalse(it, outsideBars.contains(it, ignoreCase = true))
+        }
+        assertTrue(barsSource.contains(
+            "if type(SecureHandlerSetFrameRef) ~= \"function\" or type(RegisterStateDriver) ~= \"function\" then",
+        ))
+        assertTrue(
+            "the secure action template must back the controller buttons",
+            source.contains("SecureActionButtonTemplate"),
+        )
         val bindingDocument = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(bindingsFile)
         assertEquals("Bindings", bindingDocument.documentElement.tagName)
         assertEquals(43, bindingDocument.getElementsByTagName("Binding").length)
@@ -87,13 +107,14 @@ class AndroidPortAssetTest {
         assertTrue(core.contains("event == \"PLAYER_ENTERING_WORLD\""))
         assertTrue(core.contains("AP:ApplyBindings()"))
 
-        // CooldownFrameTemplate is a Model in Interface 11200. A modern
-        // `Cooldown` frame type aborts the first button before any UI appears.
+        // Cooldowns: the 1.12 client implements CooldownFrameTemplate on a
+        // Model; the 2.4.3/3.3.5a clients ship it on the native Cooldown
+        // widget. Both branches must exist, chosen by the client detect.
         assertTrue(bars.contains("CreateFrame(\"Model\""))
+        assertTrue(bars.contains("CreateFrame(\"Cooldown\""))
         assertTrue(bars.contains("\"CooldownFrameTemplate\""))
-        assertFalse(bars.contains("CreateFrame(\"Cooldown\""))
-        assertTrue(bars.contains("staged[index] = self:CreateButton(index)"))
-        assertTrue(bars.contains("staged[index]:Show()"))
+        assertTrue(bars.contains("staged[number] = self:CreateButton(number)"))
+        assertTrue(bars.contains("for number = first, first + 7 do staged[number]:Show() end"))
         assertTrue(radial.contains("CreateFrame(\"Frame\", \"AndroidPortRadialMenu\""))
 
         assertEquals(40, Regex("<Binding name=\"AP_ACTION_[0-9]+\"").findAll(bindings).count())
@@ -107,7 +128,10 @@ class AndroidPortAssetTest {
     @Test fun `Lua stays within vanilla APIs and never claims rear controls`() {
         val source = addon.walkTopDown().filter { it.extension in setOf("lua", "xml") }
             .joinToString("\n") { it.readText() }
-        assertFalse(source.contains("CreateFrame(\"Cooldown\""))
+        // The native Cooldown widget is the 2.4.3/3.3.5a branch; 1.12 keeps
+        // the Model template, and both creations are client-gated in
+        // ActionBars.lua (pinned by the secure-static test).
+        assertTrue(source.contains("CreateFrame(\"Model\""))
         assertFalse(Regex("SetTexture\\([^\\n]*,[^\\n]*,[^\\n]*,[^\\n]*\\)").containsMatchIn(source))
         assertFalse(source.contains("..."))
         assertFalse(source.contains("REAR", ignoreCase = true))
@@ -543,30 +567,33 @@ class AndroidPortAssetTest {
         val bars = File(addon, "ActionBars.lua").readText()
         val mover = File(addon, "FrameMover.lua").readText()
         assertTrue(bars.contains("RegisterForDrag(\"LeftButton\", \"RightButton\")"))
-        assertTrue(bars.contains("PickupAction(Bars:GetActionSlot(index))"))
-        assertTrue(bars.contains("PlaceAction(Bars:GetActionSlot(index))"))
+        assertTrue(bars.contains("PickupAction(Bars:DisplaySlot(number))"))
+        assertTrue(bars.contains("PlaceAction(Bars:DisplaySlot(number))"))
         assertTrue(bars.contains("GetActionCooldown(slot)"))
         assertTrue(bars.contains("CooldownFrame_SetTimer(button.cooldown, start, duration, enable)"))
-        assertTrue(bars.contains("button:SetID(index)"))
+        // Secure buttons keep id 0 so the "action" attribute is what fires.
+        assertTrue(bars.contains("if AP.SECURE then button:SetID(0) else button:SetID(number) end"))
         assertTrue(bars.contains("button:SetHitRectInsets(-14, -14, -14, -14)"))
         // Drop reliability: a wide tooltip over the lower tiles buries the
         // upper ones (touch never synthesizes the OnLeave), a touch roll can
         // turn a tap into a drag that voids the carried spell, and a pickup
         // released as a click must still place. Pages follow the stock
-        // 12-slot stride.
+        // 12-slot stride; drag and drop are combat-guarded for the 2.0+
+        // clients (AP:InCombat) and land on each button's own slot.
         assertTrue(bars.contains("local function CursorCarriesPickup()"))
         assertTrue(bars.contains("if CursorHasItem and CursorHasItem() then return true end"))
         assertTrue(bars.contains("if CursorCarriesPickup() then\n            GameTooltip:Hide()\n            return\n        end"))
         assertTrue(bars.contains("not CursorCarriesPickup() then\n            PickupAction"))
-        assertTrue(bars.contains("CursorCarriesPickup() then\n            PlaceAction"))
-        assertTrue(bars.contains("(self.page - 1) * 12 + buttonIndex"))
+        assertTrue(bars.contains("CursorCarriesPickup() then\n                PlaceAction"))
+        assertTrue(bars.contains("if AP:InCombat() or Bars:FixedRole(number) then return end"))
+        assertTrue(bars.contains("(page - 1) * 12 + buttonIndex"))
         assertFalse(bars.contains("(self.page - 1) * 10 + buttonIndex"))
         // The two action stars are movable as units through their cluster
         // containers: buttons parent and anchor to the cluster, so one
         // journal entry moves or scales the whole star.
         assertTrue(bars.contains("[1] = \"AndroidPortRightCluster\""))
         assertTrue(bars.contains("[-1] = \"AndroidPortLeftCluster\""))
-        assertTrue(bars.contains("button:SetPoint(\n                \"BOTTOM\", cluster, \"CENTER\","))
+        assertTrue(bars.contains("button:SetPoint(\n                    \"BOTTOM\", cluster, \"CENTER\","))
         assertTrue(bars.contains("button:SetParent(cluster)"))
         assertTrue(mover.contains("name = \"AndroidPortLeftCluster\", label = \"Left action cluster\""))
         assertTrue(mover.contains("name = \"AndroidPortRightCluster\", label = \"Right action cluster\""))
@@ -580,7 +607,7 @@ class AndroidPortAssetTest {
         assertFalse(bars.contains("self.initialized"))
         assertTrue(bars.contains("self.ready = false"))
         assertTrue(bars.contains("local ok = pcall(function()"))
-        assertTrue(bars.contains("getglobal(\"AndroidPortButton\" .. index)"))
+        assertTrue(bars.contains("getglobal(\"AndroidPortButton\" .. number)"))
         assertTrue(bars.contains("getglobal(\"AndroidPortBarWatcher\")"))
         assertTrue(bars.contains("if not ok or not self:ValidateButtons(staged) or not watcher then"))
         assertTrue(bars.contains("self:FailSafe(staged)"))
@@ -613,8 +640,10 @@ class AndroidPortAssetTest {
         assertTrue(moduleInit.contains("self.Radial:FailSafe(self.Radial.frame, self.Radial.overlay, self.Radial.buttons)"))
         assertTrue(moduleInit.trimEnd().endsWith("return false\nend"))
 
-        val playerEnteringWorld = core.substringAfter("event == \"PLAYER_ENTERING_WORLD\"")
-            .substringBefore("end\nend)")
+        assertTrue(core.substringAfter("event == \"PLAYER_ENTERING_WORLD\"")
+            .contains("AP:DeferCombat(function() AP:EnterWorld() end)"))
+        val playerEnteringWorld = core.substringAfter("function AP:EnterWorld()")
+            .substringBefore("local events = CreateFrame")
         assertTrue(playerEnteringWorld.contains("AP:InitializeModules()"))
         assertTrue(playerEnteringWorld.contains("AP.ActionBars.ready"))
         assertTrue(playerEnteringWorld.contains("AP.Radial.ready"))
@@ -623,7 +652,9 @@ class AndroidPortAssetTest {
     }
 
     @Test fun `every partial creation stage leaves stock UI and retries to ready`() {
-        for (failureStage in 1..9) {
+        // The bars bootstrap creates 32 fixed buttons (four modifier pages
+        // over eight positions) plus the watcher before declaring ready.
+        for (failureStage in 1..33) {
             val model = AddonLifecycleModel()
             model.playerEnteringWorld(barFailureStage = failureStage)
             assertTrue("bar failure $failureStage keeps stock", model.stockVisible)
@@ -634,7 +665,7 @@ class AndroidPortAssetTest {
             assertTrue("bar retry $failureStage reaches ready", model.addonReady)
             assertFalse("bar retry $failureStage replaces stock", model.stockVisible)
             assertTrue("bar retry $failureStage applies bindings", model.bindingsApplied)
-            assertEquals(9, model.barObjects.size)
+            assertEquals(33, model.barObjects.size)
         }
 
         for (failureStage in 1..10) {
@@ -680,8 +711,8 @@ class AndroidPortAssetTest {
         private fun initializeBars(failureStage: Int?): Boolean {
             if (barsReady) return true
             barsReady = false
-            for (stage in 1..9) {
-                barObjects += if (stage <= 8) "button$stage" else "watcher"
+            for (stage in 1..33) {
+                barObjects += if (stage <= 32) "button$stage" else "watcher"
                 if (stage == failureStage) return false
             }
             barsReady = true

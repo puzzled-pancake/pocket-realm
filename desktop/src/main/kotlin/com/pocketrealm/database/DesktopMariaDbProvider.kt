@@ -8,7 +8,7 @@ import com.pocketrealm.database.DatabaseDurableState
 import org.json.JSONObject
 
 /**
- * The desktop MariaDB provider's staged closure (DESK-5/47/78): the native
+ * The desktop MariaDB provider's staged closure: the native
  * Windows MariaDB distribution the engine lane launches, STAGED LIKE THE
  * REALM DLLS — a staging directory plus a committed lockfile pinning every
  * staged byte (the win realm lane's
@@ -68,7 +68,7 @@ internal class DesktopMariaDbProvider(
         val bootstrapSha256: String,
         val migrationManifestSha256: String,
         val migrationCount: Int,
-        /** W4 (R3-1): reads the LANE's digest-verified migration manifest —
+        /** reads the LANE's digest-verified migration manifest —
          * production verify() injects the digest gate against the lane
          * lockfile document. */
         val laneMigrationReader: (String) -> Pair<JSONObject, DatabaseDurableState.Identity>,
@@ -87,7 +87,7 @@ internal class DesktopMariaDbProvider(
         fun migrationAsset(migrationId: String): File = File(root, "$MIGRATIONS_DIR/$migrationId.sqlz")
 
         /**
-         * W4 (D72 retirement, owner ruling 2026-10-12): the FLAVOR-RATION of
+         * the FLAVOR-RATION of
          * the pinned migration set. The vanilla files keep their historical
          * names byte-for-byte (`migration-manifest.json`, `migrations/` —
          * the verified closure this class has always read); tbc/wotlk stage
@@ -238,7 +238,7 @@ internal class DesktopMariaDbProvider(
     }
 
     /**
-     * W4 (R3-1): the LANE-scoped provider document
+     * the LANE-scoped provider document
      * (schemas/database-provider-lockfile-win-<flavor>.json), resolved with
      * the same repo-walk/bundle discipline as [readLockfile] and checked to
      * name its own flavor. The vanilla shared document never satisfies this.
@@ -266,7 +266,7 @@ internal class DesktopMariaDbProvider(
     }
 
     /**
-     * W4 (R3-1/R3-2, code-red round 1): the LANE's migration manifest,
+     * the LANE's migration manifest,
      * digest-verified against the lane lockfile document's
      * `lane_migrations.manifest_sha256` pin
      * (schemas/database-provider-lockfile-win-<flavor>.json — the same
@@ -308,7 +308,7 @@ internal class DesktopMariaDbProvider(
         // the LANE identity: the shared closure fields (bootstrap/provider)
         // plus the LANE manifest's own digest + count — so the seal, marker,
         // and migrationsCurrent bind the lane's ledger, never the vanilla
-        // 414-entry identity (R3-2).
+        // 414-entry identity.
         val identity = DatabaseDurableState.Identity(
             providerId = WINDOWS_PROVIDER_ID,
             providerClosureSha256 = runtimeManifestSha256,

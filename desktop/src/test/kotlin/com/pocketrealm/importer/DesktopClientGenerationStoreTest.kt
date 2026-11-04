@@ -18,7 +18,7 @@ import org.junit.rules.TemporaryFolder
 import org.junit.Before
 
 /**
- * DESK-67/97: the desktop ClientGenerationStore twin — publish (immutable
+ * the desktop ClientGenerationStore twin — publish (immutable
  * generation + atomic per-flavor `active-vanilla.json` pointer), the
  * manifest's durable shape, the flavor-scoped prune keep-set through the
  * SHARED GenerationPointers plumbing, the legacy un-namespaced pointer
@@ -125,7 +125,7 @@ class DesktopClientGenerationStoreTest {
     }
 
     /**
-     * GAP-3 (owner census UIUX-3, the default-arg leg): with two qualified
+     * with two qualified
      * flavors the no-arg [ClientGenerationStore.activeGeneration] resolves
      * the ACTIVE lane through the flavor machine — the selection drives the
      * pointer namespace instead of the former `qualified().single()` default

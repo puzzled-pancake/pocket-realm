@@ -37,7 +37,7 @@ internal class RarArchiveSource(
             throw error
         }
     } catch (error: ArchiveException) {
-        throw ImportRejected("VAL-13: cannot open the RAR archive — ${error.message}")
+        throw ImportRejected("The RAR archive could not be opened — ${error.message}")
     }
 
     override fun inventory(): SourceInventory {
@@ -50,7 +50,7 @@ internal class RarArchiveSource(
             val entry = byKey[stored.name]
                 ?: return@mapNotNull null
             if (stored.directory != entry.directory || stored.size != entry.size) {
-                throw ImportRejected("VAL-13: staged RAR entry changed: ${entry.relativePath}")
+                throw ImportRejected("The RAR changed during import: ${entry.relativePath}")
             }
             entry
         }
@@ -58,7 +58,7 @@ internal class RarArchiveSource(
         val missing = classified.entries.firstOrNull { it.key !in listedNameSet }
         if (missing != null || entries.size != classified.entries.size) {
             throw ImportRejected(
-                "VAL-13: staged RAR no longer lists ${missing?.relativePath ?: "its classified entries"}",
+                "The RAR changed during import — an entry is gone: ${missing?.relativePath ?: "its classified entries"}",
             )
         }
         return SourceInventory(entries, classified.fileCount, classified.totalBytes, fingerprint(entries))
@@ -71,7 +71,7 @@ internal class RarArchiveSource(
         require(!entry.directory)
         while (true) {
             val next = nextHeader()
-                ?: throw ImportRejected("VAL-07: source entry is unreadable: ${entry.relativePath}")
+                ?: throw ImportRejected("An archive entry could not be read: ${entry.relativePath}")
             val name = entryName(next)
             if (name == entry.key) return RarEntryStream(this)
             // Advancing past an unread entry skips its data: resume-by-skip.
@@ -89,13 +89,13 @@ internal class RarArchiveSource(
         val entry = Archive.readNextHeader(archive)
         if (entry == 0L) null else entry
     } catch (error: ArchiveException) {
-        throw ImportRejected("VAL-13: RAR read failed — ${error.message}")
+        throw ImportRejected("RAR could not be read — ${error.message}")
     }
 
     internal fun entryName(handle: Long): String {
         val utf8 = ArchiveEntry.pathnameUtf8(handle)
         val bytes = ArchiveEntry.pathname(handle)
-        return utf8 ?: bytes?.toString(Charsets.UTF_8) ?: throw ImportRejected("VAL-13: RAR entry has no name")
+        return utf8 ?: bytes?.toString(Charsets.UTF_8) ?: throw ImportRejected("A RAR entry has no name")
     }
 
     /** Reads current-entry data into [buffer]; 0 at end of entry. */
@@ -104,7 +104,7 @@ internal class RarArchiveSource(
         Archive.readData(archive, buffer)
         buffer.flip().limit()
     } catch (error: ArchiveException) {
-        throw ImportRejected("VAL-13: RAR extraction failed — ${error.message}")
+        throw ImportRejected("RAR extraction failed — ${error.message}")
     }
 
     private class RarEntryStream(private val source: RarArchiveSource) : InputStream() {
@@ -161,11 +161,11 @@ internal fun listRarEntries(file: File): List<ArchiveClientScanner.RawEntry> {
                 ArchiveEntry.isEncrypted(entry),
             )
             Archive.readDataSkip(archive)
-            if (entries.size > 110_000) throw ImportRejected("VAL-08: source entry count exceeds 110000")
+            if (entries.size > 110_000) throw ImportRejected("Too many entries in the RAR")
         }
         return entries
     } catch (error: ArchiveException) {
-        throw ImportRejected("VAL-13: cannot read the RAR archive — ${error.message}")
+        throw ImportRejected("The RAR archive could not be read — ${error.message}")
     } finally {
         if (archive != 0L) runCatching { Archive.readFree(archive) }
     }

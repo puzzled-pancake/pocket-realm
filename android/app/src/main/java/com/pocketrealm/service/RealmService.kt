@@ -1,5 +1,7 @@
 package com.pocketrealm.service
 
+import com.pocketrealm.discovery.iroh.InternetJoinGateway
+import com.pocketrealm.discovery.iroh.IrohJoinDescriptor
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -32,6 +34,7 @@ import com.pocketrealm.supervisor.RuntimeOperation
 import com.pocketrealm.supervisor.RuntimeLaunchSpec
 import com.pocketrealm.supervisor.RuntimeMode
 import com.pocketrealm.supervisor.LanInterfacePolicy
+import com.pocketrealm.supervisor.HostOnlineEndpointPolicy
 import com.pocketrealm.supervisor.InterfaceWatch
 import com.pocketrealm.supervisor.TunnelInterfacePolicy
 import com.pocketrealm.supervisor.OrphanSelfHealPolicy
@@ -147,9 +150,12 @@ class RealmService : Service() {
     private lateinit var operationWakeLock: PowerManager.WakeLock
     private var monitor: Job? = null
     private lateinit var friendAccess: FriendAccessController
+    private lateinit var publicListing: PublicListingHost
     @Volatile private var activeGeneration = false
     @Volatile private var foregroundActive = false
     private val operationCoordinator = ServiceOperationCoordinator()
+    /** The last internet join's sign-up answer (status copy only). */
+    @Volatile private var lastSignup: com.pocketrealm.discovery.iroh.SignupProtocol.Reply? = null
     @Volatile private var maintenanceStatus = JSONObject().put("ok", true)
         .put("phase", "IDLE").toString()
 
@@ -171,6 +177,12 @@ class RealmService : Service() {
             storeDirectory = File(StorageRoots(applicationContext).realmData, FRIEND_ACCESS_STORE_DIR),
             backend = backend,
             supervisor = supervisor,
+            signupLane = { request ->
+                // The D7 LAN sign-up lane rides the friend-access port; the
+                // decision is the listing host's (same gate and account
+                // creation as the internet sign-up, LAN switches in front).
+                runBlocking { publicListing.answerLanSignup(request) }
+            },
             logWarning = { AppLog.w(TAG, it) },
             logInfo = { AppLog.i(TAG, it) },
         )
@@ -199,11 +211,22 @@ class RealmService : Service() {
                 }
             }
         }
+        // The Host tab's realm-browser listing: published while the switch
+        // is on and a LAN-hosted world is up; every stop path retracts it.
+        publicListing = PublicListingHost(applicationContext, scope, supervisor).also { it.start() }
         operationWakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:runtime-operation")
             .apply { setReferenceCounted(false) }
         scope.launch {
             supervisor.state.collectLatest { snapshot ->
+                // The internet join's tunnel lives exactly as long as its
+                // client session: a stopped/failed session ends it.
+                if (InternetJoinGateway.active && snapshot.phase in setOf(
+                        RuntimePhase.STOPPED, RuntimePhase.ERROR, RuntimePhase.UNCONFIGURED) &&
+                    !operationCoordinator.isOccupied
+                ) {
+                    InternetJoinGateway.stop()
+                }
                 val notifications = getSystemService(NotificationManager::class.java)
                 if (foregroundActive) notifications.notify(NOTIF_ID, buildNotification(snapshot))
                 else notifications.cancel(NOTIF_ID)
@@ -227,7 +250,7 @@ class RealmService : Service() {
             }
             ACTION_HOST_LAN -> submitOperation("host-lan") {
                 runCatching {
-                    // Design-tunnel §4/§5: the optional ADVERTISED tunnel
+                    // Design-tunnel /: the optional ADVERTISED tunnel
                     // address rides the same start — when set, the servers
                     // bind the wildcard and the one realmlist row carries
                     // this address. The typed grammar validates it here; a
@@ -245,6 +268,26 @@ class RealmService : Service() {
                         it.message ?: "LAN host endpoint is unavailable") },
                 )
             }
+            ACTION_HOST_ONLINE -> submitOperation("host-online") {
+                // The online host: the game binds loopback and the internet
+                // gateway forwards to it, so hosting needs no Wi-Fi or LAN.
+                // LAN players are the extra switch — on, with a live private
+                // interface, this is exactly today's LAN host.
+                runCatching {
+                    RuntimeLaunchSpec.lanHost(
+                        intent.getStringExtra(EXTRA_PROFILE_ID) ?: AndroidRuntimeBackend.INTEGRATED_PROFILE,
+                        HostOnlineEndpointPolicy.selectAddress(
+                            lanPlayers = intent.getBooleanExtra(EXTRA_LAN_PLAYERS, false),
+                            available = LanInterfacePolicy.available(),
+                        ),
+                        includeClient = intent.getBooleanExtra(EXTRA_INCLUDE_CLIENT, false),
+                    )
+                }.fold(
+                    onSuccess = { supervisor.start(it) },
+                    onFailure = { RuntimeOperation(false, supervisor.state.value,
+                        it.message ?: "online host endpoint is unavailable") },
+                )
+            }
             ACTION_JOIN_LAN -> submitOperation("join-lan") {
                 runCatching {
                     RuntimeLaunchSpec.lanJoin(
@@ -257,8 +300,13 @@ class RealmService : Service() {
                         it.message ?: "invalid LAN endpoint") },
                 )
             }
-            ACTION_SAVE_EXIT -> submitOperation("save-stop") { supervisor.stop(StopMode.GRACEFUL) }
-            ACTION_STOP -> submitOperation("forced-stop") { supervisor.stop(StopMode.FORCED) }
+            ACTION_JOIN_INTERNET -> submitOperation("join-internet") { joinInternet(intent) }
+            ACTION_SAVE_EXIT -> submitOperation("save-stop") {
+                supervisor.stop(StopMode.GRACEFUL).also { InternetJoinGateway.stop() }
+            }
+            ACTION_STOP -> submitOperation("forced-stop") {
+                supervisor.stop(StopMode.FORCED).also { InternetJoinGateway.stop() }
+            }
             // Player-consented repair for the refusals the automatic lanes
             // keep: the UNVERIFIED_ORPHAN stack and the DB_OWNED_BY_DEAD_SESSION
             // database lock. Sent only by Home's confirmed "Force stop realm"
@@ -332,6 +380,36 @@ class RealmService : Service() {
             val result = supervisor.unbanFriendAccount(username)
             JSONObject().put("ok", result.ok).put("detail", result.detail).toString()
         }
+        override fun internetJoinStatus(): String {
+            val joinState = InternetJoinGateway.state.value
+            return JSONObject().put("ok", true).put("active", InternetJoinGateway.active)
+                .put("state", joinState.javaClass.simpleName)
+                .put("signupCode", lastSignup?.code ?: "")
+                .put("signupDetail", lastSignup?.detail ?: "")
+                .put("detail", when (joinState) {
+                    is InternetJoinGateway.State.Connecting -> joinState.detail
+                    is InternetJoinGateway.State.Failed -> joinState.detail
+                    is InternetJoinGateway.State.Ready -> "Connected through the relay"
+                    InternetJoinGateway.State.Idle -> ""
+                }).toString()
+        }
+        override fun publicListingStatus(): String = publicListing.statusJson()
+        override fun signupAccounts(): String = publicListing.signupAccountsJson()
+        override fun removeSignupAccount(username: String): String =
+            publicListing.removeSignupAccount(username)
+        override fun publicPlayers(): String = publicListing.publicPlayersJson()
+        override fun moderatePublicPlayer(action: String, target: String, reason: String): String =
+            publicListing.moderatePublicPlayer(action, target, reason)
+        override fun exportCharacter(characterName: String): String = runBlocking(Dispatchers.IO) {
+            val result = supervisor.exportCharacter(characterName)
+            JSONObject().put("ok", result.ok).put("detail", result.detail)
+                .put("dump", result.dump ?: "").toString()
+        }
+        override fun importCharacter(dumpText: String, account: String, newName: String): String =
+            runBlocking(Dispatchers.IO) {
+                val result = supervisor.importCharacter(dumpText, account, newName)
+                JSONObject().put("ok", result.ok).put("detail", result.detail).toString()
+            }
         override fun setFriendGmLevel(username: String, level: Int): String = runBlocking(Dispatchers.IO) {
             val ok = runCatching { supervisor.setFriendGmLevel(username, level) }.getOrDefault(false)
             JSONObject().put("ok", ok).toString()
@@ -526,6 +604,90 @@ class RealmService : Service() {
             .put("operationId", operationId).toString()
     }
 
+    /**
+     * The internet join: refuse while a local stack owns the game ports,
+     * bring the in-app iroh gateway to READY, then start the client-only
+     * session against its loopback listeners. Any failure tears the
+     * gateway down so no half-open tunnel outlives the attempt.
+     */
+    private suspend fun joinInternet(intent: Intent): RuntimeOperation {
+        val current = supervisor.state.value
+        if (current.phase !in setOf(RuntimePhase.STOPPED, RuntimePhase.UNCONFIGURED, RuntimePhase.ERROR)) {
+            return RuntimeOperation(false, current,
+                "Stop the running realm or game session first — it owns the game ports.")
+        }
+        val prepared = runCatching {
+            val descriptor = IrohJoinDescriptor(
+                nodeHex = checkNotNull(intent.getStringExtra(EXTRA_JOIN_NODE)),
+                relayUrl = checkNotNull(intent.getStringExtra(EXTRA_JOIN_RELAY)),
+            )
+            val flavorId = checkNotNull(intent.getStringExtra(EXTRA_JOIN_FLAVOR))
+            descriptor to com.pocketrealm.discovery.iroh.RealmListRewrite.flavorFor(flavorId)
+        }.getOrElse {
+            return RuntimeOperation(false, current, "invalid join listing: ${it.message}")
+        }
+        lastSignup = null
+        val signup = intent.getStringExtra(EXTRA_SIGNUP_USERNAME)?.let { username ->
+            runCatching {
+                com.pocketrealm.discovery.iroh.SignupProtocol.Request(
+                    username,
+                    checkNotNull(intent.getStringExtra(EXTRA_SIGNUP_S)),
+                    checkNotNull(intent.getStringExtra(EXTRA_SIGNUP_V)),
+                )
+            }.getOrElse {
+                return RuntimeOperation(false, current, "invalid sign-up: ${it.message}")
+            }
+        }
+        if (!InternetJoinGateway.transportAvailable()) {
+            return RuntimeOperation(false, current,
+                "This build does not include the internet transport (libiroh_ffi.so).")
+        }
+        // This device's per-host identity: a stable iroh key and the
+        // hashed device token the host's bans key on (never the raw id).
+        val identity = runCatching {
+            InternetJoinGateway.Identity.forHost(deviceSecret(), prepared.first.nodeHex)
+        }.onFailure { AppLog.w(TAG, "device identity unavailable: ${it.message}") }.getOrNull()
+        val ready = InternetJoinGateway.start(
+            scope, prepared.first, prepared.second,
+            relayOnly = intent.getBooleanExtra(EXTRA_JOIN_RELAY_ONLY, true),
+            identity = identity,
+            passwordKeyHex = intent.getStringExtra(EXTRA_JOIN_PASSKEY)
+                ?.takeIf { com.pocketrealm.discovery.iroh.JoinPasscode.isKeyHex(it) },
+        )
+        if (ready !is InternetJoinGateway.State.Ready) {
+            val failed = ready as? InternetJoinGateway.State.Failed
+            return RuntimeOperation(false, supervisor.state.value,
+                failed?.detail ?: "internet join did not become ready")
+        }
+        // Self sign-up rides the READY tunnel before the client launches:
+        // a refused sign-up ends the join (the player picks another name).
+        if (signup != null) {
+            val reply = InternetJoinGateway.signup(signup)
+            lastSignup = reply
+            if (!reply.ok) {
+                InternetJoinGateway.stop()
+                return RuntimeOperation(false, supervisor.state.value, "Sign-up refused: ${reply.detail}")
+            }
+        }
+        val started = supervisor.start(RuntimeLaunchSpec.internetJoin(AndroidRuntimeBackend.INTEGRATED_PROFILE))
+        if (!started.ok) InternetJoinGateway.stop()
+        return started
+    }
+
+    /** The device secret behind every per-host device token: ANDROID_ID
+     * (it survives a reinstall) or, without one, this install's random id.
+     * Only ever hashed; the raw value never leaves this process. */
+    @android.annotation.SuppressLint("HardwareIds")
+    private fun deviceSecret(): ByteArray {
+        val installId = com.pocketrealm.discovery.iroh.DeviceIdentity.loadOrCreateInstallId(
+            java.io.File(filesDir, DEVICE_INSTALL_ID_FILE),
+        )
+        val platformId = runCatching {
+            android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+        }.getOrNull()
+        return com.pocketrealm.discovery.iroh.DeviceIdentity.deviceSecret(installId, platformId)
+    }
+
     private fun submitOperation(name: String, block: suspend () -> RuntimeOperation) {
         val reservation = operationCoordinator.tryReserve()
         if (reservation == null) {
@@ -630,15 +792,17 @@ class RealmService : Service() {
                         return@runReserved null
                     }
                     if (snapshot.runtimeMode == RuntimeMode.LAN_HOST) {
-                        // Mode-aware watch (design-tunnel §10, the shared
+                        // Mode-aware watch (design-tunnel, the shared
                         // InterfaceWatch reconciliation): plain LAN hosting
                         // watches the private LAN endpoint (verbatim); a
                         // tunnel-advertised session watches the TUNNEL
                         // adapter — physical-LAN churn must never kill a
                         // tunnel realm whose path never touched the LAN —
-                        // and a loopback advertisement (the cloudflared
-                        // recipe) has no interface to lose.
-                        when (val watch = InterfaceWatch.forSession(snapshot.advertisedAddress)) {
+                        // and a loopback advertisement (the
+                        // cloudflared recipe) has no interface to lose.
+                        when (val watch =
+                            InterfaceWatch.forSession(snapshot.realmEndpoint.address, snapshot.advertisedAddress)
+                        ) {
                             InterfaceWatch.None -> {
                                 lanLossSessionId = null
                                 lanLossEndpoint = null
@@ -769,7 +933,7 @@ class RealmService : Service() {
         )
         val active = snapshot.phase !in setOf(RuntimePhase.STOPPED, RuntimePhase.UNCONFIGURED, RuntimePhase.ERROR)
         val title = when (snapshot.phase) {
-            RuntimePhase.PAUSED -> "Companion conversation (world paused)"
+            RuntimePhase.PAUSED -> "World paused"
             RuntimePhase.RUNNING, RuntimePhase.WORLD_READY, RuntimePhase.CLIENT_FAILED -> when (snapshot.runtimeMode) {
                 RuntimeMode.LOCAL -> "Local realm running"
                 RuntimeMode.LAN_HOST -> "LAN realm running"
@@ -807,6 +971,8 @@ class RealmService : Service() {
         scope.cancel()
         // The provisioning socket dies with the service (paragraph 6).
         runCatching { friendAccess.close() }
+        runCatching { publicListing.close() }
+        InternetJoinGateway.stop()
         releaseOperationWakeLock()
         supervisor.close()
         AppLog.i(TAG, "supervisor destroyed with phase=${supervisor.state.value.phase}")
@@ -818,7 +984,9 @@ class RealmService : Service() {
         const val NOTIF_ID = 1
         const val ACTION_START = "com.pocketrealm.action.START"
         const val ACTION_HOST_LAN = "com.pocketrealm.action.HOST_LAN"
+        const val ACTION_HOST_ONLINE = "com.pocketrealm.action.HOST_ONLINE"
         const val ACTION_JOIN_LAN = "com.pocketrealm.action.JOIN_LAN"
+        const val ACTION_JOIN_INTERNET = "com.pocketrealm.action.JOIN_INTERNET"
         const val ACTION_SAVE_EXIT = "com.pocketrealm.action.SAVE_EXIT"
         const val ACTION_STOP = "com.pocketrealm.action.STOP"
         const val ACTION_CONSENTED_ORPHAN_STOP = "com.pocketrealm.action.CONSENTED_ORPHAN_STOP"
@@ -826,6 +994,16 @@ class RealmService : Service() {
         private const val EXTRA_INCLUDE_CLIENT = "com.pocketrealm.extra.INCLUDE_CLIENT"
         private const val EXTRA_LAN_ADDRESS = "com.pocketrealm.extra.LAN_ADDRESS"
         private const val EXTRA_ADVERTISED_ADDRESS = "com.pocketrealm.extra.ADVERTISED_ADDRESS"
+        private const val EXTRA_LAN_PLAYERS = "com.pocketrealm.extra.LAN_PLAYERS"
+        private const val EXTRA_JOIN_NODE = "com.pocketrealm.extra.JOIN_NODE"
+        private const val EXTRA_JOIN_RELAY = "com.pocketrealm.extra.JOIN_RELAY"
+        private const val EXTRA_JOIN_FLAVOR = "com.pocketrealm.extra.JOIN_FLAVOR"
+        private const val EXTRA_JOIN_RELAY_ONLY = "com.pocketrealm.extra.JOIN_RELAY_ONLY"
+        private const val EXTRA_JOIN_PASSKEY = "com.pocketrealm.extra.JOIN_PASSKEY"
+        private const val EXTRA_SIGNUP_USERNAME = "com.pocketrealm.extra.SIGNUP_USERNAME"
+        private const val EXTRA_SIGNUP_S = "com.pocketrealm.extra.SIGNUP_S"
+        private const val EXTRA_SIGNUP_V = "com.pocketrealm.extra.SIGNUP_V"
+        private const val DEVICE_INSTALL_ID_FILE = "device-install-id"
         private const val TAG = "RuntimeSupervisor"
 private const val FRIEND_ACCESS_STORE_DIR = "friend-access"
         private const val LAN_HOST_INTERFACE_LOSS_GRACE_MS = 10_000L
@@ -862,7 +1040,7 @@ private const val FRIEND_ACCESS_STORE_DIR = "friend-access"
             context: Context,
             profileId: String = AndroidRuntimeBackend.INTEGRATED_PROFILE,
             includeClient: Boolean = false,
-            /** Design-tunnel §4/§5: the advertised tunnel address (typed
+            /** Design-tunnel /: the advertised tunnel address (typed
              * parse at the service; null/blank = plain LAN hosting). */
             advertised: String? = null,
         ) {
@@ -876,14 +1054,66 @@ private const val FRIEND_ACCESS_STORE_DIR = "friend-access"
             )
         }
 
+        /**
+         * Host online (internet play): the game binds loopback and the
+         * internet gateway carries the players, so this works on mobile data
+         * with the Wi-Fi off. With [lanPlayers] on and a live private
+         * interface, the same session also accepts direct LAN joins.
+         */
+        fun hostOnline(
+            context: Context,
+            profileId: String = AndroidRuntimeBackend.INTEGRATED_PROFILE,
+            includeClient: Boolean = false,
+            lanPlayers: Boolean = false,
+        ) {
+            require(profileId == AndroidRuntimeBackend.INTEGRATED_PROFILE ||
+                com.pocketrealm.bots.BotProfiles.find(profileId) != null) { "unsupported online host profile" }
+            context.startForegroundService(
+                Intent(context, RealmService::class.java).setAction(ACTION_HOST_ONLINE)
+                    .putExtra(EXTRA_PROFILE_ID, profileId)
+                    .putExtra(EXTRA_INCLUDE_CLIENT, includeClient)
+                    .putExtra(EXTRA_LAN_PLAYERS, lanPlayers),
+            )
+        }
+
         fun joinLan(context: Context, address: String) {
             // Validate before an Intent is created; the service validates
-            // independently. Endpoint model v2 (design-tunnel §4.4.3): the
+            // independently. Endpoint model v2 (design-tunnel): the
             // join grammar takes LAN or tunnel (CGNAT) addresses.
             com.pocketrealm.supervisor.RealmEndpoint.parseJoinTarget(address)
             context.startForegroundService(
                 Intent(context, RealmService::class.java).setAction(ACTION_JOIN_LAN)
                     .putExtra(EXTRA_LAN_ADDRESS, address),
+            )
+        }
+
+        /** Joins a public realm from the Realm browser over iroh. */
+        fun joinInternet(
+            context: Context,
+            descriptor: IrohJoinDescriptor,
+            flavorId: String,
+            relayOnly: Boolean = true,
+            /** Self sign-up to send before the client launches: the name
+             * and the locally derived salt/verifier only. */
+            signup: com.pocketrealm.discovery.iroh.SignupProtocol.Request? = null,
+            /** The join password's derived key ([JoinPasscode.keyHex] of
+             * the typed password), or null when none was. */
+            passwordKeyHex: String? = null,
+        ) {
+            context.startForegroundService(
+                Intent(context, RealmService::class.java).setAction(ACTION_JOIN_INTERNET)
+                    .putExtra(EXTRA_JOIN_NODE, descriptor.nodeHex)
+                    .putExtra(EXTRA_JOIN_RELAY, descriptor.relayUrl)
+                    .putExtra(EXTRA_JOIN_FLAVOR, flavorId)
+                    .putExtra(EXTRA_JOIN_RELAY_ONLY, relayOnly)
+                    .apply {
+                        signup?.let {
+                            putExtra(EXTRA_SIGNUP_USERNAME, it.username)
+                            putExtra(EXTRA_SIGNUP_S, it.sHex)
+                            putExtra(EXTRA_SIGNUP_V, it.vHex)
+                        }
+                        passwordKeyHex?.let { putExtra(EXTRA_JOIN_PASSKEY, it) }
+                    },
             )
         }
 

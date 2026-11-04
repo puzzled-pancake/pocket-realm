@@ -9,8 +9,8 @@ import org.junit.Test
 class PocketRealmNavigationTest {
     @Test fun routesResolveWithoutStaticInitializationCycles() {
         assertEquals("Home", Screen.fromRoute("home")?.label)
-        assertEquals("Bots", Screen.fromRoute("bots")?.label)
-        assertEquals("LAN", Screen.fromRoute("lan")?.label)
+        assertNull(Screen.fromRoute("bots"))
+        assertEquals("Multiplayer", Screen.fromRoute("lan")?.label)
         assertEquals("Add-ons", Screen.fromRoute("addons")?.label)
         assertEquals("Controls", Screen.fromRoute("controls")?.label)
         assertEquals("Settings", Screen.fromRoute("settings")?.label)

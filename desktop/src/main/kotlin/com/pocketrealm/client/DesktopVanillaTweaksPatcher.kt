@@ -8,7 +8,7 @@ import kotlin.concurrent.thread
 import org.json.JSONObject
 
 /**
- * The desktop vanilla-tweaks patch lane (DESK-27/58/89): the Android
+ * The desktop vanilla-tweaks patch lane: the Android
  * `WineRuntimeStore.applyTweaks` twin over the user's own client copy.
  *
  * The patch PRODUCER is the staged, lockfile-pinned Windows exe
@@ -70,7 +70,7 @@ internal object DesktopVanillaTweaksPatcher {
                 patched = false,
                 effectiveConfig = effective,
                 detail = if (resolution.fallback) {
-                    "optional tweaks skipped: executable layout is not the qualified patch target"
+                    "optional tweaks skipped: this WoW.exe is not the original unmodified file"
                 } else {
                     "no patches requested"
                 },

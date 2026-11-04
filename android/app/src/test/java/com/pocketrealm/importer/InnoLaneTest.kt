@@ -101,7 +101,7 @@ class InnoLaneTest {
             val error = assertThrows(name, ImportRejected::class.java) {
                 ScratchArchiveExtractor.extract(zipFile, ArchiveFormat.ZIP, temp.newFolder(), ImportLimits())
             }
-            assertTrue(error.message!!.startsWith("VAL-07: trailing dot or space"))
+            assertTrue(error.message!!.startsWith("trailing dot or space"))
         }
     }
 
@@ -185,7 +185,7 @@ class InnoLaneTest {
             InnoArchiveSource(reader, drifted).use { source ->
                 val error = runCatching { source.inventory() }.exceptionOrNull()
                 assertTrue("expected rejection, got $error", error is ImportRejected)
-                assertTrue(error!!.message!!.contains("VAL-13"))
+                assertTrue(error!!.message!!.contains("installer payload"))
             }
         }
     }

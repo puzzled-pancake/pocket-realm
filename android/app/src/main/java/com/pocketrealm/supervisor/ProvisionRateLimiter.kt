@@ -24,7 +24,7 @@ class ProvisionRateLimiter(
     internal val maxConcurrentConnections: Int = MAX_CONCURRENT_CONNECTIONS,
     internal val maxTrackedIps: Int = MAX_TRACKED_IPS,
 ) {
-    // R4-3 (android-core review round 1): the live per-IP maps are keyed by
+    // the live per-IP maps are keyed by
     // ATTACKER-SUPPLIED source IPs, so they are bounded — a
     // many-unique-source spray (the exact pattern layer 1 exists for)
     // must not grow the host heap for the process lifetime. Insertion-ORDER
@@ -84,7 +84,7 @@ class ProvisionRateLimiter(
         (failuresByIp.keys + lockedUntilByIp.keys).distinct().size
     }
 
-    /** R4-3: the live-map budget. When over [maxTrackedIps], the OLDEST
+    /** the live-map budget. When over [maxTrackedIps], the OLDEST
      * tracked sources are evicted - never one that is actively locked (a
      * locked source must not amnesty itself by aging out of the live map).
      * An evicted unlocked source loses its in-memory failure counter, the
@@ -135,7 +135,7 @@ class ProvisionRateLimiter(
         internal const val MAX_FAILURES = 5
         internal const val LOCKOUT_MS = 10L * 60L * 1_000L
         internal const val MAX_CONCURRENT_CONNECTIONS = 10
-        /** R4-3: the live per-IP map budget (distinct sources). Mirrors the
+        /** the live per-IP map budget (distinct sources). Mirrors the
          * persisted layer's MAX_RATE_ROWS scale: beyond this, the oldest
          * unlocked sources age out of the LIVE maps (the persisted rows keep
          * their own bound), so a many-unique-source spray cannot grow the

@@ -6,7 +6,7 @@ import java.io.File
 import kotlin.math.ceil
 
 /**
- * DESK-3/66: the desktop storage budget planner — the JVM twin of the Android
+ * the desktop storage budget planner — the JVM twin of the Android
  * importer/ImportStoragePlanner (Context + android.os.storage.StorageManager)
  * with the identical [calculate] arithmetic over `java.io.File.getUsableSpace`
  * on the managed-content volume (the register's named substitution).
@@ -83,13 +83,36 @@ class ImportStoragePlanner(
             snapshot: Long,
             minimumReserve: Long,
             allocatable: Long,
+            contentOnRemovable: Boolean = false,
+            contentAllocatable: Long = 0L,
         ): StoragePlan {
             require(
                 listOf(
                     source, stagedArchive, scratchArchive, extracted, prepared, database,
-                    wine, snapshot, minimumReserve, allocatable,
+                    wine, snapshot, minimumReserve, allocatable, contentAllocatable,
                 ).all { it >= 0 },
             )
+            // The Android twin's removable-volume split, kept so the shared
+            // planner test pins one formula; the desktop lane never sets it.
+            if (contentOnRemovable) {
+                val contentSubtotal = Math.addExact(
+                    Math.addExact(
+                        Math.addExact(Math.addExact(source, stagedArchive), scratchArchive),
+                        extracted,
+                    ),
+                    prepared,
+                )
+                val internalSubtotal = Math.addExact(Math.addExact(database, wine), snapshot)
+                val contentMargin = ceil(contentSubtotal * 0.20).toLong()
+                val internalMargin = maxOf(minimumReserve, ceil(internalSubtotal * 0.20).toLong())
+                return StoragePlan(
+                    source, extracted, prepared, database, wine, snapshot, internalMargin,
+                    Math.addExact(internalSubtotal, internalMargin), allocatable,
+                    contentOnRemovable = true,
+                    contentVolumeRequiredBytes = Math.addExact(contentSubtotal, contentMargin),
+                    contentVolumeAllocatableBytes = contentAllocatable,
+                )
+            }
             val subtotal = Math.addExact(
                 Math.addExact(
                     Math.addExact(Math.addExact(source, stagedArchive), scratchArchive),

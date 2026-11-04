@@ -2,26 +2,26 @@
 
 Pocket Realm translates the Windows game client through Box64 and DXVK, and
 DXVK needs a Vulkan driver to talk to your GPU. The Settings → "Vulkan
-driver" section controls which one is used on ARM64 devices (the Adreno GPU
-lane this project is built around).
+driver" section controls which one is used on ARM64 devices (this project
+is built around Adreno GPUs).
 
-## The three lanes
+## The three options
 
 - **Auto (recommended)** follows the GPU vendor like Winlator: Adreno GPUs
   get the packaged Mesa Turnip driver, every other GPU gets the system
   Vortek bridge over Android's own Vulkan driver.
-- **System / Turnip (packaged)** are pinned drivers that ship inside the
-  app. They are byte-pinned and attested at launch; Turnip 26.1.0 is the
-  qualified production default for the Retroid Pocket 6 / Adreno 740 lane.
+- **System / Turnip (packaged)** are drivers that ship inside the
+  app. They are version-locked and checked at launch; Turnip 26.1.0 is the
+  tested default for the Retroid Pocket 6 / Adreno 740.
 - **Imported drivers** are your own Mesa Turnip builds, imported from a
-  `.so` file or a `.zip` archive. This is the user lane: experimental, never
+  `.so` file or a `.zip` archive. This path is experimental, never
   chosen automatically, and turned off by default (Settings → "Allow
   imported drivers").
 
 ## Where Turnip builds come from
 
-The packaged driver and the user lane both run Mesa Turnip, the freedreno
-Vulkan driver. Fresh builds are published by Mesa's GitLab CI as artifacts
+The packaged driver and the imported ones both run Mesa Turnip, the
+freedesktop Vulkan driver for Adreno. Fresh builds are published by Mesa's GitLab CI as artifacts
 of the `mesa` project — look for `debian/arm64` build artifacts or the
 community turnip builds derived from them. You need the aarch64
 `libvulkan_freedreno.so` (and optionally its ICD manifest JSON).
@@ -50,13 +50,13 @@ DXVK to fail to initialize.
 
 Since 0.102.0-alpha the same import path also accepts the AdrenoTools pack
 format (one `.so` + `meta.json`), and Settings → "Community drivers…" offers
-a small reviewed list of pinned downloads: the size and SHA-256 recorded in
+a small reviewed list of verified downloads: the size and SHA-256 recorded in
 `schemas/community-vulkan-drivers.json` are verified before anything is
 imported, the download only ever resolves through GitHub release hosts, and
 the ordinary import rules plus the crash guard still apply — a community
 download is just an import with fewer steps. The list changes only through
 repo review (it is compiled into the app, never fetched). All listed builds
-are MIT-licensed Mesa builds; their source repos and releases are pinned in
+are MIT-licensed Mesa builds; their source repos and releases are recorded in
 the manifest.
 
 Builds verified against the import rules when this list was seeded:
@@ -77,14 +77,13 @@ Turnip drives Adreno GPUs. On any other GPU (Mali, PowerVR, Xclipse…) the
 imported-driver rows are disabled with that reason and the system Vortek
 bridge is the automatic choice.
 
-## Per-flavor renderer honesty
+## Renderer availability per game version
 
-The DXVK route is the only renderer validated for every flavor. The Gladio
-(OpenGL) and VirGL lanes were validated against the vanilla 1.12.1 client's
-GL usage only, so on the TBC and WotLK lanes those routes are refused with
-a clear message ("validated for the vanilla 1.12.1 client only — DXVK is
-the route") instead of being silently allowed to misrender. Vanilla keeps
-all three routes.
+The DXVK route is the only renderer validated for every game version. The
+Gladio (OpenGL) and VirGL routes were validated against the vanilla 1.12.1
+client's GL usage only, so on TBC and WotLK those routes are refused with
+a clear message instead of being silently allowed to misrender. Vanilla
+keeps all three routes.
 
 ## Crash quarantine
 
@@ -93,8 +92,8 @@ session before the game appears. The crash guard counts consecutive early
 deaths (sessions that fail within 10 seconds): after two in a row the
 driver is quarantined, the selection resets to Auto, and the Settings row
 explains "quarantined after 2 early crashes". Quarantined drivers stay
-listed and can be deleted, but cannot be selected; the packaged lanes are
-qualified and never quarantined. Deleting a driver removes it from app
+listed and can be deleted, but cannot be selected; the packaged drivers
+are trusted and never quarantined. Deleting a driver removes it from app
 storage — the packaged drivers are app assets and are never touched.
 
 ## Reporting results

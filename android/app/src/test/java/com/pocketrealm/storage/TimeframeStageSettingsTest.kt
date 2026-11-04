@@ -13,7 +13,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * Design-timeframe §4.1: the persisted content-patch stage (the World
+ * Design-timeframe: the persisted content-patch stage (the World
  * timeframe knob) rides the `Settings.update()` write-set under the reviewed
  * `timeframe_stage` key. The write persists through the shared
  * [TimeframeStages.resolveStored], so an impossible value can never be

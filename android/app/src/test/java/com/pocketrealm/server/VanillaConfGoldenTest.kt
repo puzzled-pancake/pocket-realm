@@ -17,7 +17,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * G3-7: the vanilla lane's generated conf bytes are frozen. Every surface the
+ * the vanilla lane's generated conf bytes are frozen. Every surface the
  * app writes for a vanilla device — `realmd.conf`, `mangosd.conf`,
  * `aiplayerbot-disabled.conf`, a per-profile `aiplayerbot-<id>.conf` body, the
  * publish-time `WTF/Config.wtf` (SAFE_CONFIG) and `realmlist.wtf`, the Wine
@@ -86,7 +86,7 @@ class VanillaConfGoldenTest {
         )
     }
 
-    /** design-remote-accounts §4.3/§6.3 (the desktop ServerRuntimeFiles D11
+    /** design-remote-accounts / (the desktop ServerRuntimeFiles D11
      * twin): a non-loopback LAN bind appends the WrongPass lockout keys to
      * the conf; the loopback golden above pins the omission. */
     @Test fun `realmd conf on a LAN bind emits the wrong pass lockout`() {
@@ -126,7 +126,7 @@ class VanillaConfGoldenTest {
                     NearbyInteractPolicy.normalizeTriggerGuardMs(NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS),
                 playerbotConfigPath = "$FIXTURE_RUN/aiplayerbot-disabled.conf",
                 botTarget = 0,
-                // Design-timeframe §4.2: the golden conf carries the DEFAULT
+                // Design-timeframe: the golden conf carries the DEFAULT
                 // stage (the qualified flavor's final patch) — the fixture
                 // rotated deliberately when the contract line landed, exactly
                 // like every other conf-touching stage.

@@ -7,7 +7,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * R4-2 (android-core review round 2): the prep-child run discipline. The
+ * the prep-child run discipline. The
  * old wait-then-drain order deadlocked any child whose merged output
  * exceeded the OS pipe buffer (~64 KiB) — the child blocked on a full
  * pipe, waitFor timed out, and a healthy long-running prep failed

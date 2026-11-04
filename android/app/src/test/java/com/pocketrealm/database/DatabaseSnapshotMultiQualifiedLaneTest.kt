@@ -13,7 +13,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * P6 (lanes item 10): the DatabaseSnapshotStore restore lane under TWO
+ * P6: the DatabaseSnapshotStore restore lane under TWO
  * qualified flavors — the one census site of the eight whose whole class
  * is pure-JVM constructible (File roots + the persisted-pick seam), so the
  * pin runs the REAL gate: restore -> validatePublished ->

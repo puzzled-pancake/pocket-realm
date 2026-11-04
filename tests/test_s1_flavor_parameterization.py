@@ -271,15 +271,16 @@ def test_o09_overlay_split_resolves_registered_flavor_sets() -> None:
     the first DELIBERATE per-flavor delta — tbc's `tbc-icu-apple-guard`
     (its pinned tree is the only branch gating the ICU find on
     `if (UNIX OR APPLE)`, which the NDK toolchain trips at configure) — so
-    this pin now asserts the delta is EXACTLY that one named id and that
-    wotlk keeps full id-parity with vanilla. Any further divergence is a
-    registration drift this test refuses."""
+    this pin asserts each delta is EXACTLY one named id: tbc's ICU guard
+    and wotlk's `wotlk-bgmap-unlink` (the battleground/map shutdown
+    use-after-free). Any further divergence is a registration drift this
+    test refuses."""
     from tools import build_o09_realm_runtime as o09
     for backend in ("mysql", "sqlite"):
         vanilla_ids = [e["id"] for e in o09.overlays_for("vanilla", backend)]
         wotlk_ids = [e["id"] for e in o09.overlays_for("wotlk", backend)]
         tbc_ids = [e["id"] for e in o09.overlays_for("tbc", backend)]
-        assert wotlk_ids == vanilla_ids
+        assert sorted(wotlk_ids) == sorted(vanilla_ids + ["wotlk-bgmap-unlink"])
         assert sorted(tbc_ids) == sorted(vanilla_ids + ["tbc-icu-apple-guard"])
 
 

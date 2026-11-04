@@ -3,7 +3,7 @@ package com.pocketrealm.supervisor
 import java.security.SecureRandom
 
 /**
- * D5a (design-lan §4.2): the guest-account password generator, shared by
+ * the guest-account password generator, shared by
  * both platforms ("the generator lives next to the provision verb").
  *
  * Shape, pinned by test: 16 characters — the engine cap

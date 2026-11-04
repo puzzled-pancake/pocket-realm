@@ -10,7 +10,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-8/23/43/99: the JVM sampler twin's contract — the tick lanes decode
+ * the JVM sampler twin's contract — the tick lanes decode
  * from the two shared status arrays exactly like the Android sampler's
  * performance lane, the OS surfaces (process CPU, committed footprint,
  * free physical memory) come from the com.sun.management bean, storage
@@ -74,7 +74,7 @@ class DesktopBotResourceSamplerTest {
         assertTrue(metrics.committedMemoryMiB > 0)
         assertTrue("processCpuLoad is 0..1 or -1", metrics.processCpuLoad == -1.0 ||
             metrics.processCpuLoad in 0.0..1.0)
-        // DESK-8: thermal is the constant normal level on desktop.
+        // thermal is the constant normal level on desktop.
         assertEquals(ThermalLevel.NONE, metrics.thermal)
     }
 

@@ -1,7 +1,7 @@
 package com.pocketrealm.client
 
 /**
- * GAP-3 (owner census UIUX-3): the two-qualified-flavors test fixture — the
+ * the two-qualified-flavors test fixture — the
  * flip's own lever modeled in Kotlin through [ActiveFlavor.qualifiedSource]
  * (the same seam `ActiveFlavorTest` drives), NEVER an edit to
  * `schemas/flavor.json`: qualification is Kotlin registry state

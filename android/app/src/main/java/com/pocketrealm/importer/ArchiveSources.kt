@@ -9,6 +9,30 @@ import java.io.InputStream
 import java.security.MessageDigest
 
 /**
+ * Real-world archive names arrive as backslash separators (Windows
+ * zippers) and/or a leading "./" segment (zip-from-dot). Detection
+ * compares names, never the container's byte-level keys, so every
+ * comparison runs through this one cleaner; the container's raw name
+ * still rides [ImportExtractionPolicy.RawEntry] for the
+ * sources' lookups, and the readers resolve cleaned names back through
+ * [cleanArchiveName] comparisons. The live RP6 owner-session VAL-04
+ * was exactly this: a `./`-prefixed vanilla zip plus TBC/WotLK zips
+ * that store no explicit directory entries at all.
+ */
+internal fun cleanArchiveName(raw: String): String = normalizeArchiveSeparators(raw).trimEnd('/')
+
+/**
+ * Separators + "./" only, trailing slashes preserved: the [ArchiveAccess]
+ * tree's synthesized-directory interplay keys on the raw entry shapes, so
+ * the walk lane must not reshape names beyond the prefix.
+ */
+internal fun normalizeArchiveSeparators(raw: String): String {
+    var name = raw.replace('\\', '/')
+    while (name.startsWith("./")) name = name.substring(2)
+    return name
+}
+
+/**
  * Archive-lane [ImportSource] implementations over the staged archive file.
  * They consume the [ImportExtractionPolicy.Classified] inventory produced by
  * [ArchiveClientScanner] (same entry decoding, same wrapper rebase), open
@@ -26,6 +50,14 @@ internal class ZipArchiveSource(
 ) : ImportSource {
     private val zip: ZipFile = openWithDecoding()
 
+    /** Cleaned name -> entry, built once: a per-open scan of every entry
+     * made inventory + copy quadratic in the archive's entry count. */
+    private val cleanIndex: Map<String, ZipArchiveEntry> by lazy {
+        val index = HashMap<String, ZipArchiveEntry>()
+        zip.entries.asSequence().forEach { index.putIfAbsent(cleanArchiveName(it.name), it) }
+        index
+    }
+
     private fun openWithDecoding(): ZipFile {
         val utf8 = ZipFile.builder().setFile(file).setCharset(Charsets.UTF_8).get()
         val malformed = utf8.entries.asSequence().any { it.name.contains('\ufffd') }
@@ -36,13 +68,13 @@ internal class ZipArchiveSource(
 
     override fun inventory(): SourceInventory {
         val entries = classified.entries.map { entry ->
-            val zipEntry = zip.getEntry(entry.key)
-                ?: throw ImportRejected("VAL-13: staged archive no longer lists ${entry.relativePath}")
+            val zipEntry = cleanIndex[cleanArchiveName(entry.key)]
+                ?: throw ImportRejected("The archive changed during import — an entry is gone: ${entry.relativePath}")
             if (zipEntry.isDirectory != entry.directory || zipEntry.size != entry.size) {
-                throw ImportRejected("VAL-13: staged archive entry changed: ${entry.relativePath}")
+                throw ImportRejected("The archive changed during import: ${entry.relativePath}")
             }
             if (!entry.directory && zipEntry.isUnixSymlink) {
-                throw ImportRejected("VAL-07: symlink entry is not importable: ${entry.relativePath}")
+                throw ImportRejected("A symbolic-link entry cannot be imported: ${entry.relativePath}")
             }
             entry
         }
@@ -51,10 +83,10 @@ internal class ZipArchiveSource(
 
     override fun open(entry: ImportSourceEntry): InputStream {
         require(!entry.directory)
-        val zipEntry = zip.getEntry(entry.key)
-            ?: throw ImportRejected("VAL-07: source entry is unreadable: ${entry.relativePath}")
+        val zipEntry = cleanIndex[cleanArchiveName(entry.key)]
+            ?: throw ImportRejected("An archive entry could not be read: ${entry.relativePath}")
         return zip.getInputStream(zipEntry)
-            ?: throw ImportRejected("VAL-07: source entry is unreadable: ${entry.relativePath}")
+            ?: throw ImportRejected("An archive entry could not be read: ${entry.relativePath}")
     }
 
     override fun close() = zip.close()
@@ -71,21 +103,31 @@ internal class SevenZipArchiveSource(
      * below): the copy loop's per-entry open() then just advances the single
      * forward pass, and resume skips verified entries by name without paying
      * for a re-seek that the format cannot provide anyway.
+     *
+     * The enumeration walks its OWN handle: the member [archive] is the one
+     * forward pass reserved for the copy's open() calls, and the pipeline
+     * (ManagedClientImporter) calls inventory() before AND after the copy on
+     * this same instance — enumerating on the member exhausted it, so the
+     * copy's first open() hit end-of-archive and rejected a healthy entry
+     * (the RP6 owner-session 7z failure). The RAR lane enumerates on a
+     * separate handle for the same reason.
      */
     override fun inventory(): SourceInventory {
         val byName = LinkedHashMap<String, SevenZArchiveEntry>()
-        while (true) {
-            val entry = archive.nextEntry ?: break
-            byName[entry.name] = entry
+        SevenZFile.builder().setFile(file).get().use { walk ->
+            while (true) {
+                val entry = walk.nextEntry ?: break
+                byName[entry.name] = entry
+            }
         }
         val ordered = byName.values.filter { stored -> classified.entries.any { it.key == stored.name } }
         val entries = ordered.map { stored ->
             val entry = classified.entries.first { it.key == stored.name }
             if (stored.isDirectory != entry.directory || stored.size != entry.size) {
-                throw ImportRejected("VAL-13: staged archive entry changed: ${entry.relativePath}")
+                throw ImportRejected("The archive changed during import: ${entry.relativePath}")
             }
             if (stored.isAntiItem) {
-                throw ImportRejected("VAL-07: anti-item entry is not importable: ${entry.relativePath}")
+                throw ImportRejected("This archive entry cannot be imported: ${entry.relativePath}")
             }
             entry
         }
@@ -96,7 +138,7 @@ internal class SevenZipArchiveSource(
         require(!entry.directory)
         while (true) {
             val next = archive.nextEntry
-                ?: throw ImportRejected("VAL-07: source entry is unreadable: ${entry.relativePath}")
+                ?: throw ImportRejected("An archive entry could not be read: ${entry.relativePath}")
             if (next.name == entry.key) return SevenZEntryStream(archive)
             // Advancing past an unread entry discards its data: resume-by-skip.
         }
@@ -159,19 +201,41 @@ internal fun listSevenZipEntries(file: File): List<ArchiveClientScanner.RawEntry
         }
     }
 
+/** Exact getEntry misses real-world raw names (backslashes, a leading
+ * "./"): resolve by the shared cleaner so detection reads find their
+ * entry whatever separator/prefix flavor the zipper used. */
+internal fun ZipFile.entryForClean(cleanName: String): ZipArchiveEntry? =
+    entries.asSequence().firstOrNull { cleanArchiveName(it.name) == cleanName }
+
 /** Streams a raw entry's bytes from a staged ZIP for the detection reader. */
 internal fun readZipEntry(file: File, rawName: String, maxBytes: Int): ByteArray =
     ZipFile.builder().setFile(file).setCharset(Charsets.UTF_8).get().use { zip ->
-        val entry = zip.getEntry(rawName) ?: throw ImportRejected("VAL-13: entry vanished: $rawName")
-        zip.getInputStream(entry).use { it.readNBytes(maxBytes) }
+        val entry = zip.entryForClean(cleanArchiveName(rawName))
+            ?: throw ImportRejected("The archive changed during import: $rawName")
+        zip.getInputStream(entry).use { readUpTo(it, maxBytes) }
     }
+
+/** Reads at most [maxBytes] from [input] (InputStream.readNBytes is API 33;
+ * the app supports API 26). */
+internal fun readUpTo(input: java.io.InputStream, maxBytes: Int): ByteArray {
+    val output = java.io.ByteArrayOutputStream(minOf(maxBytes, READ_UP_TO_CHUNK))
+    val buffer = ByteArray(minOf(maxBytes, READ_UP_TO_CHUNK).coerceAtLeast(1))
+    while (output.size() < maxBytes) {
+        val count = input.read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
+        if (count < 0) break
+        output.write(buffer, 0, count)
+    }
+    return output.toByteArray()
+}
+
+private const val READ_UP_TO_CHUNK = 64 * 1024
 
 /** Streams a raw entry's bytes from a staged 7z (sequential scan) for the detection reader. */
 internal fun readSevenZipEntry(file: File, rawName: String, maxBytes: Int): ByteArray =
     SevenZFile.builder().setFile(file).get().use { archive ->
         while (true) {
-            val entry = archive.nextEntry ?: throw ImportRejected("VAL-13: entry vanished: $rawName")
-            if (entry.name == rawName) {
+            val entry = archive.nextEntry ?: throw ImportRejected("The archive changed during import: $rawName")
+            if (cleanArchiveName(entry.name) == cleanArchiveName(rawName)) {
                 val buffer = ByteArray(maxBytes)
                 var filled = 0
                 while (filled < maxBytes) {

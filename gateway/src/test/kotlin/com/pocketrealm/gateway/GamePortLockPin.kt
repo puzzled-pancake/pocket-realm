@@ -7,7 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * W6-N4 code-red round 2, R4-r2-3's proposed pin: the cross-seat
+ * W6-N4 R4-r2-3's proposed pin: the cross-seat
  * game-port lock's release must NEVER delete the lock file — a skipping
  * seat's afterEach runs even when its beforeEach aborted without
  * acquiring, and deleting the file under a live holder re-opens the

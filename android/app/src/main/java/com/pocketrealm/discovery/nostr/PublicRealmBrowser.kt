@@ -43,8 +43,8 @@ class PublicRealmBrowser(
 
     /** One render-ready row (the frozen schema's browsable projection).
      * [eventId] is the listing's identity — the (pubkey,d) merge key's
-     * newest event — and the only safe join-action key (code-red
-     * R1-3/R4-3/R6-2: names are NOT unique across publishers). */
+     * newest event — and the only safe join-action key (
+     * names are NOT unique across publishers). */
     data class ListingCard(
         val eventId: String,
         val name: String,
@@ -58,10 +58,20 @@ class PublicRealmBrowser(
         val publishedAtSeconds: Long,
         val relaysSeen: Int,
         val statusPageUrl: String?,
-        /** W6-N3: the iroh join descriptor — null when the host's gateway
+        /** the iroh join descriptor — null when the host's gateway
          * is down (the honest not-joinable). The card renders its
          * PRESENCE, never its fields. */
         val join: IrohJoinDescriptor? = null,
+        /** The host session's uptime (null on listings that omit it). */
+        val uptimeSeconds: Long? = null,
+        /** The host accepts self sign-up from joiners. */
+        val signupOpen: Boolean = false,
+        /** The world's player limit (null on listings that omit it). */
+        val maxPlayers: Int? = null,
+        /** The host app's version tag (null on listings that omit it). */
+        val appVersion: String? = null,
+        /** True when the host set a join password (the fact only). */
+        val locked: Boolean = false,
     )
 
     data class State(
@@ -75,7 +85,7 @@ class PublicRealmBrowser(
          * socket (the honest empty-state input, R6-3). */
         val relaysOpen: Int get() = relays.count { it.state == RelayPool.RelayState.OPEN }
 
-        /** R6-4-1: how many OPEN relays have actually ANSWERED THE READ —
+        /** how many OPEN relays have actually ANSWERED THE READ —
          * a socket whose subscription was CLOSED (auth-walled/refused
          * read) never proves emptiness. */
         val relaysAnsweringRead: Int
@@ -87,7 +97,7 @@ class PublicRealmBrowser(
     }
 
     /** PARENTED to the caller's job and pinned to Dispatchers.IO
-     * (R4-r2-1): the collectors run store.accept's verify ladder (SHA-256
+     * the collectors run store.accept's verify ladder (SHA-256
      * + Schnorr + JSON parses) on a worker dispatcher, never on the UI
      * thread the caller's rememberCoroutineScope rides. */
     private val scope = CoroutineScope(
@@ -111,7 +121,7 @@ class PublicRealmBrowser(
     val state: StateFlow<State> = _state.asStateFlow()
 
     /** Every collector is tracked here and cancelled on restart/idle —
-     * a browse() twice no longer leaves the first pair running (R4-3). */
+     * a browse twice no longer leaves the first pair running. */
     private val collectors = mutableListOf<Job>()
 
     /** Starts (or restarts) the browse: fresh subscription, fresh merge.
@@ -178,6 +188,11 @@ class PublicRealmBrowser(
                 relaysSeen = entry.seenOn.size,
                 statusPageUrl = entry.content.statusPageUrl,
                 join = entry.content.join,
+                uptimeSeconds = entry.content.uptimeSeconds,
+                signupOpen = entry.content.signupOpen,
+                maxPlayers = entry.content.maxPlayers,
+                appVersion = entry.content.appVersion,
+                locked = entry.content.locked,
             )
         }
         _state.value = _state.value.copy(listings = cards)

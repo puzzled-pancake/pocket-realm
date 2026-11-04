@@ -54,8 +54,8 @@ private sealed interface EditorTarget {
 }
 
 /**
- * The Bots screen: population profiles, custom presets and per-preset AI
- * speech — the Android BotsScreen ported to desktop chrome (a preset rail
+ * The Bots screen: population profiles and custom presets — the Android
+ * BotsScreen ported to desktop chrome (a preset rail
  * instead of a bottom sheet, the same shared BotPresetStore and the same
  * Apply semantics: the selection rides the settings snapshot into the next
  * world start).
@@ -285,7 +285,7 @@ fun BotsScreen(model: DesktopAppModel) {
             Column(modifier = Modifier.padding(16.dp)) {
                 val configuration = base()
                 TabRow(selectedTabIndex = tab) {
-                    listOf("Basics", "Population", "Behaviour", "AI").forEachIndexed { index, label ->
+                    listOf("Basics", "Population", "Behaviour").forEachIndexed { index, label ->
                         Tab(selected = tab == index, onClick = { tab = index }, text = { Text(label) })
                     }
                 }
@@ -296,8 +296,7 @@ fun BotsScreen(model: DesktopAppModel) {
                     when (tab) {
                         0 -> BasicsTab(configuration, running, ::edit)
                         1 -> PopulationTab(configuration, ::edit)
-                        2 -> BehaviourTab(configuration, ::edit)
-                        else -> AiTab(configuration, ::edit)
+                        else -> BehaviourTab(configuration, ::edit)
                     }
                 }
                 Row(

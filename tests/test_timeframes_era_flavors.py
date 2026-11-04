@@ -178,7 +178,7 @@ REQUIRED_ANACHRONISM_BANS = {
         "wandering isle", "bilgewater",
         # the WotLK-era systems/factions the zone-only scan
         # missed — inscription/argent crusade/saronite/the skybreaker/
-        # sons of hodir/onslaught harbor (R6-1) and timeless isle (R6-3's
+        # sons of hodir/onslaught harbor and timeless isle (R6-3's
         # standard applied to tbc).
         "inscription", "argent crusade", "saronite", "the skybreaker",
         "sons of hodir", "onslaught harbor", "timeless isle",
@@ -646,147 +646,12 @@ def _era_scan_replica(banned_terms, sense_phrases, surface):
     return None
 
 
-@pytest.mark.parametrize("flavor", FLAVORS)
-def test_shared_lore_corpus_card_drops_are_recorded_per_flavor(flavor: str) -> None:
-    """R5-1 (code-red round 1): the load-time EraLintCards drops any card
-    tripping the ACTIVE stage's ban lists — a shared-corpus card that
-    legitimately names later-era LORE (N'Zoth in the Naga/Old God cards)
-    was silently dropped on the wotlk lane by the n'zoth always-ban. Every
-    card this lane drops must be recorded in CARD_DROPS_RECORDED with its
-    justification; an unrecorded drop is a live false ban."""
-    manifest = _manifest(flavor)
-    baseline = manifest["final_stage_era_baseline"]
-    banned = [t.lower() for t in baseline.get("always_ban_terms") or []]
-    senses = [(n.lower(), f) for n, f in baseline.get("sense_phrases") or []]
-    corpus = (ROOT / "android/app/src/main/assets/lore/lore_cards_v112.jsonl")
-    assert corpus.is_file(), "the shared lore corpus is missing"
-    dropped = {}
-    for line in corpus.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        card = json.loads(line)
-        # the replica surface must match the real EraLintCards
-        # dimension exactly — the card's KEYS join the lint surface in
-        # the truth core ("IsKnownName treats every key as ground truth,
-        # so a contaminated key would neuter the guard"). A ban term
-        # hitting only a card's keys drops the card in the core; a
-        # title+text-only replica would call that drop unrecorded.
-        surface = card.get("title", "") + "\n" + card.get("text", "")
-        for key in card.get("keys") or []:
-            surface += "\n" + str(key)
-        hit = _era_scan_replica(banned, senses, surface)
-        if hit is not None:
-            dropped[card.get("title", "?")] = hit
-    recorded = CARD_DROPS_RECORDED.get(flavor, {})
-    unrecorded = sorted(set(dropped) - set(recorded))
-    assert not unrecorded, (
-        f"{flavor}: the load-time era lint drops lore card(s) {unrecorded} "
-        f"(hits: {sorted({t for k, t in dropped.items() if k in unrecorded})}) "
-        "with no CARD_DROPS_RECORDED entry — a shared-corpus card dropped on "
-        "this lane is a live false ban unless its drop is recorded with a "
-        "justification (fix the data or record the correct-era drop)"
-    )
-    stale = sorted(set(recorded) - set(dropped))
-    assert not stale, (
-        f"{flavor}: recorded card drops {stale} no longer drop — the lint "
-        "changed; prune the stale entries"
-    )
-
-
-def test_card_lint_replica_includes_the_keys_dimension() -> None:
-    """R5-3: the replica surface matches the truth core's EraLintCards
-    dimension — a card whose KEYS alone trip a ban term drops in the core,
-    so the replica must catch it (a title+text-only replica would call the
-    drop clean and the false ban would ship silently)."""
-    surface = "clean title\nclean body text\n" + "\nacherus"
-    assert _era_scan_replica(["acherus"], [], surface) == "acherus"
-    # And the dimension is live on the shipped corpus: every card carries
-    # keys, so every replica scan exercises the same surface the core does.
-    corpus = ROOT / "android/app/src/main/assets/lore/lore_cards_v112.jsonl"
-    cards = [
-        json.loads(line)
-        for line in corpus.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    assert cards, "the shared lore corpus is empty"
-    assert all(card.get("keys") for card in cards), (
-        "a keyless card would silently narrow the replica's surface"
-    )
-
-
 CONTENT_PROBE_TERMS = (
     # the later-era proper-noun set whose card-content
     # presence the term-ban lint cannot see unless a lane bans it.
     "argent crusade", "fourth war", "timeless isle", "dragon isles",
     "forbidden reach", "inscription",
 )
-
-
-@pytest.mark.parametrize("flavor", FLAVORS)
-def test_card_content_terms_are_dropped_or_recorded_per_flavor(flavor: str) -> None:
-    """R6-2: every card LOADED on a lane whose title+text+keys carries a
-    later-era content term must be dropped for that lane (the term is a
-    ban hit) OR the term must be recorded in CARD_CONTENT_RECORDED with a
-    justification - card CONTENT being from the wrong era is invisible to
-    the ban-term lint, so the recording is the only honest alternative."""
-    manifest = _manifest(flavor)
-    baseline = manifest["final_stage_era_baseline"]
-    banned = [t.lower() for t in baseline.get("always_ban_terms") or []]
-    senses = [(n.lower(), f) for n, f in baseline.get("sense_phrases") or []]
-    banned_terms = set(banned) | {n.lower() for n, _f in senses}
-    corpus = ROOT / "android/app/src/main/assets/lore/lore_cards_v112.jsonl"
-    recorded = CARD_CONTENT_RECORDED.get(flavor, {})
-    # A lane's disposition per content term: BANNED (the cards carrying it
-    # drop at load) or RECORDED (why its cards stay loaded) - never silent.
-    missing_records = sorted(
-        t for t in CONTENT_PROBE_TERMS
-        if t not in recorded and t not in banned_terms
-    )
-    assert not missing_records, (
-        f"{flavor}: every content-probe term must be banned or recorded "
-        f"(missing {missing_records}) - a lane either bans the term or "
-        "records why its cards stay loaded"
-    )
-    stale_records = sorted(set(recorded) - set(CONTENT_PROBE_TERMS))
-    assert not stale_records, (
-        f"{flavor}: stale CARD_CONTENT_RECORDED rows {stale_records} - the "
-        "content-probe set changed; prune the rows"
-    )
-    loaded_hits: dict[str, list[str]] = {}
-    for line in corpus.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        card = json.loads(line)
-        surface = card.get("title", "") + "\n" + card.get("text", "")
-        for key in card.get("keys") or []:
-            surface += "\n" + str(key)
-        if _era_scan_replica(banned, senses, surface) is not None:
-            continue  # the card is dropped on this lane: content is moot
-        title = card.get("title", "?")
-        low = surface.lower()
-        for term in CONTENT_PROBE_TERMS:
-            if term in recorded:
-                continue
-            start = 0
-            while True:
-                i = low.find(term, start)
-                if i == -1:
-                    break
-                j = i + len(term)
-                before_ok = i == 0 or not low[i - 1].isalpha()
-                after = j
-                if after < len(low) and low[after] == "s":
-                    after += 1
-                after_ok = after >= len(low) or not low[after].isalpha()
-                if before_ok and after_ok:
-                    loaded_hits.setdefault(term, []).append(title)
-                    break
-                start = i + 1
-    assert not loaded_hits, (
-        f"{flavor}: loaded lore card(s) {loaded_hits} carry later-era "
-        "content terms with no ban drop and no CARD_CONTENT_RECORDED entry "
-        "- the cards ship as [RESULT] truth narrating the wrong era (R6-2)"
-    )
 
 
 @pytest.mark.parametrize("flavor", FLAVORS)

@@ -3,8 +3,8 @@
  *
  * Executes the EXACT rewritten runtime SQL shapes against the PINNED
  * amalgamation:
- *  - the increment-folded ON CONFLICT DO UPDATE rewrite of
- *    PlayerbotLlmMemory::AddRelationshipPoints at the 10/30/60 tier
+ *  - the increment-folded ON CONFLICT DO UPDATE rewrite of the
+ *    (retired) bot-relationship upsert at the 10/30/60 tier
  *    boundaries (9->10, 29->30, 59->60), plus negative deltas, the
  *    fresh-insert path, and the INSERT OR IGNORE backstory shape;
  *  - the negative control: the MECHANICAL (unfolded) rewrite a naive

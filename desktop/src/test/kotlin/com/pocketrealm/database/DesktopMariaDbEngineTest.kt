@@ -21,7 +21,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * The desktop MariaDB engine twin's durable decisions (DESK-5/47/78),
+ * The desktop MariaDB engine twin's durable decisions,
  * exercised JVM-only: a SYNTHETIC staged provider (the physical Windows
  * distribution is the lane's external dependency) plus a scripted
  * [Processes] seam stand in for mariadbd.exe/mariadb.exe, so every
@@ -263,7 +263,7 @@ class DesktopMariaDbEngineTest {
         /** Make the daemon spawn itself throw (the spawn-failure leg). */
         var failSpawn = false
 
-        /** R4-5: when set, the FIRST migration SQL blocks until the
+        /** when set, the FIRST migration SQL blocks until the
          * latch releases — the in-process stand-in for a process kill
          * mid-ledger (the journal stays at phase RUNNING, exactly the
          * crash aftermath a real kill leaves). */
@@ -295,7 +295,7 @@ class DesktopMariaDbEngineTest {
             return ok()
         }
 
-        /** R4-5: the FIRST migration SQL blocks until the latch
+        /** the FIRST migration SQL blocks until the latch
          * releases (the mid-ledger kill stand-in); the recovery's retry
          * lands here armed=false and the migration applies green. */
         fun unexpectedClientSql(sql: String): DatabaseRunResult {
@@ -360,7 +360,7 @@ class DesktopMariaDbEngineTest {
                 "required_z9999_not_real" in sql -> ok("0")
                 "information_schema.COLUMNS" in sql -> ok("1")
                 "pocket_admin" in sql -> ok()
-                // W4 (D72 retirement): the per-lane provisioning leg (the
+                // the per-lane provisioning leg (the
                 // four CREATE DATABASE IF NOT EXISTS + the pocket_core
                 // grants, run before the lane's ledger applies).
                 "CREATE DATABASE IF NOT EXISTS" in sql -> ok()
@@ -456,7 +456,7 @@ class DesktopMariaDbEngineTest {
     /** The fresh-lane fixture's name sequence (per test method). */
     private var laneCounter: Int = 0
 
-    /** R4-5: the kill stand-in — write the lane's MIGRATION journal at
+    /** the kill stand-in — write the lane's MIGRATION journal at
      * phase RUNNING through the engine's own durable writer (the lane
      * identity from the staged closure, the newest published
      * pre-migration snapshot as the recovery target). The exact bytes a
@@ -737,7 +737,7 @@ class DesktopMariaDbEngineTest {
 
     @Test
     fun aNonVanillaLaneMigrationApplyProvesItsPhasesAgainstTheLaneIdentity() {
-        // R3-r3-fix (W4 code-red round 3) regression: the MIGRATION
+        // R3-r3-fix regression: the MIGRATION
         // transaction record is written with the LANE identity, but
         // every phase update and the recovery proof re-parsed it against
         // the SHARED vanilla identity — "DB-TRANSACTION: transaction
@@ -829,7 +829,7 @@ class DesktopMariaDbEngineTest {
 
     @Test
     fun aLedgerEntryTargetingAForeignFamilyRefusesBeforeAnySqlRuns() {
-        // R2-r6-1 (W4 code-red round 6): a mis-generated ledger whose entry
+        // a mis-generated ledger whose entry
         // names a database OUTSIDE the lane's own family must refuse at the
         // mandatory backstop BEFORE runClient executes the SQL (the digest
         // gates cannot catch it; the post-apply revision probe runs only
@@ -868,7 +868,7 @@ class DesktopMariaDbEngineTest {
 
     @Test
     fun initializeOnAKilledLaneDefersToApplyPinnedMigrations() {
-        // R5-R6-1 (W4 code-red round 6): after a kill-mid-migration the
+        // after a kill-mid-migration the
         // lane journal is provable under the LANE identity — initialize()
         // must answer the documented DEFER_MIGRATION
         // (migrationTransactionPending=true, deferredTo=applyPinnedMigrations),
@@ -1603,7 +1603,7 @@ class DesktopMariaDbEngineTest {
                     (expected.message ?: "").contains("found 2"),
                 )
             }
-            // W4 (D72 RETIRED, owner ruling 2026-10-12): the projection
+            // the projection
             // targets the ACTIVE lane's own realmd database — the former
             // vanilla-only refusal (the W1.2 deferral's guard) is retired
             // with the per-flavor ledgers; a wrong-lane row mutation is
@@ -1640,7 +1640,7 @@ class DesktopMariaDbEngineTest {
                     "wotlk leg staged the row): ${result.getString("operation")}",
                 result.getString("operation").startsWith("realm-endpoint"),
             )
-            // W4 (D72 retirement): the lane-routing evidence is the WOTLK
+            // the lane-routing evidence is the WOTLK
             // leg's own UPDATE above (wotlkrealmd) — the vanilla leg's
             // projection was idempotent (the wotlk leg staged the identical
             // row), so no second UPDATE crossed; the least-privilege user

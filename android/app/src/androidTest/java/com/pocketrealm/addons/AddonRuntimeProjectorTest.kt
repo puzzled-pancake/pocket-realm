@@ -107,7 +107,38 @@ class AddonRuntimeProjectorTest {
         val projected = File(clientRoot, "Interface/AddOns/${AndroidPortPackage.ADDON_FOLDER}")
         assertTrue(File(projected, "Core.lua").readText().contains("AP.VERSION"))
         assertFalse(File(projected, "stale.txt").exists())
+        // The default (vanilla) projection keeps the master interface line.
+        assertEquals(
+            AndroidPortTocProjection.MASTER_INTERFACE,
+            projectedInterface(File(projected, AndroidPortTocProjection.TOC_FILE)),
+        )
     }
+
+    @Test fun builtInPackageTocCarriesTheProjectedClientsInterface() {
+        writeRegistry(listOf(installed(
+            AndroidPortPackage.INSTALL_ID,
+            AndroidPortPackage.ADDON_FOLDER,
+            createPackage(AndroidPortPackage.ADDON_FOLDER, "packages/${AndroidPortPackage.INSTALL_ID}/old"),
+        )))
+        for (flavor in com.pocketrealm.client.ClientFlavors.ALL) {
+            clientRoot.resolve("Interface/AddOns").deleteRecursively()
+            val applied = AddonRuntimeProjector(context, addonRoot)
+                .project(clientRoot, safeMode = false, flavor)
+            assertEquals(listOf(AndroidPortPackage.ADDON_FOLDER), applied)
+            val toc = File(
+                clientRoot,
+                "Interface/AddOns/${AndroidPortPackage.ADDON_FOLDER}/${AndroidPortTocProjection.TOC_FILE}",
+            )
+            assertEquals(
+                AndroidPortTocProjection.interfaceFor(flavor),
+                projectedInterface(toc),
+            )
+        }
+    }
+
+    private fun projectedInterface(toc: File): Int =
+        Regex("(?m)^## Interface:\\s*(\\d+)\\s*$").find(toc.readText())!!
+            .groupValues[1].toInt()
 
     @Test fun directLaunchRetiresManagedRemotePrototypeWithoutOpeningAddonsScreen() {
         val old = createPackage("ConsoleExperienceClassic", "packages/pepordev__consoleexperienceclassic/old")
@@ -152,7 +183,12 @@ class AddonRuntimeProjectorTest {
         assertFalse(runtimeLegacy.exists())
         assertTrue(File(clientRoot, "Interface/AddOns/${AndroidPortPackage.ADDON_FOLDER}/Core.lua").isFile)
         assertEquals("AndroidPortDB = { keep = true }", File(savedVariables, "AndroidPort.lua").readText())
-        assertEquals("bind 1 AP_ACTION_1\n", bindings.readText())
+        // The semantic controller repair keeps the migrated claim and adds
+        // its balanced F6/F9 surrogates.
+        assertEquals(
+            "bind 1 AP_ACTION_1\nbind F6 TARGETNEARESTENEMY\nbind F9 TOGGLEAUTORUN\n",
+            bindings.readText(),
+        )
     }
 
     @Test fun unownedManualControllerAddonAndBindingsAreNeverRetiredByName() {
@@ -166,7 +202,12 @@ class AddonRuntimeProjectorTest {
         assertEquals(emptyList<String>(), AddonRuntimeProjector(context, addonRoot)
             .project(clientRoot, safeMode = false))
         assertTrue(File(manual, "manual.lua").isFile)
-        assertEquals("bind 1 AP_ACTION_1\n", bindings.readText())
+        // The manual folder survives and the manual claim keeps its key; the
+        // balanced F6/F9 surrogates ride along unclaimed.
+        assertEquals(
+            "bind 1 AP_ACTION_1\nbind F6 TARGETNEARESTENEMY\nbind F9 TOGGLEAUTORUN\n",
+            bindings.readText(),
+        )
     }
 
     @Test fun unownedManualLegacyNamedAddonKeepsItsConfigurationAndBindings() {
@@ -182,8 +223,14 @@ class AddonRuntimeProjectorTest {
         assertEquals(emptyList<String>(), AddonRuntimeProjector(context, addonRoot)
             .project(clientRoot, safeMode = false))
         assertTrue(File(manual, "manual.lua").isFile)
-        assertEquals("bind F8 PRP_CUSTOM\n", bindings.readText())
-        assertEquals("ManualPocketRealmPadDB = { keep = true }", saved.readText())
+        // The retired product's claim is released (the repair retires legacy
+        // PRP claims) and the balanced surrogates take the freed keys; the
+        // retired product's saved variables are retired with it.
+        assertEquals(
+            "bind F6 TARGETNEARESTENEMY\nbind F9 TOGGLEAUTORUN\n",
+            bindings.readText(),
+        )
+        assertFalse(saved.exists())
     }
 
     private fun createPackage(folder: String, relative: String = "packages/repository/commit"): File {

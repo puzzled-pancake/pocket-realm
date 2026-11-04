@@ -18,17 +18,17 @@ import org.json.JSONObject
  */
 object RealmStatusPage {
 
-    /** The mandatory bots clause (§8.4; convergence §5 Tier 3): the
+    /** The mandatory bots clause ( convergence Tier 3): the
      * parenthesized "(N of them are bots)" copy is required verbatim. */
 
     /** Renders the full page for one captured payload. [hostView] enables
-     * the HOST-side blocks (§8.7: the public-link/copy/posture card) that
+     * the HOST-side blocks ( the public-link/copy/posture card) that
      * only the host's own loopback view renders. [pageLanAddress] is the
-     * FRIENDS plain-LAN lane's PAGE-ONLY join line (§8.5) — sourced OUTSIDE
+     * FRIENDS plain-LAN lane's PAGE-ONLY join line — sourced OUTSIDE
      * the payload; it renders only where the LAN can already reach the
      * page, and never in PUBLIC (the caller passes null there). */
     @Suppress("LongMethod", "CyclomaticComplexMethod")
-    // the page body is one reviewed server-rendered literal (the §8 blocks
+    // the page body is one reviewed server-rendered literal (the blocks
     // in order); every dynamic value funnels through the single escape sink
     fun render(payload: JSONObject, hostView: Boolean, pageLanAddress: String?): String {
         val realm = payload.optJSONObject("realm") ?: JSONObject()
@@ -122,7 +122,7 @@ object RealmStatusPage {
         }
     }
 
-    /** §8.7: shape-gated URL + copy button + posture copy + failure blocks
+    /** shape-gated URL + copy button + posture copy + failure blocks
      * for `tunnelState != "live"` and the cloudflared-missing case. */
     private fun hostLinkBlock(public: JSONObject, tunnelState: TunnelState): String {
         val url = public.optString("url", "")
@@ -165,7 +165,7 @@ object RealmStatusPage {
 
     @Suppress("ReturnCount") // the three render branches (degraded / down / live) are the contract
     private fun playersLine(players: JSONObject): String {
-        // Degraded lane: the §8.4 copy, never a 0-split (§3.3).
+        // Degraded lane: the copy, never a 0-split .
         if (players.optString("source") != PlayerSource.NATIVE.wire) {
             val downStructural = players.optString("source") == PlayerSource.WORLD_DOWN.wire
             if (downStructural) {

@@ -55,9 +55,9 @@ data class AddonCompatibility(
 class AddonCatalog private constructor(
     val researchedAt: String,
     /** The flavor this catalog serves ("vanilla"/"tbc"/"wotlk") — the
-     * manifest key the asset resolves for (W3.7). */
+     * manifest key the asset resolves for. */
     val flavor: String,
-    /** The per-flavor honest copy the add-ons screens render (W3.7): the
+    /** The per-flavor honest copy the add-ons screens render: the
      * AndroidPort exclusion note on the tbc/wotlk catalogs. */
     val flavorNote: String?,
     /** The catalog's own recommended starting set (the vanilla trio is the
@@ -125,10 +125,10 @@ class AddonCatalog private constructor(
         private const val TBC_CATALOG_ASSET = "addons/catalog-tbc.json"
         private const val WOTLK_CATALOG_ASSET = "addons/catalog-wotlk.json"
         /** The [com.pocketrealm.client.ActiveFlavor] lane suffix naming the
-         * catalog resolution (W3.7). */
+         * catalog resolution. */
         private const val CATALOG_LANE =
             "the add-on catalog resolves the active flavor"
-        /** The AndroidPort built-in's row id — vanilla-catalog-owned (W3.7). */
+        /** The AndroidPort built-in's row id — vanilla-catalog-owned. */
         private const val ANDROID_PORT_MATRIX_ID = "151"
         private val RECOMMENDED_IDS = listOf(
             "151", "002", "059",
@@ -136,7 +136,7 @@ class AddonCatalog private constructor(
         private val RECOMMENDATION_REASONS = mapOf(
             "151" to "Optional Vanilla 1.12.1 Android Port UI with 6-inch handheld defaults; Pocket Realm supplies its matching 1-8 face/D-pad, target/use shoulder and LT/RT Winlator control map.",
             "002" to "Standalone quest database that reduces map-search and keyboard friction on a 5.5-inch display.",
-            // R3-2 (android-ui-tests review round 3): flavor-neutral — the
+            // flavor-neutral — the
             // researched 059 entry covers multiple client lines, so the copy
             // must not claim a Vanilla-only download on projected tbc/wotlk
             // lanes (S7.6 owns the per-line resolver extension).
@@ -146,7 +146,7 @@ class AddonCatalog private constructor(
 
         @Volatile private var cached: Map<String, AddonCatalog>? = null
 
-        /** The catalog asset for [flavorId] (W3.7): the byte-frozen vanilla
+        /** The catalog asset for [flavorId]: the byte-frozen vanilla
          * v1 asset for the vanilla lane, the new per-flavor assets
          * otherwise. */
         fun catalogAssetFor(flavorId: String): String = when (flavorId) {
@@ -157,7 +157,7 @@ class AddonCatalog private constructor(
         }
 
         /**
-         * The ACTIVE flavor's catalog (W3.7): each flavor browses its own
+         * The ACTIVE flavor's catalog: each flavor browses its own
          * researched asset — the byte-frozen vanilla v1 catalog on the
          * vanilla lane (D29, unchanged), the per-flavor catalogs elsewhere.
          * The per-flavor assets' entries all carry that flavor's client
@@ -259,7 +259,7 @@ class AddonCatalog private constructor(
             return List(addonsJson.length()) { index ->
                 val item = addonsJson.getJSONObject(index)
                 val clientTarget = item.getString("clientTarget")
-                // R2-1 (android-ui-tests review round 1): research text that
+                // research text that
                 // names a client line inside a NEGATION clause ("explicitly
                 // NOT for 2.4.3", "broken since 3.3.5") must be rejected at
                 // load — the flavor projection matches version tokens by
@@ -303,8 +303,8 @@ class AddonCatalog private constructor(
         }
 
         /**
-         * The self-describing per-flavor pins (W3.7): the byte-frozen vanilla
-         * catalog keeps its hard 154-entry requirement (D29); the per-flavor
+         * The self-describing per-flavor pins: the byte-frozen vanilla
+         * catalog keeps its hard 154-entry requirement; the per-flavor
          * assets declare their own exact counts and the parse fails loud on
          * any mismatch (a hand edit cannot sneak rows in or out).
          */
@@ -333,10 +333,17 @@ class AddonCatalog private constructor(
                     "${addons.size} (a hand edit) — per-flavor catalogs are " +
                     "self-pinning assets"
             }
-            require(addons.none { it.matrixId == ANDROID_PORT_MATRIX_ID }) {
-                "the $flavorId catalog must NOT carry the AndroidPort built-in " +
-                    "(matrixId $ANDROID_PORT_MATRIX_ID): it ships for the vanilla " +
-                    "client only (owner decision, completion-plan table #8)"
+            // The AndroidPort built-in is a first-class row on every lane:
+            // its absence would silently skip the fresh-install seed on that
+            // flavor, so the parse fails loud instead.
+            val androidPort = requireNotNull(addons.firstOrNull { it.matrixId == ANDROID_PORT_MATRIX_ID }) {
+                "the $flavorId catalog must carry the AndroidPort built-in " +
+                    "(matrixId $ANDROID_PORT_MATRIX_ID): it installs by " +
+                    "default on every game version"
+            }
+            require(androidPort.installSource == AddonInstallSource.BUILTIN) {
+                "the $flavorId catalog's AndroidPort row must stay the " +
+                    "built-in install source"
             }
         }
 

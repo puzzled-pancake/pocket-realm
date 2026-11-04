@@ -10,7 +10,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * The host side of remote account creation (design-remote-accounts §5): one
+ * The host side of remote account creation (design-remote-accounts): one
  * row per invite in the host app's own store — a dedicated durable file
  * under realm/friend-access, never the settings blob (the settings file
  * already carries mode fields and gets shared around casually).
@@ -23,11 +23,11 @@ import org.json.JSONObject
  *          └→ EXPIRED / BURNED (bad token, wrong key, cap hit)
  * ```
  *
- * SRP6-safe storage (§2/§12 — the feature's storage rule):
+ * SRP6-safe storage ( / — the feature's storage rule):
  *  - the raw token is NEVER persisted: the row carries `token_hash`
  *    (SHA-256) only, so a copied file tree grants nothing;
  *  - the submitted (s, v) pair is NEVER persisted either — a verifier is
- * password-equivalent for offline guessing (§2's caveat), so it lives
+ * password-equivalent for offline guessing (the caveat), so it lives
  *    only in this process's memory, keyed by invite id, until the host
  *    decides. An app restart mid-approval loses the verifier; the row can
  *    then only be rejected or left to expire. The persisted JSON therefore
@@ -88,7 +88,7 @@ class FriendInviteStore(
     }
 
     /** The submit verdict the LISTENER translates; every refusal is the same
-     * shape so the listener can answer the identical blob (§5). */
+     * shape so the listener can answer the identical blob . */
     sealed class SubmitResult {
         data class Accepted(val inviteId: String, val username: String) : SubmitResult()
 
@@ -211,7 +211,7 @@ class FriendInviteStore(
     // ------------------------------------------------------------------
 
     /**
-     * The read-only re-request that lets the friend learn the decision (§5:
+     * The read-only re-request that lets the friend learn the decision (
      * "Only the PROVISIONED response tells the friend their accountId").
      * The same token, re-sent: while the row is SUBMITTED the answer is
      * still just "submitted"; once the host approves, the ONE response
@@ -220,7 +220,7 @@ class FriendInviteStore(
      * indistinct refusal — a poll must not leak the difference.
      */
     sealed class PollResult {
-        /** R3-2 (android-core review round 2): the PROVISIONED reveal carries
+        /** the PROVISIONED reveal carries
          * the ROW's stored username — the durable identity the account was
          * provisioned under — never the poll REQUEST's username (a friend
          * editing the username field between submit and poll must not be
@@ -272,7 +272,7 @@ class FriendInviteStore(
         val invite = persisted.invites[index]
         if (invite.state != State.SUBMITTED) return@synchronized null
         val verifier = pendingVerifiers[inviteId] ?: return@synchronized null
-        // R2-1 (android-core review round 2, serious): the FIRST approval is
+        // the FIRST approval is
         // this invite's one provisioning attempt — the flag authorizes the
         // seam's addon write on the ACCOUNT_EXISTS retry leg (the row our
         // attempt created) and distinguishes it from an identity COLLISION
@@ -299,7 +299,7 @@ class FriendInviteStore(
     }
 
     /** Reject: SUBMITTED → REJECTED; the held verifier is discarded
-     * immediately (§5 — the friend's device drops its s/v on REJECTED, and
+     * immediately (the friend's device drops its s/v on REJECTED, and
      * so does the host). */
     fun reject(inviteId: String): Boolean = synchronized(lock) {
         val persisted = readLocked()
@@ -333,7 +333,7 @@ class FriendInviteStore(
     // Reads
     // ------------------------------------------------------------------
 
-    /** R2-1: true when this invite already ran a provisioning attempt (the
+    /** true when this invite already ran a provisioning attempt (the
      * first markApproved). The authorization the host threads to the
      * verifier seam: on the retry, ACCOUNT_EXISTS is OUR attempt-1 row and
      * the addon write converges it; on a first approval, ACCOUNT_EXISTS is
@@ -343,8 +343,8 @@ class FriendInviteStore(
         persisted.invites.firstOrNull { it.inviteId == inviteId }?.attempted == true
     }
 
-    /** R2-1: the collision refusal — APPROVED → REJECTED with the durable
-     * outcome naming it (the §3.5 contract: the relay op returns
+    /** the collision refusal — APPROVED → REJECTED with the durable
+     * outcome naming it (the contract: the relay op returns
      * ACCOUNT_EXISTS and the host REJECTS; the friend picks another name).
      * The held verifier is discarded; nothing was written to the row. */
     fun refuseCollision(inviteId: String): Boolean = synchronized(lock) {
@@ -373,7 +373,7 @@ class FriendInviteStore(
     fun openCount(): Int = rows().count { it.state == State.OPEN }
 
     /**
-     * §12: audit rows for the moderation verbs (ban/unban/gm) — the same
+     * audit rows for the moderation verbs (ban/unban/gm) — the same
      * row shape as the invite lifecycle (action, username, accountId,
      * timestamp, outcome; no secrets), keyed by username instead of invite
      * id. The controller calls this after every moderation verb so the
@@ -391,10 +391,10 @@ class FriendInviteStore(
     }
 
     /** The audit trail (newest last). Each row: invite id, action, username,
-     * accountId, source IP, timestamp, outcome — no secrets (§12). */
+     * accountId, source IP, timestamp, outcome — no secrets . */
     fun auditTail(limit: Int = DEFAULT_AUDIT_TAIL): List<JSONObject> {
         if (!auditFile.isFile) return emptyList()
-        // R4-1 (android-core review round 2): a bounded TAIL read — the last
+        // a bounded TAIL read — the last
         // AUDIT_TAIL_WINDOW_BYTES only. auditTail runs on the host UI's
         // players screen; reading the whole (attacker-fed, spray-grown) file
         // would be an OOM-scale read. The window may open mid-line, so the
@@ -636,7 +636,7 @@ class FriendInviteStore(
         rotateAuditBudgetLocked()
     }
 
-    /** R4-1: the audit rotation — once the file exceeds MAX_AUDIT_BYTES it
+    /** the audit rotation — once the file exceeds MAX_AUDIT_BYTES it
      * is rewritten to its newest MAX_AUDIT_ROWS rows (oldest rotated out).
      * Called under [lock] from audit()'s callers; the rewrite is the only
      * whole-file pass and only runs on the budget-breaching append. */
@@ -697,7 +697,7 @@ class FriendInviteStore(
         internal const val MAX_NOTE_CHARS = 64
         internal const val MAX_IP_CHARS = 45
         internal const val MAX_OUTCOME_CHARS = 128
-        /** R4-1 (android-core review round 2): the friend-access audit's
+        /** the friend-access audit's
          * bounded-persistence contract — the same discipline the rate rows'
          * MAX_RATE_ROWS applies. Every refused submission appends a row, so
          * a sustained bad-submission spray against the LAN-exposed port
@@ -709,7 +709,7 @@ class FriendInviteStore(
         internal const val MAX_AUDIT_BYTES = 1L * 1024L * 1024L
         private const val AUDIT_TAIL_WINDOW_BYTES = 256L * 1024L
 
-        /** The rate-row cap (§6 layer 1, bounded persistence): one row per
+        /** The rate-row cap ( layer 1, bounded persistence): one row per
          * unique source IP, evicted insertion-oldest-unlocked-first once
          * exceeded — a multi-source bad-token spray cannot grow the store
          * without bound. */

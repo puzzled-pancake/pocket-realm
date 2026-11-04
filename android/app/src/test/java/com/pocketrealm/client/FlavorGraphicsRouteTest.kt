@@ -42,10 +42,6 @@ class FlavorGraphicsRouteTest {
                 assertTrue("the refusal must name the route: $message", glRoute in message)
                 assertTrue("the refusal must name the flavor: $message", flavor.flavorId in message)
                 assertTrue(
-                    "the refusal must name decision D3: $message",
-                    "decision D3" in message,
-                )
-                assertTrue(
                     "the refusal must name the DXVK remedy: $message",
                     "DXVK route" in message,
                 )

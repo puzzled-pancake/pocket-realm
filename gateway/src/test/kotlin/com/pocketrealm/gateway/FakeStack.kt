@@ -46,7 +46,7 @@ class FakeRealmServer(port: Int, private val worldPort: Int) : AutoCloseable {
                         client.tcpNoDelay = true
                         val input = DataInputStream(client.getInputStream())
                         val output = client.getOutputStream()
-                        // The REAL auth dance first (code-red R5-1):
+                        // The REAL auth dance first:
                         // the logon challenge/proof exchanges are RAW
                         // structs; the realm list only flows once the
                         // lane reaches its framed phase.
@@ -234,7 +234,7 @@ object FakeStackMain {
     }
 }
 
-/** W6-N4: the docker leg's CLIENT-LANE entrypoint — run inside the
+/** the docker leg's CLIENT-LANE entrypoint — run inside the
  * JOINER container (`docker exec`), dialing the joiner's own loopback
  * listeners exactly the way the local game client would in production
  * (the joiner binds 127.0.0.1-only; a host-side port mapping can never

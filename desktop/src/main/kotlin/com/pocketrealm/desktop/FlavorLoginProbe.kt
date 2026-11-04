@@ -41,7 +41,7 @@ fun main() {
         ?: error("no pinned login-window signature for flavor \"$flavorId\"")
     val exe = File(clientDir, "WoW.exe")
     check(exe.isFile) { "no WoW.exe under ${clientDir.absolutePath}" }
-    // R4-R2-1: the client exe MUST match the flavor's S5.1 hash pin — a
+    // the client exe MUST match the flavor's S5.1 hash pin — a
     // wrong-client or doctored binary would make the promotion evidence a
     // lie (the probe is the identity gate for the login-topology archive).
     val exeSha = sha256(exe)

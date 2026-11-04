@@ -13,8 +13,14 @@ local items = {
     end },
     { name = "Spellbook", icon = "Interface\\Icons\\INV_Misc_Book_09", action = function() ToggleSpellBook(BOOKTYPE_SPELL) end },
     { name = "Talents", icon = "Interface\\Icons\\Ability_Marksmanship", action = function() ToggleTalentFrame() end },
-    { name = "Quest Log", icon = "Interface\\Icons\\INV_Misc_Note_01", action = function() ToggleQuestLog() end },
-    { name = "World Map", icon = "Interface\\Icons\\INV_Misc_Map_01", action = function() ToggleWorldMap() end },
+    -- 3.3.5a dropped ToggleQuestLog and ToggleWorldMap; its own bindings
+    -- toggle the frames directly.
+    { name = "Quest Log", icon = "Interface\\Icons\\INV_Misc_Note_01", action = function()
+        if ToggleQuestLog then ToggleQuestLog() else ToggleFrame(QuestLogFrame) end
+    end },
+    { name = "World Map", icon = "Interface\\Icons\\INV_Misc_Map_01", action = function()
+        if ToggleWorldMap then ToggleWorldMap() else ToggleFrame(WorldMapFrame) end
+    end },
     -- Talk takes Social's slot: on this offline realm the friends list
     -- has no human friends to show (the stock minimap button still opens it
     -- on touch), while reaching a conversation without typing a bot's exact
@@ -85,6 +91,9 @@ function Radial:FailSafe(frame, overlay, buttons)
     self.ready = false
     if overlay then overlay:Hide() end
     if frame then frame:Hide() end
+    if AndroidPort.ActionBars and AndroidPort.ActionBars.ResumeOverrideKeys then
+        AndroidPort.ActionBars:ResumeOverrideKeys()
+    end
     local candidates = buttons or self.buttons or {}
     for index = 1, table.getn(items) do
         local button = candidates[index] or getglobal("AndroidPortRadial" .. index)
@@ -145,6 +154,11 @@ function Radial:Initialize()
         overlay:Hide()
         frame:SetScript("OnHide", function()
             if Radial.overlay and Radial.overlay:IsVisible() then Radial.overlay:Hide() end
+            -- Escape closes the menu through the special-frame sweep, not
+            -- Radial:Hide; the 2.0+ keys must still go back to casting.
+            if AndroidPort.ActionBars and AndroidPort.ActionBars.ResumeOverrideKeys then
+                AndroidPort.ActionBars:ResumeOverrideKeys()
+            end
         end)
 
         local radius = layout.radial * 0.34
@@ -168,6 +182,14 @@ end
 
 function Radial:Show()
     if not self.ready then return end
+    -- While the menu is open the plain face/D-pad keys select entries
+    -- instead of casting; on the 2.0+ clients that needs a key rebind,
+    -- which is only possible out of combat (in combat the entries stay
+    -- touch-selectable and the keys keep casting, like the modifier
+    -- chords always do).
+    if AndroidPort.ActionBars and AndroidPort.ActionBars.SuspendOverrideKeys then
+        AndroidPort.ActionBars:SuspendOverrideKeys()
+    end
     self.overlay:Show()
     self.frame:Show()
 end
@@ -175,6 +197,9 @@ end
 function Radial:Hide()
     if self.overlay then self.overlay:Hide() end
     if self.frame then self.frame:Hide() end
+    if AndroidPort.ActionBars and AndroidPort.ActionBars.ResumeOverrideKeys then
+        AndroidPort.ActionBars:ResumeOverrideKeys()
+    end
 end
 
 function Radial:Activate(index)

@@ -7,19 +7,19 @@ import java.net.InetAddress
 import java.net.NetworkInterface
 
 /**
- * D3 (design-lan §2.5): the desktop interface seam over the shared
+ * the desktop interface seam over the shared
  * [com.pocketrealm.supervisor.LanInterfacePolicy] — the `DesktopRealmlist`
  * precedent (a desktop twin wrapping a shared projection, never retuning the
  * shared file's Android behavior).
  *
- * Why the twin exists (measured, design-lan §0.1): the shared scan sorts by
+ * Why the twin exists (measured, design-lan): the shared scan sorts by
  * the `wlan`/`eth` NAME prefix, and `NetworkInterface.isVirtual` reports
  * false for at least the "Hyper-V Virtual Ethernet Adapter" on real Windows
  * machines — so a virtual adapter's unreachable private address (e.g.
  * 172.21.208.1) sorts FIRST and a one-click host defaults to an address no
  * LAN guest can reach. The shared file stays untouched; this twin filters
  * the SAME scan by DISPLAY NAME before the Settings quick-picks and before
- * §1's liveness re-checks, and prefers the interface that owns the default
+ * 's liveness re-checks, and prefers the interface that owns the default
  * route (resolved in-process via a UDP `connect()` to a private-range probe
  * address — no packets of consequence are sent).
  *
@@ -65,7 +65,7 @@ class DesktopLanInterfaces(
      * D1's liveness predicate over the FILTERED view: the endpoint must be
      * the current address of an interface this twin would offer. A virtual
      * adapter's address is live-but-unusable — it refuses here exactly like
-     * a missing interface (design-lan §2.5).
+     * a missing interface (design-lan).
      */
     fun isCurrentPrivateInterface(endpoint: RealmEndpoint): Boolean =
         endpoint.isPrivateOrLinkLocal && available().any { it.address == endpoint.address }

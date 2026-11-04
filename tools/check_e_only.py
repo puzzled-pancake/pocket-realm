@@ -138,14 +138,6 @@ ALLOWLIST: tuple[dict[str, str], ...] = (
         "retires": "never (OS-provided location, env override honored first)",
     },
     {
-        "path": "scripts/smoke_win_msvc.py",
-        "reason": (
-            "PROGRAMFILES(X86) env-lookup fallback: locates the host MSVC/Windows SDK "
-            "where Windows itself installed it; not a project write target"
-        ),
-        "retires": "never (OS-provided location, env override honored first)",
-    },
-    {
         "path": "tools/build_win_realm_runtime.py",
         "reason": (
             "PROGRAMFILES(X86) env-lookup fallback: locates the host MSVC/Windows SDK "
@@ -218,14 +210,6 @@ ALLOWLIST: tuple[dict[str, str], ...] = (
             "ProgramFiles/WINDIR env-lookup fallbacks: locate 7-Zip and "
             "powershell where Windows itself installed them; OS-provided "
             "locations, env override honored first"
-        ),
-        "retires": "never (OS-provided location, env override honored first)",
-    },
-    {
-        "path": "tools/build_win_llama_server.py",
-        "reason": (
-            "PROGRAMFILES(x86) env-lookup fallback: locates the host MSVC "
-            "toolchain where Windows installed it; not a project write target"
         ),
         "retires": "never (OS-provided location, env override honored first)",
     },
@@ -533,7 +517,7 @@ def _tracked_text_files(root: Path) -> list[Path] | None:
             with head:
                 head_bytes = head.read(8192)
         except OSError:
-            # R3-1 (review round 1): an unreadable file must NOT vanish from
+            # an unreadable file must NOT vanish from
             # the sweep — the old `continue` silently dropped it, so a
             # locked file carrying a C: literal passed with zero findings.
             # Keep the path; literal_findings' read of it raises and lands

@@ -12,7 +12,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * DESK-3/66: the desktop import journal twin's crash/resume contract on the
+ * the desktop import journal twin's crash/resume contract on the
  * DesktopSqlite seam — the same begin/resume/fail/cancel state machine and
  * the same data-stage checkpoints the Android journal tests pin, WAL schema 4
  * included. Requires the seam DLL (skips cleanly when it is not built).

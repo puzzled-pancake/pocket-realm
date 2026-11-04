@@ -77,7 +77,7 @@ class RuntimeSupervisorClient(context: Context) {
         }
     }
 
-    // Remote friend accounts (design-remote-accounts §5/§9/§11).
+    // Remote friend accounts (design-remote-accounts /).
     suspend fun provisionFriendAccount(
         username: String,
         sHex: String,
@@ -94,6 +94,40 @@ class RuntimeSupervisorClient(context: Context) {
     suspend fun unbanFriendAccount(username: String): JSONObject = withContext(Dispatchers.IO) {
         transact { remote -> JSONObject(remote.unbanFriendAccount(username)) }
     }
+
+    suspend fun internetJoinStatus(): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.internetJoinStatus()) }
+    }
+
+    suspend fun publicListingStatus(): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.publicListingStatus()) }
+    }
+
+    suspend fun signupAccounts(): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.signupAccounts()) }
+    }
+
+    suspend fun removeSignupAccount(username: String): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.removeSignupAccount(username)) }
+    }
+
+    suspend fun publicPlayers(): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.publicPlayers()) }
+    }
+
+    suspend fun moderatePublicPlayer(action: String, target: String, reason: String): JSONObject =
+        withContext(Dispatchers.IO) {
+            transact { remote -> JSONObject(remote.moderatePublicPlayer(action, target, reason)) }
+        }
+
+    suspend fun exportCharacter(characterName: String): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.exportCharacter(characterName)) }
+    }
+
+    suspend fun importCharacter(dumpText: String, account: String, newName: String): JSONObject =
+        withContext(Dispatchers.IO) {
+            transact { remote -> JSONObject(remote.importCharacter(dumpText, account, newName)) }
+        }
 
     suspend fun setFriendGmLevel(username: String, level: Int): JSONObject = withContext(Dispatchers.IO) {
         transact { remote -> JSONObject(remote.setFriendGmLevel(username, level)) }
@@ -273,7 +307,7 @@ class RuntimeSupervisorClient(context: Context) {
         }
 
         /**
-         * The §6.4 emission decision (pure; pinned by
+         * The emission decision (pure; pinned by
          * SupervisorUnreachableEmissionTest): which dead-lane shape this
          * poll tick is in, and whether it must emit the explicit
          * SupervisorUnreachable state instead of silence.
@@ -302,7 +336,7 @@ class RuntimeSupervisorClient(context: Context) {
         }
 
         /**
-         * The §6.4 startup grace: a :supervisor that has not published its
+         * The startup grace: a:supervisor that has not published its
          * first status within this many polls (2 s at the 250 ms cadence)
          * stops being "starting up" and becomes explicitly unreachable —
          * the silence-before-first-bind must also fail LOUD, not wait

@@ -37,7 +37,7 @@ import java.util.Base64
  * bad args. Nothing is swallowed; the app surfaces the code verbatim.
  */
 fun main(args: Array<String>) {
-    // W6-N4 code-red R2-N4-r3-1: the protocol channel is UTF-8 — the
+    // W6-N4 R2-N4-r3-1: the protocol channel is UTF-8 — the
     // app's manager decodes the child's stdout with Charsets.UTF_8, but
     // a piped JVM defaults stdout/stderr to the platform charset
     // (Cp1252 here), so every em-dash in an error detail surfaced as
@@ -91,6 +91,9 @@ fun main(args: Array<String>) {
     } catch (stack: HostStackUnreachableExit) {
         GatewayMain.errorLine(GatewayContract.ERR_HOST_STACK, stack.message ?: "host stack unreachable")
         GatewayContract.ExitCode.HOST_STACK_UNREACHABLE
+    } catch (refused: JoinRefusedExit) {
+        GatewayMain.errorLine(GatewayContract.ERR_JOIN_REFUSED, refused.message ?: "the host refused this join")
+        GatewayContract.ExitCode.JOIN_REFUSED
     } catch (unexpected: Exception) {
         GatewayMain.errorLine(
             GatewayContract.ERR_INTERNAL,
@@ -121,13 +124,13 @@ object GatewayMain {
         val body = relayUrl.removePrefix(prefix)
         val authority = body.substringBefore('/') // host[:port], possibly root-dotted
         val tail = body.removePrefix(authority) // "" or the "/" + path
-        // R5-4 (round-6 minor): a bracketed IPv6-literal authority is
+        // a bracketed IPv6-literal authority is
         // OUT OF DESIGN (the home relay is FQDN-addressed; the descriptor
         // fence refuses IP-literal hosts) — pass it through UNTOUCHED
         // rather than mangling it at the first colon.
         if (authority.startsWith("[")) return relayUrl
         val host = authority.substringBefore(':').removeSuffix(".")
-        // R2-N4-r3 (round-6 minor): the root dot is stripped from the
+        // the root dot is stripped from the
         // PORT segment too ("relay.example.com:443./") so the doc
         // comment's 'exactly one FQDN root dot from the authority' holds
         // for every segment.
@@ -189,6 +192,14 @@ data class Args(
      * defaults are the game's fixed ports on 127.0.0.1). */
     val realmTarget: java.net.InetSocketAddress? = null,
     val worldTarget: java.net.InetSocketAddress? = null,
+    /** The stdio sign-up channel to the app ([SignupChannel]). */
+    val signupChannel: Boolean = false,
+    /** JOIN role: the per-host device token the hello lane presents
+     * (null = no hello; hosts that hand out bans refuse such a joiner). */
+    val deviceToken: String? = null,
+    /** JOIN role: the join password's derived HMAC key (64 lowercase
+     * hex; null = no password presented). */
+    val passKeyHex: String? = null,
 ) {
     companion object {
         fun parse(argv: Array<String>): Args {
@@ -207,6 +218,9 @@ data class Args(
             var realmTarget: String? = null
             var worldTarget: String? = null
             var maxSeconds = 0L
+            var signupChannel = false
+            var deviceFromStdin = false
+            var passkeyFromStdin = false
             var i = 0
             while (i < argv.size) {
                 when (argv[i]) {
@@ -224,6 +238,9 @@ data class Args(
                     GatewayContract.ARG_FLAVOR -> flavor = value(argv, ++i, argv[i - 1])
                     GatewayContract.ARG_REALM_TARGET -> realmTarget = value(argv, ++i, argv[i - 1])
                     GatewayContract.ARG_WORLD_TARGET -> worldTarget = value(argv, ++i, argv[i - 1])
+                    GatewayContract.ARG_SIGNUP_CHANNEL -> signupChannel = true
+                    GatewayContract.ARG_DEVICE_STDIN -> deviceFromStdin = true
+                    GatewayContract.ARG_PASSKEY_STDIN -> passkeyFromStdin = true
                     "--max-seconds" -> maxSeconds = value(argv, ++i, argv[i - 1]).toLongOrNull()
                         ?: throw BadArgsExit("--max-seconds must be an integer")
                     else -> throw BadArgsExit("unknown argument '${argv[i]}'")
@@ -246,6 +263,32 @@ data class Args(
             )
             if (resolvedSecret.length != 64 || resolvedSecret.any { !it.isHexDigit() }) {
                 throw BadArgsExit("--secret must be 64 hex characters (32 bytes)")
+            }
+            // The device token is the stdin line after the secret.
+            val deviceToken = if (deviceFromStdin) {
+                val token = SignupChannel.stdin?.readLine()?.trim()
+                if (!com.pocketrealm.discovery.iroh.DeviceIdentity.isToken(token)) {
+                    throw BadArgsExit(
+                        "'${GatewayContract.ARG_DEVICE_STDIN}' needs a 64 lowercase hex line after the secret",
+                    )
+                }
+                token
+            } else {
+                null
+            }
+            // The join password's derived key is the stdin line after
+            // the device token (the password itself never arrives here).
+            val passKeyHex = if (passkeyFromStdin) {
+                val key = SignupChannel.stdin?.readLine()?.trim()
+                if (!com.pocketrealm.discovery.iroh.JoinPasscode.isKeyHex(key)) {
+                    throw BadArgsExit(
+                        "'${GatewayContract.ARG_PASSKEY_STDIN}' needs a 64 lowercase hex line " +
+                            "after the device token",
+                    )
+                }
+                key
+            } else {
+                null
             }
             if (resolvedMode == GatewayContract.MODE_JOIN) {
                 val nodeValue = node ?: throw BadArgsExit("join needs --node <32-byte hex>")
@@ -322,6 +365,9 @@ data class Args(
                 relayDisabled = relayDisabled,
                 realmTarget = parseTarget(realmTarget),
                 worldTarget = parseTarget(worldTarget),
+                signupChannel = signupChannel,
+                deviceToken = deviceToken,
+                passKeyHex = passKeyHex,
             )
         }
 
@@ -330,7 +376,7 @@ data class Args(
             return argv[index]
         }
 
-        /** The stdin leg of the transport secret (code-red round-4 R3-3):
+        /** The stdin leg of the transport secret ( round-4 R3-3):
          * one trimmed line (64 hex chars), empty handle → loud BadArgs —
          * never a silently-empty identity. Package-private for the test
          * that pins the pipe shape. */
@@ -338,13 +384,16 @@ data class Args(
             // `in` is a hard keyword in Kotlin — the standard stream is
             // spelled with backticks; read at parse time so a test's
             // System.setIn swap is honored.
-            val line = java.io.BufferedReader(
+            val reader = java.io.BufferedReader(
                 java.io.InputStreamReader(System.`in`, Charsets.UTF_8),
-            ).readLine() ?: return null
+            )
+            // The sign-up channel keeps reading from THIS buffer.
+            SignupChannel.stdin = reader
+            val line = reader.readLine() ?: return null
             return line.trim().ifEmpty { null }
         }
 
-        // W6-N4 code-red R2-6-1: ASCII-ONLY — Char.isDigit() is
+        // W6-N4 R2-6-1: ASCII-ONLY — Char.isDigit is
         // Unicode-aware (U+0663-class digits pass it), so a UTF-8 stdin
         // secret rode this check and SecretKeys.fromHex derived identity
         // bytes from a non-hex spelling. The gate's own copy is true
@@ -359,6 +408,7 @@ class DialFailedExit(message: String) : RuntimeException(message)
 class RewriteFailedExit(message: String) : RuntimeException(message)
 class PortBindFailedExit(message: String) : RuntimeException(message)
 class HostStackUnreachableExit(message: String) : RuntimeException(message)
+class JoinRefusedExit(message: String) : RuntimeException(message)
 
 // ------------------------------------------------------------- iroh plumbing
 

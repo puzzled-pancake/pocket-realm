@@ -20,7 +20,7 @@ import java.util.Locale
  * honestly short (even empty) list beats a mislabeled one.
  *
  * Install-time `## Interface:` acceptance is the separate
- * [com.pocketrealm.client.ClientFlavor.addonInterfaces] seam (DESK-54) on
+ * [com.pocketrealm.client.ClientFlavor.addonInterfaces] seam on
  * [com.pocketrealm.addons.AddonArchiveValidator.Policy]; this file is the
  * LIST projection only.
  */
@@ -40,7 +40,7 @@ object AddonFlavorCatalog {
     /** A NEGATION-clause cue followed (within a short window) by a client
      * line token: research text like "explicitly NOT for 2.4.3" or "broken
      * since 3.3.5" MENTIONS a client line in a negative context. R2-1
-     * (android-ui-tests review round 1): bare substring matching read such
+     * (android-ui-tests ): bare substring matching read such
      * mentions as SUPPORT, listing the add-on on the wrong-flavor lane. */
     internal val NEGATION_CUES: Regex = Regex(
         "\\b(?:not|never|no|broken|incompatible|unsupported|untested|unsafe|unusable|" +
@@ -54,7 +54,7 @@ object AddonFlavorCatalog {
         RegexOption.IGNORE_CASE,
     )
 
-    /** R2-1/R6-r2-1 (android-ui-tests review rounds 1-2): load-time guard
+    /** load-time guard
      * for the catalog parse — a `clientTarget` that names a client line
      * inside a negation clause is rejected instead of being silently
      * matched as SUPPORT by the flavor projection. */
@@ -95,7 +95,7 @@ object AddonFlavorCatalog {
         return false
     }
 
-    /** R2UI-2/R6-r2-2/R2-1 (android-ui-tests review round 2): the negation
+    /** the negation
      * model — a WIDE cue set evaluated in a WINDOW AROUND each
      * boundary-valid, suffix-tolerant token occurrence. The round-1
      * cue-to-token regex missed the common phrasings ("incompatible with
@@ -109,7 +109,7 @@ object AddonFlavorCatalog {
      * catalog-v1.json verified clean under the widened model. */
     internal fun negationCovers(text: String, token: String): Boolean {
         if (text.isBlank()) return false
-        // R3-R2-1 (android-ui-tests review round 3): the WHOLE clientTarget
+        // the WHOLE clientTarget
         // is scanned — no distance window. The 80/40-char window let
         // a cue beyond the window ("compatible with every release from the
         // 1.12 line except 2.4.3" with the cue 132 chars before) accept a

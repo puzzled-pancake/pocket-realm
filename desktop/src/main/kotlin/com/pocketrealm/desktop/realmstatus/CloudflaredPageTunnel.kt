@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * OS-level child ownership: on Windows the child joins a Job
  *    Object with KILL_ON_JOB_CLOSE held by this process, so a parent kill
  *    or power loss cannot strand it;
- * - the child is recorded durably at spawn (§5.3's own-records kill
+ * the child is recorded durably at spawn (its own-records kill
  *    rules) and the record is removed on its own observed exit;
  *  - the public URL is parsed from the child's stdout and SHAPE-GATED
  * before it ever reaches the payload or the copy button;
@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.asStateFlow
  *    with `tunnelState = "binary-missing"`, `url = null`, and the failure
  *    copy names the EXACT command the app tried.
  *
- * The app does not silently download binaries (§5.7).
+ * The app does not silently download binaries .
  */
 class CloudflaredPageTunnel(
     private val records: TunnelChildRecords,
@@ -72,7 +72,7 @@ class CloudflaredPageTunnel(
      * Starts (or re-arms) the tunnel: `starting` → `live` (URL parsed,
      * shape-gated) or the bounded-retry terminal `down`, or
      * `binary-missing` with the exact-command copy. Idempotent while a
-     * child is already up. The retry budget (§5.4: 3 re-spawns) covers the
+     * child is already up. The retry budget ( 3 re-spawns) covers the
      * WHOLE start attempt — a child that dies mid-session re-enters the
      * same bounded loop until the budget is spent (terminal `down`).
      */
@@ -221,7 +221,7 @@ class CloudflaredPageTunnel(
                 instanceId = instanceId,
             ),
         )
-        // The stdout reader: the URL parse (§5.5) and the exit flip (§5.4).
+        // The stdout reader: the URL parse and the exit flip .
         Thread({
             val parser = URL_PARSER
             child.inputStream.bufferedReader().forEachLine { line ->
@@ -245,7 +245,7 @@ class CloudflaredPageTunnel(
         /** The page tunnel's ONE allowed URL — the loopback page endpoint. */
         const val PAGE_TUNNEL_URL: String = "http://127.0.0.1:18080"
 
-        /** §5.4: three re-spawn attempts, then terminal down. */
+        /** three re-spawn attempts, then terminal down. */
         const val MAX_RESPAWN_ATTEMPTS = 3
 
         /** Backoff base (doubled per attempt: 2s, 4s, 8s). */

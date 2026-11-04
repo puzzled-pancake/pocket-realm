@@ -10,11 +10,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * W3.7: the per-flavor addon catalogs — each flavor loads its OWN researched
+ * the per-flavor addon catalogs — each flavor loads its OWN researched
  * asset (the byte-frozen vanilla v1 asset unchanged on the vanilla lane,
- * D29); the per-flavor assets are self-pinning (declared counts, no
- * AndroidPort built-in); every entry projects through the flavor projection
- * unchanged; and the vanilla parse pins are untouched.
+ * D29); the per-flavor assets are self-pinning (declared counts, the
+ * AndroidPort built-in carried as a first-class row); every entry projects
+ * through the flavor projection unchanged; and the vanilla parse pins are
+ * untouched.
  */
 class AddonCatalogFlavorTest {
 
@@ -34,9 +35,10 @@ class AddonCatalogFlavorTest {
             val text = readAsset("addons/catalog-$flavor.json")
             val catalog = AddonCatalog.parse(text, flavor)
             assertEquals(flavor, catalog.flavor)
-            assertTrue(
-                "$flavor: an honestly short researched list",
-                catalog.addons.size in 1..49,
+            assertEquals(
+                "$flavor: the catalog carries exactly its self-declared rows",
+                org.json.JSONObject(text).getInt("expectedAddonCount"),
+                catalog.addons.size,
             )
             assertTrue(catalog.compatibilityPairs.isNotEmpty())
             // Every carry-over/new entry names the flavor's own client line.
@@ -45,11 +47,19 @@ class AddonCatalogFlavorTest {
                 "$flavor: every entry must research the $token client line",
                 catalog.addons.all { token in it.clientTarget },
             )
-            // The AndroidPort built-in is excluded per flavor, with the
-            // honest copy riding the catalog.
-            assertNull(catalog.addon("151"))
-            val note = checkNotNull(catalog.flavorNote)
-            assertTrue("AndroidPort" in note || "Android Port" in note)
+            // The AndroidPort built-in is a first-class row on every flavor,
+            // installable from the catalog the same way as on vanilla.
+            val androidPort = checkNotNull(catalog.addon("151")) {
+                "$flavor: the AndroidPort built-in row must be present " +
+                    "(it installs by default on every game version)"
+            }
+            assertEquals(AndroidPortPackage.INSTALL_ID, androidPort.installId)
+            assertTrue(androidPort.installable)
+            assertTrue(
+                "$flavor: row 151 must sit in the recommended set",
+                "151" in catalog.recommendedIds,
+            )
+            checkNotNull(catalog.flavorNote)
             // The projection passes every entry through unchanged (the
             // screens' safety net never hides a curated entry).
             assertEquals(
@@ -130,7 +140,10 @@ class AddonCatalogFlavorTest {
 
     @Test fun `hand-edited per-flavor counts fail loud`() {
         val text = readAsset("addons/catalog-tbc.json")
-        val tampered = text.replace("\"expectedAddonCount\": 7", "\"expectedAddonCount\": 8")
+        val tampered = Regex("\"expectedAddonCount\": (\\d+)").replace(text) { match ->
+            "\"expectedAddonCount\": ${match.groupValues[1].toInt() + 1}"
+        }
+        check(tampered != text)
         val failure = assertThrows(IllegalArgumentException::class.java) {
             AddonCatalog.parse(tampered, "tbc")
         }
@@ -140,12 +153,26 @@ class AddonCatalogFlavorTest {
         )
     }
 
-    @Test fun `an androidport row in a per-flavor catalog fails loud`() {
+    @Test fun `an androidport row removed from a per-flavor catalog fails loud`() {
+        // The must-carry pin: a hand edit dropping the built-in row would
+        // silently skip the fresh-install seed on that flavor, so the parse
+        // refuses instead.
         val text = readAsset("addons/catalog-tbc.json")
-        val smuggled = text.replace(
-            "\"matrixId\": \"201\"",
-            "\"matrixId\": \"151\"",
+        val smuggled = text.replace("\"matrixId\": \"151\"", "\"matrixId\": \"998\"")
+        check(smuggled != text)
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            AddonCatalog.parse(smuggled, "tbc")
+        }
+        assertTrue(
+            "the refusal must name the must-carry contract: ${failure.message}",
+            "must carry the AndroidPort built-in" in failure.message!!,
         )
+    }
+
+    @Test fun `a duplicated androidport row in a per-flavor catalog fails loud`() {
+        val text = readAsset("addons/catalog-tbc.json")
+        val smuggled = text.replace("\"matrixId\": \"201\"", "\"matrixId\": \"151\"")
+        check(smuggled != text)
         assertThrows(IllegalArgumentException::class.java) {
             AddonCatalog.parse(smuggled, "tbc")
         }

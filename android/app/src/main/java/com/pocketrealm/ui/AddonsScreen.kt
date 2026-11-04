@@ -76,26 +76,19 @@ fun AddonsHubScreen(
             contentPadding = PaddingValues(bottom = 12.dp),
         ) {
             item {
-                // the AndroidPort copy is flavor-conditional — on a
-                // non-vanilla lane the built-in is NOT installed (the seed
-                // skips; catalog row 151 is absent), so the authored honest
-                // exclusion note (catalog.flavorNote) renders instead.
+                // The built-in Android Port installs by default on every
+                // game version; everything else stays optional.
                 Text(
-                    if (catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
-                        "Choose one place to start. The built-in Android Port is installed by default; " +
-                            "everything else stays optional and applies on the next game launch."
-                    } else {
-                        catalog.flavorNote ?: "Choose one place to start; everything " +
-                            "applies on the next game launch."
-                    },
+                    "Choose one place to start. The built-in Android Port is installed by default; " +
+                        "everything else stays optional and applies on the next game launch.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             item {
                 Text(
-                    "Showing the ${activeFlavor.expansion} (${activeFlavor.flavorId}) add-on set — " +
-                        "switch the flavor on Home.",
+                    "Showing the add-on set for ${activeFlavor.expansion} — " +
+                        "switch game versions on Home.",
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.testTag("addon-active-flavor"),
                 )
@@ -103,21 +96,15 @@ fun AddonsHubScreen(
             item {
                 AddonHubRow(
                     title = "Recommended for Pocket Realm",
-                    // the hardware-tested claim is the VANILLA trio's
-                    // frozen evidence — a non-vanilla lane's curated set
-                    // is research reference (demotion), so the copy
-                    // branches instead of claiming the same evidence class.
+                    // The vanilla trio is fully hardware-tested; the other
+                    // versions lead with the hardware-tested controller UI
+                    // and follow with researched picks.
                     summary = if (catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
                         "The three add-ons tested on Pocket Realm hardware."
                     } else {
-                        "Curated for ${activeFlavor.expansion} — research " +
-                            "reference, not hardware-tested."
+                        "The controller UI plus researched picks for ${activeFlavor.expansion}."
                     },
-                    status = if (catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
-                        "Android Port is installed by default"
-                    } else {
-                        "Curated for ${activeFlavor.expansion}"
-                    },
+                    status = "Android Port is installed by default",
                     onClick = onRecommended,
                     tag = "addon-hub-recommended",
                 )
@@ -160,26 +147,24 @@ fun AddonsHubScreen(
 }
 
 /**
- * The add-ons screens' active flavor — the [ActiveFlavor] machine's fail-
- * loud resolution (ambiguous registry states refuse to render a silently
- * wrong list).
+ * The add-ons screens' active game version — [ActiveFlavor] resolution
+ * (ambiguous registry states throw rather than render a wrong list).
  */
 internal fun activeFlavorForAddons(): ClientFlavor =
     ActiveFlavor.resolve("add-ons resolve the qualified lane")
 
 /**
- * Flip: with several qualified flavors and no pick yet, the resolver
- * refuses loud (by design — never a silent vanilla list). A RENDER lane
- * must not crash composition, so every entry screen checks
- * [ActiveFlavor.displayedId] first and renders the honest first-pick copy
- * instead of resolving ([renderSafePickGate]); the operation gates (install,
- * seed, projection) keep the loud refusal.
+ * With several game versions available and no pick yet, the resolver
+ * throws (by design — never a silent vanilla list). Composition must not
+ * crash, so every entry screen checks [ActiveFlavor.displayedId] first and
+ * renders the first-pick hint instead of resolving ([renderSafePickGate]);
+ * the operation gates (install, seed, projection) keep the loud refusal.
  */
 @Composable
 private fun renderSafePickGate(content: @Composable () -> Unit) {
     if (ActiveFlavor.displayedId == null) {
         Text(
-            "Pick a game flavor on the Home screen first — the add-on catalog follows that lane.",
+            "Pick a game version on the Home screen first — the add-on catalog follows it.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(24.dp),
@@ -202,15 +187,14 @@ fun RecommendedAddonsScreen(onOpenAddon: (String) -> Unit) = renderSafePickGate 
     }
 
     AddonPage(repository, state) {
-        // the same flavor branch as the hub row — vanilla's
-        // trio carries the hardware-tested evidence; the tbc/wotlk
-        // recommendation sets are research-curated reference rows.
+        // Same lead as the hub row: vanilla's trio is fully hardware-tested,
+        // the other versions lead with the hardware-tested controller UI.
         val testedCopy =
             if (catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId) {
                 "Each entry has been tested on Pocket Realm hardware. "
             } else {
-                "${activeFlavor.expansion} recommendations are research-curated " +
-                    "(reference-grade evidence, not hardware-tested). "
+                "${activeFlavor.expansion} picks lead with the hardware-tested " +
+                    "controller UI; the rest are researched. "
             }
         Text(
             testedCopy + "Open one to review it before installing.",
@@ -219,9 +203,8 @@ fun RecommendedAddonsScreen(onOpenAddon: (String) -> Unit) = renderSafePickGate 
         )
         if (flavorRecommended.isEmpty()) {
             EmptyAddonMessage(
-                "No researched recommendation for the ${activeFlavor.expansion} client yet. " +
-                    "The catalog keeps researching; Browse lists every entry whose " +
-                    "research covers this flavor.",
+                "No recommendations for ${activeFlavor.expansion} yet. " +
+                    "Browse lists every add-on that works with this game version.",
             )
         }
         LazyColumn(
@@ -256,7 +239,6 @@ fun InstalledAddonsScreen(
     val context = LocalContext.current
     val repository = remember(context) { AddonRepository.get(context) }
     val catalog = remember(context) { AddonCatalog.load(context) }
-    val activeFlavor = remember(context) { activeFlavorForAddons() }
     val state by repository.state.collectAsState()
     val busy = state.operation != null
 
@@ -269,12 +251,9 @@ fun InstalledAddonsScreen(
                 when {
                     state.installed.isNotEmpty() ->
                         "${state.installed.size} installed · changes apply next launch."
-                    catalog.flavor == com.pocketrealm.client.ClientFlavors.VANILLA.flavorId ->
+                    else ->
                         "No add-ons installed. Reinstall the built-in Android Port from " +
                             "Browse if you removed it."
-                    else ->
-                        "No add-ons installed for ${activeFlavor.expansion} — browse the " +
-                            "curated set below."
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -378,8 +357,8 @@ fun BrowseAddonsScreen(onOpenAddon: (String) -> Unit) = renderSafePickGate {
                         supporting = addon.description,
                         status = when {
                             installed -> "Installed"
-                            !addon.installable -> "Research reference only"
-                            else -> "${addon.handheldScore}/10 · ${addon.handheldVerdict}"
+                            !addon.installable -> "Reference only, can't be installed yet"
+                            else -> handheldRating(addon)
                         },
                         onClick = { onOpenAddon(addon.matrixId) },
                         tag = "addon-catalog-${addon.matrixId}",
@@ -498,8 +477,7 @@ fun CustomAddonInstallScreen() = renderSafePickGate {
         )
         Text(
             "Pocket Realm downloads from GitHub, records the exact commit and checksum, rejects oversized or unsafe archives, and requires " +
-                "${activeFlavor.expansion} Interface ${activeFlavor.addonInterfaces.min()} metadata " +
-                "(the active flavor's accepted set).",
+                "${activeFlavor.expansion} Interface ${activeFlavor.addonInterfaces.min()} metadata.",
             style = MaterialTheme.typography.bodySmall,
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -649,7 +627,7 @@ private fun AddonDetail(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 Text(addon.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text("${addon.category} · ${addon.handheldScore}/10 ${addon.handheldVerdict}")
+                Text("${addon.category} · ${handheldRating(addon)}")
             }
             Text(
                 when {
@@ -687,16 +665,15 @@ private fun AddonDetail(
         OutlinedButton(
             onClick = { moreDetails = !moreDetails },
             modifier = Modifier.heightIn(min = 48.dp).testTag("addon-more-details"),
-        ) { Text(if (moreDetails) "Hide technical details" else "More details") }
+        ) { Text(if (moreDetails) "Hide details" else "More details") }
         if (moreDetails) {
             Text("Client: ${addon.clientTarget}")
             Text("Version: ${addon.version}")
-            Text("Last researched update: ${addon.verifiedUpdate} (${addon.dateConfidence})")
+            Text("Last update: ${addon.verifiedUpdate}")
             Text("Maintenance: ${addon.maintenance}")
-            if (addon.compatibilityNotes.isNotBlank()) Text("Compatibility: ${addon.compatibilityNotes}")
+            if (addon.compatibilityNotes.isNotBlank()) Text(addon.compatibilityNotes)
             Text(addon.communitySignal, color = MaterialTheme.colorScheme.onSurfaceVariant)
             addon.githubUrl?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            Text("Research: ${addon.researchSources.size} cited source(s).")
         }
         installed?.let {
             Text(
@@ -790,3 +767,8 @@ private fun AddonOperationBanner(
         }
     }
 }
+
+/** The handheld rating label; unrated rows carry a placeholder score that is not shown. */
+private fun handheldRating(addon: com.pocketrealm.addons.CatalogAddon): String =
+    if (addon.handheldVerdict == "Unrated") "Not rated yet"
+    else "${addon.handheldScore}/10 · ${addon.handheldVerdict}"

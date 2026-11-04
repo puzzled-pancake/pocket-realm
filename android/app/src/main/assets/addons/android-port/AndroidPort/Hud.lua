@@ -1,7 +1,8 @@
--- Android Port HUD: clean-room Interface 11200 chat placement plus an
--- experience strip docked to the player frame. Chat styling never writes to
--- the client's stored chat profile, so /ap resetui or /ap chat fully
--- reverts it; the look is simply re-applied at every login.
+-- Android Port HUD: clean-room chat placement plus an experience strip
+-- docked to the player frame, one tree for every supported client (the level
+-- cap rides the detected client). Chat styling never writes to the client's
+-- stored chat profile, so /ap resetui or /ap chat fully reverts it; the look
+-- is simply re-applied at every login.
 AndroidPort.Hud = AndroidPort.Hud or {}
 local Hud = AndroidPort.Hud
 Hud.ready = Hud.ready or false
@@ -22,7 +23,9 @@ local BURST_LINGER = 6
 local CHAT_MARGIN = 28
 local STOCK_CHAT_WIDTH = 430
 local STOCK_CHAT_HEIGHT = 120
-local MAX_PLAYER_LEVEL = 60
+-- The XP strip hides at the running client's level cap (60/70/80), resolved
+-- once at load from the detected client.
+local MAX_PLAYER_LEVEL = AndroidPort.MAX_PLAYER_LEVEL or 60
 
 local chatButtons = { "UpButton", "DownButton", "BottomButton" }
 
@@ -199,18 +202,31 @@ end
 function Hud:InstallChatHooks()
     if self.chatHooksInstalled then return true end
     self.chatHooksInstalled = true
+    -- The 2.0+ clients reach the dock update from secure frame management;
+    -- a replaced global would taint it, so they get post-hooks instead.
+    local reapply = function()
+        if Hud:ChatEnabled() then Hud:ApplyChatFrame() end
+    end
     if type(FCF_UpdateDockPosition) == "function" then
         Hud.stockDockUpdate = FCF_UpdateDockPosition
-        FCF_UpdateDockPosition = function()
-            Hud.stockDockUpdate()
-            if Hud:ChatEnabled() then Hud:ApplyChatFrame() end
+        if hooksecurefunc then
+            hooksecurefunc("FCF_UpdateDockPosition", reapply)
+        else
+            FCF_UpdateDockPosition = function()
+                Hud.stockDockUpdate()
+                reapply()
+            end
         end
     end
     if type(FCF_UpdateCombatLogPosition) == "function" then
         Hud.stockCombatLogUpdate = FCF_UpdateCombatLogPosition
-        FCF_UpdateCombatLogPosition = function()
-            Hud.stockCombatLogUpdate()
-            if Hud:ChatEnabled() then Hud:ApplyChatFrame() end
+        if hooksecurefunc then
+            hooksecurefunc("FCF_UpdateCombatLogPosition", reapply)
+        else
+            FCF_UpdateCombatLogPosition = function()
+                Hud.stockCombatLogUpdate()
+                reapply()
+            end
         end
     end
     -- Stock's hover pass unconditionally re-shows the tab and, once a hover

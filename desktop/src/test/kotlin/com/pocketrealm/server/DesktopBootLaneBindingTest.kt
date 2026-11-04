@@ -2,7 +2,6 @@ package com.pocketrealm.server
 
 import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.TwoQualifiedFlavors
-import com.pocketrealm.desktop.DesktopLlmModelManager
 import com.pocketrealm.desktop.DesktopStorageRoots
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.RealmEndpoint
@@ -16,7 +15,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * R1-r2-1 (desktop-twin round 2): the desktop twin never received the
+ * the desktop twin never received the
  * android lane's boot-lane binding (D62's persisted-state resolution +
  * The start-pinned boot lane) — every per-flavor resolution
  * resolved the LIVE ActiveFlavor machine at call time, so at the flip
@@ -41,10 +40,7 @@ class DesktopBootLaneBindingTest {
 
     private fun files(): ServerRuntimeFiles {
         val roots = DesktopStorageRoots(tmp.newFolder("roots"))
-        return ServerRuntimeFiles(
-            roots,
-            llmModelManager = DesktopLlmModelManager(roots),
-        )
+        return ServerRuntimeFiles(roots)
     }
 
     private fun snapshotWith(pick: String?): Settings.Snapshot =
@@ -206,7 +202,7 @@ class DesktopBootLaneBindingTest {
 
     @Test
     fun realmdConfigBindsTheThreadedSnapshotAgainstADiskFlip() {
-        // R1-r3-3/R2r3-2/R3-1 (round 3): REALM and WORLD are separate
+        // REALM and WORLD are separate
         // component starts with a seconds-wide READY window — the same
         // snapshot threaded into BOTH conf writers must name the SAME
         // database family even while a persisted write lands on disk
@@ -252,35 +248,10 @@ class DesktopBootLaneBindingTest {
     }
 
     @Test
-    fun theHarnessSeamsConsumeThePinnedBootLaneToo() {
-        // R2r3-3/R1-r3-5 (round 3): the RpHost harness's account op and
-        // AUTH_SESSION build resolve the pinned boot lane (the fifth
-        // provision seam + the auth frames), never the live holder machine
-        // a headless harness never populates.
+    fun theAuthGateSeedsTheVerifierProviderAware() {
         val root = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
             .firstOrNull { File(it, "schemas/flavor.json").isFile }
             ?: error("repo root not found")
-        val host = File(
-            root,
-            "desktop/src/main/kotlin/com/pocketrealm/desktop/RpHost.kt",
-        ).readText()
-        assertTrue(
-            "the harness account op must consume the pinned boot lane",
-            "(backend.bootLane ?: ServerRuntimeFiles.serverFlavor()).accountExpansion" in host,
-        )
-        assertTrue(
-            "the harness AUTH_SESSION must thread the pinned lane's build",
-            "authBuild = (backend.bootLane" in host,
-        )
-        val client = File(
-            root,
-            "desktop/src/main/kotlin/com/pocketrealm/desktop/RpWowClient.kt",
-        ).readText()
-        assertTrue(
-            "the client's auth build must come from the threaded lane",
-            "private val authBuild: Int" in client &&
-                "o = writeLe32(body, o, authBuild)" in client,
-        )
         val gate = File(
             root,
             "desktop/src/main/kotlin/com/pocketrealm/desktop/AuthGate.kt",
@@ -295,8 +266,8 @@ class DesktopBootLaneBindingTest {
 
     @Test
     fun theMariaDbEngineCarriesTheW12BootstrapGuardAndRouting() {
-        // R4-r4-1 (code-red round 4): split out of
-        // theHarnessSeamsConsumeThePinnedBootLaneToo, whose growth
+        // split out of
+        // the former harness-seams test, whose growth
         // pushed it over detekt's LongMethod threshold — the engine guard +
         // bootstrap-routing pins are their own seam.
         val root = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
@@ -318,7 +289,7 @@ class DesktopBootLaneBindingTest {
                 "MariaDbBootstrap.initialAuthSql(" in engine &&
                 "bootstrapDatabaseNames()" in engine,
         )
-        // R1-1 (code-red round 1): the desktop twin of the android
+        // the desktop twin of the android
         // RealmBuildsProjectionContractTest bootstrap-leg pin — the W1.2 fix
         // and the leak_sweep owning-table entry must move in the SAME change,
         // so a bare vanilla CREATE DATABASE literal can never quietly return
@@ -337,9 +308,9 @@ class DesktopBootLaneBindingTest {
                 "MariaDbBootstrapFlavorRoutingTest byte-equivalence pin)",
             "CREATE DATABASE IF NOT EXISTS classic" in bootstrapLeg,
         )
-        // R2-r5-1 (code-red round 5): the desktop readSecrets validates the
+        // the desktop readSecrets validates the
         // record on every read (the android twin's DatabaseGenerationSeal
-        // contract) — a corrupted or hand-edited secrets.json refuses loud
+        // typed contract) — a corrupted or hand-edited secrets.json refuses loud
         // instead of flowing verbatim into root-context bootstrap SQL.
         assertTrue(
             "the desktop readSecrets must validate the credential record on " +

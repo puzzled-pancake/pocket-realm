@@ -41,7 +41,7 @@ import kotlin.test.assertTrue
  *    key; the same-endpoint-id pin then carries the proof. Recorded as
  *    the weakest outcome, never silently.
  *
- * EVIDENCE DURABILITY (code-red round 1, R1-1/R1-2/R4-1/R5-1/R6-N4-r1-2/
+ * EVIDENCE DURABILITY ( R1-1/R1-2/R4-1/R5-1/R6-N4-r1-2/
  * the gradle console does not capture test stdout, so
  * the proof's headline lines are archived FIRST-CLASS — every -DOCKER
  * narration line (the before/after host IPs, the outcome) is written to
@@ -50,7 +50,7 @@ import kotlin.test.assertTrue
  * PR_GATEWAY_READY line is the reconnect leg's own receipt). The wave
  * exit cites the narration file, never the console log.
  *
- * A physical hotspot/CGNAT leg stays owner-scheduled for (§2);
+ * A physical hotspot/CGNAT leg stays owner-scheduled for ;
  * records this run as the desktop approximation it is.
  */
 @EnabledIfSystemProperty(named = "pocket.reconnect.docker", matches = "true")
@@ -149,7 +149,7 @@ class ReconnectDockerE2E {
                 // join1 stays up (its tunnel is live); the redial
                 // property is still proven the honest way below — a
                 // deliberate fresh join on the SAME descriptor. No
-                // removal here: teardown owns log-then-remove (R1-2).
+                // removal here: teardown owns log-then-remove.
             } else {
                 note("OUTCOME=loss-redial (the keep-alive lane fired)")
                 val exit = awaitContainerExit(join1, 30_000)
@@ -427,7 +427,7 @@ class ReconnectDockerE2E {
         return DockerResult(if (finished) process.exitValue() else -1, output)
     }
 
-    /** ARCHIVE FIRST, REMOVE SECOND (code-red R1-2/R4-1/R5-1/R7-N4-2):
+    /** ARCHIVE FIRST, REMOVE SECOND ( R1-2/R4-1/R5-1/R7-N4-2):
      * every container's `docker logs` is written into the evidence dir
      * BEFORE its removal — the redial leg's own join2 PR_GATEWAY_READY
      * line is the proof's receipt, and a daemon error string in an

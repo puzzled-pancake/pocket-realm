@@ -69,7 +69,7 @@ private fun runRestoreSequence(model: DesktopAppModel): Int {
     }
 
     // Leg 3: the production restore — proof boots BOTS-DISABLED, the
-    // completion copy must disclose the spent lifetime (GAP-2).
+    // completion copy must disclose the spent lifetime.
     val restored = runBlocking { model.restoreBackup(requireNotNull(backup.snapshotId)) }
     println("restore ok=${restored.ok} detail=${restored.detail}")
     if (!restored.ok) {

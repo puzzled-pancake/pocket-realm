@@ -140,37 +140,46 @@ def test_join_ready_wait_suspends_and_never_sleeps_on_the_caller_thread():
 
 
 def test_join_action_keys_by_event_id_never_by_name():
-    """R1-3/R4-3/R6-2: the browser screen keys its descriptor map by the
-    listing EVENT ID — a name-keyed map dialed the wrong realm when two
-    same-name listings were live."""
-    screen = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/"
-              "RealmBrowserScreen.kt").read_text(encoding="utf-8")
-    assert "joinableCards[card.eventId]" in screen
-    assert "row.joinKey" in screen
-    assert "joinableCards[card.name]" not in screen, (
-        "the join descriptor map must never key by realm name"
+    """R1-3/R4-3/R6-2: the join lane keys its dial targets by the listing
+    EVENT ID — a name-keyed map dialed the wrong realm when two same-name
+    listings were live. (Re-pointed with the Phase 5 screen split: the
+    bridge maps GameTarget.id = eventId and the Find tab's join lookup
+    keys by that id, never by name.)"""
+    bridge = (ROOT / "android/app/src/main/java/com/pocketrealm/"
+              "onlineplay/GameBrowserBridge.kt").read_text(encoding="utf-8")
+    assert "id = eventId" in bridge, (
+        "the join target's identity must be the listing event id"
     )
-    model = (ROOT / "android/app/src/main/java/com/pocketrealm/ui/"
-             "RealmBrowserModel.kt").read_text(encoding="utf-8")
-    assert "joinKey = listing.eventId" in model
+    screen = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/"
+              "online/FindGameTab.kt").read_text(encoding="utf-8")
+    assert "it.summary.id == row.id" in screen, (
+        "the join lookup must key by the event id"
+    )
+    assert "summary.name ==" not in screen, (
+        "the join lookup must never key by realm name"
+    )
 
 
 def test_relay_only_switch_and_stop_join_are_rendered_and_wired():
     """R1-4/R4-2/R6-4/R6-5/R7-N3-3: the relay-only switch is rendered and
     wired to setIrohRelayOnly, and a live join renders a stop control
     wired to stopIrohJoin — the guards' 'stop it first' copy and the OFF
-    friend-join affordance are otherwise dead ends."""
+    friend-join affordance are otherwise dead ends. (Re-pointed with the
+    Phase 5 screen split: the controls moved into the Find tab's
+    join-lane block.)"""
     screen = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/"
-              "RealmBrowserScreen.kt").read_text(encoding="utf-8")
+              "online/JoinLaneAdvanced.kt").read_text(encoding="utf-8")
     assert "model.setIrohRelayOnly(it)" in screen, (
         "the relay-only switch must be wired to the model verb"
     )
-    assert "realm-browser-relay-only" in screen
+    assert "mp-find-relay-only" in screen
     assert "model.stopIrohJoin()" in screen, (
         "a live join must render a stop control wired to stopIrohJoin"
     )
-    assert "realm-browser-stop-join" in screen
-    assert "model.irohJoinState.collectAsState()" in screen, (
+    assert "mp-find-stop-join" in screen
+    find = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/"
+            "online/FindGameTab.kt").read_text(encoding="utf-8")
+    assert "JoinBridge.joinState(model).collectAsState()" in find, (
         "the join lane state must render"
     )
 
@@ -365,15 +374,30 @@ def test_contract_doc_never_list_carries_the_hostname_exception():
 def test_disclosures_name_the_direct_connection_and_the_iroh_relay():
     """R7-N3-1: the plan-mandated disclosure exists in the product copy —
     the iroh relay sees the host IP and a directly-connected player may
-    learn it — on BOTH the host card and the browser lanes."""
+    learn it — on BOTH the host card and the browser lanes. (Re-pointed
+    with the Phase 5 screen split: the host card keeps the technical
+    wording; the browser lane's copy moved into the shared model in
+    plain words — the main screens never name the transport technology,
+    which is also what the index gate demands.)"""
     publisher = (ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/"
                  "nostr/NostrListingPublisher.kt").read_text(encoding="utf-8")
     assert "iroh home relay see your IP" in publisher
     assert "directly" in publisher and "may learn it" in publisher
     model = (ROOT / "android/app/src/main/java/com/pocketrealm/ui/"
-             "RealmBrowserModel.kt").read_text(encoding="utf-8")
-    assert "iroh relay" in model
+             "online/OnlinePlayModel.kt").read_text(encoding="utf-8")
+    assert "carries the game list" in model, (
+        "the list's standing disclosure must exist in the shared copy"
+    )
     assert "directly" in model and "may learn" in model
+    # and the Find tab actually renders it (both platforms twin it)
+    for screen in (
+        ROOT / "android/app/src/main/java/com/pocketrealm/ui/online/FindGameTab.kt",
+        ROOT / "desktop/src/main/kotlin/com/pocketrealm/desktop/ui/online/FindGameTab.kt",
+    ):
+        text = screen.read_text(encoding="utf-8")
+        assert "LIST_CONNECTION_DISCLOSURE" in text, (
+            f"{screen.name} must render the standing disclosure"
+        )
 
 
 def test_wiki_pages_describe_the_n3_listing_and_join_lane():

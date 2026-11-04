@@ -13,7 +13,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 /**
- * W6-N1 code-red round 4 — the adversarial breaker's negative tests
+ * W6-N1 — the adversarial breaker's negative tests
  * (cheap, desktop JVM lane, store-level; no sockets). Each test pins the
  * CORRECT contract; a failure here is a live bypass demonstrated against
  * the current tree:
@@ -128,7 +128,7 @@ class NostrBreakerR4NegativeTest {
 
     /** NEGATIVE (expected FAILING on the current tree): the timeframe TAG
      * must agree with the content stage — the exact rule the flavor tag
-     * already carries (R2). A listing advertising "wotlk-3.0.2" in its
+     * already carries. A listing advertising "wotlk-3.0.2" in its
      * (relay-indexed) tag while serving 3.3.5a content makes relay-side
      * filters diverge from what the store serves. */
     @Test
@@ -146,7 +146,7 @@ class NostrBreakerR4NegativeTest {
     }
 
     /** NEGATIVE (expected FAILING on the current tree): duplicate
-     * timeframe tags are refused like duplicate flavor tags (R6-3-7) —
+     * timeframe tags are refused like duplicate flavor tags —
      * two tags index the listing under two stages at tag-filtering
      * relays. */
     @Test

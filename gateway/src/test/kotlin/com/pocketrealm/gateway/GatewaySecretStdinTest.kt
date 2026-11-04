@@ -87,7 +87,7 @@ class GatewaySecretStdinTest {
     }
 
 
-    /** W6-N4 code-red round 6, R2-6-1's proposed rows: the charset gate
+    /** W6-N4 R2-6-1's proposed rows: the charset gate
      * must refuse UNICODE digits — Char.isDigit() (the old check) is
      * Unicode-aware, and the UTF-8 STDIN leg (the production channel,
      * R3-3) is where the hole was live: a U+0663-class char rode the

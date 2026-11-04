@@ -13,7 +13,7 @@ import org.junit.After
 import org.junit.Before
 
 /**
- * G3-9: snapshot manifests created by the current release keep validating on
+ * snapshot manifests created by the current release keep validating on
  * the multi-flavor build. The flavor dimension rides INSIDE the free-form
  * `compatibility` object — never as a sixth top-level key (`manifest.length()
  * == 5` stays), and the per-file `record.length() == 3` rows are never
