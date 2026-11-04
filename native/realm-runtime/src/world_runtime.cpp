@@ -621,8 +621,8 @@ public:
         static const char* const BOT_ACCOUNT_PREFIXES[] = {
             "PRAR320", "PRB100", "PRB13", "PRB600", "PRBW240", "PRC400",
             "PRCR400", "PRF240", "PRFR500", "PRL160", "PRL700", "PRLP80",
-            "PRLV160", "PRMR1K", "PRMR600", "PRP250", "PRQ25", "PRS6",
-            "PRT50",
+            "PRLT200", "PRLV160", "PRMR1K", "PRMR600", "PRMS1K", "PRP250",
+            "PRQ25", "PRS6", "PRST500", "PRT50",
         };
         const auto is_bot_account = [](const std::string& value) {
             for (const char* prefix : BOT_ACCOUNT_PREFIXES)

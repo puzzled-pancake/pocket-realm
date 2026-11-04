@@ -112,9 +112,7 @@ class ManagedClientImporter(
             val partial = stagedStore.partialFor(importId)
             try {
                 val alreadyStaged = stagedFile.isFile && stagedFile.length() == expectedBytes
-                val sourceFile = if (alreadyStaged) {
-                    stagedFile
-                } else {
+                if (!alreadyStaged) {
                     val resumeFrom = stagedStore.resumableBytes(importId, expectedBytes)
                     if (resumeFrom == 0L) partial.delete()
                     val copied = StagedArchiveCopier().copy(
@@ -129,7 +127,6 @@ class ManagedClientImporter(
                     check(copied == expectedBytes) { "SOURCE_CHANGED: staged $copied bytes, expected $expectedBytes" }
                     stagedStore.promotePartial(importId)
                     afterStaging()
-                    stagedFile
                 }
 
                 val header = java.io.RandomAccessFile(stagedFile, "r").use { raf ->
@@ -628,13 +625,33 @@ class ManagedClientImporter(
      * Records a run-level failure the importer's own catches did not journal
      * (staging-level rejections historically left the row mid-flight with no
      * last_error, so a resumed session had no post-mortem at all). Safe to
-     * call for any throwable after the run coroutine has died.
+     * call for any throwable after the run coroutine has died. Pass
+     * [sourceUri] so a pre-journal gate rejection (scanner/inventory/storage —
+     * it never had a row of its own) is persisted as a synthetic FAILED row
+     * when the newest row belongs to a finished import; otherwise the Client
+     * screen would keep showing stale history and the detached notification
+     * would collapse to "idle: 0/0 files". Mid-flight rows keep the
+     * re-stamp backstop.
      */
-    fun journalFailure(failure: Throwable) {
+    fun journalFailure(
+        failure: Throwable,
+        sourceUri: Uri? = null,
+        sourceKind: ImportSourceKind = ImportSourceKind.TREE,
+    ) {
         val current = journal.latest()
-        val id = current.importId ?: return
-        if (current.phase == ImportPhase.COMPLETE || current.phase == ImportPhase.CANCELLED) return
-        journal.fail(id, failure.message ?: failure.javaClass.simpleName)
+        val detail = failure.message ?: failure.javaClass.simpleName
+        val rejectionWithoutRow = failure is ImportRejected && sourceUri != null && (
+            current.importId == null ||
+                current.phase == ImportPhase.COMPLETE ||
+                current.phase == ImportPhase.CANCELLED ||
+                current.phase == ImportPhase.FAILED
+            )
+        when {
+            rejectionWithoutRow -> journal.journalRejected(sourceUri, sourceKind, detail)
+            current.importId == null -> Unit
+            current.phase == ImportPhase.COMPLETE || current.phase == ImportPhase.CANCELLED -> Unit
+            else -> journal.fail(current.importId, detail)
+        }
     }
 
     fun dataCheckpoints(importId: String?): List<DataCheckpoint> =

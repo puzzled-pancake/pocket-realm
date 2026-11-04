@@ -31,7 +31,7 @@ class HomeSetupCopyTest {
     @Test
     fun tweakLessSetupLabelIsFlavorNeutralNotVanilla() {
         val source = homeScreenSource()
-        val expression = "if (settings.tweaks.hasAnyPatch()) \" · Client tweaks on\" else \" · Unpatched client\""
+        val expression = "!vanillaTweaksRequested -> \" · Unpatched client\""
         assertTrue(
             "the Active-setup tweak-less label must be the flavor-neutral " +
                 "wording (found neither: look for the CurrentSetupCard line)",

@@ -113,7 +113,7 @@ class ImportWorkerService : Service() {
                 // post-mortem channels a resumed session has: a silently
                 // swallowed failure froze the UI at "staging: 0/0 files"
                 // through two full retry loops with nothing to diagnose.
-                runCatching { importer.journalFailure(failure) }
+                runCatching { importer.journalFailure(failure, Uri.parse(rawUri)) }
                 android.util.Log.e(
                     "PocketRealmImport",
                     "import failed: ${failure.message}",
@@ -204,7 +204,9 @@ class ImportWorkerService : Service() {
                 // post-mortem channels a resumed session has: a silently
                 // swallowed failure froze the UI at "staging: 0/0 files"
                 // through two full retry loops with nothing to diagnose.
-                runCatching { importer.journalFailure(failure) }
+                runCatching {
+                    importer.journalFailure(failure, Uri.parse(rawUri), ImportSourceKind.ARCHIVE)
+                }
                 android.util.Log.e(
                     "PocketRealmImport",
                     "import failed: ${failure.message}",

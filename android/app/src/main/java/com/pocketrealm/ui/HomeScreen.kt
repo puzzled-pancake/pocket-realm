@@ -64,6 +64,10 @@ import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.client.UserVulkanDriver
 import com.pocketrealm.client.UserVulkanDriverRegistry
 import com.pocketrealm.client.UserVulkanDriverResolution
+import com.pocketrealm.client.ClientFlavors
+import com.pocketrealm.client.ClientRuntimeContract
+import com.pocketrealm.client.ClientTweaksConfig
+import com.pocketrealm.client.ManagedClientStore
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.realm.ClientLaunchState
 import com.pocketrealm.service.RealmService
@@ -886,6 +890,24 @@ private fun CurrentSetupCard(
         storedAccount == null -> "Auto-login waiting for account"
         else -> "Auto-login: $storedAccount"
     }
+    val vanillaTweaksRequested = settings.tweaks.hasAnyPatch() &&
+        ActiveFlavor.displayedId == ClientFlavors.VANILLA.flavorId
+    val managedExecutableSha by produceState<String?>(null, context, vanillaTweaksRequested) {
+        value = if (vanillaTweaksRequested) {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    ManagedClientStore(context).load(ClientRuntimeContract.WOW_5875_ID).executableSha256
+                }.getOrNull()
+            }
+        } else null
+    }
+    val tweaksLabel = when {
+        !vanillaTweaksRequested -> " · Unpatched client"
+        managedExecutableSha == null -> " · Client tweaks state unknown (no managed client attested)"
+        !managedExecutableSha.equals(ClientTweaksConfig.AUTHORIZED_CLIENT_SHA256, ignoreCase = true) ->
+            " · Client tweaks unavailable: client executable not recognized"
+        else -> " · Client tweaks on"
+    }
 
     Card(modifier = modifier.testTag("active-setup-card")) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), Arrangement.spacedBy(6.dp)) {
@@ -929,8 +951,7 @@ private fun CurrentSetupCard(
                 AssistChip(onClick = onOpenSettings, label = { Text(graphics) })
             }
             Text(
-                login + " · $sound" +
-                    if (settings.tweaks.hasAnyPatch()) " · Client tweaks on" else " · Unpatched client",
+                login + " · $sound" + tweaksLabel,
                 style = MaterialTheme.typography.bodySmall,
             )
         }

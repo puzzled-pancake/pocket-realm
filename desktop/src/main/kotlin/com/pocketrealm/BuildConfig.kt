@@ -34,7 +34,7 @@ object BuildConfig {
 
  /** Flip: the wotlk mariadb win lane (realm-runtime-lockfile-mariadb-win-wotlk.json). */
     const val NATIVE_RUNTIME_BUILD_ID_WOTLK: String =
-        "win-x86_64-mariadb-cmangos-c3a8d86f-playerbots-7e2cd2fb-2e616f78362b"
+        "win-x86_64-mariadb-cmangos-c3a8d86f-playerbots-7e2cd2fb-6b508f2d1a3b"
 
     const val NATIVE_CMANGOS_COMMIT: String =
         "ce83805d48f9c98b2af617096be5347acb8a1f17"

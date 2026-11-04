@@ -286,6 +286,8 @@ UNSHARED_ANDROID_FREE_ALLOWLIST = {
         "android-side lane: Android app-level supervisor state machine "
         "(depends on the unshared supervisor.RealmEndpoint/RuntimeMode); the "
         "desktop drives the shared RuntimeModel",
+    "server/XpRatePolicy.kt":
+        "android-side lane: realm XP settings and mangosd.conf emission",
     "ui/LanPresenceModel.kt":
         "needs desktop twin: pure presentation shaping for the Android "
         "Compose LanScreen players-online line; the desktop lane renders "

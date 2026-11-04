@@ -61,9 +61,11 @@ import com.pocketrealm.client.ClientDisplayCapabilities
 import com.pocketrealm.client.ClientDisplayProfile
 import com.pocketrealm.client.ClientFrameCap
 import com.pocketrealm.client.ClientRuntimeSelector
+import com.pocketrealm.client.ClientRuntimeContract
 import com.pocketrealm.client.ClientTweaksConfig
 import com.pocketrealm.client.CommunityVulkanDriverDownload
 import com.pocketrealm.client.CommunityVulkanDrivers
+import com.pocketrealm.client.ManagedClientStore
 import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.SystemVulkanCapabilities
 import com.pocketrealm.client.GladioCapability
@@ -74,6 +76,7 @@ import com.pocketrealm.client.UserVulkanDriverRegistry
 import com.pocketrealm.client.UserVulkanDriverResolution
 import com.pocketrealm.client.UserVulkanDriverValidator
 import com.pocketrealm.server.NearbyInteractPolicy
+import com.pocketrealm.server.XpRatePolicy
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.update.AppUpdateCoordinator
 import com.pocketrealm.storage.ContentVolume
@@ -1067,6 +1070,27 @@ fun SettingsScreen(
                     modifier = Modifier.testTag("tweaks-unavailable"),
                 )
             }
+            val managedExecutableSha by produceState<String?>(null, context, tweaksUnavailable) {
+                value = if (tweaksUnavailable == null) {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            ManagedClientStore(context).load(ClientRuntimeContract.WOW_5875_ID).executableSha256
+                        }.getOrNull()
+                    }
+                } else null
+            }
+            val executableUnsupported = managedExecutableSha?.let {
+                !it.equals(ClientTweaksConfig.AUTHORIZED_CLIENT_SHA256, ignoreCase = true)
+            } == true
+            if (tweaksUnavailable == null && snap.tweaks.hasAnyPatch() && executableUnsupported) {
+                Text(
+                    "Client tweaks unavailable: this client executable is not the qualified patch image, " +
+                        "so launches will run pristine Vanilla (nearby loot, FoV, and quickloot stay off).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("tweaks-unavailable-warning"),
+                )
+            }
             if (tweaksUnavailable == null) Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth(),
@@ -1144,6 +1168,63 @@ fun SettingsScreen(
 
         if (category == SettingsCategory.WORLD) SettingCard("Bots") {
             BotsScreen()
+        }
+
+        if (category == SettingsCategory.WORLD) SettingCard("XP rates") {
+            Text(
+                "Sets the leveling pace the realm awards for kills, quests, exploration, and pets. " +
+                    "1x keeps authentic vanilla pacing; higher presets shorten the grind without " +
+                    "touching character data. Applies when the realm next starts.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                XpRatePolicy.PRESET_RATES.forEach { preset ->
+                    val current = listOf(
+                        snap.xpRateKill, snap.xpRateQuest, snap.xpRateExplore, snap.xpRatePetKill,
+                    )
+                    val selectedTenths = XpRatePolicy.normalizeTenths(preset)
+                    FilterChip(
+                        selected = current.all { XpRatePolicy.normalizeTenths(it) == selectedTenths },
+                        onClick = {
+                            scope.launch {
+                                settings.update {
+                                    it.copy(
+                                        xpRateKill = preset,
+                                        xpRateQuest = preset,
+                                        xpRateExplore = preset,
+                                        xpRatePetKill = preset,
+                                    )
+                                }
+                            }
+                        },
+                        label = { Text("${XpRatePolicy.format(preset)}x") },
+                        modifier = Modifier.testTag("xp-rate-preset-${XpRatePolicy.format(preset)}"),
+                    )
+                }
+            }
+            var xpAdvanced by rememberSaveable { mutableStateOf(false) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = xpAdvanced,
+                    onCheckedChange = { xpAdvanced = it },
+                    modifier = Modifier.testTag("xp-rates-advanced"),
+                )
+                Text("  Per-rate tuning", style = MaterialTheme.typography.titleSmall)
+            }
+            if (xpAdvanced) {
+                xpRateSlider("Kill XP rate", snap.xpRateKill, "xp-rate-kill") { rate ->
+                    scope.launch { settings.update { it.copy(xpRateKill = rate) } }
+                }
+                xpRateSlider("Quest XP rate", snap.xpRateQuest, "xp-rate-quest") { rate ->
+                    scope.launch { settings.update { it.copy(xpRateQuest = rate) } }
+                }
+                xpRateSlider("Explore XP rate", snap.xpRateExplore, "xp-rate-explore") { rate ->
+                    scope.launch { settings.update { it.copy(xpRateExplore = rate) } }
+                }
+                xpRateSlider("Pet kill XP rate", snap.xpRatePetKill, "xp-rate-pet-kill") { rate ->
+                    scope.launch { settings.update { it.copy(xpRatePetKill = rate) } }
+                }
+            }
         }
 
         // The per-game-version content-patch knob, wired to the shared
@@ -1706,7 +1787,31 @@ private fun SettingCard(title: String, content: @Composable () -> Unit) {
     }
 }
 
+/** One XP-rate slider: 0.1x..10x in 0.1 steps, committed snapped to the policy band. */
+@Composable
+private fun xpRateSlider(
+    label: String,
+    rate: Double,
+    tag: String,
+    onCommit: (Double) -> Unit,
+) {
+    LabeledSlider(
+        label = label,
+        valueText = { "${XpRatePolicy.format(it.toDouble())}x" },
+        value = XpRatePolicy.normalize(rate).toFloat(),
+        range = XpRatePolicy.MIN_RATE.toFloat()..XpRatePolicy.MAX_RATE.toFloat(),
+        steps = XpRatePolicy.MAX_TENTHS - XpRatePolicy.MIN_TENTHS - 1,
+        tag = tag,
+    ) { raw ->
+        onCommit(XpRatePolicy.normalize(raw.toDouble()))
+    }
+}
+
 internal val advancedSettingExplanations: Map<String, String> = mapOf(
+    "Kill XP rate" to "Multiplies experience from slain creatures; 1x is the vanilla curve.",
+    "Quest XP rate" to "Multiplies experience from completed quests; 1x is the vanilla curve.",
+    "Explore XP rate" to "Multiplies experience from discovering new areas; 1x is the vanilla curve.",
+    "Pet kill XP rate" to "Multiplies experience the hunter pet earns from kills; 1x is the vanilla curve.",
     "Repeated-press guard" to "Raise this on slower or high-latency realms if one physical press is reported more than once.",
     "Poll interval" to "Sets how often auto-login checks whether the login screen is ready.",
     "Stable polls" to "Requires this many unchanged readiness checks before auto-login sends input.",

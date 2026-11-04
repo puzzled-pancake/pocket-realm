@@ -238,6 +238,7 @@ class SettingsUpdateWriteSetTest {
                 "client_tweaks", "client_tweaks_schema",
                 "game_settings_queue", "game_settings_queue_schema",
                 "audio_mode", "nearby_interact_trigger_guard_ms",
+                "xp_rate_kill", "xp_rate_quest", "xp_rate_explore", "xp_rate_pet_kill",
                 "world_debug_logs",
                 "runtime_mode", "allow_lan_players", "friend_access_enabled",
                 "tunnel_advertised_address",
