@@ -1,0 +1,28 @@
+diff --git a/src/dynarec/arm64/arm64_emitter.h b/src/dynarec/arm64/arm64_emitter.h
+index cc99f9e..3f2a178 100644
+--- a/src/dynarec/arm64/arm64_emitter.h
++++ b/src/dynarec/arm64/arm64_emitter.h
+@@ -740,7 +740,10 @@ int convert_bitmask(uint64_t bitmask);
+ #define MSR_nzcv(Rt)                   FEMIT(MRS_gen(0, 1, 3, 4, 2, 0, Rt))
+ // mrs    x0, fpcr : 1101010100 1 1 1 011 0100 0100 000 00000    o0=1(op0=3), op1=0b011(3) CRn=0b0100(4) CRm=0b0100(4) op2=0
+ #define MRS_fpcr(Rt)                    EMIT(MRS_gen(1, 1, 3, 4, 4, 0, Rt))
+-#define MSR_fpcr(Rt)                    EMIT(MRS_gen(0, 1, 3, 4, 4, 0, Rt))
++// Never let a generated FPCR write enable floating-point traps: clear IOE/DZE/OFE/UFE/IXE
++// (bits 8-12) and IDE (bit 15) first. Most cores implement these as RAZ/WI, but cores that
++// support trapped FP exceptions (e.g. Qualcomm Oryon) would otherwise SIGFPE in native code.
++#define MSR_fpcr(Rt)                    do { BFCx(Rt, 8, 5); BFCx(Rt, 15, 1); EMIT(MRS_gen(0, 1, 3, 4, 4, 0, Rt)); } while(0)
+ // mrs    x0, fpsr : 1101010100 1 1 1 011 0100 0100 001 00000    o0=1(op0=3), op1=0b011(3) CRn=0b0100(4) CRm=0b0100(4) op2=1
+ #define MRS_fpsr(Rt)                    EMIT(MRS_gen(1, 1, 3, 4, 4, 1, Rt))
+ #define MSR_fpsr(Rt)                    EMIT(MRS_gen(0, 1, 3, 4, 4, 1, Rt))
+diff --git a/src/emu/x64emu.c b/src/emu/x64emu.c
+index dd9c6c9..49ca307 100644
+--- a/src/emu/x64emu.c
++++ b/src/emu/x64emu.c
+@@ -616,6 +616,7 @@ void applyFlushTo0(x64emu_t* emu)
+     fpcr &= ~((1<<24) | (1<<1));    // clear bit FZ (24) and AH (1)
+     fpcr |= (emu->mxcsr.f.MXCSR_FZ)<<24;  // set FZ as mxcsr FZ
+     fpcr |= ((emu->mxcsr.f.MXCSR_DAZ)^(emu->mxcsr.f.MXCSR_FZ))<<1; // set AH if DAZ different from FZ
++    fpcr &= ~((0x1fULL<<8) | (1ULL<<15));   // never enable FP traps (IOE..IXE, IDE): see MSR_fpcr
+     #if defined(__ANDROID__) || defined(__clang__)
+     __asm__ __volatile__ ("msr    fpcr, %0"::"r"(fpcr));
+     #else

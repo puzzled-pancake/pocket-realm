@@ -465,6 +465,9 @@ fun HomeScreen(
             )
         }
         if (landscape) {
+            // Scrolls like portrait: on short landscape displays (a 20:9
+            // phone is ~360dp tall) the cards would otherwise be clipped and
+            // squeezed, hiding the account card's Create button.
             Column(
                 modifier = Modifier
                     .fillMaxSize()

@@ -137,6 +137,20 @@ class ClientRuntimeProviderTest {
             "1.10.3",
             VulkanDriverCatalog.requireForRequest(VulkanDriverCatalog.TURNIP_26_1),
         ))
+        // Mesa 26.x on Adreno 8xx: the device name drops the "Turnip" prefix;
+        // only DXVK's driver line names Turnip.
+        val adreno840Log = "info:  Game: WoW.exe\ninfo:  DXVK: v2.4.1\n" +
+            "info:  Adreno (TM) 840:\ninfo:    Driver : turnip Mesa driver 26.0.99\n"
+        assertTrue(ClientRuntimeContract.isArmDxvkLogAttested(
+            adreno840Log,
+            "2.4.1",
+            VulkanDriverCatalog.requireForRequest(VulkanDriverCatalog.TURNIP_26_1),
+        ))
+        assertFalse(ClientRuntimeContract.isArmDxvkLogAttested(
+            adreno840Log,
+            "2.4.1",
+            VulkanDriverCatalog.requireForRequest(VulkanDriverCatalog.SYSTEM_DEFAULT),
+        ))
         assertEquals(
             "WoW_d3d9.log",
             ClientRuntimeContract.armDxvkLogFileName("WoW.exe"),
