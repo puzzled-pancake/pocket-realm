@@ -14,7 +14,7 @@
     "provider lane."
   ],
   "name": "pocketrealm-win-deps",
-  "version-string": "0.112.0",
+  "version-string": "0.112.1",
   "builtin-baseline": "784e1b71001e5dc405af24e860a5c4bc193ea6cf",
   "dependencies": [
     "openssl",

@@ -1510,8 +1510,8 @@ android {
         // other on-device emulators ship.
         targetSdk = (project.findProperty("pocketTargetSdk") as String?)?.toInt() ?: 27
         // Bump-on-release discipline (update manifests compare codes).
-        versionCode = 11
-        versionName = "0.112.0"
+        versionCode = 12
+        versionName = "0.112.1"
         // Two-APK distribution: the default build is the stable
         // MariaDB-provider APK; -PsqliteProvider builds the experimental
         // SQLite-provider APK with a visible versionName suffix so the two

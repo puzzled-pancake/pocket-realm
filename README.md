@@ -73,7 +73,7 @@ Prebuilt APKs are published on the project's
 [Releases](https://github.com/puzzled-pancake/pocket-realm/releases) page.
 Download the newest APK and install it on your device. Release packages carry
 a `THIRD_PARTY_NOTICES.md` with the complete third-party license attribution.
-See the [0.112.0 release notes](docs/RELEASE-NOTES-0.112.0.md) for the
+See the [0.112.1 release notes](docs/RELEASE-NOTES-0.112.1.md) for the
 changes and upgrade instructions. Build instructions are below.
 
 ## First boot
