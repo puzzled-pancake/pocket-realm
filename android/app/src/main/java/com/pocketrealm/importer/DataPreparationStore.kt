@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit
 import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.ClientFlavor
 import com.pocketrealm.client.ClientFlavors
+import com.pocketrealm.client.ManagedClientStore
 import com.pocketrealm.server.PreparedDataStore
 import kotlin.coroutines.coroutineContext
 
@@ -41,7 +42,7 @@ class DataPreparationStore(
     ): PublishedData = withContext(Dispatchers.IO) {
         recover(importId, onTick)?.let { return@withContext it }
         val stageRoot = generation(".staging-$importId").apply { mkdirs() }
-        check(clientRoot.isDirectory && File(clientRoot, "WoW.exe").isFile)
+        ManagedClientStore.requireExecutable(clientRoot)
         requireTools()
 
         finiteStage(importId, DataStage.DBC_MAPS, stageRoot, onTick) {

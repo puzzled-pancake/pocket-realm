@@ -1156,25 +1156,27 @@ private fun realmStatus(state: RealmState): Pair<String, String> = when (state) 
             "not known to be offline — try Start to reconnect the supervisor."
 }
 
-private fun gamePreparationFailureMessage(detail: String?): String {
-    // First-boot guidance: on the RP6 the WoW client can die on its first
-    // world entry while the freshly started world is still settling;
-    // waiting a minute or two at the login screen before the next entry
-    // avoids that window.
-    val firstBootHint = " If this realm was started for the first time, the world may" +
-        " still be preparing — wait a minute or two at the login screen before retrying."
-    return when {
-        detail == null -> "The game client stopped during preparation. The realm stayed" +
-            " online; tap Retry game.$firstBootHint"
-        detail.contains("rootfs", ignoreCase = true) ||
-            detail.contains("Wine prefix", ignoreCase = true) ->
-            "The game runtime could not be prepared. Your realm and imported client" +
-                " are safe; tap Retry game.$firstBootHint"
-        detail.contains("account", ignoreCase = true) ->
-            "The saved game account could not be verified. Check the Local account card, then retry."
-        else -> "The game client stopped during preparation. The realm stayed online;" +
-            " tap Retry game.$firstBootHint"
+internal fun gamePreparationFailureMessage(detail: String?): String {
+    val reason = detail.orEmpty()
+    val explanation = when {
+        "ENOSPC" in reason || reason.contains("No space left on device", ignoreCase = true) ->
+            "The game ran out of storage during setup. Free some internal storage and retry."
+        "TimeoutCancellationException" in reason ->
+            "Game setup took too long. Tap Retry game to try again."
+        "client window did not become ready" in reason || "client failed to reach READY" in reason ->
+            "The game launched but its window did not become ready. Tap Retry game."
+        "DISPLAY_SURFACE_NOT_READY" in reason || "mapped ARM window lacks pinned DXVK proof" in reason ->
+            "The game display could not start. Check Settings → Graphics, then retry."
+        "Auto-login could not verify" in reason || "auto-login identity is incomplete" in reason ->
+            "The saved account could not be verified for auto-login. Check the Local account card, then retry."
+        reason.contains("rootfs", ignoreCase = true) || reason.contains("Wine prefix", ignoreCase = true) ->
+            "The game runtime could not finish setup. Tap Retry game."
+        else -> "The game could not open. Tap Retry game."
     }
+    // Use fixed messages on Home. The journal can contain private paths and
+    // runtime output, which should go through the support bundle's redactor.
+    return "$explanation The realm stayed online. If this keeps happening, create a support bundle " +
+        "under Settings → App & support → Diagnostics and logs."
 }
 
 private fun contextualWorkingLabel(state: RealmState): String = when (state) {

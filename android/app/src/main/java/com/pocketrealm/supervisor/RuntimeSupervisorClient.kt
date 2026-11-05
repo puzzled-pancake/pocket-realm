@@ -289,7 +289,7 @@ class RuntimeSupervisorClient(context: Context) {
                             RuntimePhase.CLIENT_FAILED -> ClientLaunchState.FAILED
                             else -> ClientLaunchState.READY
                         },
-                        clientFailure = lastError.takeIf { phase == RuntimePhase.CLIENT_FAILED },
+                        clientFailure = rawError.takeIf { phase == RuntimePhase.CLIENT_FAILED },
                     )
                     else RealmState.Failed("Previous runtime was interrupted. Tap Start to recover safely.")
                 }

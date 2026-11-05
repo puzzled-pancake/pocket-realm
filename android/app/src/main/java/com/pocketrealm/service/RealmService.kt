@@ -166,7 +166,11 @@ class RealmService : Service() {
         // usr5 launch identities validate identically to the UI process.
         com.pocketrealm.bots.BotCustomPresets.install(java.io.File(filesDir, "bots"))
         backend = AndroidRuntimeBackend(applicationContext)
-        supervisor = DurableRuntimeSupervisor(backend, AtomicSupervisorJournal(applicationContext))
+        supervisor = DurableRuntimeSupervisor(
+            backend,
+            AtomicSupervisorJournal(applicationContext),
+            timeouts = AndroidRuntimeBackend.START_TIMEOUTS,
+        )
         // Remote friend accounts (design-remote-accounts 6/11): the shared
         // hub owns the invite store, the rate limiter, and the provisioning
         // listener; the collector below keeps the listener a property of a

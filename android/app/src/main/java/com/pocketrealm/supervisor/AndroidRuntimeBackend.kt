@@ -7,6 +7,7 @@ import android.content.ServiceConnection
 import android.os.Build
 import android.os.Binder
 import android.os.IBinder
+import android.os.SystemClock
 import com.pocketrealm.bots.BotProfiles
 import com.pocketrealm.client.ActiveFlavor
 import com.pocketrealm.client.ActiveFlavorState
@@ -1000,7 +1001,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             json(display.api().attachSession(owner.instanceToken, launchedSessionId))
             // Bounded: without a deadline a client wedged mid-start
             // would poll forever while holding the launch path.
-            val clientStartDeadline = System.currentTimeMillis() + CLIENT_START_TIMEOUT_MS
+            val clientWindowDeadline = SystemClock.elapsedRealtime() + CLIENT_WINDOW_TIMEOUT_MS
             while (true) {
                 if (renderer == "opengl" || renderer == "virgl") {
                     val graphics = json(display.api().status())
@@ -1016,8 +1017,8 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                     return observed
                 }
                 if (observed.state == ComponentLifecycle.FAILED) return observed
-                if (System.currentTimeMillis() >= clientStartDeadline) {
-                    error("client failed to reach READY within ${CLIENT_START_TIMEOUT_MS / MINUTES_MS}m")
+                if (SystemClock.elapsedRealtime() >= clientWindowDeadline) {
+                    error("client window did not become ready")
                 }
                 delay(100)
             }
@@ -1261,7 +1262,11 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         // (RuntimeContracts.botWorldStartMs); the ceilings bound wedges,
         // not race legitimate starts.
         private const val WAIT_READY_TIMEOUT_MS = 10 * MINUTES_MS
-        private const val CLIENT_START_TIMEOUT_MS = 10 * MINUTES_MS
+        // Cold launches can extract the bundled rootfs and initialize a Wine prefix
+        // before the game process exists. Keep that work inside the supervisor budget
+        // while bounding the separate wait for a window after launching the process.
+        internal val START_TIMEOUTS = RuntimeTimeouts(clientStartMs = 10 * MINUTES_MS)
+        private const val CLIENT_WINDOW_TIMEOUT_MS = 90_000L
 
 
         /**

@@ -2,18 +2,31 @@ package com.pocketrealm.client
 
 import android.content.Context
 import com.pocketrealm.importer.GenerationPointers
+import com.pocketrealm.storage.StorageRoots
 import com.pocketrealm.supervisor.RealmEndpoint
 import org.json.JSONObject
 import java.io.File
 import java.nio.file.Files
 
 /** Fail-closed reader for the app-private client generation. */
-internal class ManagedClientStore(context: Context) {
+internal class ManagedClientStore(private val clientRoot: File) {
 
-    private companion object {
-        const val MPQ_WALK_MAX_DEPTH = 4
-        const val BACKSLASH = '\\'
-        const val FORWARD_SLASH = '/'
+    constructor(context: Context) : this(StorageRoots.get(context).client)
+
+    companion object {
+        private const val MPQ_WALK_MAX_DEPTH = 4
+        private const val BACKSLASH = '\\'
+        private const val FORWARD_SLASH = '/'
+
+        /** Imports preserve the spelling of the Windows executable on disk. */
+        fun requireExecutable(root: File): File {
+            val executable = root.listFiles().orEmpty()
+                .singleOrNull { it.name.equals("WoW.exe", ignoreCase = true) }
+            check(executable != null && executable.isFile && !Files.isSymbolicLink(executable.toPath())) {
+                "managed WoW.exe is absent or unsafe"
+            }
+            return executable
+        }
     }
     data class ManagedClient(
         val id: String,
@@ -32,8 +45,6 @@ internal class ManagedClientStore(context: Context) {
     ) : AutoCloseable {
         override fun close() = lease.close()
     }
-
-    private val clientRoot = com.pocketrealm.storage.StorageRoots.get(context).client
 
     fun load(clientId: String): ManagedClient =
         acquireRuntime(clientId).use { it.client }
@@ -104,11 +115,8 @@ internal class ManagedClientStore(context: Context) {
         check(identity.getInt("build") == flavor.build && identity.getString("version") == flavor.versionResource) {
             "managed client is not WoW ${flavor.versionResource.substringBeforeLast('.')} build ${flavor.build}"
         }
-        val relativeExe = manifest.getString("executable")
-        check(relativeExe == "WoW.exe") { "direct WoW.exe launch is required" }
-        val executable = File(root, relativeExe).canonicalFile
-        check(executable.parentFile == root && executable.isFile &&
-            !Files.isSymbolicLink(executable.toPath())) { "managed WoW.exe is absent or unsafe" }
+        check(manifest.getString("executable") == "WoW.exe") { "direct WoW.exe launch is required" }
+        val executable = requireExecutable(root)
         val expectedExecutableSize = identity.getLong("size")
         val expectedExecutableSha = identity.getString("sha256").lowercase()
         check(executable.length() == expectedExecutableSize) { "managed WoW.exe size mismatch" }

@@ -2,6 +2,7 @@ package com.pocketrealm.supervisor
 
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.realm.ClientLaunchState
+import com.pocketrealm.ui.gamePreparationFailureMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -79,6 +80,35 @@ class RuntimeSupervisorClientTest {
             (decoded as RealmState.Running).clientFailure,
         )
         assertEquals(ClientLaunchState.FAILED, decoded.clientState)
+    }
+
+    @Test fun slowAndroidClientSetupHasItsOwnStartupBudget() {
+        val androidTimeouts = AndroidRuntimeBackend.START_TIMEOUTS
+        assertEquals(600_000L, androidTimeouts.start(RuntimeComponent.CLIENT))
+        assertEquals(RuntimeTimeouts().start(RuntimeComponent.WORLD), androidTimeouts.start(RuntimeComponent.WORLD))
+    }
+
+    @Test fun clientTimeoutOffersRetryAndDiagnosticsWithoutAssumingLoginWasReached() {
+        val decoded = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.CLIENT_FAILED,
+            clean = false,
+            lastError = "CLIENT: TimeoutCancellationException: Timed out waiting for 90000 ms",
+        ), generationActive = true)) as RealmState.Running
+
+        val copy = gamePreparationFailureMessage(decoded.clientFailure)
+        assertTrue(copy.contains("Game setup took too long"))
+        assertTrue(copy.contains("Retry game"))
+        assertTrue(copy.contains("Diagnostics and logs"))
+        assertFalse(copy.contains("TimeoutCancellationException"))
+        assertFalse(copy.contains("login screen"))
+    }
+
+    @Test fun unknownClientFailureKeepsRawDetailsOutOfHomeCopy() {
+        val detail = "unrecognized internal launch error"
+        val copy = gamePreparationFailureMessage(detail)
+        assertTrue(copy.contains("The realm stayed online"))
+        assertTrue(copy.contains("support bundle"))
+        assertFalse(copy.contains(detail))
     }
 
     @Test fun worldReadyMeansAccountCanBeCreatedBeforeStartingClient() {
